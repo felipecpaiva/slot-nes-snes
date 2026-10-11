@@ -21,17 +21,48 @@ stamp() {
 	done
 }
 
+show_hunks() {
+	printf '%s\n' "$3" | sed -n 's/^error: patch failed: \(.*\):\([0-9][0-9]*\)$/\1 \2/p' |
+		while read -r file line; do
+			echo "rejected hunk in $file at line $line:" >&2
+			awk -v f="$file" -v l="$line" '
+				/^diff --git /{ infile = ($3 == "a/" f); show = 0 }
+				infile && /^@@ /{ show = (index($0, "@@ -" l ",") == 1 || index($0, "@@ -" l " ") == 1) }
+				infile && show { print }' "$1" >&2
+		done
+}
+
+fail() {
+	echo "slot-nes-snes: $(basename "$1") does not apply to $dir" >&2
+	exit 1
+}
+
 build() {
 	dir="$1"
 
 	rm -f "$dir.meta"
-	[ -d "$dir/.git" ] || git init -q "$dir"
+	if [ -e "$dir/.git" ]; then
+		echo "slot-nes-snes: $dir is not a fresh extraction, run task build" >&2
+		exit 1
+	fi
+	git init -q "$dir"
 	for p in "$root"/patches/*.patch; do
 		[ -f "$p" ] || continue
-		if ! git -C "$dir" apply --verbose "$p"; then
-			echo "slot-nes-snes: $(basename "$p") does not apply to $dir" >&2
-			exit 1
+		want="$(grep -c '^diff --git ' "$p" || true)"
+		got="$(git -C "$dir" apply --numstat "$p" 2>/dev/null | wc -l | tr -d ' ')"
+		if [ "$want" != "$got" ]; then
+			echo "slot-nes-snes: $(basename "$p") lists $want files but git apply sees $got" >&2
+			fail "$p"
 		fi
+		bad=0
+		out="$(git -C "$dir" apply --verbose "$p" 2>&1)" || bad=1
+		case $out in *error:*) bad=1 ;; esac
+		if [ "$bad" = 1 ]; then
+			printf '%s\n' "$out" >&2
+			show_hunks "$p" "$dir" "$out"
+			fail "$p"
+		fi
+		printf '%s\n' "$out"
 	done
 	stamp >"$dir.meta"
 }

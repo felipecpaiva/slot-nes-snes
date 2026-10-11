@@ -19,7 +19,20 @@ git -C "$work" log --format=%H%x20%s "$base..$branch" | while read -r sha subjec
 	fi
 done
 
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git -C "$work" format-patch -q --binary --no-signature --zero-commit -o "$tmp" "$base..$branch"
+
+set -- "$tmp"/*.patch
+if [ ! -f "$1" ]; then
+	set -- "$root"/patches/*.patch
+	if [ -f "$1" ]; then
+		echo "slot-nes-snes: $branch has no commits past the base but patches/ has patches, run task work:resume instead of exporting" >&2
+		exit 1
+	fi
+	exit 0
+fi
+
 rm -f "$root"/patches/*.patch
-git -C "$work" format-patch -q --binary --no-signature --zero-commit \
-	-o "$root/patches" "$base..$branch"
+mv "$@" "$root/patches/"
 ls "$root/patches"

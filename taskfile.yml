@@ -10,26 +10,20 @@ tasks:
   work:init:
     desc: Extract the pinned slot release into work/slot as one commit, on branch nes-snes. Never touches an existing work/slot
     status:
-      - test -d work/slot/.git
+      - git -C work/slot rev-parse -q --verify HEAD
     cmds:
-      - sh scripts/fetch-slot.sh fetch work/slot
-      - |
-        set -eu
-        . ./SLOT_PIN
-        short="$(printf %s "$commit" | cut -c1-7)"
-        git -C work/slot init -q -b nes-snes
-        git -C work/slot add -A -f -- . ':!vendor'
-        GIT_AUTHOR_NAME=slot-nes-snes GIT_COMMITTER_NAME=slot-nes-snes \
-          GIT_AUTHOR_EMAIL=slot-nes-snes@users.noreply.github.com \
-          GIT_COMMITTER_EMAIL=slot-nes-snes@users.noreply.github.com \
-          GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" \
-          git -C work/slot -c commit.gpgsign=false commit -q -m "slot $tag ($short)"
-        git -C work/slot log --oneline -1 nes-snes
+      - sh scripts/init-work.sh
+
+  work:resume:
+    desc: Replay patches/ as commits on a fresh work/slot so work can continue on a new machine
+    cmds:
+      - sh scripts/resume-work.sh
 
   upstream:build:
     desc: Extract the pinned slot release into build/slot-upstream with no patches
     status:
       - test -L build/slot-upstream/vendor
+      - test -e build/slot-upstream/vendor
       - test "$(cat build/slot-upstream.meta 2>/dev/null)" = "$(sh scripts/fetch-slot.sh stamp)"
     cmds:
       - sh scripts/fetch-slot.sh fetch build/slot-upstream
@@ -39,6 +33,7 @@ tasks:
     desc: Extract the pinned slot release into build/slot and apply patches/ in name order
     status:
       - test -L build/slot/vendor
+      - test -e build/slot/vendor
       - test "$(cat build/slot.meta 2>/dev/null)" = "$(sh scripts/apply-patches.sh stamp)"
     cmds:
       - sh scripts/fetch-slot.sh fetch build/slot
