@@ -33,10 +33,12 @@ thing to slot: a pinned slot release, plus the patches in `patches/`, built into
 
 ## Status
 
-Research and planning. No patches yet.
+Planned. No patches yet. Work starts with Phase 1 of [docs/PLAN.md](docs/PLAN.md).
 
 - [docs/RESEARCH.md](docs/RESEARCH.md): code map of slot v1.6.0, core choices for the H700, licence notes
 - [docs/EVAL.md](docs/EVAL.md): the options considered (upstream PR, shim core, patch set) and why
+- [docs/PLAN.md](docs/PLAN.md): the phased build plan, with tests per phase
+- [docs/DECISIONS.md](docs/DECISIONS.md): binding decisions and why
 - [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md): what "done" means, and the known gaps
 
 ## Licences
