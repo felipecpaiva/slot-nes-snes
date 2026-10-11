@@ -37,7 +37,7 @@ keys() {
 	{
 		grep -E '^[^ ]+\.rs:[0-9]+:[0-9]+: (warning|error)' "$tmp/$1.log" | sed "s|^$2/||" | sort -u |
 			sed -E 's/^([^:]+):[0-9]+:[0-9]+: /\1: /' || true
-		grep -E '^(warning|error)(\[[^]]*\])?: ' "$tmp/$1.log" | grep -vE 'generated [0-9]+ warning' | sort -u || true
+		grep -E '^(warning|error)(\[[^]]*\])?: ' "$tmp/$1.log" | grep -vE 'generated [0-9]+ warning' | sed "s|$2/||g" | sort -u || true
 	} | sort
 }
 
@@ -49,7 +49,7 @@ keys ours "$ours" >"$tmp/ours.keys"
 echo "lint: upstream has $(wc -l <"$tmp/up.keys" | tr -d ' ') distinct warnings, build/slot has $(wc -l <"$tmp/ours.keys" | tr -d ' ')"
 
 awk '
-	NR == FNR { u[$0]++; next }
+	FILENAME == ARGV[1] { u[$0]++; next }
 	{ o[$0]++ }
 	END { for (k in o) if (o[k] > u[k]) printf "  %s (build/slot %d, upstream %d)\n", k, o[k], u[k] }
 ' "$tmp/up.keys" "$tmp/ours.keys" | sort >"$tmp/new"

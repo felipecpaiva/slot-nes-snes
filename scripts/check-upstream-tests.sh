@@ -64,6 +64,23 @@ list_blocks() {
 	' "$1" | sort
 }
 
+# Writes the attribute text of every cfg line that mentions test but is not an exact #[cfg(test)]
+# (those start blocks, compared above), whitespace-squashed, sorted. Production items that compile
+# under test, like #[cfg(any(feature = "device", test))] fn, have no block to compare, so their
+# attribute lines are compared as a multiset instead: a new or removed one fails, a body edit does not.
+list_attrs() {
+	awk '
+		function squash(s) { gsub(/[ \t]+/, "", s); return s }
+		/^[ \t]*#\[[ \t]*cfg[ \t]*\(/ {
+			pred = $0; sub(/^[ \t]*#\[[ \t]*cfg[ \t]*\(/, "", pred)
+			if (pred !~ /(^|[^A-Za-z0-9_])test([^A-Za-z0-9_]|$)/) next
+			rest = $0; sub(/^[ \t]*#\[[^]]*\][ \t]*/, "", rest)
+			attr = squash(substr($0, 1, length($0) - length(rest)))
+			if (attr != "#[cfg(test)]") print attr
+		}
+	' "$1" | sort
+}
+
 shown() { tr '\034' ' ' | cut -c1-90; }
 normal() { tr '\034\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 
@@ -85,6 +102,16 @@ for f in $(cd "$up" && find crates -path 'crates/*/src/*' -name '*.rs' | sort); 
 	list_blocks "$ours/$f" >"$tmp/o"
 	comm -23 "$tmp/u" "$tmp/o" >"$tmp/missing"
 	comm -13 "$tmp/u" "$tmp/o" >"$tmp/extra"
+	list_attrs "$up/$f" >"$tmp/ua"
+	list_attrs "$ours/$f" >"$tmp/oa"
+	comm -23 "$tmp/ua" "$tmp/oa" >"$tmp/amissing"
+	comm -13 "$tmp/ua" "$tmp/oa" >"$tmp/aextra"
+	while IFS= read -r a; do
+		fail "$f, cfg(test) attribute '$a' removed"
+	done <"$tmp/amissing"
+	while IFS= read -r a; do
+		fail "$f, cfg(test) attribute '$a' added"
+	done <"$tmp/aextra"
 	while IFS= read -r b; do
 		fail "$f, block '$(printf "%s\n" "$b" | shown)' changed or removed"
 	done <"$tmp/missing"

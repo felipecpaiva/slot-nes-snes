@@ -11,6 +11,17 @@ usage() {
 log="$(mktemp)"
 trap 'rm -f "$log" "$log.skips"' EXIT
 
+# check promises real-core tests: with SLOT_REQUIRE_CORES=1 both host dylibs must exist inside the
+# tree under test (build/slot/vendor is a symlink to the shared vendor/, -f follows it).
+if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
+	for core in mgba gpsp; do
+		[ -f "$1/vendor/${core}_libretro.dylib" ] || {
+			echo "slot-nes-snes: $1/vendor/${core}_libretro.dylib is missing, run task core:host" >&2
+			exit 1
+		}
+	done
+fi
+
 rc=0
 (cd "$1" && cargo test --workspace -- --nocapture) >"$log" 2>&1 || rc=$?
 
@@ -22,23 +33,25 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 echo "skip report (tests that printed a skip message, with the reason):"
-# A skip that names a missing core fails the run: the host cores are built before the tests, so
-# a skipped core test means the suite did not test what check promises. A message that also names
-# a cart, ROM, card or BIOS ("no vendored core or no Game Boy cart") cannot tell which is missing,
-# so it is listed as an asset skip; check asserts both dylibs exist before the tests run.
+# A skip message that mentions a dylib, libretro or core fails the run as CORE MISSING: the host
+# cores are built before the tests, so such a skip means the suite did not test what check
+# promises. The exception is a message that also names a cart, ROM, card or BIOS ("no vendored
+# core or no Game Boy cart"), which cannot tell which is missing; it is listed as a ROM skip.
+# Non-ROM skips are labelled [tool] (zbarimg) or [asset] (bootlogo) so they do not mix in.
 awk '
 	/^     Running / { bin = $0; sub(/^ *Running /, "", bin); sub(/ \(.*$/, "", bin); next }
 	/^   Doc-tests / { bin = "doc-tests " $2; next }
-	/^test .* \.\.\. (ok|FAILED|ignored)$/ { next }
-	{ line = $0; sub(/^test .* \.\.\. /, "", line); sub(/^slot: [a-z]*: /, "", line) }
-	line ~ /skipp?(ed|ing)/ { n[bin ": " line]++ }
-	END {
-		for (k in n) {
-			l = tolower(k)
-			bad = l ~ /core/ && l ~ /not found|missing|vendored/ && l !~ /cart|rom|card|bios/
-			printf "  %s%s (x%d)\n", bad ? "CORE MISSING " : "", k, n[k]
-		}
+	{ line = $0; gsub(/test [^ ]+ \.\.\. (ok|FAILED|ignored)/, "", line); sub(/^test .* \.\.\. /, "", line); sub(/^slot: [a-z]*: /, "", line) }
+	line ~ /skipp?(ed|ing)/ {
+		l = tolower(line)
+		rom = l ~ /(^|[^a-z])(carts?|roms?|cards?|bios)([^a-z]|$)/
+		tag = ""
+		if (!rom && l ~ /dylib|libretro|core/) tag = "CORE MISSING "
+		else if (l ~ /zbarimg/) tag = "[tool] "
+		else if (l ~ /bootlogo/) tag = "[asset] "
+		n[tag bin ": " line]++
 	}
+	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
