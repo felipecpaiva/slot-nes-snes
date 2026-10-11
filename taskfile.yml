@@ -1,5 +1,9 @@
 version: '3'
 
+vars:
+  FCEUMM_COMMIT:
+    sh: . ./SLOT_PIN && echo "$fceumm_commit"
+
 tasks:
   default:
     desc: List available tasks
@@ -60,12 +64,40 @@ tasks:
         git -C build/slot-check diff --cached --stat --exit-code FETCH_HEAD
         echo "patches/ rebuilds work/slot HEAD exactly"
 
+  core:fceumm:src:
+    desc: Fetch the pinned fceumm source tarball into vendor/ and verify its sha256, it ships as GPL-2.0 corresponding source
+    status:
+      - test -f vendor/fceumm-src.tar.gz
+      - test "$(cat vendor/fceumm-src.sha 2>/dev/null)" = "{{.FCEUMM_COMMIT}}"
+    cmds:
+      - rm -f vendor/fceumm-src.tar.gz vendor/fceumm-src.sha
+      - sh cores/fceumm/build.sh fetch {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz
+      - echo "{{.FCEUMM_COMMIT}}" > vendor/fceumm-src.sha
+
   core:host:
-    desc: Build mGBA and fetch gpSP into the shared vendor/ with slot's own core tasks, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    desc: Build mGBA, fetch gpSP and build fceumm from its pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
       - sh scripts/core-host.sh
+      - |
+        test "$(cat vendor/fceumm_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/fceumm/build.sh stamp {{.FCEUMM_COMMIT}} host)" ||
+          sh cores/fceumm/build.sh build {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz build/fceumm-host vendor/fceumm_libretro.dylib
+
+  core:device:
+    desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
+    deps: [core:fceumm:src]
+    status:
+      - test -f vendor/fceumm_libretro.so
+      - test "$(cat vendor/fceumm_libretro.so.meta 2>/dev/null)" = "$(sh cores/fceumm/build.sh stamp {{.FCEUMM_COMMIT}} device)"
+    cmds:
+      - >-
+        sh scripts/device-sh.sh
+        'sh cores/fceumm/build.sh build {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz
+        build/fceumm-device vendor/fceumm_libretro.so'
+      - file vendor/fceumm_libretro.so | grep -q 'ELF 64-bit.*aarch64'
+      - 'echo "built vendor/fceumm_libretro.so from vendor/fceumm-src.tar.gz @ {{.FCEUMM_COMMIT}}"'
 
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
@@ -82,6 +114,7 @@ tasks:
       - task: core:host
       - test -f vendor/mgba_libretro.dylib
       - test -f vendor/gpsp_libretro.dylib
+      - test -f vendor/fceumm_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
