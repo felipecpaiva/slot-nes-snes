@@ -4,7 +4,7 @@
 # generated 640x480 bezel and a copy of the root that selects gpSP for the GBA cart; control runs each
 # tree twice and demands identical hashes; compare runs each tree twice again and demands all four runs
 # identical, and refuses until control passed for these inputs; inject proves the harness can fail: a
-# cold cache of ninety-nine large generated labels hashed from frame 1 must report at least 20 diffs.
+# cold cache of 403 large generated labels hashed from frame 1 must report at least 20 diffs.
 # Legs: H1 (GBA on mGBA), H1G (the same script on gpSP, with colour correction), H2 (GB and GBC) and
 # B1 (4:3 window with a bezel, composite only). Each composite leg also hashes the output pass (blue
 # light gain and bezel), the polaroid view and the written state thumbnails.
@@ -26,7 +26,7 @@ modes="core composite"
 tries=3
 [ -z "${CI:-}" ] || tries=6
 label_px=6000
-extra_labels=99
+extra_labels=400
 min_diffs=20
 retries_up=0
 retries_ours=0
@@ -96,7 +96,7 @@ run_dump() {
 		fi
 		if [ "$rc" = 0 ]; then
 			cat "$tmp/out" >>"$out"
-			notes="$(grep -E 'rebuild took|cold boot hashed|label cache is cold|stale labels at' "$tmp/err" || true)"
+			notes="$(grep -E 'rebuild took|cold boot hashed|label cache is cold|stale labels at' "$tmp/err" | sed 's/^frame_dump: //' || true)"
 			rm -rf "$tmp"
 			return
 		fi
@@ -151,7 +151,7 @@ differ() {
 			else if (a[k] != $4) print "differs: " k
 		}
 		END { for (k in a) if (!(k in seen)) print "only in the first run: " k }
-	' "$1" "$2" | sort
+	' "$1" "$2" | sort -u
 }
 
 stamp() {
@@ -215,7 +215,8 @@ compare() {
 # keeps the screen busy for many frames and moves its progress count at different frames in each run,
 # so the two runs must differ in at least min_diffs frames: one frame of drift is scheduler noise, 20
 # is a third of a second of picture, far more than a handful of labels finishing a frame apart, and
-# well under the length of the rebuild. Fewer means the harness cannot see the very race its wait
+# well under the length of the rebuild (extra_labels is sized so the lowest of five runs was over 200).
+# Fewer means the harness cannot see the very race its wait
 # exists for. The same root with the wait, running the same cold script, must then give 0 diffs.
 inject() {
 	warm >/dev/null
@@ -233,6 +234,7 @@ inject() {
 	done
 	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GB/gb240p.png"
 	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBC/cgb-acid2.png"
+	echo "inject: $((extra_labels + 3)) labels of ${label_px}x${label_px} generated, the stale count below is a few lower because the rebuild has begun by the first frame"
 	retries_up=0
 	retries_ours=0
 	o="$work/out/inject"

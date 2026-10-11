@@ -766,6 +766,7 @@ impl<R: Rig> Run<R> {
                 self.enter();
                 self.in_game(Shader::GBA.len(), false, 600);
                 self.leave();
+                self.output();
                 self.colour_visit();
             }
             "H2" => {
@@ -784,11 +785,13 @@ impl<R: Rig> Run<R> {
                 self.enter();
                 self.in_game(Shader::GB.len(), true, 300);
                 self.leave();
+                self.output();
             }
             "B1" => {
                 self.output();
                 self.enter();
                 self.adjustments();
+                self.output();
                 self.leave();
             }
             other => die(&format!("no script for leg {other}")),
