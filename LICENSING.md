@@ -27,7 +27,7 @@ What is in the work:
   `find src \( -name '*.c' -o -name '*.h' \) -type f -exec grep -l 'any later version' {} + | wc -l`.
   Spot-checked by hand: `src/fceu.c`, `src/ppu.c`, `src/x6502.c`, `src/cart.c`,
   `src/sound.c`, `src/ines.c`, `src/boards/mmc1.c`, `src/boards/mmc3.c`. No file says
-  version 2 only.
+  version 2 only. `src/md5.c` says "licensed under the GPL" with no version.
 - **Mesen-derived files, GPL-3.0-or-later.** `src/hdpack/hdpack_audio.c`, `hdpack_image.c`,
   `hdpack_load.c`, `hdpack_patch.c`, `hdpack_ppu.c`, `hdpack_render.c` and `hdpack_data.h` have
   no licence header. `hdpack_load.c` says it is a "Faithful port of Mesen's HdPackLoader", and
@@ -46,8 +46,8 @@ What is in the work:
   them as covered by the project licence and distribute the whole under GPL-3.0-or-later with
   source. It is a judgement, not a quote.
 - Files with their own terms, each read in the file: `src/ntsc/*` (LGPL 2.1 or later, see
-  `nes_ntsc.c` and `src/ntsc/license.txt`), `src/boards/pic16c5x.c` and `.h` (SPDX
-  `BSD-3-Clause`, Tony La Porta), and `src/drivers/libretro/libretro-common/*` (the RetroArch
+  `nes_ntsc.c` and `src/ntsc/license.txt`), `src/boards/pic16c5x.c` and `.h` (MAME-style tag
+  `license:BSD-3-Clause`, Tony La Porta), and `src/drivers/libretro/libretro-common/*` (the RetroArch
   team's MIT text, in 56 of its 61 files). `src/boards/emu2413.c` and `.h` carry no licence
   statement; the author is named (Mitsutaka Okazaki, 2001). We keep the files unmodified, as
   fceumm does.

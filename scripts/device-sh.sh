@@ -19,5 +19,6 @@ else
 			echo "repo path not visible inside docker; under colima keep the repo under your home directory" >&2
 			exit 1
 		}
+		git config --global --add safe.directory /src
 		'"$1"
 fi
