@@ -59,3 +59,40 @@ tasks:
         git -C build/slot-check add -A -f -- . ':!vendor'
         git -C build/slot-check diff --cached --stat --exit-code FETCH_HEAD
         echo "patches/ rebuilds work/slot HEAD exactly"
+
+  core:host:
+    desc: Build mGBA and fetch gpSP into the shared vendor/ with slot's own core tasks, and pin the gpSP dylib sha256
+    cmds:
+      - '{{.TASK_EXE}} -d build/slot core:mgba:host'
+      - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
+      - |
+        set -eu
+        dylib=vendor/gpsp_libretro.dylib
+        sha="$(shasum -a 256 "$dylib" | cut -d' ' -f1)"
+        if [ ! -f "$dylib.sha" ]; then
+          echo "$sha" >"$dylib.sha"
+          echo "recorded $dylib.sha"
+        elif [ "$(cat "$dylib.sha")" != "$sha" ]; then
+          echo "slot-nes-snes: gpsp host dylib changed ($dylib is not the one recorded in $dylib.sha), delete the .sha file to re-baseline on purpose" >&2
+          exit 1
+        fi
+
+  test:
+    desc: Run the whole upstream-plus-ours test suite in build/slot
+    dir: build/slot
+    cmds:
+      - cargo test --workspace
+
+  check:
+    desc: Build both trees and the host cores, then run every test with SLOT_REQUIRE_CORES=1, the card tests and the upstream-test guard
+    env:
+      SLOT_REQUIRE_CORES: '1'
+    cmds:
+      - task: upstream:build
+      - task: build
+      - task: core:host
+      - test -f vendor/mgba_libretro.dylib
+      - test -f vendor/gpsp_libretro.dylib
+      - sh scripts/run-tests.sh build/slot
+      - '{{.TASK_EXE}} -d build/slot test:card'
+      - sh scripts/check-upstream-tests.sh
