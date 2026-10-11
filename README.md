@@ -1,0 +1,51 @@
+# slot-nes-snes
+
+NES and SNES shelves for [slot](https://github.com/BrandonKowalski/slot), as a patch set on top of
+slot's own releases.
+
+> [!IMPORTANT]
+> This is **not** part of slot, and it is not endorsed by its author. slot is Game Boy-centric by
+> design, and its author has said plainly that slot will not add more systems
+> ([#30](https://github.com/BrandonKowalski/slot/issues/30#issuecomment-6091021879)). That decision
+> is respected here: nothing in this repo asks slot to change.
+>
+> **Please do not report bugs from this patch set to slot's tracker.** Open them here.
+
+## What it does
+
+slot keeps GBA, GB and GBC on their own shelves, each with its own cores and settings. This patch
+set adds two more shelves the same way:
+
+| Shelf | Folder | Default core | Alternative |
+|---|---|---|---|
+| NES | `Games/NES` | fceumm | nestopia |
+| SNES | `Games/SNES` | snes9x | snes9x2005_plus |
+
+The goal is that a NES or SNES cart feels exactly like a GBA cart in slot: same insert, same
+saves and save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
+byte-identical to upstream.
+
+## How it works
+
+slot builds mGBA from a pinned upstream commit plus a few `.patch` files. This repo does the same
+thing to slot: a pinned slot release, plus the patches in `patches/`, built into a replacement
+`System/slot` with the extra cores.
+
+## Status
+
+Research and planning. No patches yet.
+
+- [docs/RESEARCH.md](docs/RESEARCH.md): code map of slot v1.6.0, core choices for the H700, licence notes
+- [docs/EVAL.md](docs/EVAL.md): the options considered (upstream PR, shim core, patch set) and why
+- [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md): what "done" means
+
+## Licences
+
+slot is GPL-3.0-or-later, so this patch set is too (see [LICENSE](LICENSE)). fceumm and nestopia
+are GPL-2.0-or-later. **snes9x is not GPL**: it is free for non-commercial use only. Builds that
+include it ship its licence file and must never be sold or bundled with anything sold.
+
+## Credit
+
+All of the hard work is Brandon Kowalski's [slot](https://github.com/BrandonKowalski/slot). Go
+star it.
