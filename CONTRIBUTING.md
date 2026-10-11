@@ -135,9 +135,9 @@ Match upstream's history:
 - Fill every section of the template (`.github/pull_request_template.md`). Paste real
   command output, not a summary of it.
 - A pull request is ready only when all of this is true:
-  - [ ] `task check` green (fmt on files we add or change, no new clippy warnings in both runs, all tests,
-    `SLOT_REQUIRE_CORES=1`)
-  - [ ] `scripts/check-upstream-tests.sh` green
+  - [ ] `task check` green (fmt on files we add or change, no new clippy warnings in both
+    runs, all tests with `SLOT_REQUIRE_CORES=1`)
+  - [ ] `sh scripts/check-upstream-tests.sh` green
   - [ ] `task harness:compare` 0 differing frames (when the change touches a shared path)
   - [ ] `task bench:compare` within 2% (when the change touches a hot path)
   - [ ] `task diffsurface` within budget

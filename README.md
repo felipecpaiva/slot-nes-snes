@@ -35,6 +35,7 @@ thing to slot: a pinned slot release, plus the patches in `patches/`, built into
 
 ```sh
 brew install mise colima docker
+brew install zbar            # optional: the barcode test skips without it
 mise trust && mise install   # in the repo: rust 1.96, task, cmake 3.x
 colima start
 ```

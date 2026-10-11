@@ -21,26 +21,51 @@ fail() {
 	bad=1
 }
 
-# Writes each #[cfg(test)] block of FILE to DIR/NNNN, from the attribute line to the matching
-# close brace (or the semicolon of a bodiless mod). Braces inside strings and chars count like
-# any other brace: upstream's blocks balance either way, and a miscount only makes the guard
-# stricter, never looser.
-split_blocks() {
-	mkdir -p "$2"
-	awk -v dir="$2" '
-		!n && /^[ \t]*#\[cfg\(test\)\]/ { n = 1; depth = 0; seen = 0; out = sprintf("%s/%04d", dir, ++i); printf "" > out }
-		n {
-			print > out
-			line = $0
-			o = gsub(/\{/, "", line); c = gsub(/\}/, "", line)
-			depth += o - c
-			if (o) seen = 1
-			if ((seen && depth <= 0) || (!seen && $0 ~ /;[ \t]*$/)) { close(out); n = 0 }
+# Test block rule: a one-line attribute #[cfg(..test..)] (any whitespace, any all/any/not nesting)
+# starts a block when it is exactly #[cfg(test)], or the next item is a mod, or a #[test] follows
+# it; production code that merely compiles under test, like upstream's
+# #[cfg(any(feature = "device", test))] fn, is not a block. Blocks are compared as a multiset
+# (a deleted copy of two identical blocks fails). The one allowance is a single
+# "#[cfg(test)] mod env_tests;" in libretro.rs, compared after collapsing whitespace so rustfmt's
+# two-line form passes.
+
+# Writes each test block of FILE to stdout, one per line (newlines joined with \034), sorted.
+# A block runs from the attribute to the matching close brace (or the semicolon of a bodiless
+# item). Braces inside strings and chars count like any other brace: upstream's blocks balance
+# either way, and a miscount only makes the guard stricter, never looser.
+list_blocks() {
+	awk '
+		function squash(s) { gsub(/[ \t]+/, "", s); return s }
+		{ L[NR] = $0 }
+		END {
+			for (i = 1; i <= NR; i++) {
+				if (L[i] !~ /^[ \t]*#\[[ \t]*cfg[ \t]*\(/) continue
+				pred = L[i]; sub(/^[ \t]*#\[[ \t]*cfg[ \t]*\(/, "", pred)
+				if (pred !~ /(^|[^A-Za-z0-9_])test([^A-Za-z0-9_]|$)/) continue
+				rest = L[i]; sub(/^[ \t]*#\[[^]]*\][ \t]*/, "", rest)
+				ok = (squash(substr(L[i], 1, length(L[i]) - length(rest))) == "#[cfg(test)]")
+				if (rest ~ /^(pub(\([a-z]+\))?[ \t]+)?mod[ \t]/) ok = 1
+				for (j = i + 1; j <= NR && L[j] ~ /^[ \t]*(#\[|$)/; j++) if (squash(L[j]) == "#[test]") ok = 1
+				if (L[j] ~ /^[ \t]*(pub(\([a-z]+\))?[ \t]+)?mod[ \t]/) ok = 1
+				if (!ok) continue
+				depth = 0; seen = 0; out = ""
+				for (k = i; k <= NR; k++) {
+					out = out (k > i ? "\034" : "") L[k]
+					line = L[k]
+					o = gsub(/\{/, "", line); c = gsub(/\}/, "", line)
+					depth += o - c
+					if (o) seen = 1
+					if ((seen && depth <= 0) || (!seen && L[k] ~ /;[ \t]*$/)) break
+				}
+				print out
+				i = k
+			}
 		}
-	' "$1"
+	' "$1" | sort
 }
 
-sum() { cksum <"$1" | cut -d' ' -f1,2; }
+shown() { tr '\034' ' ' | cut -c1-90; }
+normal() { tr '\034\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 
 # Every file under crates/*/tests/ in upstream: unchanged and present. New files are ours.
 for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
@@ -49,35 +74,29 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 done
 
 # Every in-source test block of a src file that differs.
-n=0
+allowed_seen=0
 for f in $(cd "$up" && find crates -path 'crates/*/src/*' -name '*.rs' | sort); do
 	if [ ! -f "$ours/$f" ]; then
-		grep -q '^[[:space:]]*#\[cfg(test)\]' "$up/$f" && fail "$f removed"
+		grep -qE '^[[:space:]]*#\[[[:space:]]*cfg[[:space:]]*\(.*test' "$up/$f" && fail "$f removed"
 		continue
 	fi
 	cmp -s "$up/$f" "$ours/$f" && continue
-	n=$((n + 1))
-	split_blocks "$up/$f" "$tmp/$n/u"
-	split_blocks "$ours/$f" "$tmp/$n/o"
-	for b in "$tmp/$n"/u/*; do
-		[ -f "$b" ] || continue
-		found=0
-		for o in "$tmp/$n"/o/*; do
-			[ -f "$o" ] && [ "$(sum "$b")" = "$(sum "$o")" ] && { found=1; break; }
-		done
-		[ "$found" = 1 ] || fail "$f, block starting '$(head -n 2 "$b" | tr '\n' ' ')' changed or removed"
-	done
-	for o in "$tmp/$n"/o/*; do
-		[ -f "$o" ] || continue
-		found=0
-		for b in "$tmp/$n"/u/*; do
-			[ -f "$b" ] && [ "$(sum "$b")" = "$(sum "$o")" ] && { found=1; break; }
-		done
-		[ "$found" = 1 ] && continue
-		[ "$f" = "$allowed_file" ] && [ "$(cat "$o")" = "$allowed_block" ] && continue
-		fail "$f, new block '$(head -n 2 "$o" | tr '\n' ' ')' not allowed"
-	done
+	list_blocks "$up/$f" >"$tmp/u"
+	list_blocks "$ours/$f" >"$tmp/o"
+	comm -23 "$tmp/u" "$tmp/o" >"$tmp/missing"
+	comm -13 "$tmp/u" "$tmp/o" >"$tmp/extra"
+	while IFS= read -r b; do
+		fail "$f, block '$(printf "%s\n" "$b" | shown)' changed or removed"
+	done <"$tmp/missing"
+	while IFS= read -r b; do
+		if [ "$f" = "$allowed_file" ] && [ "$(printf "%s\n" "$b" | normal)" = "$allowed_block" ]; then
+			allowed_seen=$((allowed_seen + 1))
+		else
+			fail "$f, new block '$(printf "%s\n" "$b" | shown)' not allowed"
+		fi
+	done <"$tmp/extra"
 done
+[ "$allowed_seen" -le 1 ] || fail "$allowed_file has $allowed_seen copies of '$allowed_block', at most one is allowed"
 
 [ "$bad" = 0 ] || exit 1
 echo "upstream test code: 0 blocks changed"

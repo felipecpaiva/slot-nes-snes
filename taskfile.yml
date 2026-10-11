@@ -61,43 +61,32 @@ tasks:
         echo "patches/ rebuilds work/slot HEAD exactly"
 
   core:host:
-    desc: Build mGBA and fetch gpSP into the shared vendor/ with slot's own core tasks, and pin the gpSP dylib sha256
+    desc: Build mGBA and fetch gpSP into the shared vendor/ with slot's own core tasks, and check the gpSP dylib against gpsp_host_sha256 in SLOT_PIN
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
-      - |
-        set -eu
-        dylib=vendor/gpsp_libretro.dylib
-        sha="$(shasum -a 256 "$dylib" | cut -d' ' -f1)"
-        if [ ! -f "$dylib.sha" ]; then
-          echo "$sha" >"$dylib.sha"
-          echo "recorded $dylib.sha"
-        elif [ "$(cat "$dylib.sha")" != "$sha" ]; then
-          echo "slot-nes-snes: gpsp host dylib changed ($dylib is not the one recorded in $dylib.sha), delete the .sha file to re-baseline on purpose" >&2
-          exit 1
-        fi
+      - sh scripts/core-host.sh
 
   test:
-    desc: Run the whole upstream-plus-ours test suite in build/slot
-    dir: build/slot
-    cmds:
-      - cargo test --workspace
-
-  check:
-    desc: Build both trees and the host cores, then run every test with SLOT_REQUIRE_CORES=1, the card tests and the upstream-test guard
+    desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     env:
       SLOT_REQUIRE_CORES: '1'
+    cmds:
+      - sh scripts/run-tests.sh build/slot
+
+  check:
+    desc: Build both trees and the host cores, run every test and the card tests, then fmt, lint and the upstream-test guard
     cmds:
       - task: upstream:build
       - task: build
       - task: core:host
       - test -f vendor/mgba_libretro.dylib
       - test -f vendor/gpsp_libretro.dylib
-      - sh scripts/run-tests.sh build/slot
+      - task: test
       - '{{.TASK_EXE}} -d build/slot test:card'
+      - task: fmt:check
+      - task: lint
       - sh scripts/check-upstream-tests.sh
-      - sh scripts/check-format.sh
-      - sh scripts/check-lint.sh
 
   fmt:check:
     desc: Run rustfmt --check on every .rs file we add or change in build/slot
