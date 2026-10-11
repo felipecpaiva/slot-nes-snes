@@ -1,13 +1,38 @@
-Build NES and SNES as first-class platforms in slot (github.com/BrandonKowalski/slot, pinned at v1.6.0), shipped as a small patch set on top of that release: own Games/NES and Games/SNES shelves, own core choice and settings, fceumm and snes9x cores. Research and file:line map are in docs/RESEARCH.md. Clone is a local clone of slot.
+# Definition of done
 
-The bar is unpatched slot v1.6.0 playing a GBA cart in its host app. Build it first and compare against it directly: insert, boot to first frame, save, save state, rewind, fast-forward, quick menu, eject, resume on boot, and the frame times from core_bench. GBA and GB output must stay byte-identical, and every upstream test must pass unchanged.
+Two halves. Both must pass.
 
-Break this into the smallest pieces that can be judged on their own. For each piece, fan out a builder and a separate critic with fresh context. The critic runs the real build, puts our NES/SNES recording and numbers next to the GBA bar blind with labels stripped, says which feels better, and names the single biggest remaining gap. Then it goes back to the builder.
+## 1. GBA, GB and GBC do not change
 
-The critic should be a harsh critic. Praise is not useful. If ours does not match, it keeps going.
+Patched slot is compared against unpatched slot at the same release, both playing the same GBA
+and GB carts.
 
-/loop on each piece until the critic cannot tell ours from the bar. Do not stop before that.
+- Every upstream test passes, unmodified.
+- Rendered frames are identical, pixel for pixel.
+- Frontend cost per frame on GBA is the same as upstream (`core_bench`).
 
-Keep a live progress page updating as the work evolves so I can watch it.
+## 2. NES and SNES reach parity
 
-Fan out subagents and ultracode.
+Every feature row in [RESEARCH.md](RESEARCH.md) works on both new shelves: carousel, letter jump,
+cart art and labels, core picker, insert and eject, resume on boot, saves and autosave, save
+states and polaroids, rewind, fast-forward, turbo, shaders, video mode, quick menu, settings,
+volume, sleep.
+
+Hard numbers:
+
+- Frontend cost per frame (pixel conversion, publish, upload) stays within the GBA budget. Measured
+  on the host.
+- **Device gate (manual, on a real H700):** full speed and zero audio underruns on Star Fox,
+  Yoshi's Island, Kirby Super Star, Super Mario RPG and Seiken Densetsu 3, via `task bench:device`
+  and `SLOT_TRACE`.
+
+## Known gaps, not hidden
+
+These will not match GBA in the first version:
+
+- SNES uses L and R as game buttons, so it loses slot's L/R picture-mode toggle.
+- SNES hi-res frames (512 wide, a few titles) are blended down 2:1 and lose detail.
+- Colour correction does nothing on NES and SNES.
+- Carts are GBA-shaped until real NES and SNES cart art exists.
+- PAL (50 Hz) games run about 20% fast.
+- Settings keyed only by file name collide if the same name exists on two systems.

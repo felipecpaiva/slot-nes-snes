@@ -1,16 +1,12 @@
 # slot: adding NES + SNES: evaluation
 
-Date: 2026-10-11. Repo: `BrandonKowalski/slot` at `9d7c795` (v1.6.0). Clone: `slot`
-(untracked; `a contrib folder ` is outside the sandbox write area).
-"S games" in the request is read as NES.
+Date: 2026-10-11. Repo: `BrandonKowalski/slot` at `9d7c795` (v1.6.0).
 
 ## Verdict
 
 - **No upstream PR.** The owner closed issue #30 on 2026-10-09 with: *"slot will not be adding
-  support for more systems."* Also #19: *"This is complexity I am not looking to add."* The
-  `docs/contributions.md` flow (open PR, chase, track) does not apply.
-- **The only code path is a fork** (`origin` = felipecpaiva/slot, `upstream` = BrandonKowalski/slot,
-  plus an entry in `scripts/sync-forks.sh`).
+  support for more systems."* Also #19: *"This is complexity I am not looking to add."*
+- **The only code path is our own copy of slot** (a fork, or a patch set on its releases).
 - **Durability cost = rebasing on a very active upstream.** 1.6.0 shipped 2026-10-10. `app.rs` is
   3,475 lines and most of our changes touch it, so expect conflicts on most upstream releases.
 - **Zero-code NES today:** PocketNES runs NES ROMs as `.gba` files inside slot (pointed out on #30).

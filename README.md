@@ -21,9 +21,9 @@ set adds two more shelves the same way:
 | NES | `Games/NES` | fceumm | nestopia |
 | SNES | `Games/SNES` | snes9x | snes9x2005_plus |
 
-The goal is that a NES or SNES cart feels exactly like a GBA cart in slot: same insert, same
-saves and save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
-byte-identical to upstream.
+The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
+save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
+byte-identical to upstream. That is the goal. The first version has known gaps, listed in [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md#known-gaps-not-hidden).
 
 ## How it works
 
@@ -37,7 +37,7 @@ Research and planning. No patches yet.
 
 - [docs/RESEARCH.md](docs/RESEARCH.md): code map of slot v1.6.0, core choices for the H700, licence notes
 - [docs/EVAL.md](docs/EVAL.md): the options considered (upstream PR, shim core, patch set) and why
-- [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md): what "done" means
+- [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md): what "done" means, and the known gaps
 
 ## Licences
 
