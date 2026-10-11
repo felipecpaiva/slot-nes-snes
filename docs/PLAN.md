@@ -159,7 +159,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - Each phase deliverable is built, then checked by a separate reviewer who runs `task check` on macOS against the quality bar and says pass or fail. Work loops until it passes.
 - Binding decisions (bezel kept, unmodified-test strategy, HostExtra side struct, canvas per core, placeholder art in Phase 1, macOS-primary CI, SELECT+X for SNES video mode) are recorded in `docs/DECISIONS.md` as they are confirmed.
 - One project-level env flag, `SLOT_REQUIRE_CORES=1`, is read only by this repo's tests.
-- Device-gate results per title (fps, underrun count, CPU governor) are recorded in `docs/device-gate.md`.
+- Device-gate results per title (fps, underrun count, CPU governor) are recorded in `docs/DEVICE-GATE.md`.
 
 ## Edge cases by layer
 
@@ -385,7 +385,6 @@ Acceptance:
 - PAL 50 Hz pacing (out of scope by spec).
 - Stem-key collision (documented only).
 - Option B variable frame size.
-- Quick menu NES/SNES shader rows, if OQ2 picks "defer".
 
 ## Consumer-grep evidence (verified in `upstream slot` at `9d7c795`)
 

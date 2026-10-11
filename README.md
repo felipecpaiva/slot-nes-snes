@@ -35,6 +35,8 @@ thing to slot: a pinned slot release, plus the patches in `patches/`, built into
 
 Planned. No patches yet. Work starts with Phase 1 of [docs/PLAN.md](docs/PLAN.md).
 
+Progress is tracked on the [project board](https://github.com/users/felipecpaiva/projects/8), one issue per pull request, with a milestone per phase. The issues are generated from [.github/issues/](.github/issues/) by `python3 scripts/setup-github-project.py` (safe to re-run).
+
 - [docs/RESEARCH.md](docs/RESEARCH.md): code map of slot v1.6.0, core choices for the H700, licence notes
 - [docs/EVAL.md](docs/EVAL.md): the options considered (upstream PR, shim core, patch set) and why
 - [docs/PLAN.md](docs/PLAN.md): the phased build plan, with tests per phase
