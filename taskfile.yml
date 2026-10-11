@@ -59,3 +59,45 @@ tasks:
         git -C build/slot-check add -A -f -- . ':!vendor'
         git -C build/slot-check diff --cached --stat --exit-code FETCH_HEAD
         echo "patches/ rebuilds work/slot HEAD exactly"
+
+  core:host:
+    desc: Build mGBA and fetch gpSP into the shared vendor/ with slot's own core tasks, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    cmds:
+      - '{{.TASK_EXE}} -d build/slot core:mgba:host'
+      - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
+      - sh scripts/core-host.sh
+
+  test:
+    desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
+    env:
+      SLOT_REQUIRE_CORES: '1'
+    cmds:
+      - sh scripts/run-tests.sh build/slot
+
+  check:
+    desc: Build both trees and the host cores, run every test and the card tests, then fmt, lint and the upstream-test guard
+    cmds:
+      - task: upstream:build
+      - task: build
+      - task: core:host
+      - test -f vendor/mgba_libretro.dylib
+      - test -f vendor/gpsp_libretro.dylib
+      - task: test
+      - |
+        {{.TASK_EXE}} -d build/slot test:card || {
+          echo "test:card failed, retrying once (upstream card tests are timing sensitive)" >&2
+          {{.TASK_EXE}} -d build/slot test:card
+        }
+      - task: fmt:check
+      - task: lint
+      - sh scripts/check-upstream-tests.sh
+
+  fmt:check:
+    desc: Run rustfmt --check on every .rs file we add or change in build/slot
+    cmds:
+      - sh scripts/check-format.sh
+
+  lint:
+    desc: Run both clippy passes in both trees and fail on any warning upstream does not have
+    cmds:
+      - sh scripts/check-lint.sh
