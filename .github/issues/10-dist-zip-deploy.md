@@ -12,11 +12,13 @@ Install and update must work exactly like slot: unzip, copy to the SD root, boot
 
 ## Scope
 - [ ] `task dist:device`: run `task -d build/slot dist:device` (through `scripts/device-sh.sh`), then copy `fceumm_libretro.so`, its `.meta`, its source tarball and licence into `System/` and `System/licenses/`.
-- [ ] `task src-tarball`: `slot-nes-snes-src-<tag>.tar.gz` (git archive of patched `build/slot` plus this repo), also copied into `System/licenses/`.
+- [ ] `task src-tarball`: `slot-nes-snes-src-<tag>.tar.gz` (`git -C work/slot archive` at the exported HEAD, plus this repo), also copied into `System/licenses/`.
 - [ ] `task zip`: `slot-nes-snes-v1.6.0-ns.N-h700.zip` with one top folder of the same name, laid out like slot's release zip (`System/`, `BIOS/`, `Config/`, `Games/{GBA,GB,GBC,NES}/`, `Labels/`, `Saves/`, `States/`, `Wallpapers/`).
 - [ ] `scripts/zip-check.sh`: one top folder; `file | grep aarch64` for `slot` and every core present; licences, `.meta` and source tarballs present.
 - [ ] `task deploy:device` (adb push of the extra cores, chmod, reboot) and `task log:device`.
 - [ ] `LICENSING.md`: GPL-3 source offer pointing at the tarball.
+- [ ] Make `build/<tree>/vendor` resolve inside the docker device build (the symlink from issue 02 is relative, `../../vendor`, so check that it still resolves inside the docker mount).
+- [ ] The source tarball comes from `git -C work/slot archive` at the exported HEAD (or `tar` of build/slot), because build/slot is a plain applied tree with no commit.
 
 ## Tests
 | ID | File | Asserts |

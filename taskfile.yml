@@ -1,0 +1,61 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  work:init:
+    desc: Extract the pinned slot release into work/slot as one commit, on branch nes-snes. Never touches an existing work/slot
+    status:
+      - sh -c '. scripts/lib.sh; own_repo work/slot && git -C work/slot rev-parse -q --verify HEAD'
+    cmds:
+      - sh scripts/init-work.sh
+
+  work:resume:
+    desc: Replay patches/ as commits on a fresh work/slot so work can continue on a new machine
+    cmds:
+      - sh scripts/resume-work.sh
+
+  upstream:build:
+    desc: Extract the pinned slot release into build/slot-upstream with no patches
+    status:
+      - test -L build/slot-upstream/vendor
+      - test -e build/slot-upstream/vendor
+      - test "$(cat build/slot-upstream.meta 2>/dev/null)" = "$(sh scripts/fetch-slot.sh stamp)"
+    cmds:
+      - sh scripts/fetch-slot.sh fetch build/slot-upstream
+      - 'echo "built build/slot-upstream"'
+
+  build:
+    desc: Extract the pinned slot release into build/slot and apply patches/ in name order
+    status:
+      - test -L build/slot/vendor
+      - test -e build/slot/vendor
+      - test "$(cat build/slot.meta 2>/dev/null)" = "$(sh scripts/apply-patches.sh stamp)"
+    cmds:
+      - sh scripts/fetch-slot.sh fetch build/slot
+      - sh scripts/apply-patches.sh build build/slot
+      - 'echo "built build/slot"'
+
+  patches:export:
+    desc: Write every commit on work/slot's nes-snes branch to patches/ with git format-patch --binary
+    cmds:
+      - sh scripts/export-patches.sh
+
+  patches:check:
+    desc: Apply patches/ to a clean extraction and fail if the tree differs from work/slot HEAD
+    cmds:
+      - |
+        . scripts/lib.sh
+        own_repo work/slot || { echo "slot-nes-snes: work/slot is not a git checkout, run task work:init" >&2; exit 1; }
+      - sh scripts/fetch-slot.sh fetch build/slot-check
+      - sh scripts/apply-patches.sh build build/slot-check
+      - |
+        set -eu
+        git -C build/slot-check fetch -q "$PWD/work/slot" HEAD
+        git -C build/slot-check add -A -f -- . ':!vendor'
+        git -C build/slot-check diff --cached --stat --exit-code FETCH_HEAD
+        echo "patches/ rebuilds work/slot HEAD exactly"

@@ -26,6 +26,9 @@ code as possible, and prove GBA did not change.**
   commit with our patches applied as commits. `build/` and `work/` are never committed.
 - **You edit code in `work/slot`, one commit per patch, then run
   `scripts/export-patches.sh`.** Never hand-edit a file in `patches/`.
+- Commits inside `work/slot` use the patch slug as their subject (`canvas`,
+  `platform-nes`), so the exported file is `0004-canvas.patch`. The sentence-style rule in
+  section 7 is for commits in this repo.
 - `patches/NNNN-<concern>.patch` apply in name order. One patch is one concern, and the
   concern matches its issue (for example `0004-canvas.patch` is issue 09).
 - A patch that adds a binary file (PNG) is exported with `--binary`. `task patches:check`
