@@ -21,6 +21,7 @@ Child issues, in merge order:
 - [ ] 08-core-fceumm
 - [ ] 09-canvas
 - [ ] 10-dist-zip-deploy
+- [ ] 38-dev-tools-mise
 
 ## Tests
 | ID | File | Asserts |
