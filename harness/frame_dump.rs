@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::ffi::c_void;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::{Duration, Instant};
 
@@ -7,12 +8,18 @@ use slot::audio::{AudioSink, StubSink, GBA_HZ};
 use slot::frontend::Frontend;
 use slot::label_cache;
 use slot::session::Session;
-use slot_gfx::{Compositor, HeadlessSurface};
+use slot_gfx::{Compositor, HeadlessSurface, Surface, OUT_H, OUT_W};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::{Power, SimPlatform};
-use slot_store::Shader;
+use slot_store::{Core, Shader};
 
-const LEGS: [&str; 2] = ["H1", "H2"];
+const LEGS: [&str; 4] = ["H1", "H1G", "H2", "B1"];
+const BEZEL_WINDOW: (u32, u32) = (640, 480);
+const FRAMEBUFFERS: u32 = 512;
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+const GL_PACK_ALIGNMENT: u32 = 0x0D05;
+const GL_RGBA: u32 = 0x1908;
+const GL_UNSIGNED_BYTE: u32 = 0x1401;
 const FPS: f64 = 60.0;
 const CLOCK: i64 = 1_790_784_000;
 const SETTLE: u32 = 120;
@@ -134,6 +141,7 @@ trait Rig {
     fn app(&self) -> &App;
     fn after(&mut self, leg: &str, frame: u64, running: bool);
     fn mark(&mut self, leg: &str, frame: u64);
+    fn output(&mut self, _leg: &str, _frame: u64) {}
     fn rebuilding(&self) -> bool {
         false
     }
@@ -214,27 +222,68 @@ impl Rig for CoreRig {
     fn mark(&mut self, _leg: &str, _frame: u64) {}
 }
 
+type IsFramebuffer = unsafe extern "C" fn(u32) -> u8;
+type BindFramebuffer = unsafe extern "C" fn(u32, u32);
+type PixelStorei = unsafe extern "C" fn(u32, i32);
+type ReadPixels = unsafe extern "C" fn(i32, i32, i32, i32, u32, u32, *mut u8);
+
+fn gl_fn<T: Copy>(surface: &HeadlessSurface, name: &str) -> T {
+    let address = surface.proc_address(name);
+    if address.is_null() {
+        die(&format!("the GL loader has no {name}"));
+    }
+    // SAFETY: the address is the CGL OpenGL framework's own symbol for this name and T is its C signature.
+    unsafe { std::mem::transmute_copy::<*const c_void, T>(&address) }
+}
+
+fn framebuffers(surface: &HeadlessSurface) -> Vec<u32> {
+    let is_framebuffer: IsFramebuffer = gl_fn(surface, "glIsFramebuffer");
+    // SAFETY: glIsFramebuffer takes any integer name and only reads GL state on the current context.
+    (1..FRAMEBUFFERS)
+        .filter(|id| unsafe { is_framebuffer(*id) } != 0)
+        .collect()
+}
+
 struct CompositeRig {
-    pending: Vec<(String, Vec<u8>)>,
+    pending: Vec<(String, &'static str, Vec<u8>)>,
     frontend: Frontend,
     compositor: Compositor,
-    _surface: HeadlessSurface,
+    surface: HeadlessSurface,
+    window: (u32, u32),
+    output_fbo: u32,
 }
 
 impl CompositeRig {
-    fn boot(root: &Path, wait: bool) -> Self {
+    fn boot(root: &Path, wait: bool, window: (u32, u32)) -> Self {
         let surface =
             HeadlessSurface::new().unwrap_or_else(|e| die(&format!("headless GL: {e:?}")));
         let mut compositor =
             Compositor::new(&surface).unwrap_or_else(|e| die(&format!("compositor: {e:?}")));
+        if let Err(e) = compositor.set_panel_turn((window.1, window.0), false) {
+            die(&format!("panel turn: {e:?}"));
+        }
         let mut frontend = Frontend::boot_with(platform(root), sink());
         frontend.upload_faces(&mut compositor);
+        frontend.upload_bezel(&mut compositor, window);
         frontend.drive_emulator();
+        let before = framebuffers(&surface);
+        compositor.fit(window);
+        compositor.begin_frame();
+        compositor.end_frame(window);
+        let made: Vec<u32> = framebuffers(&surface)
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .collect();
+        let [output_fbo] = made[..] else {
+            die(&format!("expected one output framebuffer, found {made:?}"));
+        };
         let mut rig = CompositeRig {
             pending: Vec::new(),
             frontend,
             compositor,
-            _surface: surface,
+            surface,
+            window,
+            output_fbo,
         };
         if wait {
             rig.wait_for_labels(root);
@@ -288,17 +337,42 @@ impl Rig for CompositeRig {
     }
 
     fn after(&mut self, _leg: &str, _frame: u64, _running: bool) {
-        self.frontend.compose(&mut self.compositor);
+        self.frontend.render(&mut self.compositor, self.window);
     }
 
     fn mark(&mut self, leg: &str, frame: u64) {
         let pixels = self.compositor.read_frame();
-        self.pending.push((format!("{leg} {frame}"), pixels));
+        self.pending
+            .push((format!("{leg} {frame}"), "composite", pixels));
+    }
+
+    fn output(&mut self, leg: &str, frame: u64) {
+        let (w, h) = self.window;
+        let bind: BindFramebuffer = gl_fn(&self.surface, "glBindFramebuffer");
+        let pack: PixelStorei = gl_fn(&self.surface, "glPixelStorei");
+        let read: ReadPixels = gl_fn(&self.surface, "glReadPixels");
+        let mut pixels = vec![0u8; w as usize * h as usize * 4];
+        // SAFETY: the buffer holds w * h RGBA bytes, the GL context is current on this thread, and the output framebuffer is complete.
+        unsafe {
+            bind(GL_FRAMEBUFFER, self.output_fbo);
+            pack(GL_PACK_ALIGNMENT, 1);
+            read(
+                0,
+                0,
+                w as i32,
+                h as i32,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                pixels.as_mut_ptr(),
+            );
+        }
+        self.pending
+            .push((format!("{leg} {frame}"), "output", pixels));
     }
 
     fn flush(&mut self) {
-        for (key, pixels) in self.pending.drain(..) {
-            println!("{key} composite {}", sha256(&pixels));
+        for (key, kind, pixels) in self.pending.drain(..) {
+            println!("{key} {kind} {}", sha256(&pixels));
         }
     }
 
@@ -326,6 +400,10 @@ fn ejecting(app: &App) -> bool {
     matches!(app.phase(), Phase::Ejecting { .. })
 }
 
+fn polaroids_open(app: &App) -> bool {
+    matches!(app.phase(), Phase::Polaroids { .. })
+}
+
 fn palette_live(app: &App) -> bool {
     app.palette_live()
 }
@@ -336,7 +414,9 @@ fn on_shelf(app: &App) -> bool {
 
 struct Run<R: Rig> {
     rig: R,
+    root: PathBuf,
     leg: &'static str,
+    core: Core,
     input: Scripted,
     frame: u64,
     stepped: Option<Instant>,
@@ -414,6 +494,10 @@ impl<R: Rig> Run<R> {
         self.rig.mark(self.leg, self.frame);
     }
 
+    fn output(&mut self) {
+        self.rig.output(self.leg, self.frame);
+    }
+
     fn must(&self, what: &str, holds: fn(&App) -> bool) {
         if !holds(self.rig.app()) {
             die(&format!("{} {}: expected {what}", self.leg, self.frame));
@@ -457,6 +541,14 @@ impl<R: Rig> Run<R> {
         self.must("the insert to be under way", inserting);
         self.mark("mid insert");
         self.until("the game to play", playing);
+        if self.rig.app().core() != self.core {
+            die(&format!(
+                "{} {}: expected the {} core",
+                self.leg,
+                self.frame,
+                self.core.as_str()
+            ));
+        }
         self.wait(SETTLE);
         self.mark("in game steady");
     }
@@ -519,6 +611,7 @@ impl<R: Rig> Run<R> {
             self.chord(Btn::Select, Btn::Right);
         }
         self.mark("blue light up");
+        self.output();
         for _ in 0..3 {
             self.chord(Btn::Select, Btn::Left);
         }
@@ -545,6 +638,57 @@ impl<R: Rig> Run<R> {
         self.chord(Btn::Select, Btn::L1);
         self.wait(10);
         self.mark("state loaded");
+        self.chord(Btn::Select, Btn::R1);
+        self.wait(10);
+        self.mark("second state saved");
+        self.thumbs();
+        self.polaroids();
+    }
+
+    fn thumbs(&mut self) {
+        let mut found = Vec::new();
+        let mut dirs = vec![self.root.join("States")];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "png") {
+                    found.push(path);
+                }
+            }
+        }
+        found.sort();
+        if found.is_empty() {
+            die(&format!(
+                "{} {}: no state thumbnail written",
+                self.leg, self.frame
+            ));
+        }
+        for (n, path) in found.iter().enumerate() {
+            let bytes = std::fs::read(path).unwrap_or_default();
+            if bytes.is_empty() {
+                die(&format!(
+                    "{} {}: empty thumbnail {}",
+                    self.leg,
+                    self.frame,
+                    path.display()
+                ));
+            }
+            println!("{} {} thumb{n} {}", self.leg, self.frame, sha256(&bytes));
+        }
+    }
+
+    fn polaroids(&mut self) {
+        self.tap(Btn::Menu, 3);
+        self.wait(3);
+        self.tap(Btn::Menu, 3);
+        self.until("the polaroids to open", polaroids_open);
+        self.wait(30);
+        self.mark("polaroids");
+        self.tap(Btn::B, 6);
+        self.until("the polaroids to close", playing);
+        self.wait(10);
     }
 
     fn in_game(&mut self, shaders: usize, owned: bool, frames: u32) {
@@ -617,7 +761,7 @@ impl<R: Rig> Run<R> {
         self.wait(SETTLE);
         self.mark("shelf idle");
         match self.leg {
-            "H1" => {
+            "H1" | "H1G" => {
                 self.quick_menu();
                 self.enter();
                 self.in_game(Shader::GBA.len(), false, 600);
@@ -641,15 +785,23 @@ impl<R: Rig> Run<R> {
                 self.in_game(Shader::GB.len(), true, 300);
                 self.leave();
             }
+            "B1" => {
+                self.output();
+                self.enter();
+                self.adjustments();
+                self.leave();
+            }
             other => die(&format!("no script for leg {other}")),
         }
     }
 }
 
-fn run<R: Rig>(rig: R, leg: &'static str) {
+fn run<R: Rig>(rig: R, root: &Path, leg: &'static str) {
     let mut run = Run {
         rig,
+        root: root.into(),
         leg,
+        core: core_of(leg),
         input: Scripted::default(),
         frame: 0,
         stepped: None,
@@ -658,16 +810,34 @@ fn run<R: Rig>(rig: R, leg: &'static str) {
     run.rig.flush();
 }
 
-fn cold(root: &Path) {
+fn core_of(leg: &str) -> Core {
+    if leg == "H1G" {
+        Core::Gpsp
+    } else {
+        Core::Mgba
+    }
+}
+
+fn window_of(leg: &str) -> (u32, u32) {
+    if leg == "B1" {
+        BEZEL_WINDOW
+    } else {
+        (OUT_W, OUT_H)
+    }
+}
+
+fn cold(root: &Path, wait: bool) {
     let mut run = Run {
-        rig: CompositeRig::boot(root, false),
+        rig: CompositeRig::boot(root, wait, (OUT_W, OUT_H)),
+        root: root.into(),
         leg: "COLD",
+        core: Core::Mgba,
         input: Scripted::default(),
         frame: 0,
         stepped: None,
     };
     let stale = label_cache::stale(root, run.rig.frontend.app().carts()).len();
-    eprintln!("frame_dump: label cache is cold, {stale} labels hashed without a wait");
+    eprintln!("frame_dump: {stale} stale labels at the first frame");
     let began = Instant::now();
     let (mut rebuilt, mut settled) = (stale == 0, 0);
     while settled < SETTLE {
@@ -717,12 +887,17 @@ fn main() {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
         ["warm", root] => warm(Path::new(root)),
-        ["core", leg, root] => run(CoreRig::boot(Path::new(root)), known(leg)),
-        ["composite", "--no-wait", root] => cold(Path::new(root)),
-        ["composite", leg, root] => run(CompositeRig::boot(Path::new(root), true), known(leg)),
+        ["core", leg, root] => run(CoreRig::boot(Path::new(root)), Path::new(root), known(leg)),
+        ["composite", "--no-wait", root] => cold(Path::new(root), false),
+        ["composite", "--wait", root] => cold(Path::new(root), true),
+        ["composite", leg, root] => {
+            let leg = known(leg);
+            let rig = CompositeRig::boot(Path::new(root), true, window_of(leg));
+            run(rig, Path::new(root), leg)
+        }
         _ => {
             eprintln!(
-                "usage: frame_dump (core|composite) LEG ROOT | frame_dump composite --no-wait ROOT | frame_dump warm ROOT"
+                "usage: frame_dump (core|composite) LEG ROOT | frame_dump composite (--no-wait|--wait) ROOT | frame_dump warm ROOT"
             );
             exit(2)
         }

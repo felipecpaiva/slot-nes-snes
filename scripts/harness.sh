@@ -1,9 +1,13 @@
 #!/bin/sh
 # The GBA, GB and GBC frame-hash harness. warm builds frame_dump in both trees, pre-builds the label
-# cache once into build/harness/root and adds a generated DMG-only cart (the palettes need one); control
-# runs each tree twice and demands identical hashes; compare runs each tree twice again and demands
-# all four runs identical, and refuses until control passed for these inputs; inject proves the
-# harness can fail: a cold cache of large generated labels hashed from frame 1 must report diffs.
+# cache once into build/harness/root and adds a generated DMG-only cart (the palettes need one), a
+# generated 640x480 bezel and a copy of the root that selects gpSP for the GBA cart; control runs each
+# tree twice and demands identical hashes; compare runs each tree twice again and demands all four runs
+# identical, and refuses until control passed for these inputs; inject proves the harness can fail: a
+# cold cache of ninety-nine large generated labels hashed from frame 1 must report at least 20 diffs.
+# Legs: H1 (GBA on mGBA), H1G (the same script on gpSP, with colour correction), H2 (GB and GBC) and
+# B1 (4:3 window with a bezel, composite only). Each composite leg also hashes the output pass (blue
+# light gain and bezel), the polaroid view and the written state thumbnails.
 #
 # Retry rule: frame_dump exits 3 when the machine was too busy to keep the emulator in lockstep and
 # the run is repeated (3 tries, 6 when CI is set). Retries are counted per tree and printed as
@@ -13,15 +17,17 @@
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
 up="$root/build/slot-upstream"
 ours="$root/build/slot"
 work="$root/build/harness"
-legs="H1 H2"
+legs="H1 H1G H2 B1"
 modes="core composite"
 tries=3
 [ -z "${CI:-}" ] || tries=6
 label_px=6000
-extra_labels=9
+extra_labels=99
+min_diffs=20
 retries_up=0
 retries_ours=0
 
@@ -64,6 +70,11 @@ warm() {
 	cp -RLp "$root/harness/root-template" "$work/root"
 	python3 "$root/harness/make_assets.py" dmg "$root/harness/roms/gb240p.gb" "$work/root/Games/GB/zdmg-blank.gb"
 	"$(dumper "$up")" warm "$work/root" 2>&1 | grep '^frame_dump:'
+	mkdir -p "$work/root/System/bezels"
+	python3 "$root/harness/make_assets.py" bezel 640 480 "$work/root/System/bezels/640x480.png"
+	rm -rf "$work/root-gpsp"
+	cp -Rp "$work/root" "$work/root-gpsp"
+	echo "240pee_mb=gpsp" >"$work/root-gpsp/Config/selected_core.txt"
 }
 
 # run_dump TREE OUT SRC ARG...: a fresh copy of SRC per attempt, frame_dump ARG... ROOT appended to OUT,
@@ -79,9 +90,13 @@ run_dump() {
 		cp -Rp "$src" "$tmp/root"
 		rc=0
 		SLOT_ROOT="$tmp/root" "$(dumper "$dir")" "$@" "$tmp/root" >"$tmp/out" 2>"$tmp/err" || rc=$?
+		if grep -q 'mock test pattern' "$tmp/err"; then
+			rm -rf "$tmp"
+			fail "frame_dump $* in $dir ran the mock core, a real core was not found"
+		fi
 		if [ "$rc" = 0 ]; then
 			cat "$tmp/out" >>"$out"
-			notes="$(grep -E 'rebuild took|cold boot hashed|label cache is cold' "$tmp/err" || true)"
+			notes="$(grep -E 'rebuild took|cold boot hashed|label cache is cold|stale labels at' "$tmp/err" || true)"
 			rm -rf "$tmp"
 			return
 		fi
@@ -93,11 +108,15 @@ run_dump() {
 	done
 }
 
-# one_run TREE LEG OUT: the core and composite hashes of one leg.
+# one_run TREE LEG OUT: the core and composite hashes of one leg. H1G is H1 on gpSP, chosen for the
+# cart through Config/selected_core.txt in its own root. B1 runs in a 4:3 window and has no core part.
 one_run() {
 	: >"$3"
+	src="$work/root"
+	[ "$2" != H1G ] || src="$work/root-gpsp"
 	for mode in $modes; do
-		run_dump "$1" "$3" "$work/root" "$mode" "$2"
+		[ "$2" != B1 ] || [ "$mode" = composite ] || continue
+		run_dump "$1" "$3" "$src" "$mode" "$2"
 	done
 	[ -s "$3" ] || fail "frame_dump printed nothing for $2 in $1"
 }
@@ -190,26 +209,30 @@ compare() {
 }
 
 # inject: a cold label cache of large labels generated at run time (never committed), hashed from
-# frame 1 without the wait, twice. Twelve labels of 6000x6000 pixels (the decoder's limit is 64 MiB)
-# keep the rebuild busy for dozens of frames and move the progress count at different frames in each
-# run, so the two runs must differ; 0 diffs means the harness cannot see the very race
-# its wait exists for. The same root with the wait must then give 0 diffs.
+# frame 1 without the wait, twice. Every generated cart and label is a real file (a symlink would be
+# followed, but a copy cannot be mistaken for one), their stems match, and the cache directory does not
+# exist, so label_cache::stale lists every one of them and the rebuild decodes every one. The rebuild
+# keeps the screen busy for many frames and moves its progress count at different frames in each run,
+# so the two runs must differ in at least min_diffs frames: one frame of drift is scheduler noise, 20
+# is a third of a second of picture, far more than a handful of labels finishing a frame apart, and
+# well under the length of the rebuild. Fewer means the harness cannot see the very race its wait
+# exists for. The same root with the wait, running the same cold script, must then give 0 diffs.
 inject() {
 	warm >/dev/null
 	mkdir -p "$work/out"
 	heavy="$work/heavy-root"
 	rm -rf "$heavy"
 	cp -RLp "$root/harness/root-template" "$heavy"
+	rm -rf "$heavy/System"
 	python3 "$root/harness/make_assets.py" png "$label_px" "$heavy/Labels/GBA/240pee_mb.png"
-	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GB/gb240p.png"
-	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBC/cgb-acid2.png"
 	n=1
 	while [ "$n" -le "$extra_labels" ]; do
-		ln -s "$root/harness/roms/240pee_mb.gba" "$heavy/Games/GBA/extra-$n.gba"
-		ln -s "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBA/extra-$n.png"
+		cp "$root/harness/roms/240pee_mb.gba" "$heavy/Games/GBA/extra-$n.gba"
+		cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBA/extra-$n.png"
 		n=$((n + 1))
 	done
-	rm -rf "$heavy/System"
+	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GB/gb240p.png"
+	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBC/cgb-acid2.png"
 	retries_up=0
 	retries_ours=0
 	o="$work/out/inject"
@@ -228,14 +251,15 @@ inject() {
 	run_dump "$up" "$o-nowait-1.txt" "$heavy" composite --no-wait
 	run_dump "$up" "$o-nowait-2.txt" "$heavy" composite --no-wait
 	bad=0
-	report "inject no-wait" "$o-nowait-1.txt" "$o-nowait-2.txt"
-	echo "inject: no wait, ${label_px}x${label_px} labels: $bad diffs, $(wc -l <"$o-nowait-1.txt" | tr -d ' ') frames hashed"
-	[ "$bad" != 0 ] || fail "inject: the cold-cache run without the label wait reported 0 diffs, the harness cannot see the race"
-	run_dump "$up" "$o-wait-1.txt" "$heavy" composite H1
-	run_dump "$up" "$o-wait-2.txt" "$heavy" composite H1
+	found="$(differ "$o-nowait-1.txt" "$o-nowait-2.txt")"
+	[ -z "$found" ] || bad="$(echo "$found" | wc -l | tr -d ' ')"
+	echo "inject: no wait, $(echo "$notes" | tr '\n' ' '): $bad diffs of $(wc -l <"$o-nowait-1.txt" | tr -d ' ') frames hashed (at least $min_diffs needed)"
+	[ "$bad" -ge "$min_diffs" ] || fail "inject: the cold-cache run without the label wait differed in only $bad frames, the harness cannot see the race"
+	run_dump "$up" "$o-wait-1.txt" "$heavy" composite --wait
+	run_dump "$up" "$o-wait-2.txt" "$heavy" composite --wait
 	bad=0
 	report "inject wait" "$o-wait-1.txt" "$o-wait-2.txt"
-	echo "inject: with the wait, same cold labels ($(echo "$notes" | tr '\n' ' ')): $bad diffs"
+	echo "inject: with the wait, same cold labels and script ($(echo "$notes" | tr '\n' ' ')): $bad diffs"
 	[ "$bad" = 0 ] || fail "inject: the label wait did not make the cold-cache run deterministic"
 	echo "inject: ok, the harness reports the race without the wait and 0 diffs with it"
 }

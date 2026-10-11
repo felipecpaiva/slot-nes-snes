@@ -39,9 +39,32 @@ def big_png(size, out):
         f.write(chunk(b"IEND", b""))
 
 
+def bezel_png(width, height, out):
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            edge = min(x, y, width - 1 - x, height - 1 - y)
+            if edge < 24:
+                row += bytes((40 + edge * 5, 90 + y % 64, 200 - x % 128, 255))
+            else:
+                row += bytes((0, 0, 0, 0))
+        rows.append(bytes(row))
+    with open(out, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(b"".join(rows))))
+        f.write(chunk(b"IEND", b""))
+
+
 if sys.argv[1:2] == ["dmg"] and len(sys.argv) == 4:
     dmg_rom(sys.argv[2], sys.argv[3])
 elif sys.argv[1:2] == ["png"] and len(sys.argv) == 4:
     big_png(sys.argv[2], sys.argv[3])
+elif sys.argv[1:2] == ["bezel"] and len(sys.argv) == 5:
+    bezel_png(int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])
 else:
-    sys.exit("usage: make_assets.py dmg SOURCE.gb OUT.gb | make_assets.py png SIZE OUT.png")
+    sys.exit(
+        "usage: make_assets.py dmg SOURCE.gb OUT.gb | make_assets.py png SIZE OUT.png"
+        " | make_assets.py bezel WIDTH HEIGHT OUT.png"
+    )
