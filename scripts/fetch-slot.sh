@@ -45,6 +45,13 @@ fetch() {
 		echo "slot-nes-snes: $dir has commits or changes beyond the base, refusing to delete it" >&2
 		exit 1
 	fi
+	case $dir in */work/slot)
+		if [ ! -e "$dir/.git" ] && [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
+			echo "slot-nes-snes: $dir exists but is not a git checkout; move it away or delete it yourself" >&2
+			exit 1
+		fi
+		;;
+	esac
 	rm -rf "$dir" "$dir.meta"
 	mkdir -p "$dir" "$root/vendor"
 	tar -xzf "$tarball" -C "$dir" --strip-components=1

@@ -16,6 +16,7 @@ Success criterion 1 requires all ~1,400 upstream tests to pass with zero hunks i
 - [ ] `task check`: build both trees, build or fetch all host cores, assert `vendor/mgba_libretro.dylib` and `vendor/gpsp_libretro.dylib` exist, then with `SLOT_REQUIRE_CORES=1` run `cargo test --workspace`, `test:card` (`card/test-*.sh`) and `scripts/check-upstream-tests.sh` (05-gba-harness-and-bench adds the harness tasks to it). Print a skip report of ROM-dependent upstream tests.
 - [ ] `scripts/check-upstream-tests.sh`: fail if any file under `crates/*/tests/` differs between `build/slot-upstream` and `build/slot`, and fail if any `#[cfg(test)] mod` block in a patched src file differs. Print `upstream test code: 0 blocks changed` on success.
 - [ ] `SLOT_REQUIRE_CORES=1` is the single project-level env flag, read only by this repo's tests.
+- [ ] The upstream-test guard diffs build/slot against build/slot-upstream (two plain trees), not against a git baseline.
 
 ## Tests
 | ID | File | Asserts |
