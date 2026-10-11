@@ -11,6 +11,7 @@ depends_on: [09-canvas, 04-fceumm-core-build]
 Install and update must work exactly like slot: unzip, copy to the SD root, boot; an update replaces `System/` and keeps `Config/` (docs/PLAN.md Spec success 5, Build steps 27, 28). A GPL-3 corresponding-source tarball goes with every release.
 
 ## Scope
+- [ ] `dist:device` fails unless every core's shippable set exists together: `.so`, `.so.meta`, source tarball, `-src.meta` and licence files (for fceumm: `vendor/fceumm_libretro.so`, `.so.meta`, `fceumm-src.tar.gz`, `fceumm-src.meta`, `licenses/fceumm-GPL-2.0.txt`, `licenses/fceumm-headerless-files.txt`).
 - [ ] `task dist:device`: run `task -d build/slot dist:device` (through `scripts/device-sh.sh`), then copy `fceumm_libretro.so`, its `.meta`, its source tarball and licence into `System/` and `System/licenses/`.
 - [ ] `task src-tarball`: `slot-nes-snes-src-<tag>.tar.gz` (`git -C work/slot archive` at the exported HEAD, plus this repo), also copied into `System/licenses/`.
 - [ ] `task zip`: `slot-nes-snes-v1.6.0-ns.N-h700.zip` with one top folder of the same name, laid out like slot's release zip (`System/`, `BIOS/`, `Config/`, `Games/{GBA,GB,GBC,NES}/`, `Labels/`, `Saves/`, `States/`, `Wallpapers/`).
