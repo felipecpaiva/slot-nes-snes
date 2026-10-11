@@ -46,9 +46,9 @@ awk '
 		l = tolower(line)
 		rom = l ~ /(^|[^a-z])(carts?|roms?|cards?|bios)([^a-z]|$)/
 		tag = ""
-		if (!rom && l ~ /dylib|libretro|core/) tag = "CORE MISSING "
+		if (!rom && l ~ /(^|[^a-z])(dylib|libretro|cores?)([^a-z]|$)/) tag = "CORE MISSING "
 		else if (l ~ /zbarimg/) tag = "[tool] "
-		else if (l ~ /bootlogo/) tag = "[asset] "
+		else if (tolower($0) ~ /bootlogo/) tag = "[asset] "
 		n[tag bin ": " line]++
 	}
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
