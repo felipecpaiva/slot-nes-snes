@@ -21,6 +21,7 @@ sha256() {
 stamp() {
 	echo "slot_commit=$commit"
 	echo "source=$source_url"
+	echo "tarball_sha256=$tarball_sha256"
 }
 
 fetch() {
