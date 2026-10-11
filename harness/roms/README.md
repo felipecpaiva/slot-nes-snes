@@ -19,6 +19,31 @@ repository at the version below. Licences were read from the primary source on 2
   https://github.com/pinobatch/240p-test-mini.
 - cgb-acid2: the repository `LICENSE` is the MIT licence, copyright 2020 Matt Currie.
 
+## Source and written offer (GPL-2.0-or-later)
+
+`240pee_mb.gba` and `gb240p.gb` are redistributed here in binary form under the GNU General
+Public License, version 2 or later. Their complete corresponding source is shipped in this
+repository as `LICENSES/240p-test-mini-v0.23-source.tar.gz`, the GitHub archive of tag v0.23
+(commit `019a524b6b042c1ea1c2e8414e79f152d5997ab3`, recorded in the archive header and matching
+`git ls-remote https://github.com/pinobatch/240p-test-mini refs/tags/v0.23`).
+sha256 `3c01ab1264248c91c5783d110fb347bb9377fdc36f2cefb957a74af0fa291fdc`, identical from
+`github.com/.../archive/refs/tags/v0.23.tar.gz` and `codeload.github.com/.../tar.gz/refs/tags/v0.23`.
+
+Written offer: for at least three years from the date a binary was last distributed from this
+repository, we will give anyone who asks a complete machine-readable copy of the corresponding
+source of these two programs, for no more than the cost of physically performing the copy. Ask by
+opening an issue on this repository. The tarball above is that source today, so the offer is
+already met for as long as it stays in the repository.
+
+`cgb-acid2.gbc` is MIT licensed and needs no source offer; its licence text is kept in `LICENSES/`.
+
+## Generated at run time
+
+`harness/make_assets.py` builds two things into a temporary copy of the harness root, and neither
+is committed: a DMG-only cart `zdmg-blank.gb` (the GB palette option only applies to DMG-only
+carts, and the three carts above all declare CGB support) made from the Nintendo logo bytes of
+`gb240p.gb` and zeros, and the large label PNGs used by `task harness:inject`.
+
 ## Notes
 
 - `240pee_mb.gba` is a multiboot image. mGBA and gpSP both run it as a cartridge, which the

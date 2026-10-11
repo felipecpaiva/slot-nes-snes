@@ -10,7 +10,9 @@ use slot::session::Session;
 use slot_gfx::{Compositor, HeadlessSurface};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::{Power, SimPlatform};
+use slot_store::Shader;
 
+const LEGS: [&str; 2] = ["H1", "H2"];
 const FPS: f64 = 60.0;
 const CLOCK: i64 = 1_790_784_000;
 const SETTLE: u32 = 120;
@@ -19,7 +21,7 @@ const CORE_TIMEOUT: Duration = Duration::from_secs(5);
 const LABEL_TIMEOUT: Duration = Duration::from_secs(60);
 const LOCK_AFTER: Duration = Duration::from_millis(23);
 const LOCK_BEFORE: Duration = Duration::from_micros(24500);
-const TICK_GAP: Duration = Duration::from_millis(15);
+const TICK_GAP: Duration = Duration::from_millis(22);
 
 fn die(why: &str) -> ! {
     eprintln!("frame_dump: {why}");
@@ -132,6 +134,10 @@ trait Rig {
     fn app(&self) -> &App;
     fn after(&mut self, leg: &str, frame: u64, running: bool);
     fn mark(&mut self, leg: &str, frame: u64);
+    fn rebuilding(&self) -> bool {
+        false
+    }
+    fn flush(&mut self) {}
 }
 
 const DT: f32 = (1.0 / FPS) as f32;
@@ -209,13 +215,14 @@ impl Rig for CoreRig {
 }
 
 struct CompositeRig {
+    pending: Vec<(String, Vec<u8>)>,
     frontend: Frontend,
     compositor: Compositor,
     _surface: HeadlessSurface,
 }
 
 impl CompositeRig {
-    fn boot(root: &Path) -> Self {
+    fn boot(root: &Path, wait: bool) -> Self {
         let surface =
             HeadlessSurface::new().unwrap_or_else(|e| die(&format!("headless GL: {e:?}")));
         let mut compositor =
@@ -224,11 +231,14 @@ impl CompositeRig {
         frontend.upload_faces(&mut compositor);
         frontend.drive_emulator();
         let mut rig = CompositeRig {
+            pending: Vec::new(),
             frontend,
             compositor,
             _surface: surface,
         };
-        rig.wait_for_labels(root);
+        if wait {
+            rig.wait_for_labels(root);
+        }
         rig
     }
 
@@ -253,6 +263,10 @@ impl CompositeRig {
             self.frontend.compose(&mut self.compositor);
             std::thread::sleep(Duration::from_millis(2));
         }
+        eprintln!(
+            "frame_dump: label rebuild took {} ms",
+            began.elapsed().as_millis()
+        );
     }
 }
 
@@ -278,10 +292,18 @@ impl Rig for CompositeRig {
     }
 
     fn mark(&mut self, leg: &str, frame: u64) {
-        println!(
-            "{leg} {frame} composite {}",
-            sha256(&self.compositor.read_frame())
-        );
+        let pixels = self.compositor.read_frame();
+        self.pending.push((format!("{leg} {frame}"), pixels));
+    }
+
+    fn flush(&mut self) {
+        for (key, pixels) in self.pending.drain(..) {
+            println!("{key} composite {}", sha256(&pixels));
+        }
+    }
+
+    fn rebuilding(&self) -> bool {
+        self.frontend.rebuilding_labels()
     }
 }
 
@@ -294,6 +316,18 @@ fn running(app: &App) -> bool {
 
 fn playing(app: &App) -> bool {
     matches!(app.phase(), Phase::Playing { .. })
+}
+
+fn inserting(app: &App) -> bool {
+    matches!(app.phase(), Phase::Inserting { .. })
+}
+
+fn ejecting(app: &App) -> bool {
+    matches!(app.phase(), Phase::Ejecting { .. })
+}
+
+fn palette_live(app: &App) -> bool {
+    app.palette_live()
 }
 
 fn on_shelf(app: &App) -> bool {
@@ -380,6 +414,22 @@ impl<R: Rig> Run<R> {
         self.rig.mark(self.leg, self.frame);
     }
 
+    fn must(&self, what: &str, holds: fn(&App) -> bool) {
+        if !holds(self.rig.app()) {
+            die(&format!("{} {}: expected {what}", self.leg, self.frame));
+        }
+    }
+
+    fn chord(&mut self, held: Btn, pressed: Btn) {
+        self.input.0.push(RawEvent::Down(held));
+        self.wait(2);
+        self.input.0.push(RawEvent::Down(pressed));
+        self.wait(2);
+        self.input.0.push(RawEvent::Up(pressed));
+        self.input.0.push(RawEvent::Up(held));
+        self.wait(6);
+    }
+
     fn drive(&mut self, frames: u32) {
         for i in 0..frames {
             match i % 100 {
@@ -400,17 +450,167 @@ impl<R: Rig> Run<R> {
         }
     }
 
-    fn visit(&mut self, frames: u32) {
+    fn enter(&mut self) {
         self.tap(Btn::A, 6);
+        self.until("the insert to start", inserting);
+        self.wait(8);
+        self.must("the insert to be under way", inserting);
+        self.mark("mid insert");
         self.until("the game to play", playing);
         self.wait(SETTLE);
         self.mark("in game steady");
-        self.drive(frames);
-        self.mark("in game after input");
-        self.tap(Btn::Menu, 70);
+    }
+
+    fn leave(&mut self) {
+        self.input.0.push(RawEvent::Down(Btn::Menu));
+        self.until("the eject to start", ejecting);
+        self.wait(12);
+        self.must("the eject to be under way", ejecting);
+        self.mark("mid eject");
+        self.input.0.push(RawEvent::Up(Btn::Menu));
         self.until("the shelf after the eject", on_shelf);
         self.wait(SETTLE);
         self.mark("after eject");
+    }
+
+    fn shaders(&mut self, count: usize) {
+        let first = self.rig.app().screen_shader();
+        let mut last = first;
+        for _ in 0..count {
+            self.chord(Btn::Select, Btn::A);
+            let now = self.rig.app().screen_shader();
+            if now == last {
+                die(&format!(
+                    "{} {}: the shader did not change",
+                    self.leg, self.frame
+                ));
+            }
+            last = now;
+            self.mark("shader");
+        }
+        if last != first {
+            die(&format!(
+                "{} {}: the shaders did not cycle round",
+                self.leg, self.frame
+            ));
+        }
+    }
+
+    fn picture(&mut self, owned: bool) {
+        let start = self.rig.app().source_rect();
+        self.tap(Btn::L1, 6);
+        self.wait(6);
+        let stretched = self.rig.app().source_rect();
+        self.mark("l1 picture");
+        self.tap(Btn::R1, 6);
+        self.wait(6);
+        let actual = self.rig.app().source_rect();
+        self.mark("r1 picture");
+        if owned && (stretched == actual || actual != start) {
+            die(&format!(
+                "{} {}: L1 and R1 did not change the picture",
+                self.leg, self.frame
+            ));
+        }
+    }
+
+    fn adjustments(&mut self) {
+        for _ in 0..3 {
+            self.chord(Btn::Select, Btn::Right);
+        }
+        self.mark("blue light up");
+        for _ in 0..3 {
+            self.chord(Btn::Select, Btn::Left);
+        }
+    }
+
+    fn buttons(&mut self) {
+        self.tap(Btn::Start, 6);
+        self.wait(10);
+        self.mark("start");
+        self.tap(Btn::Select, 6);
+        self.wait(12);
+        self.mark("select");
+    }
+
+    fn states(&mut self) {
+        self.wait(2);
+        self.chord(Btn::Select, Btn::R1);
+        self.wait(10);
+        self.mark("state saved");
+        self.tap(Btn::Down, 6);
+        self.tap(Btn::A, 6);
+        self.wait(30);
+        self.mark("after more input");
+        self.chord(Btn::Select, Btn::L1);
+        self.wait(10);
+        self.mark("state loaded");
+    }
+
+    fn in_game(&mut self, shaders: usize, owned: bool, frames: u32) {
+        self.shaders(shaders);
+        self.adjustments();
+        self.picture(owned);
+        self.buttons();
+        self.drive(frames);
+        self.mark("in game after input");
+        self.states();
+    }
+
+    fn quick_menu(&mut self) {
+        self.tap(Btn::Menu, 6);
+        self.wait(60);
+        self.mark("quick menu steady");
+        self.tap(Btn::A, 6);
+        self.wait(30);
+        self.mark("quick screen rows");
+        self.tap(Btn::Right, 6);
+        self.wait(10);
+        self.mark("quick shader stepped");
+        self.tap(Btn::Left, 6);
+        self.wait(10);
+        self.tap(Btn::B, 6);
+        self.tap(Btn::Menu, 6);
+        self.wait(30);
+    }
+
+    fn screen_row(&mut self, downs: u32, what: &str) {
+        self.tap(Btn::Menu, 6);
+        self.wait(30);
+        self.tap(Btn::A, 6);
+        self.wait(10);
+        for _ in 0..downs {
+            self.tap(Btn::Down, 6);
+            self.wait(4);
+        }
+        self.tap(Btn::Right, 6);
+        self.wait(10);
+        self.mark(what);
+        self.tap(Btn::B, 6);
+        self.tap(Btn::Menu, 6);
+        self.wait(30);
+    }
+
+    fn colour_visit(&mut self) {
+        self.screen_row(2, "colour correction on");
+        self.enter();
+        self.drive(60);
+        self.mark("colour correction in game");
+        self.leave();
+    }
+
+    fn palette_visit(&mut self) {
+        self.tap(Btn::Right, 6);
+        self.wait(SETTLE);
+        self.mark("dmg cart selected");
+        self.enter();
+        self.must("the palette to be live", palette_live);
+        for _ in 0..2 {
+            self.chord(Btn::Select, Btn::R2);
+            self.wait(10);
+            self.mark("palette");
+        }
+        self.leave();
     }
 
     fn leg(&mut self) {
@@ -418,23 +618,30 @@ impl<R: Rig> Run<R> {
         self.mark("shelf idle");
         match self.leg {
             "H1" => {
-                self.tap(Btn::Menu, 6);
-                self.wait(60);
-                self.mark("quick menu steady");
-                self.tap(Btn::Menu, 6);
-                self.wait(30);
-                self.visit(600);
+                self.quick_menu();
+                self.enter();
+                self.in_game(Shader::GBA.len(), false, 600);
+                self.leave();
+                self.colour_visit();
             }
-            _ => {
+            "H2" => {
                 self.tap(Btn::R1, 6);
                 self.wait(SETTLE);
                 self.mark("gb shelf idle");
-                self.visit(300);
+                self.enter();
+                self.in_game(Shader::GB.len(), true, 300);
+                self.leave();
+                self.screen_row(3, "gb palettes on");
+                self.palette_visit();
                 self.tap(Btn::R1, 6);
                 self.wait(SETTLE);
                 self.mark("gbc shelf idle");
-                self.visit(300);
+                self.screen_row(2, "colour correction on");
+                self.enter();
+                self.in_game(Shader::GB.len(), true, 300);
+                self.leave();
             }
+            other => die(&format!("no script for leg {other}")),
         }
     }
 }
@@ -448,6 +655,48 @@ fn run<R: Rig>(rig: R, leg: &'static str) {
         stepped: None,
     };
     run.leg();
+    run.rig.flush();
+}
+
+fn cold(root: &Path) {
+    let mut run = Run {
+        rig: CompositeRig::boot(root, false),
+        leg: "COLD",
+        input: Scripted::default(),
+        frame: 0,
+        stepped: None,
+    };
+    let stale = label_cache::stale(root, run.rig.frontend.app().carts()).len();
+    eprintln!("frame_dump: label cache is cold, {stale} labels hashed without a wait");
+    let began = Instant::now();
+    let (mut rebuilt, mut settled) = (stale == 0, 0);
+    while settled < SETTLE {
+        if began.elapsed() > LABEL_TIMEOUT {
+            die("the label rebuild never finished");
+        }
+        run.frame();
+        run.rig.mark(run.leg, run.frame);
+        run.rig.flush();
+        rebuilt |= run.rig.rebuilding();
+        if rebuilt && !run.rig.rebuilding() {
+            settled += 1;
+        }
+    }
+    eprintln!(
+        "frame_dump: cold boot hashed {} frames in {} ms",
+        run.frame,
+        began.elapsed().as_millis()
+    );
+}
+
+fn known(leg: &str) -> &'static str {
+    match LEGS.iter().find(|known| **known == leg) {
+        Some(known) => known,
+        None => die(&format!(
+            "unknown leg {leg}, the legs are {}",
+            LEGS.join(" ")
+        )),
+    }
 }
 
 fn warm(root: &Path) {
@@ -468,12 +717,13 @@ fn main() {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
         ["warm", root] => warm(Path::new(root)),
-        ["core", "H1", root] => run(CoreRig::boot(Path::new(root)), "H1"),
-        ["core", "H2", root] => run(CoreRig::boot(Path::new(root)), "H2"),
-        ["composite", "H1", root] => run(CompositeRig::boot(Path::new(root)), "H1"),
-        ["composite", "H2", root] => run(CompositeRig::boot(Path::new(root)), "H2"),
+        ["core", leg, root] => run(CoreRig::boot(Path::new(root)), known(leg)),
+        ["composite", "--no-wait", root] => cold(Path::new(root)),
+        ["composite", leg, root] => run(CompositeRig::boot(Path::new(root), true), known(leg)),
         _ => {
-            eprintln!("usage: frame_dump (core|composite) (H1|H2) ROOT | frame_dump warm ROOT");
+            eprintln!(
+                "usage: frame_dump (core|composite) LEG ROOT | frame_dump composite --no-wait ROOT | frame_dump warm ROOT"
+            );
             exit(2)
         }
     }

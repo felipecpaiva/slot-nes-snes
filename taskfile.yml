@@ -128,6 +128,7 @@ tasks:
       - sh scripts/check-upstream-tests.sh
       - task: harness:control
       - task: harness:compare
+      - task: harness:inject
 
   fmt:check:
     desc: Run rustfmt --check on every .rs file we add or change in build/slot
@@ -146,19 +147,25 @@ tasks:
       - sh scripts/harness.sh warm
 
   harness:control:
-    desc: Run every harness leg twice in each tree and fail on any differing frame hash, then record that the control passed
+    desc: Run every harness leg twice in each tree and fail on any differing frame hash or on patched retries above upstream's plus one, then record that the control passed. Needs a mostly idle machine, a busy one fails closed
     deps: [upstream:build, build]
     cmds:
       - sh scripts/harness.sh control
 
   harness:compare:
-    desc: Run every harness leg in upstream and patched and fail on any differing frame hash, refuses until harness:control passed for the current inputs
+    desc: Run every harness leg twice in upstream and twice in patched and fail unless all four runs are identical, refuses until harness:control passed for the current inputs. Needs a mostly idle machine, a busy one fails closed
     deps: [upstream:build, build]
     cmds:
       - sh scripts/harness.sh compare
 
+  harness:inject:
+    desc: Prove the harness can fail, a cold cache of large generated labels hashed from frame 1 without the label wait must report diffs, and with the wait 0
+    deps: [upstream:build, build]
+    cmds:
+      - sh scripts/harness.sh inject
+
   bench:compare:
-    desc: Run core_bench for mgba and gpsp on harness/roms in both trees and fail if a patched median is over 2% above upstream's
+    desc: Run core_bench for mgba and gpsp on harness/roms in both trees and fail if the patched minimum of the repeat medians is over 2% above upstream's
     deps: [upstream:build, build]
     cmds:
       - sh scripts/bench-compare.sh
