@@ -31,6 +31,14 @@ slot builds mGBA from a pinned upstream commit plus a few `.patch` files. This r
 thing to slot: a pinned slot release, plus the patches in `patches/`, built into a replacement
 `System/slot` with the extra cores.
 
+## Setup
+
+```sh
+brew install mise colima docker
+mise trust && mise install   # in the repo: rust 1.96, task, cmake 3.x
+colima start
+```
+
 ## Status
 
 Planned. No patches yet. Work starts with Phase 1 of [docs/PLAN.md](docs/PLAN.md).

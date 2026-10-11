@@ -40,3 +40,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [34](34-deferred-pal-pacing.md) | DEFERRED: Pace PAL titles at 50 Hz | 6 | video | chore | M | 32-phase-6-deferred |
 | [35](35-deferred-stem-key-collision.md) | DEFERRED: Fix the stem-key collision in selected_core.txt, video_mode.txt and cart_shell.txt | 6 | platform | chore | M | 32-phase-6-deferred |
 | [36](36-deferred-option-b-video.md) | DEFERRED: Move to Option B variable frame size for true SNES hi-res | 6 | video | chore | L | 32-phase-6-deferred |
+| [38](38-dev-tools-mise.md) | Pin the developer toolchain with mise | 1 | infra | chore | S | none |
