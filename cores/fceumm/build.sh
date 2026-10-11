@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fetch, verify and build libretro-fceumm from its pinned source tarball. The tarball is the
-# GPL-2.0 corresponding source and ships beside the core. OUT ending .dylib builds for macOS,
+# corresponding source (see LICENSING.md) and ships beside the core. OUT ending .dylib builds for macOS,
 # OUT ending .so builds for the device (run it through scripts/device-sh.sh).
 set -eu
 
@@ -10,7 +10,7 @@ root="$(cd "$here/../.." && pwd)"
 device_cflags="-mcpu=cortex-a53"
 
 usage() {
-	echo "usage: $0 fetch COMMIT TARBALL | stamp COMMIT host|device | build COMMIT TARBALL WORKDIR OUT" >&2
+	echo "usage: $0 fetch COMMIT TARBALL | builder | stamp COMMIT host|device | build COMMIT TARBALL WORKDIR OUT" >&2
 	exit 2
 }
 
@@ -33,7 +33,26 @@ verify() {
 	got="$(sha256 "$1")"
 	if [ "$got" != "$fceumm_tarball_sha256" ]; then
 		echo "slot-nes-snes: $1 has sha256 $got, SLOT_PIN wants $fceumm_tarball_sha256" >&2
+		echo "slot-nes-snes: delete vendor/fceumm-src.* and run task core:fceumm:src" >&2
 		exit 1
+	fi
+}
+
+# What built the core: the container image and its digest for the device, the host cc otherwise.
+# FCEUMM_BUILDER is set by the caller (device-sh.sh passes it in), because docker is not
+# available inside the container.
+builder() {
+	if [ "$1" = host ]; then
+		cc --version | head -1
+	elif [ -n "${FCEUMM_BUILDER:-}" ]; then
+		echo "$FCEUMM_BUILDER"
+	elif [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
+		cc --version | head -1
+	else
+		image=rust:1-bullseye
+		digest="$(docker image inspect --format '{{index .RepoDigests 0}}' $image 2>/dev/null ||
+			{ docker pull -q $image >/dev/null && docker image inspect --format '{{index .RepoDigests 0}}' $image; })"
+		echo "$image $digest"
 	fi
 }
 
@@ -42,6 +61,8 @@ stamp() {
 	echo "commit=$1"
 	echo "source=https://github.com/libretro/libretro-fceumm/archive/$1.tar.gz"
 	echo "source_sha256=$fceumm_tarball_sha256"
+	echo "git_version=-$(printf %s "$1" | cut -c1-7)"
+	echo "builder=$(builder "$2")"
 	case "$2" in
 	host) echo "recipe=make -f Makefile.libretro platform=osx" ;;
 	device)
@@ -55,8 +76,9 @@ stamp() {
 fetch() {
 	pin "$1"
 	mkdir -p "$(dirname "$2")"
-	curl -fsSL -o "$2" "https://github.com/libretro/libretro-fceumm/archive/$1.tar.gz"
-	verify "$2"
+	curl -fsSL -o "$2.part" "https://github.com/libretro/libretro-fceumm/archive/$1.tar.gz"
+	(verify "$2.part") || { rm -f "$2.part"; exit 1; }
+	mv "$2.part" "$2"
 }
 
 build() {
@@ -66,10 +88,15 @@ build() {
 	verify "$tarball"
 
 	case "$out" in
-	*.dylib) kind=host platform=osx want='Mach-O 64-bit dynamically linked shared library arm64' ;;
+	*.dylib) kind=host platform=osx want="Mach-O 64-bit.*shared library.*$(uname -m)" ;;
 	*.so) kind=device platform=unix want='ELF 64-bit LSB shared object, ARM aarch64' ;;
 	*) usage ;;
 	esac
+
+	command -v make >/dev/null 2>&1 || {
+		echo "slot-nes-snes: make is not installed; install it (macOS: xcode-select --install)" >&2
+		exit 1
+	}
 
 	rm -rf "$work"
 	mkdir -p "$work"
@@ -80,7 +107,6 @@ build() {
 	fi
 
 	if [ "$kind" = device ]; then
-		command -v make >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq build-essential; }
 		CFLAGS="$device_cflags" CXXFLAGS="$device_cflags" make -C "$src" -f Makefile.libretro \
 			platform=$platform GIT_VERSION="-$(printf %s "$rev" | cut -c1-7)" \
 			-j"$(getconf _NPROCESSORS_ONLN)"
@@ -92,19 +118,29 @@ build() {
 
 	built="$src/fceumm_libretro.${out##*.}"
 	if ! file "$built" | grep -q "$want"; then
-		echo "slot-nes-snes: $built is not '$want': $(file "$built")" >&2
+		echo "slot-nes-snes: $built does not match '$want' (host arch is $(uname -m)), got: $(file "$built")" >&2
 		exit 1
 	fi
 
 	mkdir -p "$(dirname "$out")"
 	cp "$built" "$out"
 	stamp "$rev" "$kind" >"$out.meta"
+	if [ "$kind" = device ]; then
+		{
+			cat "$out.meta"
+			echo "tarball=$(basename "$tarball")"
+			echo "tarball_sha256=$(sha256 "$tarball")"
+		} >"$(dirname "$tarball")/fceumm-src.meta"
+	fi
 }
 
 case "${1:-}" in
 fetch)
 	[ $# -eq 3 ] && [ -n "$2" ] && [ -n "$3" ] || usage
 	fetch "$2" "$3"
+	;;
+builder)
+	builder device
 	;;
 stamp)
 	[ $# -eq 3 ] && [ -n "$2" ] || usage

@@ -13,5 +13,11 @@ if [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
 	sh -c "$1"
 else
 	root="$(cd "$(dirname "$0")/.." && pwd)"
-	docker run --rm -v "$root":/src -w /src rust:1-bullseye sh -c "$1"
+	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e FCEUMM_BUILDER \
+		-v "$root":/src -w /src rust:1-bullseye sh -c '
+		test -f /src/scripts/device-sh.sh || {
+			echo "repo path not visible inside docker; under colima keep the repo under your home directory" >&2
+			exit 1
+		}
+		'"$1"
 fi

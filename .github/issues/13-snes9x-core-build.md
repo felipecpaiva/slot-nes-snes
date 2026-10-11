@@ -11,6 +11,7 @@ depends_on: [04-fceumm-core-build]
 snes9x is the SNES default core (docs/DECISIONS.md). It is licensed for non-commercial use only and is not GPL-compatible, so the licence stance must be written down and shipped (docs/PLAN.md Phase 2 deliverables, Spec "Who it's NOT for", docs/RESEARCH.md "Licence").
 
 ## Scope
+- [ ] Before adding the second core, move the shared parts of cores/fceumm/build.sh (fetch, verify, stamp, file assertion) into cores/lib.sh and make the per-core script set only variables.
 - [ ] `cores/snes9x/build.sh` (same shape as `cores/fceumm/build.sh`): build in `libretro/`; device `platform=unix` with `-mcpu=cortex-a53`; host `platform=osx`; binary-type assertion; `.meta` stamp; source tarball.
 - [ ] `task core:host` and `task core:device` extended with snes9x; `task dist:device` copies `snes9x_libretro.so`, `.meta`, source and licence.
 - [ ] `licenses/snes9x-LICENSE.txt` verbatim from the pinned source.
