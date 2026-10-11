@@ -4,12 +4,18 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$root/work/slot"
 
+. "$root/scripts/lib.sh"
+
 usage() {
 	echo "usage: $0" >&2
 	exit 2
 }
 
 resume() {
+	if ! own_repo "$work"; then
+		echo "slot-nes-snes: $work is not a git checkout, run task work:init" >&2
+		exit 1
+	fi
 	if ! git -C "$work" rev-parse -q --verify HEAD >/dev/null; then
 		echo "slot-nes-snes: $work has no commits, run task work:init first" >&2
 		exit 1

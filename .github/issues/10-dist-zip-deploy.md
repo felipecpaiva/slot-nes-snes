@@ -17,7 +17,7 @@ Install and update must work exactly like slot: unzip, copy to the SD root, boot
 - [ ] `scripts/zip-check.sh`: one top folder; `file | grep aarch64` for `slot` and every core present; licences, `.meta` and source tarballs present.
 - [ ] `task deploy:device` (adb push of the extra cores, chmod, reboot) and `task log:device`.
 - [ ] `LICENSING.md`: GPL-3 source offer pointing at the tarball.
-- [ ] Make `build/<tree>/vendor` resolve inside the docker device build (the symlink from issue 02 is absolute).
+- [ ] Make `build/<tree>/vendor` resolve inside the docker device build (the symlink from issue 02 is relative, `../../vendor`, so check that it still resolves inside the docker mount).
 
 ## Tests
 | ID | File | Asserts |

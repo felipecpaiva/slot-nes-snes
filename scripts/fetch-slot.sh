@@ -3,10 +3,8 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-. "$root/SLOT_PIN"
-: "${tag:?SLOT_PIN lacks tag}"
-: "${commit:?SLOT_PIN lacks commit}"
-: "${tarball_sha256:?SLOT_PIN lacks tarball_sha256}"
+. "$root/scripts/lib.sh"
+read_pin
 
 source_url="https://github.com/BrandonKowalski/slot/archive/$commit.tar.gz"
 tarball="$root/build/slot-$commit.tar.gz"
@@ -42,7 +40,7 @@ fetch() {
 		exit 1
 	fi
 
-	if git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 &&
+	if own_repo "$dir" && git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 &&
 		{ [ "$(git -C "$dir" rev-list --count HEAD)" != 1 ] || [ -n "$(git -C "$dir" status --porcelain)" ]; }; then
 		echo "slot-nes-snes: $dir has commits or changes beyond the base, refusing to delete it" >&2
 		exit 1
@@ -50,7 +48,21 @@ fetch() {
 	rm -rf "$dir" "$dir.meta"
 	mkdir -p "$dir" "$root/vendor"
 	tar -xzf "$tarball" -C "$dir" --strip-components=1
-	ln -s "$root/vendor" "$dir/vendor"
+	abs="$(cd "$dir" && pwd -P)"
+	rootp="$(cd "$root" && pwd -P)"
+	link="$root/vendor"
+	case $abs in
+	"$rootp"/*)
+		rel="${abs#"$rootp"/}"
+		up=
+		while [ -n "$rel" ]; do
+			up="../$up"
+			case $rel in */*) rel="${rel#*/}" ;; *) rel= ;; esac
+		done
+		link="${up}vendor"
+		;;
+	esac
+	ln -s "$link" "$dir/vendor"
 	stamp >"$dir.meta"
 }
 

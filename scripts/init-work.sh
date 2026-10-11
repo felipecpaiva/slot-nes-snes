@@ -4,7 +4,8 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$root/work/slot"
 
-. "$root/SLOT_PIN"
+. "$root/scripts/lib.sh"
+read_pin
 
 usage() {
 	echo "usage: $0" >&2
@@ -19,6 +20,7 @@ init() {
 	short="$(printf %s "$commit" | cut -c1-7)"
 	sh "$root/scripts/fetch-slot.sh" fetch "$work"
 	git -C "$work" init -q -b nes-snes
+	own_repo "$work" || { echo "slot-nes-snes: git init did not make $work its own repo" >&2; exit 1; }
 	git -C "$work" add -A -f -- . ':!vendor'
 	GIT_AUTHOR_NAME=slot-nes-snes GIT_COMMITTER_NAME=slot-nes-snes \
 		GIT_AUTHOR_EMAIL=slot-nes-snes@users.noreply.github.com \

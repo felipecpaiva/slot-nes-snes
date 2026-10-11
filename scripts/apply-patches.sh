@@ -2,6 +2,7 @@
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/scripts/lib.sh"
 
 usage() {
 	echo "usage: $0 stamp | build DIR" >&2
@@ -46,6 +47,7 @@ build() {
 		exit 1
 	fi
 	git init -q "$dir"
+	own_repo "$dir" || { echo "slot-nes-snes: git init did not make $dir its own repo" >&2; exit 1; }
 	for p in "$root"/patches/*.patch; do
 		[ -f "$p" ] || continue
 		want="$(grep -c '^diff --git ' "$p" || true)"
@@ -55,7 +57,7 @@ build() {
 			fail "$p"
 		fi
 		bad=0
-		out="$(git -C "$dir" apply --verbose "$p" 2>&1)" || bad=1
+		out="$(git -C "$dir" apply --whitespace=nowarn --verbose "$p" 2>&1)" || bad=1
 		case $out in *error:*) bad=1 ;; esac
 		if [ "$bad" = 1 ]; then
 			printf '%s\n' "$out" >&2

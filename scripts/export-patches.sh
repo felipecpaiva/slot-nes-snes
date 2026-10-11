@@ -5,6 +5,17 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$root/work/slot"
 branch="nes-snes"
 
+. "$root/scripts/lib.sh"
+
+if ! own_repo "$work"; then
+	echo "slot-nes-snes: $work is not a git checkout, run task work:init" >&2
+	exit 1
+fi
+if [ -n "$(git -C "$work" status --porcelain)" ]; then
+	echo "slot-nes-snes: $work has uncommitted changes, commit your work in work/slot first" >&2
+	exit 1
+fi
+
 if ! git -C "$work" rev-parse -q --verify "refs/heads/$branch" >/dev/null; then
 	echo "slot-nes-snes: $work has no $branch branch, run task work:init" >&2
 	exit 1
