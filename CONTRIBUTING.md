@@ -53,11 +53,15 @@ breaking it causes a conflict on most releases.
 ## 4. Rust style (match upstream exactly)
 
 - **Toolchain:** Rust 1.96 from `rust-toolchain.toml`. No nightly features.
-- **Format:** `cargo fmt --all`, default rustfmt settings. There is no `rustfmt.toml`; do
-  not add one.
-- **Lint:** `cargo clippy --workspace --all-targets -- -D warnings` and
-  `cargo clippy -p slot --no-default-features --features device -- -D warnings`. Zero
-  warnings. No `#[allow(...)]` unless upstream already has one at that spot.
+- **Format:** default rustfmt settings. There is no `rustfmt.toml`; do not add one.
+  `task fmt:check` runs `rustfmt --check` on every file we add or change, not the whole
+  tree.
+- **Lint:** `task lint` runs `cargo clippy --workspace --all-targets` and
+  `cargo clippy -p slot --no-default-features --features device` in both trees. We must add
+  zero warnings compared with upstream. No `#[allow(...)]` unless upstream already has one
+  at that spot.
+- **Why only new problems fail:** upstream's own `crates/slot/tests/prefetch.rs` fails fmt
+  and clippy on Rust 1.96.1, and upstream tests must not be edited.
 - **Comments: none.** Upstream has one comment line in its whole source tree, a
   `// SAFETY:` note. Names carry the meaning. The only comment allowed is `// SAFETY:`
   above every `unsafe` block you add, saying why it is sound. No doc comments (`///`), no
@@ -131,7 +135,8 @@ Match upstream's history:
 - Fill every section of the template (`.github/pull_request_template.md`). Paste real
   command output, not a summary of it.
 - A pull request is ready only when all of this is true:
-  - [ ] `task check` green (fmt, both clippy runs, all tests, `SLOT_REQUIRE_CORES=1`)
+  - [ ] `task check` green (fmt on files we add or change, no new clippy warnings in both runs, all tests,
+    `SLOT_REQUIRE_CORES=1`)
   - [ ] `scripts/check-upstream-tests.sh` green
   - [ ] `task harness:compare` 0 differing frames (when the change touches a shared path)
   - [ ] `task bench:compare` within 2% (when the change touches a hot path)
