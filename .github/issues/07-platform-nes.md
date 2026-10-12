@@ -19,9 +19,9 @@ NES gets a first-class shelf with `Games/NES`, `Labels/NES`, `Saves/NES`, `State
 - [ ] `Platform::SHELVES = [Gba, Gb, Gbc, Nes]` in `platform_policy.rs`; switch `slot: crates/slot-store/src/scan.rs:65`, `slot: crates/slot/src/app.rs:365` and `slot: crates/slot-store/src/slot_state.rs:240` to it.
 - [ ] `slot: crates/slot/src/root.rs` DIRS: add `Games/NES`, `Labels/NES`, `Saves/NES`, `States/NES` (`[&str; 20]` becomes `[&str; 24]`).
 - [ ] Title stays empty and the display name is the file stem (no NES header parse), even when the bytes look like a GB header.
-- [ ] Provisional shader arms: `slot: crates/slot/src/app.rs:1044-1047` and `:1407-1410` map Nes to `shader_gb` / `Shader::GB` (replaced in 21-shaders).
+- [ ] Provisional shader arms: `slot: crates/slot/src/app.rs:1046` and `:1409` map Nes to `shader_gb` / `Shader::GB` (replaced in 21-shaders).
 - [ ] Policy arms: `has_gb_palettes(Nes) = false`, `owns_shoulders(Nes) = true` (picture toggle like GB).
-- [ ] `slot: crates/slot/src/core.rs`: gpSP `runs(Nes) = false`; `default_for(Nes) = Mgba` as a temporary value that issue 08 replaces with Fceumm (never shipped on its own, patches ship together).
+- [ ] `slot: crates/slot-store/src/core.rs:49,56`: gpSP `runs(Nes) = false`; `default_for(Nes) = Mgba` as a temporary value that issue 08 replaces with Fceumm (never shipped on its own, patches ship together).
 - [ ] `slot: crates/slot-store/src/scan.rs`: explicit `Platform::Nes => {}` arm (no header parse).
 - [ ] `picker_cores(Nes) = None`.
 - [ ] Placeholder cart arms in `slot: crates/slot-ui/src/shell.rs:92`, `slot: crates/slot-ui/src/cart.rs:91,157,164`: GBA Spec, solid `#8c8c8c`.
@@ -57,4 +57,4 @@ None on its own; NES needs a core and the canvas to play. The phase device check
 
 ## References
 - docs/PLAN.md: Phase 1 deliverables (0002), Approach, Build steps 6, 7, 22, Signature impact table (`root::DIRS`), Consumer-grep evidence (`Platform::ALL`)
-- `slot: crates/slot-store/src/scan.rs:65`; `slot: crates/slot/src/app.rs:365,1044-1047,1407-1410`; `slot: crates/slot-store/src/slot_state.rs:240`; `slot: crates/slot-ui/src/shell.rs:92`; `slot: crates/slot-ui/src/cart.rs:91,157,164`
+- `slot: crates/slot-store/src/scan.rs:65`; `slot: crates/slot/src/app.rs:365,1046,1409`; `slot: crates/slot-store/src/slot_state.rs:240`; `slot: crates/slot-ui/src/shell.rs:92`; `slot: crates/slot-ui/src/cart.rs:91,157,164`
