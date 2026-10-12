@@ -3,6 +3,8 @@
 #   repo      upstream repository name under github.com/libretro                (libretro-fceumm)
 #   makefile  makefile to pass with -f, empty for the default                   (Makefile.libretro)
 #   subdir    directory of the makefile inside the source, empty for the root   (libretro)
+#   device_ldflags  optional, extra LDFLAGS for the device build only. A C++ core sets
+#             "-static-libstdc++ -static-libgcc" because the handheld's OS may lack libstdc++.so.6
 # then calls core_main "$@". SLOT_PIN holds <core>_commit and <core>_tarball_sha256. The tarball is
 # the corresponding source (see LICENSING.md) and ships beside the core. OUT ending .dylib builds for
 # macOS, OUT ending .so builds for the device (run it through scripts/device-sh.sh).
@@ -10,9 +12,10 @@ set -eu
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 device_cflags="-mcpu=cortex-a53"
+device_ldflags="${device_ldflags:-}"
 
 usage() {
-	echo "usage: $0 fetch COMMIT TARBALL | builder | stamp COMMIT host|device | build COMMIT TARBALL WORKDIR OUT" >&2
+	echo "usage: $0 fetch COMMIT TARBALL | builder | stamp COMMIT host|device | srcmeta COMMIT TARBALL | build COMMIT TARBALL WORKDIR OUT" >&2
 	exit 2
 }
 
@@ -75,9 +78,17 @@ stamp() {
 	device)
 		echo "recipe=$(recipe unix)"
 		echo "device_cflags=$device_cflags"
+		[ -z "$device_ldflags" ] || echo "device_ldflags=$device_ldflags"
 		;;
 	*) usage ;;
 	esac
+}
+
+# The device stamp plus the tarball it was built from: what vendor/<core>-src.meta must hold.
+srcmeta() {
+	stamp "$1" device
+	echo "tarball=$(basename "$2")"
+	echo "tarball_sha256=$pin_sha"
 }
 
 fetch() {
@@ -117,6 +128,7 @@ build() {
 	# CFLAGS and CXXFLAGS come in through the environment so the makefiles' += keeps them.
 	if [ "$kind" = device ]; then
 		export CFLAGS="$device_cflags" CXXFLAGS="$device_cflags"
+		[ -z "$device_ldflags" ] || export LDFLAGS="$device_ldflags"
 	fi
 	make -C "$mdir" ${makefile:+-f "$makefile"} platform=$platform \
 		GIT_VERSION="-$(printf %s "$rev" | cut -c1-7)" \
@@ -132,11 +144,7 @@ build() {
 	cp "$built" "$out"
 	stamp "$rev" "$kind" >"$out.meta"
 	if [ "$kind" = device ]; then
-		{
-			cat "$out.meta"
-			echo "tarball=$(basename "$tarball")"
-			echo "tarball_sha256=$(sha256 "$tarball")"
-		} >"$(dirname "$tarball")/$core-src.meta"
+		srcmeta "$rev" "$tarball" >"$(dirname "$tarball")/$core-src.meta"
 	fi
 }
 
@@ -148,6 +156,10 @@ core_main() {
 		;;
 	builder)
 		builder device
+		;;
+	srcmeta)
+		[ $# -eq 3 ] && [ -n "$2" ] && [ -n "$3" ] || usage
+		srcmeta "$2" "$3"
 		;;
 	stamp)
 		[ $# -eq 3 ] && [ -n "$2" ] || usage

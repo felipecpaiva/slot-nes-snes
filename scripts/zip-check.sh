@@ -26,8 +26,18 @@ zip="$1"
 }
 
 failed=0
+seen=
+# Each distinct message prints once, however many checks reach it.
 bad() {
-	echo "zip-check: $*" >&2
+	case "$seen" in *"
+$*
+"*) ;; *)
+		seen="$seen
+$*
+"
+		echo "zip-check: $*" >&2
+		;;
+	esac
 	failed=1
 }
 
@@ -137,6 +147,33 @@ if [ -f "$lic/cores.sha256" ]; then
 			bad "System/${core}_libretro.so does not match the sha256 in licenses/cores.sha256"
 	done
 fi
+
+# Shipped licence and source files are checked by content, not just by name: each licence file we
+# keep in licenses/ and each patch must be byte-equal to the repo copy, each core's source tarball
+# must be the one SLOT_PIN pins, and each .meta must name the pinned commit.
+for f in "$root"/licenses/*; do
+	[ -f "$f" ] || continue
+	[ ! -f "$lic/$(basename "$f")" ] || cmp -s "$f" "$lic/$(basename "$f")" ||
+		bad "System/licenses/$(basename "$f") differs from licenses/$(basename "$f")"
+done
+for p in "$root"/patches/*.patch; do
+	[ ! -f "$lic/slot-nes-snes-$(basename "$p")" ] || cmp -s "$p" "$lic/slot-nes-snes-$(basename "$p")" ||
+		bad "System/licenses/slot-nes-snes-$(basename "$p") differs from patches/$(basename "$p")"
+done
+for core in fceumm snes9x; do
+	eval "cc=\${${core}_commit:-}"
+	[ -n "$cc" ] || bad "SLOT_PIN has no ${core}_commit"
+	for m in "$core-src.meta" "${core}_libretro.so.meta"; do
+		[ ! -f "$lic/$m" ] || grep -qx "commit=$cc" "$lic/$m" || bad "System/licenses/$m does not name the pinned commit $cc"
+	done
+done
+for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
+	f="$lic/$(echo "$pair" | cut -d: -f2)"
+	eval "want=\${$(echo "$pair" | cut -d: -f3):-}"
+	[ -n "$want" ] || bad "SLOT_PIN has no $(echo "$pair" | cut -d: -f3)"
+	[ ! -f "$f" ] || [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$want" ] ||
+		bad "System/licenses/$(basename "$f") is not the source SLOT_PIN pins ($(echo "$pair" | cut -d: -f3))"
+done
 
 [ -x "$sys/slot" ] || bad "System/slot is missing or not executable"
 [ ! -f "$sys/slot" ] || aarch64 "$sys/slot"

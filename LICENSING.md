@@ -96,12 +96,19 @@ licence is the `LICENSE` file at the root of that source, copied verbatim to
   copyright holders first.
 - The software is provided as-is, with no warranty.
 - Some parts have their own terms (snes_ntsc LGPL, xBRZ GPLv3, JMA), listed at the end of the file.
+  At the pinned commit only `filter/snes_ntsc.c` (LGPL) is compiled into `snes9x_libretro.so`
+  (`libretro/Makefile.common`). xBRZ and JMA are not in the libretro source tree. The snes_ntsc
+  licence travels inside `snes9x-src.tar.gz` as `filter/snes_ntsc-license.txt`.
+- On the device the core links the C++ runtime statically (`-static-libstdc++ -static-libgcc`,
+  recorded as `device_ldflags=` in its `.meta`), so it needs only `libc` and `libm`. libstdc++ and
+  libgcc are GPL-3.0 with the GCC Runtime Library Exception, which allows that.
 
 Because the non-commercial clause is a restriction GPL-3.0 forbids, snes9x code cannot be
 combined into slot's GPL-3.0-or-later binary, and we do not claim it can. **The plugin boundary
 stance:** `snes9x_libretro.so` is a separate program that slot loads at run time across the libretro
 C ABI (`retro_*` functions through `dlopen`). slot contains no snes9x code and does not link it.
-This is how RetroArch, ROCKNIX and Knulli ship it. We treat the zip as an aggregate of separate
+The libretro buildbot distributes `snes9x_libretro` beside the GPL RetroArch
+(<https://buildbot.libretro.com/nightly/linux/aarch64/latest/snes9x_libretro.so.zip>). We treat the zip as an aggregate of separate
 works, each under its own licence, and this is our reading, not legal advice.
 
 What follows for users:
