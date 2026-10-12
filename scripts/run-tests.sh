@@ -22,8 +22,21 @@ if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
 	done
 fi
 
+# Shared CI runners (GitHub sets CI=true) fail these upstream emu timing tests on the unpatched
+# upstream tree too (test.yml run 38313541162, 2026-10-13), so they say nothing about the patches
+# there. They still run and gate locally.
+ci_skips=""
+if [ "${CI:-}" = true ]; then
+	for t in a_driven_worker_paces_itself_in_fast_forward a_driven_worker_runs_one_frame_per_tick \
+		a_stalled_display_does_not_stall_the_worker fast_forward_records_no_rewind_history \
+		fast_forward_runs_fast_steps_core_frames_per_present; do
+		ci_skips="$ci_skips --skip $t"
+	done
+fi
+
 rc=0
-(cd "$1" && cargo test --workspace -- --nocapture) >"$log" 2>&1 || rc=$?
+# shellcheck disable=SC2086
+(cd "$1" && cargo test --workspace -- --nocapture $ci_skips) >"$log" 2>&1 || rc=$?
 
 grep -E '^(test result|     Running|   Doc-tests|error|failures:)|^test .* (FAILED|failed)' "$log"
 if [ "$rc" -ne 0 ]; then
@@ -54,6 +67,9 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
+for t in $ci_skips; do
+	[ "$t" = --skip ] || echo "  [runner] $t (upstream emu timing test, skipped on CI only)"
+done
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
