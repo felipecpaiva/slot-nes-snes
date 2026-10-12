@@ -242,7 +242,7 @@ Deliverables:
   - Each run copies the template into a fresh temp dir, boots with the emu in driven mode, and waits until `rebuilding_labels()` is false and 120 settle frames have passed. It hashes every core frame published plus composited frames at settle points (shelf idle, in-game steady, quick menu steady, after eject).
   - Scripts: `task harness:control` (same tree twice, must be 0 diffs) and `task harness:compare` (upstream vs patched, needs the control to pass first).
 - [ ] `task bench:compare`: `core_bench` on `harness/roms/` carts for mgba and gpsp, both trees.
-- [ ] `task dist:device` runs `task -d build/slot dist:device`, then copies `fceumm_libretro.so`, `.meta`, the source tarball and licences into `System/` and `System/licenses/`. `task zip`, `task src-tarball`, `task deploy:device` (adb push of the extra cores, chmod, reboot).
+- [ ] `task dist:device` runs `task -d build/slot dist:device`, then copies `fceumm_libretro.so`, `.meta`, the source tarball and licences into `System/` and `System/licenses/`. `task zip` (runs `dist:device` and `src-tarball` first), `task src-tarball`, `task deploy:device` (adb push of the extra cores, chmod, reboot).
 - [ ] New tests T1 to T14 and T45.
 
 Acceptance:
@@ -543,7 +543,7 @@ All host steps run on macOS.
 
    Expect `test result: ok` for every crate, `upstream test code: 0 blocks changed`, `control: 0 diffs`, `compare: 0 diffs (H1, H2), H3 == H1`, and a skip report listing only ROM-dependent upstream tests.
 3. `task bench:compare`. Expect patched medians within 2% of upstream for mgba and gpsp on `harness/roms/`.
-4. `task dist:device && task zip && task src-tarball && sh scripts/zip-check.sh slot-nes-snes-v1.6.0-ns.0-h700.zip`. Expected tree:
+4. `task zip && sh scripts/zip-check.sh slot-nes-snes-v1.6.0-ns.0-h700.zip`. Expected tree:
 
 ```
 slot-nes-snes-v1.6.0-ns.0/

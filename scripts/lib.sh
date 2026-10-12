@@ -18,3 +18,20 @@ same_identity() {
 		[ -z "$value" ] || git -C "$1" config "$key" "$value"
 	done
 }
+
+# slot-nes-snes-v1.6.0-ns.0: slot's tag from SLOT_PIN plus the release counter in VERSION.
+release_name() {
+	v="$(cat "$root/VERSION")"
+	printf '%s\n' "$v" | grep -Eq '^ns\.[0-9]+$' || {
+		echo "slot-nes-snes: VERSION is '$v', want ns.<number>" >&2
+		return 1
+	}
+	echo "slot-nes-snes-$tag-$v"
+}
+
+# True for an aarch64 ELF. The ", ARM aarch64," machine field is what file reads from e_machine;
+# matching "aarch64" anywhere also passes an x86-64 ELF whose interpreter path says aarch64.
+is_aarch64() { file "$1" | grep -q ', ARM aarch64,'; }
+
+# The value of NAME in build/slot's taskfile vars, the one place upstream pins MGBA_COMMIT and GPSP_COMMIT.
+slot_var() { sed -n "s/^  $1: *//p" "$root/build/slot/taskfile.yml"; }

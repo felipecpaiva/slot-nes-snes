@@ -5,6 +5,28 @@
 slot is GPL-3.0-or-later. The patches in `patches/` change slot, so they are GPL-3.0-or-later
 too. The full text is in `LICENSE`.
 
+### Source offer (GPL-3.0-or-later, section 6)
+
+Every release zip carries the complete corresponding source of `System/slot` and of the cores
+we add, so no written offer is needed. It is in `System/licenses/`:
+
+- `slot-nes-snes-src-<release>.tar.gz`: the patched slot source (`slot/`, `work/slot` at the
+  exported commit) plus this repository (`slot-nes-snes/`, with `patches/`). It does not hold
+  the gpSP or fceumm sources; those sit next to it in the same folder (below). It also does not
+  hold slot's Rust crates: Cargo fetches them by `slot/Cargo.lock`, exactly as upstream does.
+  A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
+  Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+- `fceumm-src.tar.gz` and `fceumm-src.meta`: the exact fceumm source and its sha256.
+- `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
+  slot ships them.
+
+**Rebuilding `System/slot`.** Build the `slot/` tree in the main tarball as upstream does, with
+Cargo and the network: Cargo fetches the crates by `Cargo.lock`. Without the network that works
+only if you ran `cargo vendor` earlier or have a populated Cargo cache; we do not ship one. To
+rebuild the whole zip from this repository instead, run `task zip`: it refetches the upstream
+slot release named in `SLOT_PIN` (checked against its sha256), applies `patches/`, and checks
+that result against the bundled `slot/` tree with `task patches:check`.
+
 ## fceumm
 
 Checked at commit `ac0d00a7fc01166f84c7bac01d1084ebfd2b865e`, the commit `SLOT_PIN` pins. Every
