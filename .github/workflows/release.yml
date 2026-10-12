@@ -1,0 +1,90 @@
+# Issue 30. A tag v<slot tag>-ns.N builds the zip and the GPL-3 source tarball, runs the ship checks
+# and publishes both. Nothing here pushes or tags; the maintainer pushes the tag (a tag publishes a
+# public release). Actions are pinned by full commit SHA, same as test.yml (docs/SUPPLY-CHAIN.md).
+name: release
+
+on:
+  push:
+    tags: ["v*-ns.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # A wrong tag fails here in seconds, before the long test run.
+  tag:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The tag must be SLOT_PIN's tag plus VERSION
+        run: |
+          . ./SLOT_PIN
+          want="$tag-$(cat VERSION)"
+          [ "$GITHUB_REF_NAME" = "$want" ] || {
+            echo "::error::tag $GITHUB_REF_NAME does not match SLOT_PIN and VERSION ($want)"
+            exit 1
+          }
+
+  # Both test.yml jobs (host, device) must pass before anything is built.
+  test:
+    needs: tag
+    uses: ./.github/workflows/test.yml
+
+  # Same container as test.yml's device job. It has no gh, so it only builds and checks.
+  build:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    container: rust:1-bullseye
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tools zip-check and the zip need
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends zip unzip file binutils
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            vendor
+          key: device-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('SLOT_PIN', 'mise.toml', 'cores/**', 'scripts/dist-device.sh') }}
+      - name: Build the zip and the source tarball
+        run: |
+          task="$(sh scripts/fetch-task.sh)"
+          "$task" work:init
+          "$task" work:resume
+          "$task" zip
+      - name: Ship checks
+        run: sh scripts/zip-check.sh "$(ls build/slot-nes-snes-*-h700.zip)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: |
+            build/slot-nes-snes-*-h700.zip
+            build/slot-nes-snes-src-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write # the only job that can write to the repo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: assets
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip="assets/slot-nes-snes-$GITHUB_REF_NAME-h700.zip"
+          src="assets/slot-nes-snes-src-$GITHUB_REF_NAME.tar.gz"
+          ls -l assets
+          test -f "$zip" && test -f "$src"
+          sh scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" "$zip" "$src" \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
