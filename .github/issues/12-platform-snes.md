@@ -33,14 +33,15 @@ SNES gets its own shelf and folders, and carts are titled from the internal head
 
 ## Acceptance
 - [x] T4 (with Snes) and T15 green; `task check` green (1460 passed, 0 failed, lint 0 new, `check-upstream-tests.sh` 0 blocks changed, `task patches:check` rebuilds HEAD exactly).
-- [x] GBA harness compare 0 diffs (H1, H2). Reported 0 diffs by the coordinator's `task check`; a rerun is pending because a parallel docker build loaded the machine.
+- [x] GBA harness compare 0 diffs (H1, H2). Coordinator's `task check` on 6be060e: 1460 passed, 0 failed; control 0 diffs; compare 0 diffs (H1, H1G, H2, B1, H3); inject ok.
 - [x] `Platform::ALL.len() == 3` and `Core::ALL.len() == 2` still.
 
 - [x] `app.rs` changed lines across 0001 to 0005: 6 + 8 + 0 + 4 + 4 = 22 (budget 25).
 
 ## Decisions
 - `owns_shoulders(Snes)` is true, grouped with NES, until issue 15 (patch 0007) sets it false with the input changes.
-- `#![allow(dead_code)]` at the top of `nes_common/mod.rs`, mirroring upstream's `tests/common/mod.rs`, because the shared helpers are not all used by every test binary.
+- No `#![allow(dead_code)]` in our helpers. `nes_common/mod.rs` holds the NES helpers (`require_core`, `fceumm`, `nes_rom`); `snes_common/mod.rs` holds `snes_rom`, `Map` and `SNES_TITLE`, used by `snes_rom.rs` and later SNES tests. `cargo clippy -p slot --tests` shows no dead_code from either.
+- The header probe accepts a candidate only if the complement/checksum pair matches (checksum not 0x0000 or 0xFFFF) and the map-mode byte at header+0x15 is `001x_mmmm` with a low nibble that fits the probe: 0x7FC0 takes 0, 2, 3 (LoROM, SDD-1, SA-1), 0xFFC0 takes 1, 5. When both validate, LoROM wins (pinned by a test). ExHiROM (0x40FFC0, a handful of carts over 4 MB, mostly Japanese titles) is not probed and falls back to the stem.
 - The two earlier tests `nes_platform.rs` (SHELVES) and `nes_core.rs` (EVERY) now assert prefixes (`SHELVES[..4]`, `EVERY[..3]`), because the lists grew. They are ours, not upstream.
 - `option_prefix` "snes9x" confirmed from libretro/snes9x master `fae2fea0` (`libretro_core_options.h` keys `snes9x_region`, `snes9x_overscan`, and so on). That file declares no frameskip key, so the existing "declares no frameskip option" log line will print for snes9x. Issue 13 pins the commit.
 - Every new test was shown red under a throwaway mutation (22 mutations across `snes_header`, `snes_platform`, `snes_core`, `snes_rom` and the `snes.rs` in-source tests).
