@@ -13,7 +13,7 @@ use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::{Power, SimPlatform};
 use slot_store::{Core, Shader};
 
-const LEGS: [&str; 4] = ["H1", "H1G", "H2", "B1"];
+const LEGS: [&str; 5] = ["H1", "H1G", "H2", "B1", "H3"];
 const BEZEL_WINDOW: (u32, u32) = (640, 480);
 const FRAMEBUFFERS: u32 = 512;
 const GL_FRAMEBUFFER: u32 = 0x8D40;
@@ -419,6 +419,7 @@ struct Run<R: Rig> {
     core: Core,
     input: Scripted,
     frame: u64,
+    base: u64,
     stepped: Option<Instant>,
 }
 
@@ -464,7 +465,7 @@ impl<R: Rig> Run<R> {
         } else {
             self.stepped = None;
         }
-        self.rig.after(self.leg, self.frame, running);
+        self.rig.after(self.leg, self.frame - self.base, running);
     }
 
     fn wait(&mut self, frames: u32) {
@@ -490,12 +491,12 @@ impl<R: Rig> Run<R> {
     }
 
     fn mark(&mut self, what: &str) {
-        eprintln!("frame_dump: {} {} {what}", self.leg, self.frame);
-        self.rig.mark(self.leg, self.frame);
+        eprintln!("frame_dump: {} {} {what}", self.leg, self.frame - self.base);
+        self.rig.mark(self.leg, self.frame - self.base);
     }
 
     fn output(&mut self) {
-        self.rig.output(self.leg, self.frame);
+        self.rig.output(self.leg, self.frame - self.base);
     }
 
     fn must(&self, what: &str, holds: fn(&App) -> bool) {
@@ -675,7 +676,12 @@ impl<R: Rig> Run<R> {
                     path.display()
                 ));
             }
-            println!("{} {} thumb{n} {}", self.leg, self.frame, sha256(&bytes));
+            println!(
+                "{} {} thumb{n} {}",
+                self.leg,
+                self.frame - self.base,
+                sha256(&bytes)
+            );
         }
     }
 
@@ -757,18 +763,61 @@ impl<R: Rig> Run<R> {
         self.leave();
     }
 
+    fn gba(&mut self) {
+        self.wait(SETTLE);
+        self.mark("shelf idle");
+        self.gba_script();
+    }
+
+    fn gba_script(&mut self) {
+        self.wait(SETTLE);
+        self.mark("shelf settled");
+        self.quick_menu();
+        self.enter();
+        self.in_game(Shader::GBA.len(), false, 600);
+        self.leave();
+        self.output();
+        self.colour_visit();
+    }
+
+    fn shelves(&mut self, button: Btn, count: u32) {
+        for _ in 0..count {
+            self.tap(button, 6);
+            self.wait(10);
+        }
+    }
+
+    fn nes_then_gba(&mut self) {
+        self.wait(SETTLE);
+        self.mark("shelf idle");
+        self.leg = "H3N";
+        self.shelves(Btn::R1, 3);
+        self.wait(SETTLE);
+        self.mark("nes shelf idle");
+        self.enter();
+        self.drive(60);
+        self.output();
+        self.leave();
+        self.shelves(Btn::L1, 3);
+        self.wait(SETTLE);
+        self.leg = "H3";
+        self.core = core_of("H1");
+        self.base = self.frame - u64::from(SETTLE);
+        self.gba_script();
+    }
+
     fn leg(&mut self) {
+        match self.leg {
+            "H1" | "H1G" => self.gba(),
+            "H3" => self.nes_then_gba(),
+            _ => self.gb_and_bezel(),
+        }
+    }
+
+    fn gb_and_bezel(&mut self) {
         self.wait(SETTLE);
         self.mark("shelf idle");
         match self.leg {
-            "H1" | "H1G" => {
-                self.quick_menu();
-                self.enter();
-                self.in_game(Shader::GBA.len(), false, 600);
-                self.leave();
-                self.output();
-                self.colour_visit();
-            }
             "H2" => {
                 self.tap(Btn::R1, 6);
                 self.wait(SETTLE);
@@ -807,6 +856,7 @@ fn run<R: Rig>(rig: R, root: &Path, leg: &'static str) {
         core: core_of(leg),
         input: Scripted::default(),
         frame: 0,
+        base: 0,
         stepped: None,
     };
     run.leg();
@@ -814,10 +864,11 @@ fn run<R: Rig>(rig: R, root: &Path, leg: &'static str) {
 }
 
 fn core_of(leg: &str) -> Core {
-    if leg == "H1G" {
-        Core::Gpsp
-    } else {
-        Core::Mgba
+    match leg {
+        "H1G" => Core::Gpsp,
+        "H3" => Core::parse("fceumm")
+            .unwrap_or_else(|| die("this tree has no fceumm core, H3 runs on the patched tree only")),
+        _ => Core::Mgba,
     }
 }
 
@@ -837,6 +888,7 @@ fn cold(root: &Path, wait: bool) {
         core: Core::Mgba,
         input: Scripted::default(),
         frame: 0,
+        base: 0,
         stepped: None,
     };
     let stale = label_cache::stale(root, run.rig.frontend.app().carts()).len();

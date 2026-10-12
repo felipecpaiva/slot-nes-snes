@@ -1,0 +1,1204 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 15:48:55 +0400
+Subject: [PATCH] canvas
+
+---
+ crates/slot-gfx/src/fbo.rs            |   4 +
+ crates/slot-gfx/src/pipeline.rs       |  59 ++++++--
+ crates/slot-gfx/tests/nes_pipeline.rs | 101 +++++++++++++
+ crates/slot-retro/src/canvas.rs       | 206 ++++++++++++++++++++++++++
+ crates/slot-retro/src/core.rs         |   3 +
+ crates/slot-retro/src/lib.rs          |   1 +
+ crates/slot-retro/src/libretro.rs     |  39 +++++
+ crates/slot-retro/src/mock.rs         |  19 ++-
+ crates/slot-store/src/core_policy.rs  |   7 +
+ crates/slot/src/app.rs                |   4 +-
+ crates/slot/src/core.rs               |   6 +-
+ crates/slot/src/emu.rs                |  10 +-
+ crates/slot/src/frontend.rs           |   2 +
+ crates/slot/src/lib.rs                |   1 +
+ crates/slot/src/thumb.rs              |   1 +
+ crates/slot/src/thumb_sized.rs        |  19 +++
+ crates/slot/src/video_mode.rs         |  19 +--
+ crates/slot/tests/nes_common/mod.rs   |  23 ++-
+ crates/slot/tests/nes_emu.rs          |  77 ++++++++++
+ crates/slot/tests/nes_fceumm.rs       |   6 +-
+ crates/slot/tests/nes_mock.rs         |  61 ++++++++
+ crates/slot/tests/nes_thumb.rs        |  48 ++++++
+ 22 files changed, 672 insertions(+), 44 deletions(-)
+ create mode 100644 crates/slot-gfx/tests/nes_pipeline.rs
+ create mode 100644 crates/slot-retro/src/canvas.rs
+ create mode 100644 crates/slot/src/thumb_sized.rs
+ create mode 100644 crates/slot/tests/nes_emu.rs
+ create mode 100644 crates/slot/tests/nes_mock.rs
+ create mode 100644 crates/slot/tests/nes_thumb.rs
+
+diff --git a/crates/slot-gfx/src/fbo.rs b/crates/slot-gfx/src/fbo.rs
+index ae4325a..14e9057 100644
+--- a/crates/slot-gfx/src/fbo.rs
++++ b/crates/slot-gfx/src/fbo.rs
+@@ -129,6 +129,10 @@ impl Compositor {
+         self.game.upload(xrgb8888);
+     }
+ 
++    pub fn set_game_canvas(&mut self, w: u32, h: u32) {
++        self.game.set_canvas(w, h);
++    }
++
+     pub fn draw_game(&mut self) {
+         self.game.draw(&self.quad);
+     }
+diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
+index 988bb8c..6a32bd3 100644
+--- a/crates/slot-gfx/src/pipeline.rs
++++ b/crates/slot-gfx/src/pipeline.rs
+@@ -13,6 +13,9 @@ pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+ pub struct GamePass {
+     prog: gl::types::GLuint,
+     game: gl::types::GLuint,
++    canvas: (u32, u32),
++    refused: bool,
++    u_src: gl::types::GLint,
+     u_rect: gl::types::GLint,
+     u_bright: gl::types::GLint,
+     u_uv: gl::types::GLint,
+@@ -41,15 +44,12 @@ impl GamePass {
+             crate::gl::gray_format(),
+             Some(&[255]),
+         );
+-        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo);
++        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_src);
+         unsafe {
+             gl::UseProgram(prog);
+             gl::Uniform1i(crate::gl::uniform_location(prog, "u_game"), 0);
+-            gl::Uniform2f(
+-                crate::gl::uniform_location(prog, "u_src"),
+-                SRC_W as f32,
+-                SRC_H as f32,
+-            );
++            u_src = crate::gl::uniform_location(prog, "u_src");
++            gl::Uniform2f(u_src, SRC_W as f32, SRC_H as f32);
+             gl::Uniform2f(
+                 crate::gl::uniform_location(prog, "u_target"),
+                 OUT_W as f32,
+@@ -67,6 +67,9 @@ impl GamePass {
+         Ok(GamePass {
+             prog,
+             game,
++            canvas: (SRC_W, SRC_H),
++            refused: false,
++            u_src,
+             u_rect,
+             u_bright,
+             u_uv,
+@@ -118,10 +121,40 @@ impl GamePass {
+         self.src = rect;
+     }
+ 
++    pub fn set_canvas(&mut self, w: u32, h: u32) {
++        if (w, h) == self.canvas {
++            return;
++        }
++        if w == 0 || h == 0 {
++            eprintln!("slot: gfx: refusing a {w}x{h} game canvas");
++            return;
++        }
++        let blank = vec![0u8; w as usize * h as usize * 4];
++        let tex = crate::gl::texture(w, h, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::BGRA, Some(&blank));
++        // SAFETY: the GL context is current on the render thread, self.game is a texture this pass
++        // made, and u_src belongs to self.prog.
++        unsafe {
++            gl::DeleteTextures(1, &self.game);
++            gl::UseProgram(self.prog);
++            gl::Uniform2f(self.u_src, w as f32, h as f32);
++        }
++        self.game = tex;
++        self.canvas = (w, h);
++    }
++
+     pub fn upload(&mut self, xrgb8888: &[u8]) {
+-        if xrgb8888.len() < (SRC_W * SRC_H * 4) as usize {
++        let (w, h) = self.canvas;
++        if xrgb8888.len() != w as usize * h as usize * 4 {
++            if !self.refused {
++                eprintln!(
++                    "slot: gfx: dropping a {} byte frame, the canvas is {w}x{h}",
++                    xrgb8888.len()
++                );
++            }
++            self.refused = true;
+             return;
+         }
++        self.refused = false;
+         unsafe {
+             gl::BindTexture(gl::TEXTURE_2D, self.game);
+             gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+@@ -130,8 +163,8 @@ impl GamePass {
+                 0,
+                 0,
+                 0,
+-                SRC_W as i32,
+-                SRC_H as i32,
++                w as i32,
++                h as i32,
+                 gl::BGRA,
+                 gl::UNSIGNED_BYTE,
+                 xrgb8888.as_ptr() as *const std::ffi::c_void,
+@@ -141,7 +174,7 @@ impl GamePass {
+ 
+     pub fn draw(&self, quad: &Quad) {
+         let src = match self.effect {
+-            ScreenEffect::Grid => whole_scale_source(self.src, self.fbo_scale),
++            ScreenEffect::Grid => whole_scale_source(self.src, self.fbo_scale, self.canvas),
+             _ => self.src,
+         };
+         self.draw_source(self.game, quad, src);
+@@ -177,9 +210,9 @@ impl GamePass {
+     }
+ }
+ 
+-fn whole_scale_source(src: [f32; 4], fbo: [f32; 2]) -> [f32; 4] {
+-    let (x, w) = whole_scale(src[0], src[2], SRC_W as f32, OUT_W as f32 * fbo[0]);
+-    let (y, h) = whole_scale(src[1], src[3], SRC_H as f32, OUT_H as f32 * fbo[1]);
++fn whole_scale_source(src: [f32; 4], fbo: [f32; 2], canvas: (u32, u32)) -> [f32; 4] {
++    let (x, w) = whole_scale(src[0], src[2], canvas.0 as f32, OUT_W as f32 * fbo[0]);
++    let (y, h) = whole_scale(src[1], src[3], canvas.1 as f32, OUT_H as f32 * fbo[1]);
+     [x, y, w, h]
+ }
+ 
+diff --git a/crates/slot-gfx/tests/nes_pipeline.rs b/crates/slot-gfx/tests/nes_pipeline.rs
+new file mode 100644
+index 0000000..8db0d29
+--- /dev/null
++++ b/crates/slot-gfx/tests/nes_pipeline.rs
+@@ -0,0 +1,101 @@
++#![cfg(target_os = "macos")]
++
++use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_H, OUT_W, SRC_H, SRC_W};
++use std::sync::{Mutex, MutexGuard, PoisonError};
++
++static GL: Mutex<()> = Mutex::new(());
++
++fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
++    let guard = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let surface = HeadlessSurface::new().ok()?;
++    let compositor = Compositor::new(&surface).ok()?;
++    Some((guard, surface, compositor))
++}
++
++fn source(w: usize, h: usize) -> Vec<u8> {
++    let mut buf = Vec::with_capacity(w * h * 4);
++    for y in 0..h {
++        for x in 0..w {
++            buf.extend_from_slice(&[(x * 7 + y * 13) as u8, y as u8, x as u8, 0]);
++        }
++    }
++    buf
++}
++
++fn px(frame: &[u8], x: usize, y: usize) -> [u8; 3] {
++    let o = (y * OUT_W as usize + x) * 4;
++    [frame[o], frame[o + 1], frame[o + 2]]
++}
++
++fn drawn(c: &mut Compositor, buf: &[u8]) -> Vec<u8> {
++    c.begin_frame();
++    c.upload_game(buf);
++    c.draw_game();
++    c.read_frame()
++}
++
++#[test]
++fn a_360_by_240_canvas_draws_every_source_pixel_as_a_2x2_block() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    c.set_game_canvas(360, 240);
++    c.set_screen_effect(ScreenEffect::None);
++    let src = source(360, 240);
++    let frame = drawn(&mut c, &src);
++    for y in 0..240 {
++        for x in 0..360 {
++            let at = (y * 360 + x) * 4;
++            let want = [src[at + 2], src[at + 1], src[at]];
++            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
++                assert_eq!(px(&frame, 2 * x + dx, 2 * y + dy), want, "source {x},{y}");
++            }
++        }
++    }
++}
++
++#[test]
++fn a_240_by_160_buffer_is_rejected_once_the_canvas_is_360_by_240() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    c.set_game_canvas(360, 240);
++    c.set_screen_effect(ScreenEffect::None);
++    let good = source(360, 240);
++    let before = drawn(&mut c, &good);
++    let short = vec![0xffu8; (SRC_W * SRC_H * 4) as usize];
++    let after = drawn(&mut c, &short);
++    assert_eq!(before, after, "a short buffer was drawn");
++}
++
++#[test]
++fn a_360_by_240_buffer_is_rejected_once_the_canvas_is_back_to_240_by_160() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    c.set_game_canvas(360, 240);
++    c.set_game_canvas(SRC_W, SRC_H);
++    c.set_screen_effect(ScreenEffect::None);
++    let blank = drawn(&mut c, &[]);
++    let long = vec![0xffu8; 360 * 240 * 4];
++    let after = drawn(&mut c, &long);
++    assert_eq!(blank, after, "a long buffer was drawn");
++    assert_eq!(
++        px(&after, OUT_W as usize - 1, OUT_H as usize - 1),
++        [0, 0, 0]
++    );
++}
++
++#[test]
++fn setting_the_canvas_to_240_by_160_after_nes_draws_a_gba_frame_exactly() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    c.set_screen_effect(ScreenEffect::None);
++    let src = source(SRC_W as usize, SRC_H as usize);
++    let fresh = drawn(&mut c, &src);
++    c.set_game_canvas(360, 240);
++    let _ = drawn(&mut c, &source(360, 240));
++    c.set_game_canvas(SRC_W, SRC_H);
++    assert_eq!(drawn(&mut c, &src), fresh);
++}
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+new file mode 100644
+index 0000000..c9b2cc7
+--- /dev/null
++++ b/crates/slot-retro/src/canvas.rs
+@@ -0,0 +1,206 @@
++use std::cell::Cell;
++use std::marker::PhantomData;
++use std::ptr;
++
++use crate::core::{GBA_H, GBA_W};
++
++pub struct HostExtra {
++    pub canvas: (u32, u32),
++}
++
++impl Default for HostExtra {
++    fn default() -> Self {
++        HostExtra {
++            canvas: (GBA_W, GBA_H),
++        }
++    }
++}
++
++thread_local! {
++    static EXTRA: Cell<*mut HostExtra> = const { Cell::new(ptr::null_mut()) };
++}
++
++pub struct ExtraGuard<'a>(PhantomData<&'a mut HostExtra>);
++
++impl ExtraGuard<'_> {
++    pub fn bind(extra: &mut HostExtra) -> ExtraGuard<'_> {
++        EXTRA.with(|e| e.set(extra as *mut HostExtra));
++        ExtraGuard(PhantomData)
++    }
++}
++
++impl Drop for ExtraGuard<'_> {
++    fn drop(&mut self) {
++        EXTRA.with(|e| e.set(ptr::null_mut()));
++    }
++}
++
++pub fn bound_canvas() -> Option<(u32, u32)> {
++    let p = EXTRA.with(|e| e.get());
++    // SAFETY: the pointer is null or was taken from a live &mut HostExtra by an ExtraGuard on this
++    // thread, which holds that borrow and clears the pointer when it drops.
++    unsafe { p.as_ref() }.map(|extra| extra.canvas)
++}
++
++pub fn bgrx_from_rgb565(p: u16) -> [u8; 4] {
++    let r = ((p >> 11) & 0x1f) as u8;
++    let g = ((p >> 5) & 0x3f) as u8;
++    let b = (p & 0x1f) as u8;
++    [
++        (b << 3) | (b >> 2),
++        (g << 2) | (g >> 4),
++        (r << 3) | (r >> 2),
++        0,
++    ]
++}
++
++pub unsafe fn copy_centred(
++    video: &mut [u8],
++    canvas: (u32, u32),
++    src: *const u8,
++    (width, height): (u32, u32),
++    pitch: usize,
++    rgb565: bool,
++) {
++    let (canvas_w, canvas_h) = (canvas.0 as usize, canvas.1 as usize);
++    if video.len() != canvas_w * canvas_h * 4 {
++        eprintln!(
++            "slot: canvas: video buffer holds {} bytes, not {canvas_w}x{canvas_h}, frame dropped",
++            video.len()
++        );
++        return;
++    }
++    let cols = (width as usize).min(canvas_w);
++    let rows = (height as usize).min(canvas_h);
++    let ox = (canvas_w - cols) / 2;
++    let oy = (canvas_h - rows) / 2;
++    if cols != canvas_w || rows != canvas_h {
++        video.fill(0);
++    }
++    for y in 0..rows {
++        let from = src.add(y * pitch);
++        let row = ((y + oy) * canvas_w + ox) * 4;
++        let Some(out) = video.get_mut(row..row + cols * 4) else {
++            return;
++        };
++        if rgb565 {
++            for (x, px) in out.chunks_exact_mut(4).enumerate() {
++                let p = ptr::read_unaligned((from as *const u16).add(x));
++                px.copy_from_slice(&bgrx_from_rgb565(p));
++            }
++        } else {
++            ptr::copy_nonoverlapping(from, out.as_mut_ptr(), cols * 4);
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn white(w: usize, h: usize) -> Vec<u8> {
++        vec![0xff; w * h * 4]
++    }
++
++    fn lit(video: &[u8], x: usize, y: usize) -> bool {
++        video[(y * 360 + x) * 4..(y * 360 + x) * 4 + 3] == [0xff; 3]
++    }
++
++    #[test]
++    fn a_256_wide_frame_sits_in_the_middle_of_the_360_wide_canvas() {
++        let frame = white(256, 240);
++        let mut video = vec![0u8; 360 * 240 * 4];
++        // SAFETY: frame holds 240 rows of 1024 bytes, 256 XRGB8888 pixels each.
++        unsafe {
++            copy_centred(
++                &mut video,
++                (360, 240),
++                frame.as_ptr(),
++                (256, 240),
++                1024,
++                false,
++            )
++        };
++        assert!(lit(&video, 52, 0));
++        assert!(lit(&video, 307, 239));
++        assert!(!lit(&video, 51, 0));
++        assert!(!lit(&video, 308, 0));
++    }
++
++    #[test]
++    fn rgb565_converts_exactly_as_upstream_does_for_every_input() {
++        for p in 0..=u16::MAX {
++            let r = ((p >> 11) & 0x1f) as u8;
++            let g = ((p >> 5) & 0x3f) as u8;
++            let b = (p & 0x1f) as u8;
++            let upstream = [
++                (b << 3) | (b >> 2),
++                (g << 2) | (g >> 4),
++                (r << 3) | (r >> 2),
++                0,
++            ];
++            assert_eq!(bgrx_from_rgb565(p), upstream, "input {p:#06x}");
++        }
++    }
++
++    #[test]
++    fn an_rgb565_frame_lands_converted_and_centred() {
++        let frame: Vec<u8> = [0xf800u16; 4]
++            .iter()
++            .flat_map(|p| p.to_le_bytes())
++            .collect();
++        let mut video = vec![0u8; 360 * 240 * 4];
++        // SAFETY: frame holds 1 row of 8 bytes, 4 RGB565 pixels.
++        unsafe { copy_centred(&mut video, (360, 240), frame.as_ptr(), (4, 1), 8, true) };
++        let at = ((119 * 360) + 178) * 4;
++        assert_eq!(video[at..at + 4], [0, 0, 0xff, 0]);
++        assert_eq!(video[at - 4..at], [0, 0, 0, 0]);
++    }
++
++    #[test]
++    fn a_frame_wider_than_the_canvas_is_cropped_and_never_overruns() {
++        let frame = white(400, 300);
++        let mut video = vec![0u8; 360 * 240 * 4];
++        // SAFETY: frame holds 300 rows of 1600 bytes, 400 XRGB8888 pixels each.
++        unsafe {
++            copy_centred(
++                &mut video,
++                (360, 240),
++                frame.as_ptr(),
++                (400, 300),
++                1600,
++                false,
++            )
++        };
++        assert!(lit(&video, 0, 0) && lit(&video, 359, 239));
++    }
++
++    #[test]
++    fn a_video_buffer_of_the_wrong_length_is_left_alone() {
++        let frame = white(256, 240);
++        let mut video = vec![7u8; 240 * 160 * 4];
++        // SAFETY: frame holds 240 rows of 1024 bytes, 256 XRGB8888 pixels each.
++        unsafe {
++            copy_centred(
++                &mut video,
++                (360, 240),
++                frame.as_ptr(),
++                (256, 240),
++                1024,
++                false,
++            )
++        };
++        assert!(video.iter().all(|b| *b == 7));
++    }
++
++    #[test]
++    fn the_canvas_is_bound_only_while_a_guard_lives() {
++        assert_eq!(bound_canvas(), None);
++        let mut extra = HostExtra { canvas: (360, 240) };
++        {
++            let _g = ExtraGuard::bind(&mut extra);
++            assert_eq!(bound_canvas(), Some((360, 240)));
++        }
++        assert_eq!(bound_canvas(), None);
++    }
++}
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index 52d5c2a..f642aea 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -99,6 +99,9 @@ pub trait RetroCore: Send {
+     fn start_link(&mut self, _client_id: u16) {}
+     fn pump_link(&mut self) {}
+     fn stop_link(&mut self) {}
++    fn canvas(&self) -> (u32, u32) {
++        (GBA_W, GBA_H)
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 841e1a7..8cffa8c 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -1,3 +1,4 @@
++mod canvas;
+ mod core;
+ mod ffi;
+ mod libretro;
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index aad66f1..8e89627 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ 
+ use libloading::Library;
+ 
++use crate::canvas::{self, ExtraGuard, HostExtra};
+ use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ use crate::ffi::*;
+ use crate::link::Link;
+@@ -318,6 +319,17 @@ unsafe extern "C" fn video_refresh(
+         return;
+     }
+     with_host(|h| {
++        if let Some(size) = canvas::bound_canvas().filter(|c| *c != (GBA_W, GBA_H)) {
++            canvas::copy_centred(
++                &mut h.video,
++                size,
++                data as *const u8,
++                (width, height),
++                pitch,
++                h.format == PixelFormat::Rgb565,
++            );
++            return;
++        }
+         let cols = width.min(GBA_W) as usize;
+         let rows = height.min(GBA_H) as usize;
+         let ox = (GBA_W as usize - cols) / 2;
+@@ -386,6 +398,7 @@ unsafe extern "C" fn input_state(port: c_uint, device: c_uint, _index: c_uint, i
+ pub struct LibretroCore {
+     api: Api,
+     host: Box<Host>,
++    extra: HostExtra,
+     rom: Vec<u8>,
+     rom_path: Option<CString>,
+     av: AvInfo,
+@@ -412,6 +425,15 @@ impl LibretroCore {
+             .inspect_err(|_| LIVE.store(false, Ordering::SeqCst))
+     }
+ 
++    pub fn set_canvas(&mut self, w: u32, h: u32) {
++        if w == 0 || h == 0 {
++            eprintln!("slot: canvas: refusing a {w}x{h} canvas");
++            return;
++        }
++        self.extra.canvas = (w, h);
++        self.host.video = vec![0; w as usize * h as usize * 4];
++    }
++
+     pub fn reported_system_dir(&self) -> String {
+         self.host.system_dir.to_string_lossy().into_owned()
+     }
+@@ -485,8 +507,10 @@ impl LibretroCore {
+             options_dirty: false,
+             declared: std::collections::HashMap::new(),
+         });
++        let mut extra = HostExtra::default();
+         unsafe {
+             let _a = Active::bind(&mut host);
++            let _e = ExtraGuard::bind(&mut extra);
+             (api.set_environment)(environment);
+             (api.set_video_refresh)(video_refresh);
+             (api.set_audio_sample)(audio_sample);
+@@ -498,6 +522,7 @@ impl LibretroCore {
+         Ok(LibretroCore {
+             api,
+             host,
++            extra,
+             rom: Vec::new(),
+             rom_path: None,
+             av: AvInfo {
+@@ -514,6 +539,7 @@ impl LibretroCore {
+             return;
+         }
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { (self.api.unload_game)() };
+         self.loaded = false;
+     }
+@@ -542,6 +568,7 @@ impl Drop for LibretroCore {
+         self.unload();
+         unsafe {
+             let _a = Active::bind(&mut self.host);
++            let _e = ExtraGuard::bind(&mut self.extra);
+             (self.api.deinit)();
+         }
+         LIVE.store(false, Ordering::SeqCst);
+@@ -568,6 +595,7 @@ impl RetroCore for LibretroCore {
+         };
+         let ok = {
+             let _a = Active::bind(&mut self.host);
++            let _e = ExtraGuard::bind(&mut self.extra);
+             unsafe { (self.api.load_game)(&info) }
+         };
+         if !ok {
+@@ -596,11 +624,13 @@ impl RetroCore for LibretroCore {
+         }
+         self.host.inputs = [p1.0, p2.0];
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { (self.api.run)() };
+     }
+ 
+     fn set_frame_skip(&mut self, skip: bool) {
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { report_audio_status(skip) };
+     }
+ 
+@@ -620,6 +650,7 @@ impl RetroCore for LibretroCore {
+         let mut buf = vec![0u8; size];
+         let ok = {
+             let _a = Active::bind(&mut self.host);
++            let _e = ExtraGuard::bind(&mut self.extra);
+             unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+         };
+         if ok {
+@@ -632,6 +663,7 @@ impl RetroCore for LibretroCore {
+     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+         let ok = {
+             let _a = Active::bind(&mut self.host);
++            let _e = ExtraGuard::bind(&mut self.extra);
+             unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
+         };
+         if ok {
+@@ -677,18 +709,25 @@ impl RetroCore for LibretroCore {
+ 
+     fn start_link(&mut self, client_id: u16) {
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { begin_link(client_id) };
+     }
+ 
+     fn pump_link(&mut self) {
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { drain_link() };
+     }
+ 
+     fn stop_link(&mut self) {
+         let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { halt_link() };
+     }
++
++    fn canvas(&self) -> (u32, u32) {
++        self.extra.canvas
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/mock.rs b/crates/slot-retro/src/mock.rs
+index d0734f8..f1fd33f 100644
+--- a/crates/slot-retro/src/mock.rs
++++ b/crates/slot-retro/src/mock.rs
+@@ -15,6 +15,7 @@ fn samples_at(frame: u64) -> u64 {
+ pub struct MockCore {
+     frame: u64,
+     video: Vec<u8>,
++    canvas: (u32, u32),
+     audio: Vec<i16>,
+     sram: Option<Vec<u8>>,
+     skip_next: bool,
+@@ -28,9 +29,14 @@ impl Default for MockCore {
+ 
+ impl MockCore {
+     pub fn new() -> Self {
++        Self::sized((GBA_W, GBA_H))
++    }
++
++    pub fn sized(canvas: (u32, u32)) -> Self {
+         let mut c = MockCore {
+             frame: 0,
+-            video: vec![0; (GBA_W * GBA_H * 4) as usize],
++            video: vec![0; canvas.0 as usize * canvas.1 as usize * 4],
++            canvas,
+             audio: Vec::new(),
+             sram: None,
+             skip_next: false,
+@@ -42,9 +48,10 @@ impl MockCore {
+     fn render(&mut self) {
+         let t = self.frame as u32;
+         let mut i = 0;
+-        for y in 0..GBA_H {
+-            let g = (y * 255 / (GBA_H - 1)) as u8;
+-            for x in 0..GBA_W {
++        let (w, h) = self.canvas;
++        for y in 0..h {
++            let g = (y * 255 / h.saturating_sub(1).max(1)) as u8;
++            for x in 0..w {
+                 let r = x.wrapping_add(t) as u8;
+                 let b = if (x.wrapping_add(y).wrapping_add(t) / 8) % 2 == 0 {
+                     0
+@@ -137,4 +144,8 @@ impl RetroCore for MockCore {
+             sample_rate: SAMPLE_RATE,
+         }
+     }
++
++    fn canvas(&self) -> (u32, u32) {
++        self.canvas
++    }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index e805dac..a8116c9 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -11,6 +11,13 @@ impl Core {
+         }
+     }
+ 
++    pub fn canvas(self) -> (u32, u32) {
++        match self {
++            Core::Mgba | Core::Gpsp => (240, 160),
++            Core::Fceumm => (360, 240),
++        }
++    }
++
+     pub fn has_colour_correction(self) -> bool {
+         match self {
+             Core::Mgba | Core::Gpsp => true,
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 2f0f747..a3bd65c 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -848,7 +848,7 @@ impl App {
+     }
+ 
+     pub fn source_rect(&self) -> [f32; 4] {
+-        video_mode::source_rect(self.platform, self.video_mode)
++        video_mode::source_rect(self.platform, self.core.canvas(), self.video_mode)
+     }
+ 
+     fn slot_owns_the_shoulders(&self) -> bool {
+@@ -927,7 +927,7 @@ impl App {
+ 
+     pub fn picture_rect(&self) -> [f32; 4] {
+         let (w, h) = self.platform.picture();
+-        let (sw, sh) = (slot_gfx::SRC_W as f32, slot_gfx::SRC_H as f32);
++        let (sw, sh) = (self.core.canvas().0 as f32, self.core.canvas().1 as f32);
+         let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
+         [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
+     }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 6d862e3..323efb1 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -52,7 +52,7 @@ pub fn open_core(
+         None => {
+             report_missing(core, &paths);
+             Opened {
+-                core: Box::new(MockCore::new()),
++                core: Box::new(MockCore::sized(core.canvas())),
+                 named: false,
+             }
+         }
+@@ -79,7 +79,7 @@ pub fn open_core_for_palette(
+ ) -> Box<dyn RetroCore> {
+     open_named(root, core, serial, colour, palette, None, paths).unwrap_or_else(|| {
+         report_missing(core, paths);
+-        Box::new(MockCore::new())
++        Box::new(MockCore::sized(core.canvas()))
+     })
+ }
+ 
+@@ -100,6 +100,8 @@ fn open_named(
+         }
+         match LibretroCore::open_with(path, &bios, &saves) {
+             Ok(mut opened) => {
++                let (w, h) = core.canvas();
++                opened.set_canvas(w, h);
+                 apply_core_options(
+                     &mut opened,
+                     core,
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index d9b2e62..8bdbfb3 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -6,9 +6,7 @@ use std::thread::JoinHandle;
+ use std::time::{Duration, Instant};
+ 
+ use crate::cable::{self, Cable};
+-use slot_retro::{
+-    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
+-};
++use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
+ 
+ use crate::audio::Ring;
+ use crate::drc::{drc_ratio, drc_target};
+@@ -148,7 +146,8 @@ impl EmuHandle {
+     ) -> Self {
+         let rumble = core.rumble();
+         let link = core.net();
+-        let frames = Frames::new((GBA_W * GBA_H * 4) as usize);
++        let (canvas_w, canvas_h) = core.canvas();
++        let frames = Frames::new((canvas_w * canvas_h * 4) as usize);
+         let shared = Arc::new(Shared {
+             input: AtomicU16::new(0),
+             speed: AtomicU8::new(Speed::Paused as u8),
+@@ -881,7 +880,8 @@ impl Worker {
+                 let _ = reply.send(core.save_ram());
+             }
+             Cmd::Thumb(reply) => {
+-                let _ = reply.send(crate::thumb::png(core.video_xrgb8888()));
++                let (w, h) = core.canvas();
++                let _ = reply.send(crate::thumb::png_sized(core.video_xrgb8888(), w, h));
+             }
+             Cmd::BeginLink(client_id, t) => {
+                 self.shared.link_lost.store(false, Ordering::Relaxed);
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index f7f35e9..2be9a14 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -339,6 +339,8 @@ impl Frontend {
+         compositor.set_screen_power(self.session.app().screen_power());
+         compositor.set_frame_lift(self.session.app().frame_lift());
+         compositor.set_frame_split(self.session.app().frame_split());
++        let (canvas_w, canvas_h) = self.session.app().core().canvas();
++        compositor.set_game_canvas(canvas_w, canvas_h);
+         compositor.set_game_source_rect(self.session.app().source_rect());
+         compositor.begin_frame();
+         if self.draw_rebuild(compositor) {
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 9c8cff0..fd22e10 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -33,5 +33,6 @@ pub mod root;
+ pub mod session;
+ pub mod state_writer;
+ pub mod thumb;
++pub mod thumb_sized;
+ pub mod video_mode;
+ pub mod wallpaper;
+diff --git a/crates/slot/src/thumb.rs b/crates/slot/src/thumb.rs
+index 66e6898..3f0a409 100644
+--- a/crates/slot/src/thumb.rs
++++ b/crates/slot/src/thumb.rs
+@@ -1,3 +1,4 @@
++pub use crate::thumb_sized::png_sized;
+ use slot_retro::{GBA_H, GBA_W};
+ 
+ pub fn png(xrgb8888: &[u8]) -> Option<Vec<u8>> {
+diff --git a/crates/slot/src/thumb_sized.rs b/crates/slot/src/thumb_sized.rs
+new file mode 100644
+index 0000000..8e762aa
+--- /dev/null
++++ b/crates/slot/src/thumb_sized.rs
+@@ -0,0 +1,19 @@
++pub fn png_sized(xrgb8888: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
++    let n = w as usize * h as usize;
++    if n == 0 || xrgb8888.len() < n * 4 {
++        return None;
++    }
++    let mut rgb = Vec::with_capacity(n * 3);
++    for px in xrgb8888[..n * 4].chunks_exact(4) {
++        rgb.extend_from_slice(&[px[2], px[1], px[0]]);
++    }
++
++    let mut out = Vec::new();
++    let mut enc = png::Encoder::new(&mut out, w, h);
++    enc.set_color(png::ColorType::Rgb);
++    enc.set_depth(png::BitDepth::Eight);
++    let mut writer = enc.write_header().ok()?;
++    writer.write_image_data(&rgb).ok()?;
++    writer.finish().ok()?;
++    Some(out)
++}
+diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
+index 06c8f1e..1c0f22d 100644
+--- a/crates/slot/src/video_mode.rs
++++ b/crates/slot/src/video_mode.rs
+@@ -1,6 +1,6 @@
+ use std::path::Path;
+ 
+-use slot_gfx::{SRC_H, SRC_W, WHOLE_TEXTURE};
++use slot_gfx::WHOLE_TEXTURE;
+ use slot_store::{ini, Platform};
+ 
+ pub const VIDEO_MODE_FILE: &str = "Config/video_mode.txt";
+@@ -40,17 +40,18 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
+     ini::write(root, VIDEO_MODE_FILE, stem, mode.as_str())
+ }
+ 
+-pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {
++pub fn source_rect(platform: Platform, canvas: (u32, u32), mode: VideoMode) -> [f32; 4] {
+     let (w, h) = platform.picture();
+-    if mode == VideoMode::Actual || (w, h) == (SRC_W, SRC_H) {
++    let (canvas_w, canvas_h) = canvas;
++    if mode == VideoMode::Actual || (w, h) == canvas {
+         return WHOLE_TEXTURE;
+     }
+-    let x = SRC_W.saturating_sub(w) / 2;
+-    let y = SRC_H.saturating_sub(h) / 2;
++    let x = canvas_w.saturating_sub(w) / 2;
++    let y = canvas_h.saturating_sub(h) / 2;
+     [
+-        x as f32 / SRC_W as f32,
+-        y as f32 / SRC_H as f32,
+-        w as f32 / SRC_W as f32,
+-        h as f32 / SRC_H as f32,
++        x as f32 / canvas_w as f32,
++        y as f32 / canvas_h as f32,
++        w as f32 / canvas_w as f32,
++        h as f32 / canvas_h as f32,
+     ]
+ }
+diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
+index 3166a25..f3dbdf0 100644
+--- a/crates/slot/tests/nes_common/mod.rs
++++ b/crates/slot/tests/nes_common/mod.rs
+@@ -2,9 +2,11 @@ use std::path::{Path, PathBuf};
+ 
+ use crate::common;
+ 
+-pub fn fceumm() -> Option<PathBuf> {
++const BACKDROP: u8 = 0x16;
++
++pub fn require_core(name: &str) -> Option<PathBuf> {
+     let p = common::repo_root().join(format!(
+-        "vendor/fceumm_libretro.{}",
++        "vendor/{name}_libretro.{}",
+         std::env::consts::DLL_EXTENSION
+     ));
+     if p.exists() {
+@@ -12,19 +14,28 @@ pub fn fceumm() -> Option<PathBuf> {
+     }
+     assert!(
+         std::env::var_os("SLOT_REQUIRE_CORES").is_none_or(|v| v != "1"),
+-        "SLOT_REQUIRE_CORES=1 and {} is missing",
++        "{name} core required (SLOT_REQUIRE_CORES=1), {} is missing",
+         p.display()
+     );
+-    eprintln!("skipping: no fceumm dylib at {}", p.display());
++    eprintln!("skipping: no {name} dylib at {}", p.display());
+     None
+ }
+ 
+-pub fn nes_rom(name: &str) -> PathBuf {
++pub fn fceumm() -> Option<PathBuf> {
++    require_core("fceumm")
++}
++
++pub fn nes_rom(name: &str, battery: bool) -> PathBuf {
+     let mut rom = vec![0u8; 16 + 0x4000 + 0x2000];
+     rom[..4].copy_from_slice(b"NES\x1a");
+     rom[4] = 1;
+     rom[5] = 1;
+-    rom[16..19].copy_from_slice(&[0x4c, 0x00, 0xc0]);
++    rom[6] = u8::from(battery) << 1;
++    let program = [
++        0xa9, 0x3f, 0x8d, 0x06, 0x20, 0xa9, 0x00, 0x8d, 0x06, 0x20, 0xa2, 0x20, 0xa9, BACKDROP,
++        0x8d, 0x07, 0x20, 0xca, 0xd0, 0xfa, 0x4c, 0x14, 0xc0,
++    ];
++    rom[16..16 + program.len()].copy_from_slice(&program);
+     rom[16 + 0x3ffc] = 0x00;
+     rom[16 + 0x3ffd] = 0xc0;
+     let p = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+diff --git a/crates/slot/tests/nes_emu.rs b/crates/slot/tests/nes_emu.rs
+new file mode 100644
+index 0000000..4393f80
+--- /dev/null
++++ b/crates/slot/tests/nes_emu.rs
+@@ -0,0 +1,77 @@
++mod common;
++mod nes_common;
++
++use common::core_lock;
++use nes_common::{fceumm, nes_rom};
++use slot::core::open_core_for;
++use slot_retro::{ButtonMask, MockCore, RetroCore};
++use slot_store::Core;
++
++const PICTURE_X: usize = 52;
++const PICTURE_W: usize = 256;
++const BACKDROP_BGRX: [u8; 4] = [0x20, 0x20, 0xd0, 0];
++
++fn pixel(video: &[u8], x: usize, y: usize) -> [u8; 4] {
++    let at = (y * 360 + x) * 4;
++    [video[at], video[at + 1], video[at + 2], video[at + 3]]
++}
++
++#[test]
++fn fceumm_draws_a_256_wide_picture_in_the_middle_of_a_360_by_240_canvas() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut core = open_core_for(d.path(), Core::Fceumm, "auto", false, &[dylib]);
++    core.load(&nes_rom("nes_emu.nes", false))
++        .expect("fceumm refused the generated cart");
++    for _ in 0..60 {
++        core.run_frame(ButtonMask::default());
++    }
++    assert_eq!(core.canvas(), (360, 240));
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), 360 * 240 * 4);
++    for y in 0..240 {
++        for x in PICTURE_X..PICTURE_X + PICTURE_W {
++            assert_eq!(pixel(video, x, y), BACKDROP_BGRX, "picture at {x},{y}");
++        }
++        for x in (0..PICTURE_X).chain(PICTURE_X + PICTURE_W..360) {
++            assert_eq!(pixel(video, x, y), [0, 0, 0, 0], "border at {x},{y}");
++        }
++    }
++    assert_ne!(
++        video,
++        MockCore::sized((360, 240)).video_xrgb8888(),
++        "the mock ran with fceumm sitting right there"
++    );
++}
++
++#[test]
++fn the_battery_flag_of_the_generated_cart_reaches_fceumm() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut core = open_core_for(
++        d.path(),
++        Core::Fceumm,
++        "auto",
++        false,
++        std::slice::from_ref(&dylib),
++    );
++    core.load(&nes_rom("nes_battery.nes", true))
++        .expect("fceumm refused the battery cart");
++    core.run_frame(ButtonMask::default());
++    assert!(core.save_ram().is_some(), "no save ram on a battery cart");
++    drop(core);
++    let mut core = open_core_for(d.path(), Core::Fceumm, "auto", false, &[dylib]);
++    core.load(&nes_rom("nes_no_battery.nes", false))
++        .expect("fceumm refused the plain cart");
++    core.run_frame(ButtonMask::default());
++    assert!(
++        core.save_ram().is_none(),
++        "save ram on a cart with no battery"
++    );
++}
+diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
+index c13ffa5..5ba478e 100644
+--- a/crates/slot/tests/nes_fceumm.rs
++++ b/crates/slot/tests/nes_fceumm.rs
+@@ -46,7 +46,7 @@ fn loaded_geometry(dylib: &Path, rom: &str, tweak: impl FnOnce(&mut LibretroCore
+     let mut core = LibretroCore::open(dylib).expect("open fceumm");
+     apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
+     tweak(&mut core);
+-    core.load(&nes_rom(rom))
++    core.load(&nes_rom(rom, false))
+         .expect("fceumm refused the generated cart");
+     for _ in 0..3 {
+         core.run_frame(ButtonMask::default());
+@@ -62,7 +62,7 @@ fn slots_own_open_path_runs_a_nes_cart_on_fceumm() {
+     };
+     let d = common::tmp_root_with_real_carts(&[]);
+     let mut core = open_core_for(d.path(), Core::Fceumm, "auto", false, &[dylib]);
+-    core.load(&nes_rom("fceumm_open.nes"))
++    core.load(&nes_rom("fceumm_open.nes", false))
+         .expect("fceumm refused the generated cart");
+     for _ in 0..5 {
+         core.run_frame(ButtonMask::default());
+@@ -84,7 +84,7 @@ fn fceumm_is_told_to_show_the_whole_picture() {
+     };
+     let mut core = LibretroCore::open(&dylib).expect("open fceumm");
+     apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
+-    core.load(&nes_rom("fceumm_overscan.nes"))
++    core.load(&nes_rom("fceumm_overscan.nes", false))
+         .expect("fceumm refused the generated cart");
+     for _ in 0..3 {
+         core.run_frame(ButtonMask::default());
+diff --git a/crates/slot/tests/nes_mock.rs b/crates/slot/tests/nes_mock.rs
+new file mode 100644
+index 0000000..148a479
+--- /dev/null
++++ b/crates/slot/tests/nes_mock.rs
+@@ -0,0 +1,61 @@
++mod common;
++
++use slot::core::open_core_for;
++use slot_retro::{ButtonMask, MockCore, RetroCore};
++use slot_store::Core;
++
++fn missing_fceumm() -> Box<dyn RetroCore> {
++    let d = common::tmp_root_with_real_carts(&[]);
++    open_core_for(d.path(), Core::Fceumm, "auto", false, &[])
++}
++
++#[test]
++fn a_nes_cart_without_fceumm_gets_a_mock_sized_to_the_nes_canvas() {
++    let mut core = missing_fceumm();
++    assert_eq!(core.canvas(), (360, 240));
++    assert_eq!(core.video_xrgb8888().len(), 360 * 240 * 4);
++    for _ in 0..3 {
++        core.run_frame(ButtonMask::default());
++    }
++    assert_eq!(core.video_xrgb8888().len(), 360 * 240 * 4);
++}
++
++#[test]
++fn a_gba_cart_without_a_core_still_gets_the_gba_sized_mock() {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let core = open_core_for(d.path(), Core::Mgba, "auto", false, &[]);
++    assert_eq!(core.canvas(), (240, 160));
++    assert_eq!(
++        core.video_xrgb8888(),
++        MockCore::new().video_xrgb8888(),
++        "the GBA mock frame moved"
++    );
++}
++
++#[cfg(target_os = "macos")]
++mod upload {
++    use super::*;
++    use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_W};
++
++    #[test]
++    fn the_sized_mock_frame_is_accepted_by_the_nes_canvas() {
++        let Ok(surface) = HeadlessSurface::new() else {
++            return;
++        };
++        let Ok(mut c) = Compositor::new(&surface) else {
++            return;
++        };
++        let mut core = missing_fceumm();
++        core.run_frame(ButtonMask::default());
++        c.set_game_canvas(360, 240);
++        c.set_screen_effect(ScreenEffect::None);
++        c.begin_frame();
++        c.upload_game(core.video_xrgb8888());
++        c.draw_game();
++        let frame = c.read_frame();
++        let at = (120 * OUT_W as usize + 360) * 4;
++        let src = core.video_xrgb8888();
++        let from = (60 * 360 + 180) * 4;
++        assert_eq!(frame[at..at + 3], [src[from + 2], src[from + 1], src[from]]);
++    }
++}
+diff --git a/crates/slot/tests/nes_thumb.rs b/crates/slot/tests/nes_thumb.rs
+new file mode 100644
+index 0000000..8375864
+--- /dev/null
++++ b/crates/slot/tests/nes_thumb.rs
+@@ -0,0 +1,48 @@
++use slot::thumb;
++use slot_retro::{GBA_H, GBA_W};
++
++fn decode(png_bytes: &[u8]) -> (Vec<u8>, u32, u32) {
++    let mut reader = png::Decoder::new(png_bytes).read_info().expect("read info");
++    let mut buf = vec![0u8; reader.output_buffer_size()];
++    let info = reader.next_frame(&mut buf).expect("decode");
++    assert_eq!(info.color_type, png::ColorType::Rgb);
++    buf.truncate(info.buffer_size());
++    (buf, info.width, info.height)
++}
++
++fn gradient(w: u32, h: u32) -> Vec<u8> {
++    let mut frame = Vec::new();
++    for y in 0..h {
++        for x in 0..w {
++            frame.extend_from_slice(&[(x * 3) as u8, y as u8, (x + y) as u8, 0]);
++        }
++    }
++    frame
++}
++
++#[test]
++fn a_360_by_240_thumbnail_decodes_to_the_same_size_and_pixels() {
++    let frame = gradient(360, 240);
++    let (rgb, w, h) = decode(&thumb::png_sized(&frame, 360, 240).expect("encode"));
++    assert_eq!((w, h), (360, 240));
++    for (got, src) in rgb.chunks_exact(3).zip(frame.chunks_exact(4)) {
++        assert_eq!(got, [src[2], src[1], src[0]]);
++    }
++}
++
++#[test]
++fn a_gba_sized_thumbnail_is_byte_identical_through_either_encoder() {
++    let frame = gradient(GBA_W, GBA_H);
++    assert_eq!(
++        thumb::png_sized(&frame, GBA_W, GBA_H),
++        thumb::png(&frame),
++        "the GBA thumbnail moved"
++    );
++}
++
++#[test]
++fn a_frame_shorter_than_the_canvas_is_not_a_thumbnail() {
++    assert!(thumb::png_sized(&[], 360, 240).is_none());
++    assert!(thumb::png_sized(&vec![0u8; 360 * 240 * 4 - 4], 360, 240).is_none());
++    assert!(thumb::png_sized(&gradient(GBA_W, GBA_H), 360, 240).is_none());
++}

@@ -17,6 +17,19 @@ def dmg_rom(source, out):
         f.write(rom)
 
 
+def nes_rom(out, battery=False):
+    rom = bytearray(16 + 0x4000 + 0x2000)
+    rom[0:7] = b"NES\x1a\x01\x01" + bytes([2 if battery else 0])
+    program = bytes(
+        [0xA9, 0x3F, 0x8D, 0x06, 0x20, 0xA9, 0x00, 0x8D, 0x06, 0x20, 0xA2, 0x20, 0xA9, 0x16]
+        + [0x8D, 0x07, 0x20, 0xCA, 0xD0, 0xFA, 0x4C, 0x14, 0xC0]
+    )
+    rom[16 : 16 + len(program)] = program
+    rom[16 + 0x3FFC : 16 + 0x3FFE] = b"\x00\xc0"
+    with open(out, "wb") as f:
+        f.write(rom)
+
+
 def chunk(kind, data):
     body = kind + data
     return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
@@ -59,12 +72,15 @@ def bezel_png(width, height, out):
 
 if sys.argv[1:2] == ["dmg"] and len(sys.argv) == 4:
     dmg_rom(sys.argv[2], sys.argv[3])
+elif sys.argv[1:2] == ["nes"] and len(sys.argv) in (3, 4):
+    nes_rom(sys.argv[2], sys.argv[3:] == ["battery"])
 elif sys.argv[1:2] == ["png"] and len(sys.argv) == 4:
     big_png(sys.argv[2], sys.argv[3])
 elif sys.argv[1:2] == ["bezel"] and len(sys.argv) == 5:
     bezel_png(int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])
 else:
     sys.exit(
-        "usage: make_assets.py dmg SOURCE.gb OUT.gb | make_assets.py png SIZE OUT.png"
+        "usage: make_assets.py dmg SOURCE.gb OUT.gb | make_assets.py nes OUT.nes [battery]"
+        " | make_assets.py png SIZE OUT.png"
         " | make_assets.py bezel WIDTH HEIGHT OUT.png"
     )

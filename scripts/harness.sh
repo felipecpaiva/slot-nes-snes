@@ -7,7 +7,10 @@
 # cold cache of 403 large generated labels hashed from frame 1 must report at least 20 diffs.
 # Legs: H1 (GBA on mGBA), H1G (the same script on gpSP, with colour correction), H2 (GB and GBC) and
 # B1 (4:3 window with a bezel, composite only). Each composite leg also hashes the output pass (blue
-# light gain and bezel), the polaroid view and the written state thumbnails.
+# light gain and bezel), the polaroid view and the written state thumbnails. H3 runs in the patched
+# tree only, in a copy of the root that adds a generated NES cart: it inserts and ejects the NES cart
+# (rows tagged H3N), then plays the H1 script again (rows tagged H3), and the H3 rows must equal the
+# patched H1 rows, so a GBA cart after a NES one draws as if no NES cart had been played.
 #
 # Retry rule: frame_dump exits 3 when the machine was too busy to keep the emulator in lockstep and
 # the run is repeated (3 tries, 6 when CI is set). Retries are counted per tree and printed as
@@ -30,6 +33,7 @@ extra_labels=400
 min_diffs=20
 retries_up=0
 retries_ours=0
+retries_h3=0
 
 usage() {
 	echo "usage: $0 warm | control | compare | inject" >&2
@@ -75,6 +79,10 @@ warm() {
 	rm -rf "$work/root-gpsp"
 	cp -Rp "$work/root" "$work/root-gpsp"
 	echo "240pee_mb=gpsp" >"$work/root-gpsp/Config/selected_core.txt"
+	rm -rf "$work/root-nes"
+	cp -Rp "$work/root" "$work/root-nes"
+	python3 "$root/harness/make_assets.py" nes "$work/root-nes/Games/NES/znes-backdrop.nes"
+	"$(dumper "$ours")" warm "$work/root-nes" 2>&1 | grep '^frame_dump:'
 }
 
 # run_dump TREE OUT SRC ARG...: a fresh copy of SRC per attempt, frame_dump ARG... ROOT appended to OUT,
@@ -114,6 +122,7 @@ one_run() {
 	: >"$3"
 	src="$work/root"
 	[ "$2" != H1G ] || src="$work/root-gpsp"
+	[ "$2" != H3 ] || src="$work/root-nes"
 	for mode in $modes; do
 		[ "$2" != B1 ] || [ "$mode" = composite ] || continue
 		run_dump "$1" "$3" "$src" "$mode" "$2"
@@ -121,9 +130,19 @@ one_run() {
 	[ -s "$3" ] || fail "frame_dump printed nothing for $2 in $1"
 }
 
+# h3_run OUT: one H3 run in the patched tree. Its retries are counted apart, because upstream has no H3
+# to set against them (the first emulator step after a core loads is often late), so they stay out of the
+# patched-against-upstream rule below and are printed.
+h3_run() {
+	kept=$retries_ours
+	one_run "$ours" H3 "$1"
+	retries_h3=$((retries_h3 + retries_ours - kept))
+	retries_ours=$kept
+}
+
 # verdict_retries: print the retry counts and fail when patched needed more than upstream + 1.
 verdict_retries() {
-	echo "retries: upstream $retries_up, patched $retries_ours"
+	echo "retries: upstream $retries_up, patched $retries_ours, H3 (patched only, not counted) $retries_h3"
 	[ "$retries_ours" -le $((retries_up + 1)) ] ||
 		fail "patched needed $retries_ours retries against upstream's $retries_up, an intermittent regression"
 }
@@ -161,7 +180,7 @@ stamp() {
 			echo "$f"
 			cat "$f"
 		done)
-		cat "$root/vendor/mgba_libretro.dylib" "$root/vendor/gpsp_libretro.dylib"
+		cat "$root/vendor/mgba_libretro.dylib" "$root/vendor/gpsp_libretro.dylib" "$root/vendor/fceumm_libretro.dylib"
 	} | sha256
 }
 
@@ -171,6 +190,7 @@ control() {
 	rm -f "$work/control.ok"
 	retries_up=0
 	retries_ours=0
+	retries_h3=0
 	bad=0
 	for tree in up ours; do
 		eval "dir=\$$tree"
@@ -180,6 +200,9 @@ control() {
 			report "control $tree $leg" "$work/out/control-$tree-$leg-1.txt" "$work/out/control-$tree-$leg-2.txt"
 		done
 	done
+	h3_run "$work/out/control-ours-H3-1.txt"
+	h3_run "$work/out/control-ours-H3-2.txt"
+	report "control ours H3" "$work/out/control-ours-H3-1.txt" "$work/out/control-ours-H3-2.txt"
 	echo "control: $bad diffs"
 	verdict_retries
 	[ "$bad" = 0 ] || exit 1
@@ -192,6 +215,7 @@ compare() {
 	warm >/dev/null
 	retries_up=0
 	retries_ours=0
+	retries_h3=0
 	bad=0
 	for leg in $legs; do
 		o="$work/out/compare-$leg"
@@ -203,7 +227,12 @@ compare() {
 		report "compare $leg patched runs" "$o-ours-1.txt" "$o-ours-2.txt"
 		report "compare $leg trees" "$o-up-1.txt" "$o-ours-1.txt"
 	done
-	echo "compare: $bad diffs ($(echo $legs | sed 's/ /, /g'))"
+	o="$work/out/compare-H3"
+	h3_run "$o-ours-1.txt"
+	h3_run "$o-ours-2.txt"
+	report "compare H3 patched runs" "$o-ours-1.txt" "$o-ours-2.txt"
+	report "compare H3 against H1" "$work/out/compare-H1-ours-1.txt" "$o-ours-1.txt" H1 H3
+	echo "compare: $bad diffs ($(echo $legs | sed 's/ /, /g'), H3 patched only, held against H1)"
 	verdict_retries
 	[ "$bad" = 0 ] || exit 1
 }
