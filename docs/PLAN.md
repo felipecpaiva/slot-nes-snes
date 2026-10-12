@@ -635,6 +635,7 @@ Rules:
 | T47 | 5 | `docs/PERFORMANCE.md` | thresholds against the GBA baseline | every pair within threshold or a linked follow-up issue |
 | T48 | 4 | Cart Studio NES/SNES (PR or fork) | sample card with NES, Famicom, SNES, Super Famicom ROMs | labels sized per variant, valid cart_shell.txt lines, preview matches slot |
 | T49 | 4 | `tools/tests/test_fetch_labels.py` | offline fixtures for the label fetcher | CRC rules, label sizes, cart_shell.txt grammar, network failures |
+| T50 | 2 | `slot/tests/nes_video_mode.rs` | NES and SNES default to Stretch | unsaved NES/SNES carts read Stretch; a saved line wins; GBA, GB, GBC read Actual |
 | T15 | 2 | `slot-store/tests/snes_header.rs` | LoROM/HiROM, with and without copier header, plus a JIS X 0201 title | Title parsed in the 4 ASCII cases; non-ASCII and garbage fall back to the stem |
 | T16 | 2 | `slot-retro/tests/snes_turbo.rs` | `apply(PassThrough, f)` / `apply(Turbo, f)` | X/Y kept; Turbo equals upstream `turbo(f)` |
 | T17 | 2 | `slot/tests/snes_shoulders.rs` | `taken_buttons()` playing | GBA `[]`, GB `[L1, R1]`, Nes `[L1, R1]`, Snes `[]` |
