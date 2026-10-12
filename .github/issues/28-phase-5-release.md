@@ -15,6 +15,7 @@ Child issues, in merge order:
 - [ ] 29-ci-test-workflow
 - [ ] 30-release-workflow
 - [ ] 31-rebase-and-diffsurface
+- [ ] 39-cross-platform-performance
 
 ## Tests
 | ID | File | Asserts |
