@@ -4,16 +4,21 @@ Date: Mon, 12 Oct 2026 14:59:24 +0400
 Subject: [PATCH] core-fceumm
 
 ---
- crates/slot-store/src/core.rs        | 16 +++++-
- crates/slot-store/src/core_policy.rs | 20 +++++++
- crates/slot-store/src/lib.rs         |  1 +
- crates/slot-store/tests/nes_core.rs  | 73 +++++++++++++++++++++++++
- crates/slot/src/core.rs              | 18 ++++++-
- crates/slot/tests/gpsp.rs            |  2 +-
- crates/slot/tests/nes_fceumm.rs      | 80 ++++++++++++++++++++++++++++
- 7 files changed, 206 insertions(+), 4 deletions(-)
+ crates/slot-store/src/core.rs          |  16 +++-
+ crates/slot-store/src/core_policy.rs   |  20 +++++
+ crates/slot-store/src/lib.rs           |   1 +
+ crates/slot-store/tests/nes_core.rs    |  73 ++++++++++++++++
+ crates/slot/src/core.rs                |   4 +-
+ crates/slot/src/core_options_policy.rs |  26 ++++++
+ crates/slot/src/lib.rs                 |   1 +
+ crates/slot/tests/gpsp.rs              |   2 +-
+ crates/slot/tests/nes_common/mod.rs    |  33 ++++++++
+ crates/slot/tests/nes_fceumm.rs        | 110 +++++++++++++++++++++++++
+ 10 files changed, 282 insertions(+), 4 deletions(-)
  create mode 100644 crates/slot-store/src/core_policy.rs
  create mode 100644 crates/slot-store/tests/nes_core.rs
+ create mode 100644 crates/slot/src/core_options_policy.rs
+ create mode 100644 crates/slot/tests/nes_common/mod.rs
  create mode 100644 crates/slot/tests/nes_fceumm.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
@@ -197,24 +202,18 @@ index 0000000..35e085e
 +    assert!(Core::Mgba.has_colour_correction() && Core::Gpsp.has_colour_correction());
 +}
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 1a0ce0b..befe29e 100644
+index 1a0ce0b..6d862e3 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -7,6 +7,13 @@ use crate::root;
+@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
+ use slot_retro::{LibretroCore, MockCore, RetroCore};
+ use slot_store::{Core, GbPalette, Platform};
+ 
++use crate::core_options_policy::apply_policy_options;
+ use crate::root;
  
  const CORE_ENV: &str = "SLOT_CORE";
- 
-+const FCEUMM_OVERSCAN: [&str; 4] = [
-+    "fceumm_overscan_h_left",
-+    "fceumm_overscan_h_right",
-+    "fceumm_overscan_v_top",
-+    "fceumm_overscan_v_bottom",
-+];
-+
- pub fn dylib_name(core: Core) -> String {
-     format!(
-         "{}_libretro.{}",
-@@ -155,6 +162,7 @@ pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static st
+@@ -155,6 +156,7 @@ pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static st
              "gpsp_color_correction",
              if on { "enabled" } else { "disabled" },
          )),
@@ -222,30 +221,59 @@ index 1a0ce0b..befe29e 100644
      }
  }
  
-@@ -175,7 +183,10 @@ pub fn apply_core_options(
+@@ -175,7 +177,7 @@ pub fn apply_core_options(
      colour: bool,
      palette: Option<GbPalette>,
  ) {
 -    core.set_option(&format!("{}_frameskip", which.as_str()), "auto");
-+    let frameskip = format!("{}_frameskip", which.option_prefix());
-+    if core.declared_options().contains_key(&frameskip) {
-+        core.set_option(&frameskip, "auto");
-+    }
++    apply_policy_options(core, which);
      if which == Core::Mgba {
          core.set_option("mgba_sgb_borders", "OFF");
          core.set_option("mgba_force_gbp", "ON");
-@@ -195,6 +206,11 @@ pub fn apply_core_options(
-             core.set_option(key, value);
-         }
-     }
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+new file mode 100644
+index 0000000..5448a2e
+--- /dev/null
++++ b/crates/slot/src/core_options_policy.rs
+@@ -0,0 +1,26 @@
++use slot_retro::LibretroCore;
++use slot_store::Core;
++
++const FCEUMM_OVERSCAN: [&str; 4] = [
++    "fceumm_overscan_h_left",
++    "fceumm_overscan_h_right",
++    "fceumm_overscan_v_top",
++    "fceumm_overscan_v_bottom",
++];
++
++pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
++    let frameskip = format!("{}_frameskip", which.option_prefix());
++    if core.declared_options().contains_key(&frameskip) {
++        core.set_option(&frameskip, "auto");
++    } else {
++        eprintln!(
++            "slot: core: {} declares no frameskip option",
++            which.as_str()
++        );
++    }
 +    if which == Core::Fceumm {
 +        for key in FCEUMM_OVERSCAN {
 +            core.set_option(key, "0");
 +        }
 +    }
-     if which == Core::Gpsp {
-         core.set_option("gpsp_serial", serial);
-         core.set_option("gpsp_rtc_time_source", "system");
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index f12c1a8..9c8cff0 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -7,6 +7,7 @@ pub mod build_info;
+ pub mod cable;
+ pub mod cart_faces;
+ pub mod core;
++pub mod core_options_policy;
+ pub mod core_picker;
+ pub mod crash;
+ pub mod drc;
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
 index e593b2c..864a6bc 100644
 --- a/crates/slot/tests/gpsp.rs
@@ -259,22 +287,17 @@ index e593b2c..864a6bc 100644
              Core::Gpsp => "mgba_color_correction",
          };
          assert_eq!(
-diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
+diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
 new file mode 100644
-index 0000000..c5fea64
+index 0000000..3166a25
 --- /dev/null
-+++ b/crates/slot/tests/nes_fceumm.rs
-@@ -0,0 +1,80 @@
-+mod common;
-+
++++ b/crates/slot/tests/nes_common/mod.rs
+@@ -0,0 +1,33 @@
 +use std::path::{Path, PathBuf};
 +
-+use common::core_lock;
-+use slot::core::{apply_core_options, open_core_for};
-+use slot_retro::{ButtonMask, LibretroCore, RetroCore};
-+use slot_store::Core;
++use crate::common;
 +
-+fn fceumm() -> Option<PathBuf> {
++pub fn fceumm() -> Option<PathBuf> {
 +    let p = common::repo_root().join(format!(
 +        "vendor/fceumm_libretro.{}",
 +        std::env::consts::DLL_EXTENSION
@@ -291,7 +314,7 @@ index 0000000..c5fea64
 +    None
 +}
 +
-+fn nes_rom(name: &str) -> PathBuf {
++pub fn nes_rom(name: &str) -> PathBuf {
 +    let mut rom = vec![0u8; 16 + 0x4000 + 0x2000];
 +    rom[..4].copy_from_slice(b"NES\x1a");
 +    rom[4] = 1;
@@ -302,6 +325,67 @@ index 0000000..c5fea64
 +    let p = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
 +    std::fs::write(&p, rom).expect("write rom");
 +    p
++}
+diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
+new file mode 100644
+index 0000000..c13ffa5
+--- /dev/null
++++ b/crates/slot/tests/nes_fceumm.rs
+@@ -0,0 +1,110 @@
++mod common;
++mod nes_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use nes_common::{fceumm, nes_rom};
++use slot::core::{apply_core_options, open_core_for};
++use slot_retro::{ButtonMask, LibretroCore, MockCore, RetroCore};
++use slot_store::Core;
++
++const OVERSCAN_KEYS: [&str; 4] = [
++    "fceumm_overscan_h_left",
++    "fceumm_overscan_h_right",
++    "fceumm_overscan_v_top",
++    "fceumm_overscan_v_bottom",
++];
++
++#[repr(C)]
++struct SystemAvInfo {
++    base_width: u32,
++    base_height: u32,
++    max_width: u32,
++    max_height: u32,
++    aspect_ratio: f32,
++    fps: f64,
++    sample_rate: f64,
++}
++
++fn base_geometry(dylib: &Path) -> (u32, u32) {
++    // SAFETY: the dylib is already loaded by the core under test, so this only takes another
++    // handle on it, and retro_get_system_av_info writes one SystemAvInfo through the pointer.
++    unsafe {
++        let lib = libloading::Library::new(dylib).expect("reopen fceumm");
++        let get: libloading::Symbol<unsafe extern "C" fn(*mut SystemAvInfo)> = lib
++            .get(b"retro_get_system_av_info")
++            .expect("retro_get_system_av_info");
++        let mut av = std::mem::MaybeUninit::<SystemAvInfo>::zeroed();
++        get(av.as_mut_ptr());
++        let av = av.assume_init();
++        (av.base_width, av.base_height)
++    }
++}
++
++fn loaded_geometry(dylib: &Path, rom: &str, tweak: impl FnOnce(&mut LibretroCore)) -> (u32, u32) {
++    let mut core = LibretroCore::open(dylib).expect("open fceumm");
++    apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
++    tweak(&mut core);
++    core.load(&nes_rom(rom))
++        .expect("fceumm refused the generated cart");
++    for _ in 0..3 {
++        core.run_frame(ButtonMask::default());
++    }
++    base_geometry(dylib)
 +}
 +
 +#[test]
@@ -317,10 +401,13 @@ index 0000000..c5fea64
 +    for _ in 0..5 {
 +        core.run_frame(ButtonMask::default());
 +    }
-+    assert!(
-+        core.av_info().fps > 60.05,
++    let fps = core.av_info().fps;
++    assert_ne!(
++        fps,
++        MockCore::new().av_info().fps,
 +        "the mock ran with fceumm sitting right there"
 +    );
++    assert!((49.0..61.0).contains(&fps), "fceumm reported {fps} fps");
 +}
 +
 +#[test]
@@ -336,12 +423,22 @@ index 0000000..c5fea64
 +    for _ in 0..3 {
 +        core.run_frame(ButtonMask::default());
 +    }
-+    for key in [
-+        "fceumm_overscan_h_left",
-+        "fceumm_overscan_h_right",
-+        "fceumm_overscan_v_top",
-+        "fceumm_overscan_v_bottom",
-+    ] {
++    assert_eq!(base_geometry(&dylib), (256, 240));
++    for key in OVERSCAN_KEYS {
 +        assert_eq!(core.option(key).as_deref(), Some("0"), "{key}");
 +    }
++}
++
++#[test]
++fn fceumm_crops_the_picture_when_the_overscan_keys_say_so() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let cropped = loaded_geometry(&dylib, "fceumm_cropped.nes", |core| {
++        for key in OVERSCAN_KEYS {
++            core.set_option(key, "8");
++        }
++    });
++    assert_eq!(cropped, (240, 224));
 +}
