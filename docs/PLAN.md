@@ -201,7 +201,7 @@ Deliverables:
 - [ ] `patches/0001-step0-exhaustive-matches.patch` (behaviour-identical):
   - `scan.rs:21-32` `read_header`;
   - `slot/src/core.rs:128` `palette_for` (`has_gb_palettes()`);
-  - `app.rs:855` (`owns_shoulders()`), `app.rs:2643` (`picker_cores().is_some()`), `app.rs:2646` (`core_for_platform`), `app.rs:2701` (explicit `== Gba` kept);
+  - `app.rs:855` (`owns_shoulders()`), `app.rs:2643` (`picker_cores().is_none()` early return), `app.rs:2646` (`core_for_platform`), `app.rs:2701` (upstream `!= Platform::Gba` kept, link cable stays GBA only);
   - `slot-store/src/core.rs:46` `Core::runs`;
   - `slot-ui/src/cart.rs` `gb_shell_of` Outline `_ =>`.
 

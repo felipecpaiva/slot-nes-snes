@@ -16,9 +16,9 @@ Several upstream sites use `_ =>` or `!= Platform::Gba` and would silently treat
 - [ ] `slot: crates/slot-store/src/scan.rs:21-32` `read_header`: exhaustive match, no `_ =>`.
 - [ ] `slot: crates/slot/src/core.rs:128` `palette_for`: use `has_gb_palettes()`.
 - [ ] `slot: crates/slot/src/app.rs:855` `slot_owns_the_shoulders`: use `owns_shoulders()`.
-- [ ] `slot: crates/slot/src/app.rs:2643`: use `picker_cores().is_some()`.
+- [ ] `slot: crates/slot/src/app.rs:2643`: use `picker_cores().is_none()` for the early return.
 - [ ] `slot: crates/slot/src/app.rs:2646`: `core_for` becomes `core_for_platform(root, stem, cart.platform)`.
-- [ ] `slot: crates/slot/src/app.rs:2701`: explicit `== Platform::Gba` kept (link cable stays GBA only).
+- [ ] `slot: crates/slot/src/app.rs:2701`: upstream `!= Platform::Gba` kept unchanged (link cable stays GBA only).
 - [ ] `slot: crates/slot-store/src/core.rs:46` `Core::runs`: exhaustive.
 - [ ] `slot: crates/slot-ui/src/cart.rs` `gb_shell_of` Outline `_ =>` arm made exhaustive.
 

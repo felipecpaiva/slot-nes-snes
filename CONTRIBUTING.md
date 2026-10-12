@@ -42,7 +42,7 @@ breaking it causes a conflict on most releases.
 | Rule | Do | Do not |
 |---|---|---|
 | New code goes in new files | `platform_policy.rs`, `core_policy.rs`, `canvas.rs`, `nes_*.rs` tests | Grow an upstream file with a new function block |
-| Upstream files get one-token hunks | `if !self.platform.owns_shoulders()` replacing `if self.platform != Platform::Gba` | Reformat, reorder or "tidy" surrounding upstream lines |
+| Upstream files get one-token hunks | `&& self.platform.owns_shoulders()` replacing `&& self.platform != Platform::Gba` | Reformat, reorder or "tidy" surrounding upstream lines |
 | Enums are append-only | `Nes` after `Gbc`, `Fceumm` after `Gpsp` | Insert in the middle, reorder, rename |
 | Pinned shapes stay | Add `Platform::SHELVES`, `Core::EVERY`, `CorePicker::open_pair` | Change `Platform::ALL` (3), `Core::ALL` (2), `QuickRow::SCREEN` (4), `CorePicker::open` |
 | `Host` stays | New state in `HostExtra` (issue 09) | Add a field to `Host` in `libretro.rs` (its in-source test lists every field) |
