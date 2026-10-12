@@ -18,6 +18,7 @@ NES carts must open fceumm by default without growing `Core::ALL`, which upstrea
 - [ ] `core_for_platform(root, stem, platform)`: a `selected_core.txt` line naming a core that does not run the platform is dropped.
 - [ ] `slot: crates/slot/src/core.rs:151` `colour_option(Fceumm) = None`.
 - [ ] `apply_core_options` (`slot: crates/slot/src/core.rs:178`): set `{prefix}_frameskip` only when the core declares it; set fceumm's overscan options so the full 256x240 is shown.
+- [ ] Named upstream test exception: `crates/slot/tests/gpsp.rs` `both_cores_are_told_about_colour_correction_in_their_own_words` matches exhaustively over `Core`; its `Core::Mgba` arm gains `| Core::Fceumm` (one token, checked byte for byte by `scripts/check-upstream-tests.sh`).
 
 ## Tests
 | ID | File | Asserts |

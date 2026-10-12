@@ -11,10 +11,10 @@ usage() {
 log="$(mktemp)"
 trap 'rm -f "$log" "$log.skips"' EXIT
 
-# check promises real-core tests: with SLOT_REQUIRE_CORES=1 both host dylibs must exist inside the
+# check promises real-core tests: with SLOT_REQUIRE_CORES=1 all three host dylibs must exist inside the
 # tree under test (build/slot/vendor is a symlink to the shared vendor/, -f follows it).
 if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
-	for core in mgba gpsp; do
+	for core in mgba gpsp fceumm; do
 		[ -f "$1/vendor/${core}_libretro.dylib" ] || {
 			echo "slot-nes-snes: $1/vendor/${core}_libretro.dylib is missing, run task core:host" >&2
 			exit 1
