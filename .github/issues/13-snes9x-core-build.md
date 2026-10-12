@@ -39,6 +39,8 @@ No upstream test file is touched.
 None on its own. The phase device check is in 11-phase-2-snes.
 
 ## Review notes
+- Merge order: `scripts/zip-check.sh` keeps `games="GBA GB GBC NES"` here; issue 12 adds `SNES` to that line. Whoever merges second resolves that one line.
+- snes9x option prefix is `snes9x_` (45 keys in `libretro/libretro_core_options.h` at the pinned commit).
 - Licence obligation: snes9x is non-commercial. The README and release notes must say so; commercial redistribution is explicitly unsupported.
 - Do not paraphrase the licence file; it must be verbatim from the pinned commit.
 

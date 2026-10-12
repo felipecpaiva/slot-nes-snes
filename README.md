@@ -69,7 +69,8 @@ Progress is tracked on the [project board](https://github.com/users/felipecpaiva
 
 slot is GPL-3.0-or-later, so this patch set is too (see [LICENSE](LICENSE)). fceumm and nestopia
 are GPL-2.0-or-later. **snes9x is not GPL**: it is free for non-commercial use only. Builds that
-include it ship its licence file and must never be sold or bundled with anything sold.
+include it ship its licence file (`System/licenses/snes9x-LICENSE.txt`) and must never be sold or
+bundled with anything sold. See [LICENSING.md](LICENSING.md).
 
 ## Credit
 

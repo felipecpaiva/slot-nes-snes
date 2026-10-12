@@ -3,7 +3,8 @@
 | Fetch | Where | Verification |
 |---|---|---|
 | slot release tarball | `scripts/fetch-slot.sh` | sha256 `tarball_sha256` in `SLOT_PIN`, cached copy removed on mismatch |
-| fceumm source tarball | `cores/fceumm/build.sh fetch` | sha256 `fceumm_tarball_sha256` in `SLOT_PIN` |
+| fceumm source tarball | `cores/fceumm/build.sh fetch` (shared code in `cores/lib.sh`) | sha256 `fceumm_tarball_sha256` in `SLOT_PIN` |
+| snes9x source tarball | `cores/snes9x/build.sh fetch` | sha256 `snes9x_tarball_sha256` in `SLOT_PIN` |
 | mGBA source | upstream `cores/mgba/build.sh`, `git fetch` of one commit | git commit id `MGBA_COMMIT` (SHA-1 content addressed) |
 | Task linux arm64 tarball | `scripts/fetch-task.sh` | sha256 `task_linux_arm64_sha256` in `SLOT_PIN`, checked before extraction |
 | gpSP device source tarball | upstream `core:gpsp` (curl, no checksum) | sha256 `gpsp_tarball_sha256` in `SLOT_PIN`, checked by `scripts/dist-device.sh` on the vendor copy and the dist copy right after upstream's run; failure removes the dist tree and the gpSP cache. Upstream deletes its cached copy before downloading and its skip check cannot be met from outside, so the check runs after the download, before anything is packaged |

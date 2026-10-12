@@ -29,7 +29,7 @@ else
 			'
 		exit
 	fi
-	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e FCEUMM_BUILDER \
+	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e CORE_BUILDER \
 		-v "$root":/src -w /src rust:1-bullseye sh -c '
 		test -f /src/scripts/device-sh.sh || {
 			echo "repo path not visible inside docker; under colima keep the repo under your home directory" >&2
