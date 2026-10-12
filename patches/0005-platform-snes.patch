@@ -1,0 +1,819 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 19:03:54 +0400
+Subject: [PATCH] platform-snes
+
+---
+ crates/slot-store/src/core.rs            | 15 +++-
+ crates/slot-store/src/core_policy.rs     |  7 +-
+ crates/slot-store/src/lib.rs             |  1 +
+ crates/slot-store/src/platform.rs        |  5 ++
+ crates/slot-store/src/platform_policy.rs | 14 ++--
+ crates/slot-store/src/scan.rs            |  5 ++
+ crates/slot-store/src/snes.rs            | 77 ++++++++++++++++++++
+ crates/slot-store/tests/nes_core.rs      |  2 +-
+ crates/slot-store/tests/nes_platform.rs  |  2 +-
+ crates/slot-store/tests/snes_core.rs     | 54 ++++++++++++++
+ crates/slot-store/tests/snes_header.rs   | 89 ++++++++++++++++++++++++
+ crates/slot-store/tests/snes_platform.rs | 43 ++++++++++++
+ crates/slot-ui/src/cart.rs               |  6 +-
+ crates/slot-ui/src/shell.rs              |  1 +
+ crates/slot-ui/tests/chrome.rs           |  2 +-
+ crates/slot/src/app.rs                   |  4 +-
+ crates/slot/src/core.rs                  |  2 +-
+ crates/slot/src/root.rs                  |  6 +-
+ crates/slot/tests/gpsp.rs                |  2 +-
+ crates/slot/tests/nes_common/mod.rs      | 50 +++++++++++++
+ crates/slot/tests/render_shelves.rs      |  2 +-
+ crates/slot/tests/snes_rom.rs            | 32 +++++++++
+ 22 files changed, 399 insertions(+), 22 deletions(-)
+ create mode 100644 crates/slot-store/src/snes.rs
+ create mode 100644 crates/slot-store/tests/snes_core.rs
+ create mode 100644 crates/slot-store/tests/snes_header.rs
+ create mode 100644 crates/slot-store/tests/snes_platform.rs
+ create mode 100644 crates/slot/tests/snes_rom.rs
+
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 56b6730..cf08688 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -11,6 +11,7 @@ pub enum Core {
+     Mgba,
+     Gpsp,
+     Fceumm,
++    Snes9x,
+ }
+ 
+ impl Core {
+@@ -21,6 +22,7 @@ impl Core {
+             Core::Mgba => "mgba",
+             Core::Gpsp => "gpsp",
+             Core::Fceumm => "fceumm",
++            Core::Snes9x => "snes9x",
+         }
+     }
+ 
+@@ -33,6 +35,7 @@ impl Core {
+             Core::Mgba => "mGBA",
+             Core::Gpsp => "gpSP",
+             Core::Fceumm => "FCEUmm",
++            Core::Snes9x => "Snes9x",
+         }
+     }
+ 
+@@ -41,6 +44,7 @@ impl Core {
+             "mgba" => Some(Core::Mgba),
+             "gpsp" => Some(Core::Gpsp),
+             "fceumm" => Some(Core::Fceumm),
++            "snes9x" => Some(Core::Snes9x),
+             _ => None,
+         }
+     }
+@@ -49,15 +53,19 @@ impl Core {
+         match self {
+             Core::Mgba => match platform {
+                 Platform::Gba | Platform::Gb | Platform::Gbc => true,
+-                Platform::Nes => false,
++                Platform::Nes | Platform::Snes => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+-                Platform::Gb | Platform::Gbc | Platform::Nes => false,
++                Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => false,
+             },
+             Core::Fceumm => match platform {
+                 Platform::Nes => true,
+-                Platform::Gba | Platform::Gb | Platform::Gbc => false,
++                Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Snes => false,
++            },
++            Core::Snes9x => match platform {
++                Platform::Snes => true,
++                Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
+             },
+         }
+     }
+@@ -66,6 +74,7 @@ impl Core {
+         match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
+             Platform::Nes => Core::Fceumm,
++            Platform::Snes => Core::Snes9x,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 442fbd4..cbe489b 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -1,20 +1,21 @@
+ use crate::core::Core;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 3] = [Core::Mgba, Core::Gpsp, Core::Fceumm];
++    pub const EVERY: [Core; 4] = [Core::Mgba, Core::Gpsp, Core::Fceumm, Core::Snes9x];
+ 
+     pub fn option_prefix(self) -> &'static str {
+         match self {
+             Core::Mgba => "mgba",
+             Core::Gpsp => "gpsp",
+             Core::Fceumm => "fceumm",
++            Core::Snes9x => "snes9x",
+         }
+     }
+ 
+     pub fn canvas(self) -> (u32, u32) {
+         match self {
+             Core::Mgba | Core::Gpsp => (240, 160),
+-            Core::Fceumm => (360, 240),
++            Core::Fceumm | Core::Snes9x => (360, 240),
+         }
+     }
+ 
+@@ -26,7 +27,7 @@ impl Core {
+     pub fn has_colour_correction(self) -> bool {
+         match self {
+             Core::Mgba | Core::Gpsp => true,
+-            Core::Fceumm => false,
++            Core::Fceumm | Core::Snes9x => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 374db72..1a6bf7a 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -12,6 +12,7 @@ mod platform_policy;
+ mod ring;
+ mod scan;
+ mod slot_state;
++pub mod snes;
+ mod stamp;
+ mod theme;
+ 
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 605833a..beaa8c8 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -7,6 +7,7 @@ pub enum Platform {
+     Gb,
+     Gbc,
+     Nes,
++    Snes,
+ }
+ 
+ impl Platform {
+@@ -18,6 +19,7 @@ impl Platform {
+             Platform::Gb => "Game Boy",
+             Platform::Gbc => "Game Boy Color",
+             Platform::Nes => "Nintendo Entertainment System",
++            Platform::Snes => "Super Nintendo Entertainment System",
+         }
+     }
+ 
+@@ -27,6 +29,7 @@ impl Platform {
+             Platform::Gb => "GB",
+             Platform::Gbc => "GBC",
+             Platform::Nes => "NES",
++            Platform::Snes => "SNES",
+         }
+     }
+ 
+@@ -35,6 +38,7 @@ impl Platform {
+             Platform::Gba => &["gba"],
+             Platform::Gb | Platform::Gbc => &["gb", "gbc"],
+             Platform::Nes => &["nes"],
++            Platform::Snes => &["sfc", "smc"],
+         }
+     }
+ 
+@@ -43,6 +47,7 @@ impl Platform {
+             Platform::Gba => (240, 160),
+             Platform::Gb | Platform::Gbc => (160, 144),
+             Platform::Nes => (256, 240),
++            Platform::Snes => (256, 224),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index a66d208..0f68b1e 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -2,11 +2,17 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 4] = [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes];
++    pub const SHELVES: [Platform; 5] = [
++        Platform::Gba,
++        Platform::Gb,
++        Platform::Gbc,
++        Platform::Nes,
++        Platform::Snes,
++    ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+         match self {
+-            Platform::Gba | Platform::Nes => false,
++            Platform::Gba | Platform::Nes | Platform::Snes => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+@@ -14,14 +20,14 @@ impl Platform {
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+             Platform::Gba => false,
+-            Platform::Gb | Platform::Gbc | Platform::Nes => true,
++            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => true,
+         }
+     }
+ 
+     pub fn picker_cores(self) -> Option<(Core, Core)> {
+         match self {
+             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
+-            Platform::Gb | Platform::Gbc | Platform::Nes => None,
++            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => None,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 2d6d3a7..392f23b 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -31,6 +31,11 @@ impl Cart {
+                 }
+             }
+             Platform::Nes => {}
++            Platform::Snes => {
++                if let Some(title) = crate::snes::title(&self.rom) {
++                    self.title = title;
++                }
++            }
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/snes.rs b/crates/slot-store/src/snes.rs
+new file mode 100644
+index 0000000..a436a59
+--- /dev/null
++++ b/crates/slot-store/src/snes.rs
+@@ -0,0 +1,77 @@
++use std::fs::File;
++use std::io::{Read, Seek, SeekFrom};
++use std::path::Path;
++
++const COPIER_LEN: u64 = 512;
++const HEADER_OFFS: [u64; 2] = [0x7fc0, 0xffc0];
++const HEADER_LEN: usize = 0x20;
++const TITLE_LEN: usize = 21;
++const COMPLEMENT_OFF: usize = 0x1c;
++
++pub fn title(rom: &Path) -> Option<String> {
++    let mut f = File::open(rom).ok()?;
++    let len = f.metadata().ok()?.len();
++    let skip = if len % 1024 == COPIER_LEN {
++        COPIER_LEN
++    } else {
++        0
++    };
++    for off in HEADER_OFFS {
++        let mut head = [0u8; HEADER_LEN];
++        if f.seek(SeekFrom::Start(skip + off)).is_ok() && f.read_exact(&mut head).is_ok() {
++            if let Some(found) = title_of(&head) {
++                return found;
++            }
++        }
++    }
++    None
++}
++
++fn title_of(head: &[u8; HEADER_LEN]) -> Option<Option<String>> {
++    let complement = u16::from_le_bytes([head[COMPLEMENT_OFF], head[COMPLEMENT_OFF + 1]]);
++    let checksum = u16::from_le_bytes([head[COMPLEMENT_OFF + 2], head[COMPLEMENT_OFF + 3]]);
++    if complement ^ checksum != 0xffff {
++        return None;
++    }
++    let raw = &head[..TITLE_LEN];
++    let end = raw
++        .iter()
++        .rposition(|b| *b != b' ' && *b != 0)
++        .map_or(0, |i| i + 1);
++    let text = &raw[..end];
++    let printable = text.iter().all(|b| (0x20..=0x7e).contains(b));
++    Some((printable && !text.is_empty()).then(|| String::from_utf8_lossy(text).into_owned()))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn head(title: &[u8], checksum: u16) -> [u8; HEADER_LEN] {
++        let mut h = [b' '; HEADER_LEN];
++        h[..title.len()].copy_from_slice(title);
++        h[COMPLEMENT_OFF..COMPLEMENT_OFF + 2].copy_from_slice(&(!checksum).to_le_bytes());
++        h[COMPLEMENT_OFF + 2..].copy_from_slice(&checksum.to_le_bytes());
++        h
++    }
++
++    #[test]
++    fn a_header_with_a_matching_complement_gives_its_trimmed_title() {
++        assert_eq!(
++            title_of(&head(b"SUPER MARIOWORLD", 0x1234)),
++            Some(Some("SUPER MARIOWORLD".into()))
++        );
++    }
++
++    #[test]
++    fn a_header_whose_complement_does_not_match_is_not_a_header() {
++        let mut h = head(b"X", 0x1234);
++        h[COMPLEMENT_OFF] ^= 1;
++        assert_eq!(title_of(&h), None);
++    }
++
++    #[test]
++    fn a_title_with_katakana_bytes_is_a_header_with_no_title() {
++        assert_eq!(title_of(&head(&[0xb1, 0xb2, 0xb3], 0x1234)), Some(None));
++    }
++}
+diff --git a/crates/slot-store/tests/nes_core.rs b/crates/slot-store/tests/nes_core.rs
+index 35e085e..e8a0775 100644
+--- a/crates/slot-store/tests/nes_core.rs
++++ b/crates/slot-store/tests/nes_core.rs
+@@ -42,7 +42,7 @@ fn the_pinned_core_list_still_has_two_entries() {
+ 
+ #[test]
+ fn every_core_is_listed_and_reads_back_from_its_own_name() {
+-    assert_eq!(Core::EVERY, [Core::Mgba, Core::Gpsp, Core::Fceumm]);
++    assert_eq!(Core::EVERY[..3], [Core::Mgba, Core::Gpsp, Core::Fceumm]);
+     for core in Core::EVERY {
+         assert_eq!(Core::parse(core.as_str()), Some(core));
+     }
+diff --git a/crates/slot-store/tests/nes_platform.rs b/crates/slot-store/tests/nes_platform.rs
+index f801fae..ade64d1 100644
+--- a/crates/slot-store/tests/nes_platform.rs
++++ b/crates/slot-store/tests/nes_platform.rs
+@@ -5,7 +5,7 @@ use slot_store::Platform;
+ #[test]
+ fn the_shelves_are_the_three_game_boy_platforms_then_nes() {
+     assert_eq!(
+-        Platform::SHELVES,
++        Platform::SHELVES[..4],
+         [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes]
+     );
+ }
+diff --git a/crates/slot-store/tests/snes_core.rs b/crates/slot-store/tests/snes_core.rs
+new file mode 100644
+index 0000000..2953b28
+--- /dev/null
++++ b/crates/slot-store/tests/snes_core.rs
+@@ -0,0 +1,54 @@
++use slot_store::{core_for_platform, Core, Platform};
++
++#[test]
++fn each_core_runs_only_its_own_platforms_with_snes_added() {
++    let truth = [
++        (Core::Mgba, [true, true, true, false, false]),
++        (Core::Gpsp, [true, false, false, false, false]),
++        (Core::Fceumm, [false, false, false, true, false]),
++        (Core::Snes9x, [false, false, false, false, true]),
++    ];
++    let platforms = [
++        Platform::Gba,
++        Platform::Gb,
++        Platform::Gbc,
++        Platform::Nes,
++        Platform::Snes,
++    ];
++    for (core, expected) in truth {
++        for (platform, runs) in platforms.into_iter().zip(expected) {
++            assert_eq!(core.runs(platform), runs, "{core:?} on {platform:?}");
++        }
++    }
++}
++
++#[test]
++fn a_snes_cart_opens_snes9x_by_default() {
++    let d = tempfile::tempdir().expect("tempdir");
++    assert_eq!(
++        core_for_platform(d.path(), "Mario", Platform::Snes),
++        Core::Snes9x
++    );
++    assert_eq!(Core::default_for(Platform::Snes), Core::Snes9x);
++}
++
++#[test]
++fn every_core_lists_snes9x_while_the_pinned_list_stays_at_two() {
++    assert!(Core::EVERY.contains(&Core::Snes9x));
++    assert_eq!(Core::ALL.len(), 2);
++    assert!(!Core::ALL.contains(&Core::Snes9x));
++}
++
++#[test]
++fn snes9x_is_named_after_its_dylib_and_reads_back() {
++    assert_eq!(Core::Snes9x.as_str(), "snes9x");
++    assert_eq!(Core::Snes9x.text(), "Snes9x");
++    assert_eq!(Core::parse("snes9x"), Some(Core::Snes9x));
++    assert_eq!(Core::Snes9x.option_prefix(), "snes9x");
++}
++
++#[test]
++fn snes9x_draws_on_the_360_by_240_canvas_with_no_colour_correction() {
++    assert_eq!(Core::Snes9x.canvas(), (360, 240));
++    assert!(!Core::Snes9x.has_colour_correction());
++}
+diff --git a/crates/slot-store/tests/snes_header.rs b/crates/slot-store/tests/snes_header.rs
+new file mode 100644
+index 0000000..9ae5b89
+--- /dev/null
++++ b/crates/slot-store/tests/snes_header.rs
+@@ -0,0 +1,89 @@
++use slot_store::{scan, Cart, Platform};
++
++const LO: usize = 0x7fc0;
++const HI: usize = 0xffc0;
++
++fn rom(header_at: usize, title: &[u8], valid: bool, copier: bool) -> Vec<u8> {
++    let mut rom = vec![0u8; header_at + 0x40];
++    rom[header_at..header_at + 21].fill(b' ');
++    rom[header_at..header_at + title.len()].copy_from_slice(title);
++    let (complement, checksum) = if valid {
++        (0xa5a5u16, 0x5a5au16)
++    } else {
++        (1, 2)
++    };
++    rom[header_at + 0x1c..header_at + 0x1e].copy_from_slice(&complement.to_le_bytes());
++    rom[header_at + 0x1e..header_at + 0x20].copy_from_slice(&checksum.to_le_bytes());
++    if copier {
++        rom.splice(0..0, [0xffu8; 512]);
++    }
++    rom
++}
++
++fn cart_from(bytes: &[u8]) -> Cart {
++    let d = tempfile::tempdir().expect("tempdir");
++    let dir = d.path().join("Games/SNES");
++    std::fs::create_dir_all(&dir).expect("create dir");
++    std::fs::write(dir.join("Some Game (USA).sfc"), bytes).expect("write rom");
++    let mut carts = scan(d.path()).expect("scan");
++    assert_eq!(carts.len(), 1);
++    let mut cart = carts.remove(0);
++    assert_eq!(cart.platform, Platform::Snes);
++    cart.read_header();
++    cart
++}
++
++#[test]
++fn a_lorom_title_is_read_from_the_internal_header() {
++    assert_eq!(
++        cart_from(&rom(LO, b"SUPER MARIOWORLD", true, false)).title,
++        "SUPER MARIOWORLD"
++    );
++}
++
++#[test]
++fn a_hirom_title_is_read_from_the_internal_header() {
++    assert_eq!(
++        cart_from(&rom(HI, b"DONKEY KONG COUNTRY", true, false)).title,
++        "DONKEY KONG COUNTRY"
++    );
++}
++
++#[test]
++fn a_lorom_title_is_read_past_a_copier_header() {
++    assert_eq!(
++        cart_from(&rom(LO, b"SUPER METROID", true, true)).title,
++        "SUPER METROID"
++    );
++}
++
++#[test]
++fn a_hirom_title_is_read_past_a_copier_header() {
++    assert_eq!(
++        cart_from(&rom(HI, b"CHRONO TRIGGER", true, true)).title,
++        "CHRONO TRIGGER"
++    );
++}
++
++#[test]
++fn a_jis_x_0201_title_falls_back_to_the_stem() {
++    let cart = cart_from(&rom(LO, &[0xb1, 0xb2, 0xb3, 0xb4], true, false));
++    assert!(cart.title.is_empty());
++    assert_eq!(cart.stem, "Some Game (USA)");
++}
++
++#[test]
++fn garbage_with_no_matching_checksum_falls_back_to_the_stem() {
++    for at in [LO, HI] {
++        assert!(cart_from(&rom(at, b"NOT A TITLE", false, false))
++            .title
++            .is_empty());
++    }
++}
++
++#[test]
++fn a_file_shorter_than_any_header_falls_back_to_the_stem_without_panicking() {
++    for len in [0usize, 1, 0x7fc0, 0x7fdf] {
++        assert!(cart_from(&vec![0x41u8; len]).title.is_empty());
++    }
++}
+diff --git a/crates/slot-store/tests/snes_platform.rs b/crates/slot-store/tests/snes_platform.rs
+new file mode 100644
+index 0000000..9c70d68
+--- /dev/null
++++ b/crates/slot-store/tests/snes_platform.rs
+@@ -0,0 +1,43 @@
++use std::path::Path;
++
++use slot_store::Platform;
++
++#[test]
++fn the_shelves_are_the_three_game_boy_platforms_then_nes_then_snes() {
++    assert_eq!(
++        Platform::SHELVES,
++        [
++            Platform::Gba,
++            Platform::Gb,
++            Platform::Gbc,
++            Platform::Nes,
++            Platform::Snes
++        ]
++    );
++}
++
++#[test]
++fn the_pinned_platform_list_does_not_grow_for_snes() {
++    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gb, Platform::Gbc]);
++}
++
++#[test]
++fn snes_accepts_sfc_and_smc_files_and_refuses_gba_files() {
++    assert!(Platform::Snes.accepts(Path::new("x.sfc")));
++    assert!(Platform::Snes.accepts(Path::new("X.SMC")));
++    assert!(!Platform::Snes.accepts(Path::new("x.gba")));
++    assert!(!Platform::Snes.accepts(Path::new("x.fig")));
++}
++
++#[test]
++fn snes_has_its_own_name_folder_and_picture() {
++    assert_eq!(Platform::Snes.name(), "Super Nintendo Entertainment System");
++    assert_eq!(Platform::Snes.dir_name(), "SNES");
++    assert_eq!(Platform::Snes.picture(), (256, 224));
++}
++
++#[test]
++fn snes_takes_no_game_boy_palette_and_no_core_picker() {
++    assert!(!Platform::Snes.has_gb_palettes());
++    assert_eq!(Platform::Snes.picker_cores(), None);
++}
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 046c3bd..e069984 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -87,7 +87,7 @@ enum Shape {
+ 
+ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+     match cart.platform {
+-        Platform::Gba | Platform::Nes => None,
++        Platform::Gba | Platform::Nes | Platform::Snes => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -153,14 +153,14 @@ const GB_SEATED_H: u32 = 259;
+ 
+ pub fn seated_box(platform: Platform) -> (u32, u32) {
+     match platform {
+-        Platform::Gba | Platform::Nes => (SEATED_W, SEATED_H),
++        Platform::Gba | Platform::Nes | Platform::Snes => (SEATED_W, SEATED_H),
+         Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
+     }
+ }
+ 
+ pub fn cart_box(platform: Platform) -> (u32, u32) {
+     let s = spec(match platform {
+-        Platform::Gba | Platform::Nes => Shape::Gba,
++        Platform::Gba | Platform::Nes | Platform::Snes => Shape::Gba,
+         Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
+     });
+     (s.w, s.h)
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index af25a8f..66a3fea 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -91,6 +91,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         Platform::Gba => gba_shell_for(&gba_code(cart)),
+         Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
+         Platform::Nes => shell([0x8c, 0x8c, 0x8c], Finish::Solid),
++        Platform::Snes => shell([0xb4, 0xb4, 0xbc], Finish::Solid),
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index e3e187a..40496b3 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index b50bed0..f4f8a6b 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1043,7 +1043,7 @@ impl App {
+     pub fn screen_shader(&self) -> Shader {
+         match self.platform {
+             Platform::Gba => self.state.shader_gba,
+-            Platform::Gb | Platform::Gbc | Platform::Nes => self.state.shader_gb,
++            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => self.state.shader_gb,
+         }
+     }
+ 
+@@ -1406,7 +1406,7 @@ impl App {
+         }
+         let (shader, choices) = match self.platform {
+             Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+-            Platform::Gb | Platform::Gbc | Platform::Nes => {
++            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => {
+                 (&mut self.state.shader_gb, &Shader::GB[..])
+             }
+         };
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 323efb1..c37db3b 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -158,7 +158,7 @@ pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static st
+             "gpsp_color_correction",
+             if on { "enabled" } else { "disabled" },
+         )),
+-        Core::Fceumm => None,
++        Core::Fceumm | Core::Snes9x => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 1dbb0cc..0b688a8 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 24] = [
++pub const DIRS: [&str; 28] = [
+     "BIOS",
+     "Config",
+     "Games",
+@@ -8,21 +8,25 @@ pub const DIRS: [&str; 24] = [
+     "Games/GB",
+     "Games/GBC",
+     "Games/NES",
++    "Games/SNES",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+     "Labels/GBC",
+     "Labels/NES",
++    "Labels/SNES",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+     "Saves/GBC",
+     "Saves/NES",
++    "Saves/SNES",
+     "States",
+     "States/GBA",
+     "States/GB",
+     "States/GBC",
+     "States/NES",
++    "States/SNES",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index 864a6bc..ebd3482 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -173,7 +173,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Snes9x => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
+index f3dbdf0..8077376 100644
+--- a/crates/slot/tests/nes_common/mod.rs
++++ b/crates/slot/tests/nes_common/mod.rs
+@@ -1,3 +1,5 @@
++#![allow(dead_code)]
++
+ use std::path::{Path, PathBuf};
+ 
+ use crate::common;
+@@ -42,3 +44,51 @@ pub fn nes_rom(name: &str, battery: bool) -> PathBuf {
+     std::fs::write(&p, rom).expect("write rom");
+     p
+ }
++
++#[derive(Clone, Copy)]
++pub enum Map {
++    Lo,
++    Hi,
++}
++
++pub const SNES_TITLE: &str = "SLOT TEST ROM";
++
++pub fn snes_rom(name: &str, map: Map, copier: bool, sram_kb: u32) -> PathBuf {
++    let (size, header, mode) = match map {
++        Map::Lo => (0x8000usize, 0x7fc0usize, 0x20u8),
++        Map::Hi => (0x10000, 0xffc0, 0x21),
++    };
++    let mut rom = vec![0u8; size];
++    let program = [
++        0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0x8d, 0x22, 0x21, 0x8d, 0x22, 0x21, 0xa9,
++        0x0f, 0x8d, 0x00, 0x21, 0x4c, 0x13, 0x80,
++    ];
++    let code = match map {
++        Map::Lo => 0,
++        Map::Hi => 0x8000,
++    };
++    rom[code..code + program.len()].copy_from_slice(&program);
++    rom[header..header + 21].fill(b' ');
++    rom[header..header + SNES_TITLE.len()].copy_from_slice(SNES_TITLE.as_bytes());
++    rom[header + 0x15] = mode;
++    rom[header + 0x16] = if sram_kb > 0 { 0x02 } else { 0x00 };
++    rom[header + 0x17] = (size / 1024).ilog2() as u8;
++    rom[header + 0x18] = if sram_kb > 0 {
++        sram_kb.ilog2() as u8
++    } else {
++        0
++    };
++    rom[header + 0x19] = 0x01;
++    rom[header + 0x3c] = 0x00;
++    rom[header + 0x3d] = 0x80;
++    rom[header + 0x1c..header + 0x1e].copy_from_slice(&0xffffu16.to_le_bytes());
++    let sum = rom.iter().fold(0u16, |a, b| a.wrapping_add(u16::from(*b)));
++    rom[header + 0x1c..header + 0x1e].copy_from_slice(&(!sum).to_le_bytes());
++    rom[header + 0x1e..header + 0x20].copy_from_slice(&sum.to_le_bytes());
++    if copier {
++        rom.splice(0..0, [0u8; 512]);
++    }
++    let p = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
++    std::fs::write(&p, rom).expect("write rom");
++    p
++}
+diff --git a/crates/slot/tests/render_shelves.rs b/crates/slot/tests/render_shelves.rs
+index 6df42eb..8420a02 100644
+--- a/crates/slot/tests/render_shelves.rs
++++ b/crates/slot/tests/render_shelves.rs
+@@ -636,7 +636,7 @@ fn cartridges() -> [(&'static str, Cart); 2] {
+ fn label_top(p: CartPlatform) -> usize {
+     match p {
+         CartPlatform::Gba => LABEL_Y as usize,
+-        CartPlatform::Gb | CartPlatform::Gbc | CartPlatform::Nes => GB_LABEL_Y as usize,
++        CartPlatform::Gb | CartPlatform::Gbc | CartPlatform::Nes | CartPlatform::Snes => GB_LABEL_Y as usize,
+     }
+ }
+ 
+diff --git a/crates/slot/tests/snes_rom.rs b/crates/slot/tests/snes_rom.rs
+new file mode 100644
+index 0000000..7cc3ca7
+--- /dev/null
++++ b/crates/slot/tests/snes_rom.rs
+@@ -0,0 +1,32 @@
++mod common;
++mod nes_common;
++
++use nes_common::{snes_rom, Map, SNES_TITLE};
++
++#[test]
++fn the_generated_snes_carts_carry_a_header_slot_can_read() {
++    for (name, map, copier) in [
++        ("rom_lo.sfc", Map::Lo, false),
++        ("rom_hi.sfc", Map::Hi, false),
++        ("rom_lo_copier.smc", Map::Lo, true),
++        ("rom_hi_copier.smc", Map::Hi, true),
++    ] {
++        let rom = snes_rom(name, map, copier, 0);
++        let len = std::fs::metadata(&rom).expect("stat rom").len();
++        assert_eq!(len % 1024 == 512, copier, "{name}");
++        assert_eq!(
++            slot_store::snes::title(&rom).as_deref(),
++            Some(SNES_TITLE),
++            "{name}"
++        );
++    }
++}
++
++#[test]
++fn a_battery_snes_cart_says_rom_ram_battery_and_its_sram_size() {
++    let bytes = std::fs::read(snes_rom("rom_battery.sfc", Map::Lo, false, 8)).expect("read rom");
++    assert_eq!(bytes[0x7fc0 + 0x16], 0x02);
++    assert_eq!(bytes[0x7fc0 + 0x18], 3);
++    let plain = std::fs::read(snes_rom("rom_plain.sfc", Map::Lo, false, 0)).expect("read rom");
++    assert_eq!(plain[0x7fc0 + 0x16], 0x00);
++}
