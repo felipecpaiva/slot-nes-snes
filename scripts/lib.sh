@@ -18,3 +18,8 @@ same_identity() {
 		[ -z "$value" ] || git -C "$1" config "$key" "$value"
 	done
 }
+
+# slot-nes-snes-v1.6.0-ns.0: slot's tag from SLOT_PIN plus the release counter in VERSION.
+release_name() {
+	echo "slot-nes-snes-$tag-$(cat "$root/VERSION")"
+}

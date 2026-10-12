@@ -1,5 +1,5 @@
 #!/bin/sh
-# rustfmt --check on every .rs file under build/slot (not target, vendor, .git) that we add or
+# rustfmt --check on every .rs file under build/slot (not target, target-device, vendor, .git) that we add or
 # change compared with upstream.
 set -eu
 
@@ -15,7 +15,7 @@ ours="$root/build/slot"
 edition="$(sed -n 's/^edition = "\(.*\)"/\1/p' "$up/Cargo.toml" | head -n 1)"
 : "${edition:?upstream Cargo.toml lacks an edition}"
 
-files="$(cd "$ours" && find . \( -name target -o -name vendor -o -name .git \) -prune -o -name '*.rs' -print |
+files="$(cd "$ours" && find . \( -name target -o -name target-device -o -name vendor -o -name .git \) -prune -o -name '*.rs' -print |
 	sed 's|^\./||' | sort | while read -r f; do
 	[ -f "$up/$f" ] && cmp -s "$up/$f" "$ours/$f" || echo "$f"
 done)"

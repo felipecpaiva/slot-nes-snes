@@ -169,3 +169,52 @@ tasks:
     deps: [upstream:build, build]
     cmds:
       - sh scripts/bench-compare.sh
+
+  dist:device:
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm core, its .meta, source and licences. Fails unless every core's shippable set exists
+    deps: [build, core:device]
+    cmds:
+      - sh scripts/dist-device.sh
+
+  src-tarball:
+    desc: Write build/slot-nes-snes-src-<tag>-<ns.N>.tar.gz (work/slot HEAD plus this repo HEAD, the GPL-3 source) and copy it into the dist tree. Fails unless patches/ rebuild work/slot HEAD
+    cmds:
+      - task: patches:check
+      - sh scripts/src-tarball.sh
+
+  zip:
+    desc: Write build/slot-nes-snes-<tag>-<ns.N>-h700.zip from the dist tree, source tarball included
+    cmds:
+      - task: src-tarball
+      - |
+        set -eu
+        . ./SLOT_PIN
+        name="slot-nes-snes-$tag-$(cat VERSION)"
+        rm -f "build/$name-h700.zip"
+        (cd build/dist && zip -qry "../$name-h700.zip" "$name")
+        echo "built build/$name-h700.zip"
+
+  deploy:device:
+    desc: Build the dist tree and push its System/ onto a device over adb, then restart it. SD defaults to /mnt/sdcard
+    vars:
+      SD: '{{.SD | default "/mnt/sdcard"}}'
+    cmds:
+      - task: dist:device
+      - task: src-tarball
+      - adb wait-for-device
+      - |
+        set -eu
+        . ./SLOT_PIN
+        name="slot-nes-snes-$tag-$(cat VERSION)"
+        adb push "build/dist/$name/System/." '{{.SD}}/System/'
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/*.so {{.SD}}/System/*.sh && sync'
+      - adb reboot
+      - adb wait-for-device
+      - 'echo "deployed to {{.SD}}, device rebooting"'
+
+  log:device:
+    desc: Read slot's log back off a connected device
+    vars:
+      SD: '{{.SD | default "/mnt/sdcard"}}'
+    cmds:
+      - adb shell 'cat {{.SD}}/slot.log'

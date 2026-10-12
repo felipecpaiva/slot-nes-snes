@@ -40,6 +40,19 @@ mise trust && mise install   # in the repo: rust 1.96, task, cmake 3.x
 colima start
 ```
 
+## Install on a device
+
+Build the zip with `task dist:device && task zip && task src-tarball`. It lands in `build/` as
+`slot-nes-snes-<slot tag>-<ns.N>-h700.zip`. `sh scripts/zip-check.sh <zip>` checks it.
+
+**Without adb (how most people install):** unzip, then copy the contents of the one top folder
+(`System/`, `BIOS/`, `Config/`, `Games/`, ...) onto the root of the SD card, merging with what is
+there. An update replaces `System/` and keeps `Config/`, `Saves/` and `States/`. Put NES carts in
+`Games/NES`.
+
+**With adb:** `task deploy:device` pushes `System/` to `/mnt/sdcard` and reboots the device
+(`SD=/other/path` overrides the target), then `task log:device` prints `slot.log`.
+
 ## Status
 
 Planned. No patches yet. Work starts with Phase 1 of [docs/PLAN.md](docs/PLAN.md).

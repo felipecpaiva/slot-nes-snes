@@ -5,6 +5,18 @@
 slot is GPL-3.0-or-later. The patches in `patches/` change slot, so they are GPL-3.0-or-later
 too. The full text is in `LICENSE`.
 
+### Source offer (GPL-3.0-or-later, section 6)
+
+Every release zip carries the complete corresponding source of `System/slot` and of the cores
+we add, so no written offer is needed. It is in `System/licenses/`:
+
+- `slot-nes-snes-src-<release>.tar.gz`: the patched slot tree (`slot/`, built from
+  `work/slot` at the exported commit) and this repository (`slot-nes-snes/`, with `patches/`).
+  Rebuild with `task build` and `task dist:device` from the second folder.
+- `fceumm-src.tar.gz` and `fceumm-src.meta`: the exact fceumm source and its sha256.
+- `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
+  slot ships them.
+
 ## fceumm
 
 Checked at commit `ac0d00a7fc01166f84c7bac01d1084ebfd2b865e`, the commit `SLOT_PIN` pins. Every
