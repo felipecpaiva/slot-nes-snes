@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 12:23:27 +0400
+Subject: [PATCH] step0-exhaustive-matches
+
+---
+ crates/slot-store/src/core.rs            |  5 ++++-
+ crates/slot-store/src/lib.rs             |  1 +
+ crates/slot-store/src/platform_policy.rs | 25 ++++++++++++++++++++++++
+ crates/slot-store/src/scan.rs            |  2 +-
+ crates/slot-ui/src/cart.rs               |  2 +-
+ crates/slot/src/app.rs                   |  6 +++---
+ crates/slot/src/core.rs                  |  2 +-
+ 7 files changed, 36 insertions(+), 7 deletions(-)
+ create mode 100644 crates/slot-store/src/platform_policy.rs
+
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 04d16f4..51f6ab7 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -44,7 +44,10 @@ impl Core {
+     pub fn runs(self, platform: Platform) -> bool {
+         match self {
+             Core::Mgba => true,
+-            Core::Gpsp => platform == Platform::Gba,
++            Core::Gpsp => match platform {
++                Platform::Gba => true,
++                Platform::Gb | Platform::Gbc => false,
++            },
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index b288d43..40fd2b7 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -7,6 +7,7 @@ mod gb_palette;
+ mod gba;
+ pub mod ini;
+ mod platform;
++mod platform_policy;
+ mod ring;
+ mod scan;
+ mod slot_state;
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+new file mode 100644
+index 0000000..c513aeb
+--- /dev/null
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -0,0 +1,25 @@
++use crate::core::Core;
++use crate::platform::Platform;
++
++impl Platform {
++    pub fn has_gb_palettes(self) -> bool {
++        match self {
++            Platform::Gba => false,
++            Platform::Gb | Platform::Gbc => true,
++        }
++    }
++
++    pub fn owns_shoulders(self) -> bool {
++        match self {
++            Platform::Gba => false,
++            Platform::Gb | Platform::Gbc => true,
++        }
++    }
++
++    pub fn picker_cores(self) -> Option<(Core, Core)> {
++        match self {
++            Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
++            Platform::Gb | Platform::Gbc => None,
++        }
++    }
++}
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 3cdb1da..f479047 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -25,7 +25,7 @@ impl Cart {
+                     self.code = code;
+                 }
+             }
+-            _ => {
++            Platform::Gb | Platform::Gbc => {
+                 if let Some(title) = crate::gb::title(&self.rom) {
+                     self.title = title;
+                 }
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 18a58bb..e895d1a 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -91,7 +91,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+-            _ => match slot_store::gb::class(&cart.rom) {
++            Some(Outline::Auto) | None => match slot_store::gb::class(&cart.rom) {
+                 Class::ColourOnly => GbShell::Rounded,
+                 Class::Original | Class::DualMode => GbShell::Notched,
+             },
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9806492..4afec5c 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -852,7 +852,7 @@ impl App {
+     }
+ 
+     fn slot_owns_the_shoulders(&self) -> bool {
+-        matches!(self.phase, Phase::Playing { .. }) && self.platform != Platform::Gba
++        matches!(self.phase, Phase::Playing { .. }) && self.platform.owns_shoulders()
+     }
+ 
+     pub fn taken_buttons(&self) -> &'static [Btn] {
+@@ -2640,10 +2640,10 @@ impl App {
+         let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
+             return;
+         };
+-        if cart.platform != Platform::Gba {
++        if cart.platform.picker_cores().is_none() {
+             return;
+         }
+-        let seat = slot_store::core_for(&root, &cart.stem);
++        let seat = slot_store::core_for_platform(&root, &cart.stem, cart.platform);
+         let now = self.now();
+         let mut picker = CorePicker::open(seat, now);
+         if self.core_faces_ready() {
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index db19b58..1a0ce0b 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -125,7 +125,7 @@ pub fn palette_for(
+     rom: &Path,
+     link: Option<u8>,
+ ) -> Option<GbPalette> {
+-    chosen.filter(|_| link.is_none() && platform != Platform::Gba && dmg_only(rom))
++    chosen.filter(|_| link.is_none() && platform.has_gb_palettes() && dmg_only(rom))
+ }
+ 
+ pub fn dmg_only(rom: &Path) -> bool {

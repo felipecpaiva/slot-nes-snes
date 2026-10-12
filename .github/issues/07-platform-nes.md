@@ -12,6 +12,7 @@ NES gets a first-class shelf with `Games/NES`, `Labels/NES`, `Saves/NES`, `State
 
 ## Scope
 `patches/0002-platform-nes.patch`:
+- [ ] Reviewed and left on purpose (no change for NES): `slot: crates/slot/src/session.rs:465` and `app.rs:2701` stay GBA only (link cable); the `Core` comparisons at `slot: crates/slot/src/core.rs:162` and `app.rs:2688,2713,2840` skip safely for a non-mGBA, non-gpSP core. Re-check them if a later patch gives NES a link or a new core path.
 - [ ] `slot: crates/slot-store/src/platform.rs`: append `Platform::Nes`; `dir_name` "NES"; extensions `["nes"]`; `picture` (256, 240). `Platform::ALL` stays at 3.
 - [ ] `Platform::SHELVES = [Gba, Gb, Gbc, Nes]` in `platform_policy.rs`; switch `slot: crates/slot-store/src/scan.rs:65`, `slot: crates/slot/src/app.rs:365` and `slot: crates/slot-store/src/slot_state.rs:240` to it.
 - [ ] `slot: crates/slot/src/root.rs` DIRS: add `Games/NES`, `Labels/NES`, `Saves/NES`, `States/NES` (`[&str; 20]` becomes `[&str; 24]`).

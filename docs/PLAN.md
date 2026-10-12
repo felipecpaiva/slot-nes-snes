@@ -201,7 +201,7 @@ Deliverables:
 - [ ] `patches/0001-step0-exhaustive-matches.patch` (behaviour-identical):
   - `scan.rs:21-32` `read_header`;
   - `slot/src/core.rs:128` `palette_for` (`has_gb_palettes()`);
-  - `app.rs:855` (`owns_shoulders()`), `app.rs:2643` (`picker_cores().is_some()`), `app.rs:2646` (`core_for_platform`), `app.rs:2701` (explicit `== Gba` kept);
+  - `app.rs:855` (`owns_shoulders()`), `app.rs:2643` (`picker_cores().is_none()` early return), `app.rs:2646` (`core_for_platform`), `app.rs:2701` (upstream `!= Platform::Gba` kept, link cable stays GBA only);
   - `slot-store/src/core.rs:46` `Core::runs`;
   - `slot-ui/src/cart.rs` `gb_shell_of` Outline `_ =>`.
 
@@ -398,7 +398,7 @@ Acceptance:
 | `Host` literal in an in-source test | `slot-retro/src/libretro.rs:701-718` `host_with()` lists every field of `Host` (`:25-41`) | yes |
 | `GamePass` private in Compositor | `slot-gfx/src/fbo.rs:96` (construct), `:128-129` `upload_game` | yes |
 | Upload guard | `slot-gfx/src/pipeline.rs:122` (rejects short buffers only) | yes |
-| `!= / == Platform::Gba` | `slot/src/core.rs:128`, `slot/src/session.rs:465`, `slot/src/app.rs:855,2643,2701`, `slot-store/src/core.rs:47` | yes |
+| `!= / == Platform::Gba` | after patch 0001 only `slot/src/session.rs:465` and `slot/src/app.rs:2701` remain (link cable, GBA only by design); `core.rs:128`, `app.rs:855,2643`, `slot-store/src/core.rs:47` became policy methods | yes |
 | `core_for` (no platform) | `slot/src/app.rs:2646` | yes |
 | Gb/Gbc match arms | `slot-ui/src/shell.rs:92`, `slot-ui/src/cart.rs:91,157,164`, `slot-store/src/core.rs:53`, `slot/src/app.rs:1046,1409` | yes |
 | Video mode via shoulders only | `slot/src/app.rs:1276-1281` (guarded by `slot_owns_the_shoulders`, `:854-856`) | yes |
