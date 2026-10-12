@@ -1,0 +1,1041 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 21:56:51 +0400
+Subject: [PATCH] input
+
+---
+ crates/slot-input/src/gesture.rs         |  10 +-
+ crates/slot-retro/src/lib.rs             |   2 +
+ crates/slot-retro/src/turbo_mode.rs      |  28 +++
+ crates/slot-retro/tests/snes_turbo.rs    |  35 +++
+ crates/slot-store/src/platform_policy.rs |  18 +-
+ crates/slot-store/tests/snes_platform.rs |   5 +-
+ crates/slot/src/app.rs                   |   3 +-
+ crates/slot/src/emu.rs                   |  23 +-
+ crates/slot/src/lib.rs                   |   1 +
+ crates/slot/src/session.rs               |   3 +
+ crates/slot/src/snes_input.rs            |  13 ++
+ crates/slot/tests/input_common/mod.rs    |  27 +++
+ crates/slot/tests/select_x_gba.rs        | 106 ++++++++++
+ crates/slot/tests/snes_emu_input.rs      | 117 ++++++++++
+ crates/slot/tests/snes_select.rs         | 258 +++++++++++++++++++++++
+ crates/slot/tests/snes_shoulders.rs      |  30 +++
+ crates/slot/tests/snes_then_gba.rs       | 121 +++++++++++
+ 17 files changed, 789 insertions(+), 11 deletions(-)
+ create mode 100644 crates/slot-retro/src/turbo_mode.rs
+ create mode 100644 crates/slot-retro/tests/snes_turbo.rs
+ create mode 100644 crates/slot/src/snes_input.rs
+ create mode 100644 crates/slot/tests/input_common/mod.rs
+ create mode 100644 crates/slot/tests/select_x_gba.rs
+ create mode 100644 crates/slot/tests/snes_emu_input.rs
+ create mode 100644 crates/slot/tests/snes_select.rs
+ create mode 100644 crates/slot/tests/snes_shoulders.rs
+ create mode 100644 crates/slot/tests/snes_then_gba.rs
+
+diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
+index a0837ab..e6aeabc 100644
+--- a/crates/slot-input/src/gesture.rs
++++ b/crates/slot-input/src/gesture.rs
+@@ -48,6 +48,7 @@ pub enum Action {
+     PowerOff,
+     LidClose,
+     LidOpen,
++    VideoModeToggle,
+ }
+ 
+ #[derive(Copy, Clone, Default)]
+@@ -82,6 +83,7 @@ pub struct Gestures {
+     r2_refused: bool,
+     r2_last_release: Option<Millis>,
+     rewinding: bool,
++    video_mode_chord: bool,
+ }
+ 
+ fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
+@@ -99,6 +101,10 @@ impl Gestures {
+         Self::default()
+     }
+ 
++    pub fn set_video_mode_chord(&mut self, on: bool) {
++        self.video_mode_chord = on;
++    }
++
+     pub fn ff_latched(&self) -> bool {
+         self.ff_latched
+     }
+@@ -161,7 +167,8 @@ impl Gestures {
+     }
+ 
+     fn down(&mut self, b: Btn, now: Millis) -> Vec<Action> {
+-        if let (true, Some((bit, action))) = (self.chording(now), chord(b)) {
++        let chord = chord(b).filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
++        if let (true, Some((bit, action))) = (self.chording(now), chord) {
+             self.mark_chorded();
+             self.chord_held |= bit;
+             return vec![action];
+@@ -414,6 +421,7 @@ fn chord(b: Btn) -> Option<(u16, Action)> {
+         Btn::Right => (8, Action::BlueLightUp),
+         Btn::L1 => (16, Action::LoadState),
+         Btn::R1 => (32, Action::SaveState),
++        Btn::X => (8192, Action::VideoModeToggle),
+         Btn::Y => (64, Action::ColourCorrectionToggle),
+         Btn::L2 => (128, Action::PalettePrev),
+         Btn::R2 => (256, Action::PaletteNext),
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 8cffa8c..04b98d0 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -5,6 +5,7 @@ mod libretro;
+ mod link;
+ mod mock;
+ mod rumble;
++mod turbo_mode;
+ 
+ pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ pub use ffi::{
+@@ -15,3 +16,4 @@ pub use libretro::LibretroCore;
+ pub use link::{Link, LinkChannel, LoopbackLink};
+ pub use mock::MockCore;
+ pub use rumble::Rumble;
++pub use turbo_mode::TurboMode;
+diff --git a/crates/slot-retro/src/turbo_mode.rs b/crates/slot-retro/src/turbo_mode.rs
+new file mode 100644
+index 0000000..3683844
+--- /dev/null
++++ b/crates/slot-retro/src/turbo_mode.rs
+@@ -0,0 +1,28 @@
++use crate::core::ButtonMask;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum TurboMode {
++    Turbo,
++    Off,
++    PassThrough,
++}
++
++impl TurboMode {
++    pub fn from_flags(pass_through: bool, turbo: bool) -> TurboMode {
++        match (pass_through, turbo) {
++            (true, _) => TurboMode::PassThrough,
++            (false, true) => TurboMode::Turbo,
++            (false, false) => TurboMode::Off,
++        }
++    }
++}
++
++impl ButtonMask {
++    pub fn apply(self, mode: TurboMode, frame: u32) -> ButtonMask {
++        match mode {
++            TurboMode::Turbo => self.turbo(frame),
++            TurboMode::Off => self.without_turbo(),
++            TurboMode::PassThrough => self,
++        }
++    }
++}
+diff --git a/crates/slot-retro/tests/snes_turbo.rs b/crates/slot-retro/tests/snes_turbo.rs
+new file mode 100644
+index 0000000..e526493
+--- /dev/null
++++ b/crates/slot-retro/tests/snes_turbo.rs
+@@ -0,0 +1,35 @@
++use slot_retro::{ButtonMask, TurboMode};
++
++const XY: u16 = ButtonMask::X | ButtonMask::Y;
++
++fn held() -> ButtonMask {
++    ButtonMask(XY | ButtonMask::L | ButtonMask::R | ButtonMask::SELECT | ButtonMask::UP)
++}
++
++#[test]
++fn pass_through_keeps_x_and_y_on_every_frame() {
++    for frame in 0..12 {
++        assert_eq!(held().apply(TurboMode::PassThrough, frame), held());
++    }
++}
++
++#[test]
++fn turbo_mode_is_the_upstream_turbo_on_every_frame() {
++    for frame in 0..12 {
++        assert_eq!(held().apply(TurboMode::Turbo, frame), held().turbo(frame));
++    }
++}
++
++#[test]
++fn off_mode_is_the_upstream_without_turbo() {
++    assert_eq!(held().apply(TurboMode::Off, 0), held().without_turbo());
++}
++
++#[test]
++fn the_snes_pass_through_flag_wins_over_the_turbo_setting() {
++    for turbo in [true, false] {
++        assert_eq!(TurboMode::from_flags(true, turbo), TurboMode::PassThrough);
++    }
++    assert_eq!(TurboMode::from_flags(false, true), TurboMode::Turbo);
++    assert_eq!(TurboMode::from_flags(false, false), TurboMode::Off);
++}
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 0f68b1e..c2efef4 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -19,8 +19,22 @@ impl Platform {
+ 
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+-            Platform::Gba => false,
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => true,
++            Platform::Gba | Platform::Snes => false,
++            Platform::Gb | Platform::Gbc | Platform::Nes => true,
++        }
++    }
++
++    pub fn passes_xy_through(self) -> bool {
++        match self {
++            Platform::Snes => true,
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
++        }
++    }
++
++    pub fn select_x_toggles_picture(self) -> bool {
++        match self {
++            Platform::Snes => true,
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
+         }
+     }
+ 
+diff --git a/crates/slot-store/tests/snes_platform.rs b/crates/slot-store/tests/snes_platform.rs
+index 2ea6532..fba322b 100644
+--- a/crates/slot-store/tests/snes_platform.rs
++++ b/crates/slot-store/tests/snes_platform.rs
+@@ -43,6 +43,7 @@ fn snes_takes_no_game_boy_palette_and_no_core_picker() {
+ }
+ 
+ #[test]
+-fn snes_still_owns_the_shoulders_like_nes_until_issue_15_gives_them_to_the_game() {
+-    assert!(Platform::Snes.owns_shoulders());
++fn snes_gives_the_shoulders_to_the_game_and_nes_keeps_them() {
++    assert!(!Platform::Snes.owns_shoulders());
++    assert!(Platform::Nes.owns_shoulders());
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index f4f8a6b..6d33777 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1279,6 +1279,7 @@ impl App {
+                 Action::GbaDown(Btn::R1) if self.slot_owns_the_shoulders() => {
+                     self.set_picture(VideoMode::Actual)
+                 }
++                Action::VideoModeToggle => self.set_picture(self.video_mode.flipped(self.platform)),
+                 Action::Eject => self.eject(),
+                 Action::GameMenu => self.game_menu_shortcut(),
+                 Action::Polaroids => self.open_polaroids(),
+@@ -1444,7 +1445,7 @@ impl App {
+             }
+             return true;
+         }
+-        if action == Action::ColourCorrectionToggle {
++        if action == Action::ColourCorrectionToggle && self.core.has_colour_correction() {
+             self.change_setting(QuickRow::ColourCorrection, true);
+             let said = match self.state.colour_correction {
+                 true => Toast::ColourOn,
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index a0a5358..f3f3b71 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
+ use std::time::{Duration, Instant};
+ 
+ use crate::cable::{self, Cable};
+-use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
++use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE};
+ 
+ use crate::audio::Ring;
+ use crate::av_rate;
+@@ -88,6 +88,7 @@ struct Shared {
+     rewind: AtomicBool,
+     rewind_fill: AtomicU8,
+     turbo: AtomicBool,
++    pass_through: AtomicBool,
+     recording: AtomicBool,
+     stop: AtomicBool,
+     volume: AtomicU8,
+@@ -156,6 +157,7 @@ impl EmuHandle {
+             rewind: AtomicBool::new(false),
+             rewind_fill: AtomicU8::new(0),
+             turbo: AtomicBool::new(true),
++            pass_through: AtomicBool::new(false),
+             recording: AtomicBool::new(true),
+             stop: AtomicBool::new(false),
+             volume: AtomicU8::new(100),
+@@ -351,6 +353,14 @@ impl EmuHandle {
+         self.shared.rewind.store(on, Ordering::Relaxed);
+     }
+ 
++    pub fn set_pass_through(&self, on: bool) {
++        self.shared.pass_through.store(on, Ordering::Relaxed);
++    }
++
++    pub fn passes_through(&self) -> bool {
++        self.shared.pass_through.load(Ordering::Relaxed)
++    }
++
+     pub fn set_turbo(&self, on: bool) {
+         self.shared.turbo.store(on, Ordering::Relaxed);
+     }
+@@ -654,10 +664,13 @@ impl Worker {
+                 loop {
+                     ran += 1;
+                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
+-                    let input = match self.shared.turbo.load(Ordering::Relaxed) {
+-                        true => input.turbo(turbo_frame),
+-                        false => input.without_turbo(),
+-                    };
++                    let input = input.apply(
++                        TurboMode::from_flags(
++                            self.shared.pass_through.load(Ordering::Relaxed),
++                            self.shared.turbo.load(Ordering::Relaxed),
++                        ),
++                        turbo_frame,
++                    );
+                     turbo_frame = turbo_frame.wrapping_add(1);
+                     core.set_frame_skip(!last);
+                     let frame_began = Instant::now();
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 348f1fa..a6e3365 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -32,6 +32,7 @@ pub mod resample;
+ pub mod rewind;
+ pub mod root;
+ pub mod session;
++pub mod snes_input;
+ pub mod state_writer;
+ pub mod thumb;
+ pub mod thumb_sized;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index af87947..7c29799 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -468,6 +468,9 @@ impl Session {
+         };
+         emu.set_volume(self.app.output_volume());
+         emu.set_driven(self.driven);
++        emu.set_pass_through(platform.passes_xy_through());
++        self.gestures
++            .set_video_mode_chord(platform.select_x_toggles_picture());
+         self.app.set_snapshot(Box::new(emu.snapshot()));
+         self.emu = Some(emu);
+     }
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+new file mode 100644
+index 0000000..d023b24
+--- /dev/null
++++ b/crates/slot/src/snes_input.rs
+@@ -0,0 +1,13 @@
++use slot_store::Platform;
++
++use crate::video_mode::VideoMode;
++
++impl VideoMode {
++    pub fn flipped(self, platform: Platform) -> VideoMode {
++        match (platform, self) {
++            (Platform::Snes, VideoMode::Actual) => VideoMode::Stretch,
++            (Platform::Snes, VideoMode::Stretch) => VideoMode::Actual,
++            (Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes, mode) => mode,
++        }
++    }
++}
+diff --git a/crates/slot/tests/input_common/mod.rs b/crates/slot/tests/input_common/mod.rs
+new file mode 100644
+index 0000000..e382d1e
+--- /dev/null
++++ b/crates/slot/tests/input_common/mod.rs
+@@ -0,0 +1,27 @@
++use std::time::{Duration, Instant};
++
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++use tempfile::TempDir;
++
++use crate::common;
++
++pub fn playing(platform: Platform, stem: &str) -> (TempDir, Session) {
++    let root = common::tmp_root_with_real_carts(&[]);
++    let dir = root.path().join("Games").join(platform.dir_name());
++    let cart = dir.join(format!("{stem}.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++    common::clocked(root.path());
++    let mut session = Session::boot(root.path().to_path_buf());
++    session.feed([RawEvent::Down(Btn::A)], 16);
++    session.feed([RawEvent::Up(Btn::A)], 32);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while !matches!(session.app().phase(), Phase::Playing { .. }) {
++        assert!(Instant::now() < deadline, "the cart never seated");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    (root, session)
++}
+diff --git a/crates/slot/tests/select_x_gba.rs b/crates/slot/tests/select_x_gba.rs
+new file mode 100644
+index 0000000..d9c9691
+--- /dev/null
++++ b/crates/slot/tests/select_x_gba.rs
+@@ -0,0 +1,106 @@
++mod common;
++
++use std::time::{Duration, Instant};
++
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++
++const STEM: &str = "ZZZ";
++
++const EXPECTED: [(&str, u16); 13] = [
++    ("select down", 0),
++    ("x down in the chord window", 516),
++    ("x up", 4),
++    ("select up", 4),
++    ("settle", 0),
++    ("select down again", 0),
++    ("select held past the chord window", 4),
++    ("x down after the window", 516),
++    ("x up after the window", 4),
++    ("select up after the window", 0),
++    ("settle again", 0),
++    ("x alone down", 512),
++    ("x alone up", 0),
++];
++
++const EXPECTED_STATE: &str = "cart=ZZZ
++cart_platform=gba
++brightness=5
++blue_light=0
++volume=60
++volume_hp=60
++muted=0
++muted_hp=0
++clock_set=1
++utc_offset_min=0
++rumble=1
++ff_speed=6
++ff_sound=0
++colour_correction=0
++shader_gba=grid
++shader_gb=simpletex
++eject_save=1
++turbo=1
++rewind=1
++gb_palettes=0
++gb_palette=DMG Green
++";
++
++fn trace() -> (Vec<(&'static str, u16)>, String, String) {
++    let d = common::tmp_root_with_carts(&[STEM]);
++    common::clocked(d.path());
++    let mut s = Session::boot(d.path().to_path_buf());
++    s.feed([RawEvent::Down(Btn::A)], 16);
++    s.feed([RawEvent::Up(Btn::A)], 32);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while !matches!(s.app().phase(), Phase::Playing { .. }) {
++        assert!(Instant::now() < deadline, "the cart never seated");
++        s.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    assert_eq!(s.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    let mut now: Millis = 100;
++    let mut seen = Vec::new();
++    let script: &[(&'static str, Option<RawEvent>, Millis)] = &[
++        ("select down", Some(RawEvent::Down(Btn::Select)), 20),
++        (
++            "x down in the chord window",
++            Some(RawEvent::Down(Btn::X)),
++            20,
++        ),
++        ("x up", Some(RawEvent::Up(Btn::X)), 20),
++        ("select up", Some(RawEvent::Up(Btn::Select)), 20),
++        ("settle", None, 200),
++        ("select down again", Some(RawEvent::Down(Btn::Select)), 20),
++        ("select held past the chord window", None, 700),
++        ("x down after the window", Some(RawEvent::Down(Btn::X)), 20),
++        ("x up after the window", Some(RawEvent::Up(Btn::X)), 20),
++        (
++            "select up after the window",
++            Some(RawEvent::Up(Btn::Select)),
++            20,
++        ),
++        ("settle again", None, 200),
++        ("x alone down", Some(RawEvent::Down(Btn::X)), 20),
++        ("x alone up", Some(RawEvent::Up(Btn::X)), 20),
++    ];
++    for (name, ev, dt) in script {
++        now += dt;
++        s.feed(ev.iter().copied(), now);
++        seen.push((*name, s.emu().expect("core").input().0));
++    }
++    assert_eq!(s.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    s.app().flush_state();
++    let state = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap_or_default();
++    let mode = std::fs::read_to_string(d.path().join("Config/video_mode.txt")).unwrap_or_default();
++    (seen, state, mode)
++}
++
++#[test]
++fn select_and_x_on_a_gba_cart_send_the_same_masks_and_leave_the_same_state_as_upstream() {
++    let (seen, state, mode) = trace();
++    assert_eq!(seen, EXPECTED);
++    assert_eq!(state, EXPECTED_STATE);
++    assert_eq!(mode, "");
++}
+diff --git a/crates/slot/tests/snes_emu_input.rs b/crates/slot/tests/snes_emu_input.rs
+new file mode 100644
+index 0000000..1f315a7
+--- /dev/null
++++ b/crates/slot/tests/snes_emu_input.rs
+@@ -0,0 +1,117 @@
++use std::path::{Path, PathBuf};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++use slot::audio::{AudioSink, StubSink};
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++
++const XY: u16 = ButtonMask::X | ButtonMask::Y;
++const LR: u16 = ButtonMask::L | ButtonMask::R;
++
++struct Recorder {
++    inner: MockCore,
++    seen: Arc<Mutex<Vec<u16>>>,
++}
++
++impl RetroCore for Recorder {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.seen.lock().expect("seen").push(input.0);
++        self.inner.run_frame(input);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++}
++
++fn held_masks(pass_through: bool, turbo: bool) -> Vec<u16> {
++    let seen = Arc::new(Mutex::new(Vec::new()));
++    let mut sink = StubSink::new();
++    sink.open(32_768).expect("the stub refused to open");
++    let drain = sink.clone();
++    std::thread::spawn(move || loop {
++        drain.device_drain();
++        std::thread::sleep(Duration::from_millis(2));
++    });
++    let core = Recorder {
++        inner: MockCore::new(),
++        seen: seen.clone(),
++    };
++    let emu = EmuHandle::spawn(
++        Box::new(core),
++        PathBuf::from("mock"),
++        sink.ring(),
++        None,
++        None,
++    );
++    emu.set_pass_through(pass_through);
++    emu.set_turbo(turbo);
++    emu.set_input(ButtonMask(XY | LR));
++    emu.set_speed(Speed::Normal);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while seen
++        .lock()
++        .expect("seen")
++        .iter()
++        .filter(|m| **m != 0)
++        .count()
++        < 12
++    {
++        assert!(Instant::now() < deadline, "the core never ran 12 frames");
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    assert_eq!(emu.state(), CoreState::Ready);
++    let held = seen
++        .lock()
++        .expect("seen")
++        .iter()
++        .copied()
++        .filter(|m| *m != 0)
++        .collect();
++    held
++}
++
++#[test]
++fn x_y_l_and_r_reach_the_core_on_every_frame_with_turbo_on() {
++    for mask in held_masks(true, true) {
++        assert_eq!(mask, XY | LR);
++    }
++}
++
++#[test]
++fn x_y_l_and_r_reach_the_core_on_every_frame_with_turbo_off() {
++    for mask in held_masks(true, false) {
++        assert_eq!(mask, XY | LR);
++    }
++}
++
++#[test]
++fn without_pass_through_the_core_never_sees_x_or_y() {
++    for turbo in [true, false] {
++        for mask in held_masks(false, turbo) {
++            assert_eq!(mask & XY, 0);
++            assert_eq!(mask & LR, LR);
++        }
++    }
++}
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+new file mode 100644
+index 0000000..37ff520
+--- /dev/null
++++ b/crates/slot/tests/snes_select.rs
+@@ -0,0 +1,258 @@
++mod common;
++mod input_common;
++
++use input_common::playing;
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{read_slot_state, Core, Platform, StateRing};
++use slot_ui::{Icon, Toast};
++use tempfile::TempDir;
++
++const STEM: &str = "Zzz";
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++    ever: u16,
++}
++
++fn rig(platform: Platform) -> Rig {
++    let (root, session) = playing(platform, STEM);
++    Rig {
++        root,
++        session,
++        now: 100,
++        ever: 0,
++    }
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++        self.ever |= self.pad();
++    }
++
++    fn press(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++    }
++
++    fn release(&mut self, b: Btn) {
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn chord(&mut self, b: Btn) {
++        self.press(Btn::Select);
++        self.press(b);
++        self.release(b);
++        self.release(Btn::Select);
++    }
++
++    fn wait(&mut self, ms: Millis) {
++        self.now += ms;
++        self.session.feed([], self.now);
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn colour(&self) -> bool {
++        self.session.app().colour_correction()
++    }
++
++    fn saved_colour(&self) -> bool {
++        self.session.app().flush_state();
++        read_slot_state(self.root.path()).colour_correction
++    }
++
++    fn picture(&self) -> slot::video_mode::VideoMode {
++        slot::video_mode::video_mode_for(self.root.path(), STEM)
++    }
++
++    fn states(&self, platform: Platform, core: Core) -> usize {
++        StateRing::new(self.root.path(), platform, core, STEM)
++            .list()
++            .expect("list the ring")
++            .len()
++    }
++}
++
++#[test]
++fn a_snes_game_is_run_with_x_and_y_passed_through() {
++    assert!(rig(Platform::Snes)
++        .session
++        .emu()
++        .expect("core")
++        .passes_through());
++}
++
++#[test]
++fn a_nes_game_is_not_run_with_x_and_y_passed_through() {
++    assert!(!rig(Platform::Nes)
++        .session
++        .emu()
++        .expect("core")
++        .passes_through());
++}
++
++#[test]
++fn x_y_l_and_r_reach_the_snes_core() {
++    let mut r = rig(Platform::Snes);
++    for (btn, bit) in [
++        (Btn::X, ButtonMask::X),
++        (Btn::Y, ButtonMask::Y),
++        (Btn::L1, ButtonMask::L),
++        (Btn::R1, ButtonMask::R),
++    ] {
++        r.press(btn);
++        assert_eq!(r.pad() & bit, bit, "{btn:?} never reached the core");
++        r.release(btn);
++        assert_eq!(r.pad() & bit, 0, "{btn:?} stuck down");
++    }
++}
++
++#[test]
++fn r2_still_fast_forwards_and_l2_and_r2_never_reach_the_snes_core() {
++    let mut r = rig(Platform::Snes);
++    r.press(Btn::L2);
++    assert_eq!(r.pad(), 0);
++    r.release(Btn::L2);
++    r.press(Btn::R2);
++    r.session.update(1.0 / 60.0);
++    assert_eq!(r.pad(), 0);
++    assert_eq!(r.session.app().ff_badge(), Some(Icon::FastForward));
++    r.release(Btn::R2);
++}
++
++#[test]
++fn a_select_tap_reaches_the_snes_core() {
++    let mut r = rig(Platform::Snes);
++    r.press(Btn::Select);
++    r.release(Btn::Select);
++    assert_eq!(r.pad() & ButtonMask::SELECT, ButtonMask::SELECT);
++    r.wait(100);
++    assert_eq!(r.pad() & ButtonMask::SELECT, 0);
++}
++
++#[test]
++fn select_and_r1_save_a_state_on_snes_without_sending_r() {
++    let mut r = rig(Platform::Snes);
++    r.chord(Btn::R1);
++    for _ in 0..200 {
++        if r.states(Platform::Snes, Core::Snes9x) > 0 {
++            break;
++        }
++        r.session.update(1.0 / 60.0);
++        std::thread::sleep(std::time::Duration::from_millis(5));
++    }
++    assert_eq!(r.states(Platform::Snes, Core::Snes9x), 1);
++    assert_eq!(r.ever & ButtonMask::R, 0, "R was sent to the game");
++}
++
++#[test]
++fn select_and_l1_load_on_snes_without_sending_l() {
++    let mut r = rig(Platform::Snes);
++    r.chord(Btn::L1);
++    assert_eq!(r.ever & ButtonMask::L, 0, "L was sent to the game");
++}
++
++#[test]
++fn select_and_y_on_snes_sends_no_y_changes_nothing_and_says_nothing() {
++    let mut r = rig(Platform::Snes);
++    let (before, saved) = (r.colour(), r.saved_colour());
++    r.chord(Btn::Y);
++    r.session.update(1.0 / 60.0);
++    assert_eq!(r.ever & ButtonMask::Y, 0, "Y was sent to the game");
++    assert_eq!(r.colour(), before);
++    assert_eq!(r.saved_colour(), saved);
++    assert_eq!(r.session.app().toast(), None);
++    assert!(matches!(r.session.app().phase(), Phase::Playing { .. }));
++}
++
++#[test]
++fn select_and_y_on_nes_changes_nothing_and_says_nothing() {
++    let mut r = rig(Platform::Nes);
++    let before = r.colour();
++    r.chord(Btn::Y);
++    assert_eq!(r.ever & ButtonMask::Y, 0);
++    assert_eq!(r.colour(), before);
++    assert_eq!(r.session.app().toast(), None);
++}
++
++#[test]
++fn select_and_y_still_flip_colour_correction_on_a_gba_cart() {
++    let mut r = rig(Platform::Gba);
++    let before = r.colour();
++    r.chord(Btn::Y);
++    assert_eq!(r.colour(), !before);
++    assert!(r
++        .session
++        .app()
++        .toast()
++        .is_some_and(|t| matches!(t, Toast::ColourOn | Toast::ColourOff)));
++}
++
++#[test]
++fn select_and_x_on_snes_never_sends_x_and_toggles_the_picture_mode_both_ways() {
++    let mut r = rig(Platform::Snes);
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    r.chord(Btn::X);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(r.picture(), slot::video_mode::VideoMode::Stretch);
++    r.chord(Btn::X);
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(r.picture(), slot::video_mode::VideoMode::Actual);
++    assert_eq!(r.ever & ButtonMask::X, 0, "X was sent to the game");
++}
++
++#[test]
++fn l1_and_r1_do_not_change_the_snes_picture_mode() {
++    let mut r = rig(Platform::Snes);
++    r.press(Btn::L1);
++    r.release(Btn::L1);
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++}
++
++#[test]
++fn select_and_x_on_nes_leave_the_picture_alone_and_x_goes_down() {
++    let mut r = rig(Platform::Nes);
++    r.chord(Btn::X);
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(r.picture(), slot::video_mode::VideoMode::Actual);
++    assert_eq!(r.ever & ButtonMask::X, ButtonMask::X);
++}
++
++#[test]
++fn l1_on_nes_still_stretches_the_picture() {
++    let mut r = rig(Platform::Nes);
++    r.press(Btn::L1);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(r.ever & ButtonMask::L, 0);
++}
++
++#[test]
++fn the_picture_toggle_flips_only_on_snes() {
++    use slot::video_mode::VideoMode::{Actual, Stretch};
++    for platform in Platform::SHELVES {
++        let (from_actual, from_stretch) = match platform {
++            Platform::Snes => (Stretch, Actual),
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => (Actual, Stretch),
++        };
++        assert_eq!(Actual.flipped(platform), from_actual, "{platform:?}");
++        assert_eq!(Stretch.flipped(platform), from_stretch, "{platform:?}");
++    }
++}
++
++#[test]
++fn l2_starts_the_rewind_on_snes_and_never_reaches_the_core() {
++    let mut r = rig(Platform::Snes);
++    r.press(Btn::L2);
++    r.session.update(1.0 / 60.0);
++    assert_eq!(r.session.app().hud_icon(), Icon::Rewind);
++    assert_eq!(r.pad(), 0);
++    r.release(Btn::L2);
++}
+diff --git a/crates/slot/tests/snes_shoulders.rs b/crates/slot/tests/snes_shoulders.rs
+new file mode 100644
+index 0000000..e53e33b
+--- /dev/null
++++ b/crates/slot/tests/snes_shoulders.rs
+@@ -0,0 +1,30 @@
++mod common;
++mod input_common;
++
++use input_common::playing;
++use slot_input::Btn;
++use slot_store::Platform;
++
++fn taken(platform: Platform) -> Vec<Btn> {
++    playing(platform, "Zzz").1.app().taken_buttons().to_vec()
++}
++
++#[test]
++fn a_gba_game_keeps_both_shoulders() {
++    assert_eq!(taken(Platform::Gba), vec![]);
++}
++
++#[test]
++fn a_game_boy_game_gives_both_shoulders_to_slot() {
++    assert_eq!(taken(Platform::Gb), vec![Btn::L1, Btn::R1]);
++}
++
++#[test]
++fn a_nes_game_gives_both_shoulders_to_slot() {
++    assert_eq!(taken(Platform::Nes), vec![Btn::L1, Btn::R1]);
++}
++
++#[test]
++fn a_snes_game_keeps_both_shoulders() {
++    assert_eq!(taken(Platform::Snes), vec![]);
++}
+diff --git a/crates/slot/tests/snes_then_gba.rs b/crates/slot/tests/snes_then_gba.rs
+new file mode 100644
+index 0000000..2f1d629
+--- /dev/null
++++ b/crates/slot/tests/snes_then_gba.rs
+@@ -0,0 +1,121 @@
++mod common;
++
++use std::time::{Duration, Instant};
++
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::Platform;
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++fn write_cart(root: &TempDir, platform: Platform, stem: &str) {
++    let dir = root.path().join("Games").join(platform.dir_name());
++    let cart = dir.join(format!("{stem}.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(10);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn shelf_after_a_snes_game() -> Rig {
++        let root = common::tmp_root_with_real_carts(&[]);
++        write_cart(&root, Platform::Snes, "Aaa");
++        write_cart(&root, Platform::Gba, "Bbb");
++        common::clocked(root.path());
++        let mut r = Rig {
++            session: Session::boot(root.path().to_path_buf()),
++            root,
++            now: 0,
++        };
++        r.tap(Btn::R1);
++        r.tap(Btn::A);
++        r.until("the snes cart to seat", |s| {
++            matches!(s.app().phase(), Phase::Playing { .. })
++        });
++        assert!(r.session.emu().expect("core").passes_through());
++        r.feed(RawEvent::Down(Btn::Menu));
++        r.until("the eject", |s| !s.has_core());
++        r.feed(RawEvent::Up(Btn::Menu));
++        r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++        r
++    }
++
++    fn insert_the_gba_cart(&mut self) {
++        self.tap(Btn::L1);
++        self.tap(Btn::A);
++        self.until("the gba cart to seat", |s| {
++            matches!(s.app().phase(), Phase::Playing { .. })
++        });
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_snes_game_gets_gba_input_behaviour_back() {
++    let mut r = Rig::shelf_after_a_snes_game();
++    r.insert_the_gba_cart();
++    assert!(!r.session.emu().expect("core").passes_through());
++
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::X));
++    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X, "X never reached");
++    r.feed(RawEvent::Up(Btn::X));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert!(!r.root.path().join("Config/video_mode.txt").exists());
++
++    r.now += 300;
++    r.session.feed([], r.now);
++    r.feed(RawEvent::Down(Btn::X));
++    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X);
++    r.feed(RawEvent::Up(Btn::X));
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++}
++
++#[test]
++fn known_limit_shelf_select_and_y_after_a_snes_game_is_ignored_until_a_gba_game_runs() {
++    let mut r = Rig::shelf_after_a_snes_game();
++    let before = r.session.app().colour_correction();
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().colour_correction(), before);
++    assert_eq!(r.session.app().toast(), None);
++
++    r.insert_the_gba_cart();
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().colour_correction(), !before);
++}
