@@ -1,0 +1,781 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 01:12:56 +0400
+Subject: [PATCH] ff-and-rewind
+
+---
+ crates/slot-store/src/core_policy.rs   |   2 +-
+ crates/slot-store/tests/nes_core.rs    |   8 +-
+ crates/slot/src/core_options_policy.rs |  20 +-
+ crates/slot/tests/alt_cores.rs         |  24 ++-
+ crates/slot/tests/core_option_keys.rs  | 148 +++++++++++++
+ crates/slot/tests/snes_ff.rs           | 205 ++++++++++++++++++
+ crates/slot/tests/snes_rewind.rs       | 278 +++++++++++++++++++++++++
+ 7 files changed, 675 insertions(+), 10 deletions(-)
+ create mode 100644 crates/slot/tests/core_option_keys.rs
+ create mode 100644 crates/slot/tests/snes_ff.rs
+ create mode 100644 crates/slot/tests/snes_rewind.rs
+
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index e5ea20c..ed5b993 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -17,7 +17,7 @@ impl Core {
+             Core::Fceumm => "fceumm",
+             Core::Snes9x => "snes9x",
+             Core::Nestopia => "nestopia",
+-            Core::Snes9x2005Plus => "snes9x2005_plus",
++            Core::Snes9x2005Plus => "snes9x_2005",
+         }
+     }
+ 
+diff --git a/crates/slot-store/tests/nes_core.rs b/crates/slot-store/tests/nes_core.rs
+index e8a0775..5b9f6bf 100644
+--- a/crates/slot-store/tests/nes_core.rs
++++ b/crates/slot-store/tests/nes_core.rs
+@@ -64,9 +64,13 @@ fn each_core_runs_only_its_own_platforms() {
+ }
+ 
+ #[test]
+-fn each_core_names_its_option_prefix_after_its_dylib() {
++fn each_core_names_its_option_prefix_after_its_dylib_but_snes9x_2005() {
+     for core in Core::EVERY {
+-        assert_eq!(core.option_prefix(), core.as_str());
++        let named = match core {
++            Core::Snes9x2005Plus => "snes9x_2005",
++            other => other.as_str(),
++        };
++        assert_eq!(core.option_prefix(), named);
+     }
+     assert!(!Core::Fceumm.has_colour_correction());
+     assert!(Core::Mgba.has_colour_correction() && Core::Gpsp.has_colour_correction());
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 5448a2e..050d71c 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -8,19 +8,29 @@ const FCEUMM_OVERSCAN: [&str; 4] = [
+     "fceumm_overscan_v_bottom",
+ ];
+ 
++const NESTOPIA_OVERSCAN: [&str; 4] = [
++    "nestopia_overscan_h_left",
++    "nestopia_overscan_h_right",
++    "nestopia_overscan_v_top",
++    "nestopia_overscan_v_bottom",
++];
++
+ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+     let frameskip = format!("{}_frameskip", which.option_prefix());
+     if core.declared_options().contains_key(&frameskip) {
+         core.set_option(&frameskip, "auto");
+-    } else {
++    } else if !core.declared_options().is_empty() {
+         eprintln!(
+             "slot: core: {} declares no frameskip option",
+             which.as_str()
+         );
+     }
+-    if which == Core::Fceumm {
+-        for key in FCEUMM_OVERSCAN {
+-            core.set_option(key, "0");
+-        }
++    let overscan: &[&str] = match which {
++        Core::Fceumm => &FCEUMM_OVERSCAN,
++        Core::Nestopia => &NESTOPIA_OVERSCAN,
++        _ => &[],
++    };
++    for key in overscan {
++        core.set_option(key, "0");
+     }
+ }
+diff --git a/crates/slot/tests/alt_cores.rs b/crates/slot/tests/alt_cores.rs
+index af9f24d..8bf792f 100644
+--- a/crates/slot/tests/alt_cores.rs
++++ b/crates/slot/tests/alt_cores.rs
+@@ -8,8 +8,8 @@ use std::path::PathBuf;
+ use common::core_lock;
+ use core_common::require_core;
+ use nes_common::{fceumm, nes_rom};
+-use slot::core::open_core_for;
+-use slot_retro::{ButtonMask, MockCore, RetroCore};
++use slot::core::{apply_core_options, open_core_for};
++use slot_retro::{ButtonMask, LibretroCore, MockCore, RetroCore};
+ use slot_store::Core;
+ use snes_common::{snes_rom, Map, SNES_TITLE};
+ 
+@@ -87,6 +87,26 @@ fn nestopia_boots_a_generated_nes_cart_in_its_own_colours() {
+     assert_ne!(NESTOPIA_BACKDROP_BGRX, FCEUMM_BACKDROP_BGRX);
+ }
+ 
++#[test]
++fn nestopia_is_told_to_crop_no_overscan() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("nestopia") else {
++        return;
++    };
++    let mut core = LibretroCore::open(&dylib).expect("open nestopia");
++    apply_core_options(&mut core, Core::Nestopia, "auto", false, false, None);
++    core.load(&nes_rom("alt_nestopia_overscan.nes", false))
++        .expect("nestopia refused the generated cart");
++    for key in [
++        "nestopia_overscan_h_left",
++        "nestopia_overscan_h_right",
++        "nestopia_overscan_v_top",
++        "nestopia_overscan_v_bottom",
++    ] {
++        assert_eq!(core.option(key).as_deref(), Some("0"), "{key}");
++    }
++}
++
+ #[test]
+ fn snes9x_2005_plus_boots_a_generated_snes_cart_in_its_own_colours() {
+     let _g = core_lock();
+diff --git a/crates/slot/tests/core_option_keys.rs b/crates/slot/tests/core_option_keys.rs
+new file mode 100644
+index 0000000..60aa68b
+--- /dev/null
++++ b/crates/slot/tests/core_option_keys.rs
+@@ -0,0 +1,148 @@
++mod common;
++mod core_common;
++mod nes_common;
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::core::apply_core_options;
++use slot_retro::{LibretroCore, RetroCore};
++use slot_store::Core;
++
++const NO_KEYS: [&str; 0] = [];
++const FCEUMM_OVERSCAN: [&str; 4] = [
++    "fceumm_overscan_h_left",
++    "fceumm_overscan_h_right",
++    "fceumm_overscan_v_top",
++    "fceumm_overscan_v_bottom",
++];
++const NESTOPIA_OVERSCAN: [&str; 4] = [
++    "nestopia_overscan_h_left",
++    "nestopia_overscan_h_right",
++    "nestopia_overscan_v_top",
++    "nestopia_overscan_v_bottom",
++];
++
++fn declared(which: Core) -> Option<LibretroCore> {
++    let dylib = require_core(which.as_str())?;
++    let mut core = LibretroCore::open(&dylib).expect("open core");
++    if matches!(which, Core::Fceumm | Core::Nestopia) {
++        core.load(&nes_rom("option_keys.nes", false))
++            .expect("the core refused the generated cart");
++    }
++    Some(core)
++}
++
++fn overscan_keys(core: &LibretroCore) -> Vec<String> {
++    let mut keys: Vec<String> = core
++        .declared_options()
++        .keys()
++        .filter(|k| k.contains("overscan"))
++        .cloned()
++        .collect();
++    keys.sort();
++    keys
++}
++
++#[test]
++fn each_core_declares_a_frameskip_under_its_prefix_or_none_at_all() {
++    let _g = core_lock();
++    for (which, declares) in [
++        (Core::Mgba, true),
++        (Core::Gpsp, true),
++        (Core::Fceumm, false),
++        (Core::Snes9x, false),
++        (Core::Nestopia, false),
++        (Core::Snes9x2005Plus, true),
++    ] {
++        let Some(core) = declared(which) else {
++            continue;
++        };
++        let key = format!("{}_frameskip", which.option_prefix());
++        assert_eq!(
++            core.declared_options().contains_key(&key),
++            declares,
++            "{} and {key}",
++            which.as_str()
++        );
++        let mut skips: Vec<_> = core
++            .declared_options()
++            .keys()
++            .filter(|k| k.contains("frameskip"))
++            .cloned()
++            .collect();
++        skips.sort();
++        println!("{}: frameskip keys {skips:?}", which.as_str());
++        assert_eq!(
++            skips.iter().any(|k| k.ends_with("_frameskip")),
++            declares,
++            "{} declares {skips:?} under another prefix",
++            which.as_str()
++        );
++    }
++}
++
++#[test]
++fn each_core_declares_the_overscan_keys_slot_knows_or_none_at_all() {
++    let _g = core_lock();
++    for (which, expected) in [
++        (Core::Mgba, &NO_KEYS[..]),
++        (Core::Gpsp, &NO_KEYS[..]),
++        (Core::Fceumm, &FCEUMM_OVERSCAN[..]),
++        (Core::Snes9x, &["snes9x_overscan"][..]),
++        (Core::Nestopia, &NESTOPIA_OVERSCAN[..]),
++        (Core::Snes9x2005Plus, &NO_KEYS[..]),
++    ] {
++        let Some(core) = declared(which) else {
++            continue;
++        };
++        let mut want: Vec<String> = expected.iter().map(|k| k.to_string()).collect();
++        want.sort();
++        assert_eq!(overscan_keys(&core), want, "{}", which.as_str());
++        if which == Core::Nestopia {
++            for key in expected {
++                assert!(
++                    core.declared_options()[*key].iter().any(|v| v == "0"),
++                    "{key} does not declare 0"
++                );
++            }
++        }
++        for key in expected {
++            assert!(
++                key.starts_with(&format!("{}_", which.option_prefix())),
++                "{key} is not under {}'s option prefix",
++                which.as_str()
++            );
++        }
++    }
++}
++
++#[test]
++fn fceumm_declares_its_options_only_once_a_cart_is_loaded() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let mut core = LibretroCore::open(&dylib).expect("open fceumm");
++    assert!(
++        core.declared_options().is_empty(),
++        "fceumm declared options before a cart was loaded"
++    );
++    core.load(&nes_rom("option_keys_late.nes", false))
++        .expect("fceumm refused the generated cart");
++    assert!(core.declared_options().contains_key(FCEUMM_OVERSCAN[0]));
++}
++
++#[test]
++fn snes9x_2005_plus_gets_its_frameskip_set_under_its_own_prefix() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x2005_plus") else {
++        return;
++    };
++    let mut core = LibretroCore::open(&dylib).expect("open snes9x2005_plus");
++    apply_core_options(&mut core, Core::Snes9x2005Plus, "auto", false, false, None);
++    assert_eq!(
++        core.option("snes9x_2005_frameskip").as_deref(),
++        Some("auto")
++    );
++}
+diff --git a/crates/slot/tests/snes_ff.rs b/crates/slot/tests/snes_ff.rs
+new file mode 100644
+index 0000000..31ce4fe
+--- /dev/null
++++ b/crates/slot/tests/snes_ff.rs
+@@ -0,0 +1,205 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod snes_common;
++
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::audio::{AudioSink, StubSink};
++use slot::core::open_core_for;
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_retro::{AvInfo, ButtonMask, CoreError, Link, RetroCore, Rumble};
++use slot_store::Core;
++use snes_common::{snes_rom, Map};
++
++const STEPS: u32 = 4;
++const WINDOW: Duration = Duration::from_millis(300);
++
++#[derive(Default)]
++struct Frames {
++    drawn: AtomicU64,
++    skipped: AtomicU64,
++}
++
++struct Counted {
++    inner: Box<dyn RetroCore>,
++    skipping: bool,
++    frames: Arc<Frames>,
++}
++
++impl RetroCore for Counted {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        let counter = if self.skipping {
++            &self.frames.skipped
++        } else {
++            &self.frames.drawn
++        };
++        counter.fetch_add(1, Ordering::Relaxed);
++        self.inner.run_frame(input);
++    }
++    fn set_option(&mut self, key: &str, value: &str) {
++        self.inner.set_option(key, value);
++    }
++    fn set_frame_skip(&mut self, skip: bool) {
++        self.skipping = skip;
++        self.inner.set_frame_skip(skip);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++    fn rumble(&self) -> Rumble {
++        self.inner.rumble()
++    }
++    fn net(&self) -> Link {
++        self.inner.net()
++    }
++    fn canvas(&self) -> (u32, u32) {
++        self.inner.canvas()
++    }
++    fn take_av_change(&mut self) -> Option<AvInfo> {
++        self.inner.take_av_change()
++    }
++}
++
++fn dylib_for(which: Core) -> Option<PathBuf> {
++    match which {
++        Core::Fceumm => fceumm(),
++        _ => require_core(which.as_str()),
++    }
++}
++
++fn rom_for(which: Core) -> PathBuf {
++    match which {
++        Core::Fceumm | Core::Nestopia => nes_rom("snes_ff.nes", false),
++        Core::Snes9x2005Plus => snes_rom("snes_ff.sfc", Map::Hi, false, 0),
++        _ => snes_rom("snes_ff.sfc", Map::Lo, false, 0),
++    }
++}
++
++fn running(which: Core, dylib: PathBuf) -> (EmuHandle, Arc<Frames>) {
++    let root = common::tmp_root_with_real_carts(&[]);
++    let frames = Arc::new(Frames::default());
++    let core = Counted {
++        inner: open_core_for(root.path(), which, "auto", false, &[dylib]),
++        skipping: false,
++        frames: frames.clone(),
++    };
++    let mut sink = StubSink::draining();
++    sink.open(32_768).expect("the stub refused to open");
++    let emu = EmuHandle::spawn(Box::new(core), rom_for(which), sink.ring(), None, None);
++    emu.set_fast_steps(STEPS);
++    emu.set_speed(Speed::Normal);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while emu.state() == CoreState::Loading {
++        assert!(Instant::now() < deadline, "the core never finished loading");
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    assert_eq!(
++        emu.state(),
++        CoreState::Ready,
++        "{} failed to load",
++        which.as_str()
++    );
++    std::thread::sleep(Duration::from_millis(200));
++    (emu, frames)
++}
++
++fn over_a_window(emu: &EmuHandle, frames: &Frames, speed: Speed) -> (u64, u64) {
++    emu.set_speed(speed);
++    std::thread::sleep(Duration::from_millis(100));
++    let before = (
++        frames.drawn.load(Ordering::Relaxed),
++        frames.skipped.load(Ordering::Relaxed),
++    );
++    std::thread::sleep(WINDOW);
++    let after = (
++        frames.drawn.load(Ordering::Relaxed),
++        frames.skipped.load(Ordering::Relaxed),
++    );
++    (after.0 - before.0, after.1 - before.1)
++}
++
++const FF_CORES: [Core; 4] = [
++    Core::Snes9x,
++    Core::Fceumm,
++    Core::Nestopia,
++    Core::Snes9x2005Plus,
++];
++
++#[test]
++fn fast_forward_runs_at_least_the_chosen_speed_minus_one_on_every_new_core() {
++    let _g = core_lock();
++    for which in FF_CORES {
++        let Some(dylib) = dylib_for(which) else {
++            continue;
++        };
++        let (emu, frames) = running(which, dylib);
++        let (normal_drawn, normal_skipped) = over_a_window(&emu, &frames, Speed::Normal);
++        let normal = normal_drawn + normal_skipped;
++        let (fast_drawn, fast_skipped) = over_a_window(&emu, &frames, Speed::Fast);
++        let fast = fast_drawn + fast_skipped;
++        println!(
++            "{}: {normal} frames at normal, {fast} at fast x{STEPS}, {:.2}x",
++            which.as_str(),
++            fast as f64 / normal as f64
++        );
++        assert_eq!(emu.observed_speed(), Speed::Fast, "{}", which.as_str());
++        assert!(
++            fast >= normal * u64::from(STEPS - 1),
++            "{}: {fast} frames fast against {normal} normal is under {}x",
++            which.as_str(),
++            STEPS - 1
++        );
++    }
++}
++
++#[test]
++fn only_fast_forward_hands_the_core_frames_to_skip_drawing() {
++    let _g = core_lock();
++    for which in FF_CORES {
++        let Some(dylib) = dylib_for(which) else {
++            continue;
++        };
++        let (emu, frames) = running(which, dylib);
++        let (_, normal_skipped) = over_a_window(&emu, &frames, Speed::Normal);
++        let (fast_drawn, fast_skipped) = over_a_window(&emu, &frames, Speed::Fast);
++        assert_eq!(
++            normal_skipped,
++            0,
++            "{} skipped at normal speed",
++            which.as_str()
++        );
++        assert!(
++            fast_skipped >= fast_drawn * u64::from(STEPS - 2),
++            "{}: {fast_skipped} skipped against {fast_drawn} drawn at x{STEPS}",
++            which.as_str()
++        );
++    }
++}
+diff --git a/crates/slot/tests/snes_rewind.rs b/crates/slot/tests/snes_rewind.rs
+new file mode 100644
+index 0000000..db47325
+--- /dev/null
++++ b/crates/slot/tests/snes_rewind.rs
+@@ -0,0 +1,278 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod snes_common;
++
++use std::collections::hash_map::DefaultHasher;
++use std::hash::{Hash, Hasher};
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::audio::{AudioSink, StubSink};
++use slot::core::open_core_for;
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot::rewind::{Rewind, REWIND_BYTES};
++use slot_retro::{AvInfo, ButtonMask, CoreError, Link, RetroCore, Rumble};
++use slot_store::Core;
++use snes_common::{snes_rom, Map};
++
++const PRESENT: Duration = Duration::from_nanos(16_666_667);
++const CADENCE: u32 = 2;
++const FRAMES: u64 = 300;
++
++#[derive(Default)]
++struct Log {
++    ran: AtomicU64,
++    pushed: Mutex<Vec<u64>>,
++    loaded: Mutex<Vec<u64>>,
++}
++
++struct Tapped {
++    inner: Box<dyn RetroCore>,
++    log: Arc<Log>,
++}
++
++fn fingerprint(bytes: &[u8]) -> u64 {
++    let mut h = DefaultHasher::new();
++    bytes.hash(&mut h);
++    h.finish()
++}
++
++impl RetroCore for Tapped {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.log.ran.fetch_add(1, Ordering::Relaxed);
++        self.inner.run_frame(input);
++    }
++    fn set_option(&mut self, key: &str, value: &str) {
++        self.inner.set_option(key, value);
++    }
++    fn set_frame_skip(&mut self, skip: bool) {
++        self.inner.set_frame_skip(skip);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        let state = self.inner.serialize()?;
++        self.log
++            .pushed
++            .lock()
++            .expect("pushed")
++            .push(fingerprint(&state));
++        Ok(state)
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.log
++            .loaded
++            .lock()
++            .expect("loaded")
++            .push(fingerprint(data));
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++    fn rumble(&self) -> Rumble {
++        self.inner.rumble()
++    }
++    fn net(&self) -> Link {
++        self.inner.net()
++    }
++    fn canvas(&self) -> (u32, u32) {
++        self.inner.canvas()
++    }
++    fn take_av_change(&mut self) -> Option<AvInfo> {
++        self.inner.take_av_change()
++    }
++}
++
++fn dylib_for(which: Core) -> Option<PathBuf> {
++    match which {
++        Core::Fceumm => fceumm(),
++        _ => require_core(which.as_str()),
++    }
++}
++
++fn rom_for(which: Core) -> PathBuf {
++    match which {
++        Core::Fceumm | Core::Nestopia => nes_rom("snes_rewind.nes", false),
++        Core::Snes9x2005Plus => snes_rom("snes_rewind.sfc", Map::Hi, false, 0),
++        _ => snes_rom("snes_rewind.sfc", Map::Lo, false, 0),
++    }
++}
++
++fn played(which: Core, dylib: PathBuf, frames: u64) -> (EmuHandle, Arc<Log>) {
++    let root = common::tmp_root_with_real_carts(&[]);
++    let log = Arc::new(Log::default());
++    let core = Tapped {
++        inner: open_core_for(root.path(), which, "auto", false, &[dylib]),
++        log: log.clone(),
++    };
++    let mut sink = StubSink::draining();
++    sink.open(32_768).expect("the stub refused to open");
++    let emu = EmuHandle::spawn(Box::new(core), rom_for(which), sink.ring(), None, None);
++    emu.set_speed(Speed::Normal);
++    let deadline = Instant::now() + Duration::from_secs(20);
++    while log.ran.load(Ordering::Relaxed) < frames {
++        assert!(
++            Instant::now() < deadline,
++            "the core never ran {frames} frames"
++        );
++        assert_ne!(emu.state(), CoreState::Failed, "{} failed", which.as_str());
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    (emu, log)
++}
++
++fn ms(d: Duration) -> f64 {
++    d.as_secs_f64() * 1000.0
++}
++
++fn spread(mut v: Vec<Duration>) -> (f64, f64, f64) {
++    v.sort();
++    (
++        ms(v[v.len() / 2]),
++        ms(v[(v.len() - 1) * 95 / 100]),
++        ms(v[v.len() - 1]),
++    )
++}
++
++#[test]
++fn rewind_fill_rises_while_snes9x_plays_300_frames() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x") else {
++        return;
++    };
++    let (emu, log) = played(Core::Snes9x, dylib, FRAMES);
++    assert!(
++        emu.rewind_fill() > 0,
++        "300 frames left the rewind ring at 0%"
++    );
++    assert!(
++        log.pushed.lock().expect("pushed").len() as u64 >= FRAMES / u64::from(CADENCE) - 2,
++        "snes9x was serialized less than every {CADENCE} frames"
++    );
++}
++
++#[test]
++fn l2_walks_snes9x_back_through_states_it_serialized_earlier() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x") else {
++        return;
++    };
++    let (emu, log) = played(Core::Snes9x, dylib, FRAMES);
++    let pushed = log.pushed.lock().expect("pushed").clone();
++    emu.set_rewinding(true);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while log.loaded.lock().expect("loaded").len() < 5 {
++        assert!(Instant::now() < deadline, "L2 never restored a state");
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    emu.set_rewinding(false);
++    let loaded = log.loaded.lock().expect("loaded").clone();
++    let at: Vec<usize> = loaded
++        .iter()
++        .map(|h| {
++            pushed
++                .iter()
++                .rposition(|p| p == h)
++                .expect("a state snes9x never serialized")
++        })
++        .collect();
++    assert!(
++        at[0] < pushed.len(),
++        "the first restored state is newer than every serialized one"
++    );
++    assert!(
++        at.windows(2).all(|w| w[1] < w[0]),
++        "L2 did not walk back through older states: {at:?}"
++    );
++}
++
++#[test]
++fn serialize_and_the_rewind_writer_fit_the_two_frame_cadence_on_every_new_core() {
++    let _g = core_lock();
++    let cadence = PRESENT * CADENCE;
++    println!(
++        "budget: serialize p95 under {:.2} ms, writer worst case under {:.2} ms",
++        ms(PRESENT),
++        ms(cadence)
++    );
++    for which in [
++        Core::Snes9x,
++        Core::Snes9x2005Plus,
++        Core::Nestopia,
++        Core::Fceumm,
++    ] {
++        let Some(dylib) = dylib_for(which) else {
++            continue;
++        };
++        let root = common::tmp_root_with_real_carts(&[]);
++        let mut core = open_core_for(root.path(), which, "auto", false, &[dylib]);
++        core.load(&rom_for(which)).expect("load");
++        let (mut saves, mut states) = (Vec::new(), Vec::new());
++        for _ in 0..FRAMES {
++            core.run_frame(ButtonMask::default());
++            let began = Instant::now();
++            let state = core.serialize().expect("serialize");
++            saves.push(began.elapsed());
++            states.push(state);
++        }
++        let size = states[0].len();
++        let mut real = Rewind::new(REWIND_BYTES);
++        let mut writes = Vec::new();
++        for state in &states {
++            let began = Instant::now();
++            real.push(state);
++            writes.push(began.elapsed());
++        }
++        let mut worst = Rewind::new(REWIND_BYTES);
++        let mut noisy = Vec::new();
++        let mut x = 0x2545_f491u32;
++        for _ in 0..64 {
++            let state: Vec<u8> = (0..size)
++                .map(|_| {
++                    x = x.wrapping_mul(1664525).wrapping_add(1013904223);
++                    (x >> 24) as u8
++                })
++                .collect();
++            let began = Instant::now();
++            worst.push(&state);
++            noisy.push(began.elapsed());
++        }
++        let (save, write, noise) = (spread(saves), spread(writes), spread(noisy));
++        println!(
++            "{}: state {size} bytes, serialize median {:.3} p95 {:.3} max {:.3} ms, writer median {:.3} p95 {:.3} max {:.3} ms, worst case writer median {:.3} p95 {:.3} ms, ring {}% after {FRAMES} states",
++            which.as_str(), save.0, save.1, save.2, write.0, write.1, write.2, noise.0, noise.1, real.fill()
++        );
++        assert!(
++            save.1 < ms(PRESENT),
++            "{}: serialize p95 {:.2} ms",
++            which.as_str(),
++            save.1
++        );
++        assert!(
++            noise.1 < ms(cadence),
++            "{}: writer worst case p95 {:.2} ms",
++            which.as_str(),
++            noise.1
++        );
++    }
++}
