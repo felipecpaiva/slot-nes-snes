@@ -81,19 +81,25 @@ mgba_libretro.so gpsp_libretro.so fceumm_libretro.so"
 for f in $req; do
 	[ -f "$sys/$f" ] || bad "System/$f is missing"
 done
+mc="$(slot_var MGBA_COMMIT)"
+gc="$(slot_var GPSP_COMMIT)"
+[ -n "$mc" ] && [ -n "$gc" ] || bad "no MGBA_COMMIT or GPSP_COMMIT in build/slot/taskfile.yml, run task build"
+ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
+mgba_libretro.so gpsp_libretro.so fceumm_libretro.so
+licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/cores.sha256
+licenses/mgba-MPL-2.0.txt licenses/mgba-$mc.meta
+licenses/gpsp-GPL-2.0.txt licenses/gpsp-$gc.meta licenses/gpsp-$gc.tar.gz
+licenses/fceumm_libretro.so.meta licenses/fceumm-src.meta licenses/fceumm-src.tar.gz
+licenses/fceumm-GPL-2.0.txt licenses/fceumm-headerless-files.txt licenses/$src.tar.gz"
+for p in "$root"/build/slot/cores/mgba/*.patch; do ok="$ok licenses/mgba-$(basename "$p")"; done
+for p in "$root"/build/slot/cores/gpsp/*.patch; do ok="$ok licenses/gpsp-$(basename "$p")"; done
+for p in "$root"/patches/*.patch; do ok="$ok licenses/slot-nes-snes-$(basename "$p")"; done
 find "$sys" ! -type d | sed "s|^$sys/||" | sort | while read -r f; do
-	case $f in
-	bezels/640x480.png | bootlogo.bmp | coresave.sh | launch_frontend.sh | led.sh | slotlink.sh | slot) ;;
-	mgba_libretro.so | gpsp_libretro.so | fceumm_libretro.so) ;;
-	licenses/bezel-CC-BY-SA-4.0.txt | licenses/shaders.txt) ;;
-	licenses/mgba-MPL-2.0.txt | licenses/mgba-*.meta | licenses/mgba-*.patch) ;;
-	licenses/gpsp-GPL-2.0.txt | licenses/gpsp-*.meta | licenses/gpsp-*.tar.gz | licenses/gpsp-*.patch) ;;
-	licenses/fceumm_libretro.so.meta | licenses/fceumm-src.meta | licenses/fceumm-src.tar.gz) ;;
-	licenses/fceumm-GPL-2.0.txt | licenses/fceumm-headerless-files.txt) ;;
-	licenses/slot-nes-snes-*.patch | "licenses/$src.tar.gz") ;;
-	*) echo "zip-check: System/$f is not expected in a release" >&2 ;;
-	esac
+	case " $(echo $ok) " in *" $f "*) ;; *) echo "zip-check: System/$f is not expected in a release" >&2 ;; esac
 done 2>"$work/stray"
+for f in $ok; do
+	[ -f "$sys/$f" ] || bad "System/$f is missing"
+done
 if [ -s "$work/stray" ]; then
 	cat "$work/stray" >&2
 	failed=1
@@ -102,6 +108,34 @@ fi
 for f in "$sys/slot" "$sys"/*_libretro.so; do
 	[ ! -f "$f" ] || [ -x "$f" ] || bad "${f#"$d"/} is not executable"
 done
+
+for f in "$sys"/*.sh; do
+	[ ! -f "$f" ] || ! grep -q "$(printf '\r')" "$f" || bad "System/$(basename "$f") has CRLF line endings"
+done
+
+# Each core must be the one its name says: its own library name is in its strings and in no other
+# core's, and its sha256 is the one dist-device.sh recorded in licenses/cores.sha256.
+for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm; do
+	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm; do
+		f="$sys/${pair%%:*}_libretro.so"
+		[ -f "$f" ] || continue
+		n="$(strings -a "$f" | grep -c -- "${other#*:}" || true)"
+		if [ "$pair" = "$other" ]; then
+			[ "$n" -gt 0 ] || bad "System/${pair%%:*}_libretro.so does not contain its own name ${pair#*:}, not that core"
+		else
+			[ "$n" = 0 ] || bad "System/${pair%%:*}_libretro.so contains ${other#*:}, it is the ${other%%:*} core or a mix"
+		fi
+	done
+done
+if [ -f "$lic/cores.sha256" ]; then
+	for core in $cores; do
+		f="$sys/${core}_libretro.so"
+		[ -f "$f" ] || continue
+		want="$(sed -n "s/^\([0-9a-f]*\)  ${core}_libretro.so\$/\1/p" "$lic/cores.sha256")"
+		[ -n "$want" ] && [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$want" ] ||
+			bad "System/${core}_libretro.so does not match the sha256 in licenses/cores.sha256"
+	done
+fi
 
 [ -x "$sys/slot" ] || bad "System/slot is missing or not executable"
 [ ! -f "$sys/slot" ] || aarch64 "$sys/slot"
@@ -129,9 +163,16 @@ n="$(find "$lic" -name 'slot-nes-snes-src-*' | wc -l | tr -d ' ')"
 if [ "$n" != 1 ] || [ ! -f "$lic/$src.tar.gz" ]; then
 	bad "System/licenses must hold exactly one slot-nes-snes-src-*, named $src.tar.gz"
 else
-	list="$(tar -tzf "$lic/$src.tar.gz")"
-	for f in slot/crates/slot-store/src/platform_policy.rs slot/crates/slot-retro/src/canvas.rs \
-		slot-nes-snes/patches/0001-step0-exhaustive-matches.patch; do
+	list="$(tar -tzf "$lic/$src.tar.gz" | grep -v '/$')"
+	own_repo "$root/work/slot" || bad "work/slot is not a git checkout, cannot compare the source tarball to it"
+	if own_repo "$root/work/slot"; then
+		git -C "$root/work/slot" ls-files | sed "s|^|$src/slot/|" | LC_ALL=C sort >"$work/want"
+		printf '%s\n' "$list" | grep "^$src/slot/" | LC_ALL=C sort >"$work/have"
+		diff "$work/want" "$work/have" >"$work/diff" ||
+			bad "$src.tar.gz slot/ differs from work/slot HEAD: $(sed -n 's/^[<>] //p' "$work/diff" | head -5 | tr '\n' ' ')"
+	fi
+	for f in slot-nes-snes/SLOT_PIN slot-nes-snes/VERSION slot-nes-snes/taskfile.yml \
+		$(for p in "$root"/patches/*.patch "$root"/scripts/*.sh; do echo "slot-nes-snes/${p#"$root"/}"; done); do
 		printf '%s\n' "$list" | grep -qxF "$src/$f" || bad "$src.tar.gz does not hold $f"
 	done
 fi

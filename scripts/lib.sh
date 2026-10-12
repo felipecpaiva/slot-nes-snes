@@ -32,3 +32,6 @@ release_name() {
 # True for an aarch64 ELF. The ", ARM aarch64," machine field is what file reads from e_machine;
 # matching "aarch64" anywhere also passes an x86-64 ELF whose interpreter path says aarch64.
 is_aarch64() { file "$1" | grep -q ', ARM aarch64,'; }
+
+# The value of NAME in build/slot's taskfile vars, the one place upstream pins MGBA_COMMIT and GPSP_COMMIT.
+slot_var() { sed -n "s/^  $1: *//p" "$root/build/slot/taskfile.yml"; }

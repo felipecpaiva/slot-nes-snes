@@ -14,6 +14,8 @@ we add, so no written offer is needed. It is in `System/licenses/`:
   exported commit) plus this repository (`slot-nes-snes/`, with `patches/`). It does not hold
   the gpSP or fceumm sources; those sit next to it in the same folder (below). It also does not
   hold slot's Rust crates: Cargo fetches them by `slot/Cargo.lock`, exactly as upstream does.
+  A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
+  Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 - `fceumm-src.tar.gz` and `fceumm-src.meta`: the exact fceumm source and its sha256.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
