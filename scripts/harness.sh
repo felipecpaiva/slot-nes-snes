@@ -13,12 +13,36 @@
 # patched H1 rows, so a GBA cart after a NES one draws as if no NES cart had been played.
 #
 # Retry rule: frame_dump exits 3 when the machine was too busy to keep the emulator in lockstep and
-# the run is repeated (3 tries, 6 when CI is set). Retries are counted per tree and printed as
-# "retries: upstream N, patched M". The run fails when patched needed more than upstream + 1 retries,
-# so a regression that only shows up as intermittent lateness cannot hide behind the retry loop.
-# H3 has no upstream counterpart, so it has its own bound: at most 1 retry in each H3 run, printed
-# apart from the two counts above (frame 338, the first emulator step after the NES core loads, is
-# the one place it is late, 6 times in 10 control runs).
+# the run is repeated (3 tries, 6 when CI is set). Every retry is logged as "tree leg" and counted per
+# leg and tree, printed as "retries: upstream N, patched M, H3 (patched only) K; per leg upstream/patched:
+# H1 u/p ...". The run fails when, in the patched tree, a leg needed at least 2 retries and more than
+# upstream's retries of that leg (p > max(1, u)), or the legs together needed more than upstream's total
+# + 2, or one H3 run needed more than 2. So it catches lateness concentrated on one leg (2 or more beyond
+# upstream) or well above upstream's in total. It does NOT catch spread-out lateness: 1 retry per leg
+# passes, and the patched total may exceed upstream's by up to 2 without a failure. One retry on one
+# leg is noise.
+# Measured on an idle M5 Max (2026-10-12), 30 control runs each:
+#   before the lock wait in frame_dump: 28 passed, 2 failed on the old "patched <= upstream + 1" and
+#   "H3 at most 1" rules, on noise alone. Per leg and tree never more than 1 retry (232 samples),
+#   upstream total at most 1, patched total at most 2 (H2 and B1 in one run), H3 0, 1 or 2 per run,
+#   29 late lines. Most over upstream in total: +2.
+#   after the lock wait: 30 passed. Upstream total 0 in 23 runs, 1 in 6, 2 in 1; patched total 0 in 25
+#   runs and 1 in 5; H3 needed 1 once, 0 otherwise; 13 late lines. Most over upstream: +1.
+# Both sets of 30 runs pass the current rule (checked from the logged counts). 60 runs with 0 false
+# failures bound the false-failure rate at about 5% (95% confidence, 3/60), not at 0.
+# Late frames before: 296 x8 (H2), 338 x5 (H3), 1921 x3 (H1G), 170 x2 (B1), 2281, 2725 ("not locked
+# 23 ms after the update": the emulator thread locks a variable time after the core is ready; frame_dump
+# now waits for the lock in the core part), 1564 x4 ("1 core frames published, expected 0": the polaroid
+# frame outlasts the emulator's 25 ms stall and it runs a frame alone, only slot could avoid that), and
+# ticks 22-37 ms apart (869 x2, 2153, 2235, 2854): scheduler.
+# Late frames after (13): "not locked 23 ms" at 296 x6, 1921 x2, 338 x1, then 1564 x2 and 2 tick gaps
+# (2854, 1431). The wait removed 11 of the 20 "not locked" lines. The remaining 9 are the composite
+# part: only its rig has no lock accessor (it never waits for the lock), while the core part now waits
+# for the lock and ticks at once. The marks printed before a late line are the same in both parts, so
+# this is by elimination, not read off the log. A patched-only Frontend::emu accessor would remove
+# them; it is left out because frame_dump is built in the upstream tree too.
+# HARNESS_FAKE_LATE="H2 2" makes the first 2 patched H2 dumps exit 3 as if late (the faked "patched needs
+# 2 more retries" case): control must then fail on H2.
 # The gate needs a mostly idle machine: a loaded one fails closed, it never passes a bad frame.
 set -eu
 
@@ -27,6 +51,7 @@ cd "$root"
 up="$root/build/slot-upstream"
 ours="$root/build/slot"
 work="$root/build/harness"
+retry_log="$work/out/retries.txt"
 legs="H1 H1G H2 B1"
 modes="core composite"
 tries=3
@@ -34,9 +59,8 @@ tries=3
 label_px=6000
 extra_labels=400
 min_diffs=20
-retries_up=0
-retries_ours=0
-retries_h3=0
+h3_max=2
+fake_late="${HARNESS_FAKE_LATE:-}"
 
 usage() {
 	echo "usage: $0 warm | control | compare | inject" >&2
@@ -89,7 +113,8 @@ warm() {
 }
 
 # run_dump TREE OUT SRC ARG...: a fresh copy of SRC per attempt, frame_dump ARG... ROOT appended to OUT,
-# a clean retry when frame_dump says the machine was too busy (exit 3), anything else is final.
+# a clean retry when frame_dump says the machine was too busy (exit 3), anything else is final. Each
+# retry is appended to retry_log as "up|ours LEG" (LEG is the second argument).
 run_dump() {
 	dir="$1"
 	out="$2"
@@ -101,6 +126,11 @@ run_dump() {
 		cp -Rp "$src" "$tmp/root"
 		rc=0
 		SLOT_ROOT="$tmp/root" "$(dumper "$dir")" "$@" "$tmp/root" >"$tmp/out" 2>"$tmp/err" || rc=$?
+		if [ "$rc" = 0 ] && [ "$dir" != "$up" ] && [ -n "$fake_late" ] && [ "${fake_late%% *}" = "${2:-}" ] &&
+			[ "${fake_late#* }" -gt 0 ]; then
+			fake_late="${fake_late%% *} $((${fake_late#* } - 1))"
+			rc=3
+		fi
 		if grep -q 'mock test pattern' "$tmp/err"; then
 			rm -rf "$tmp"
 			fail "frame_dump $* in $dir ran the mock core, a real core was not found"
@@ -114,7 +144,7 @@ run_dump() {
 		grep -v '^slot:' "$tmp/err" >&2 || true
 		rm -rf "$tmp"
 		[ "$rc" = 3 ] && [ "$try" -lt "$tries" ] || fail "frame_dump $* failed in $dir (exit $rc)"
-		if [ "$dir" = "$up" ]; then retries_up=$((retries_up + 1)); else retries_ours=$((retries_ours + 1)); fi
+		if [ "$dir" = "$up" ]; then echo "up ${2:-}" >>"$retry_log"; else echo "ours ${2:-}" >>"$retry_log"; fi
 		try=$((try + 1))
 	done
 }
@@ -133,23 +163,34 @@ one_run() {
 	[ -s "$3" ] || fail "frame_dump printed nothing for $2 in $1"
 }
 
-# h3_run OUT: one H3 run in the patched tree. Its retries are counted apart, because upstream has no H3
-# to set against them (the first emulator step after a core loads is often late), so they stay out of the
-# patched-against-upstream rule below and are printed. One H3 run may retry once, a second retry fails.
+# h3_run OUT: one H3 run in the patched tree. Upstream has no H3 to set its retries against (the first
+# emulator step after a core loads is often late), so one H3 run has its own bound, h3_max retries.
 h3_run() {
-	kept=$retries_ours
+	kept="$(grep -c '^ours H3$' "$retry_log" || true)"
 	one_run "$ours" H3 "$1"
-	used=$((retries_ours - kept))
-	retries_h3=$((retries_h3 + used))
-	retries_ours=$kept
-	[ "$used" -le 1 ] || fail "H3 needed $used retries in one run, the most allowed is 1"
+	used=$(($(grep -c '^ours H3$' "$retry_log" || true) - kept))
+	[ "$used" -le "$h3_max" ] || fail "H3 needed $used retries in one run, the most allowed is $h3_max"
 }
 
-# verdict_retries: print the retry counts and fail when patched needed more than upstream + 1.
+# verdict_retries: print the retry counts and fail on a leg that needed at least 2 retries and more than
+# upstream's for that leg, or on patched needing more than upstream's total + 2 (H3 has its own bound).
 verdict_retries() {
-	echo "retries: upstream $retries_up, patched $retries_ours, H3 (patched only, at most 1 per run) $retries_h3"
-	[ "$retries_ours" -le $((retries_up + 1)) ] ||
-		fail "patched needed $retries_ours retries against upstream's $retries_up, an intermittent regression"
+	out="$(awk -v legs="$legs" '
+		{ c[$1 " " $2]++; if ($2 == "H3") h3++; else t[$1]++ }
+		END {
+			n = split(legs, l, " ")
+			for (i = 1; i <= n; i++) {
+				u = c["up " l[i]] + 0
+				p = c["ours " l[i]] + 0
+				per = per " " l[i] " " u "/" p
+				if (p > 1 && p > u) print "FAIL " l[i] " needed " p " retries in the patched tree against upstream" "\047" "s " u
+			}
+			printf "retries: upstream %d, patched %d, H3 (patched only) %d; per leg upstream/patched:%s\n", t["up"], t["ours"], h3, per
+			if (t["ours"] > t["up"] + 2) print "FAIL patched needed " t["ours"] " retries in all against upstream" "\047" "s " (t["up"] + 0)
+		}' "$retry_log")"
+	echo "$out" | grep -v '^FAIL'
+	failed="$(echo "$out" | grep '^FAIL' | sed 's/^FAIL //' || true)"
+	[ -z "$failed" ] || fail "$failed, an intermittent regression"
 }
 
 # report LABEL A B [LEG_A LEG_B]: print the differing frames of two runs and add them to bad.
@@ -193,9 +234,7 @@ control() {
 	warm >/dev/null
 	mkdir -p "$work/out"
 	rm -f "$work/control.ok"
-	retries_up=0
-	retries_ours=0
-	retries_h3=0
+	: >"$retry_log"
 	bad=0
 	for tree in up ours; do
 		eval "dir=\$$tree"
@@ -218,9 +257,7 @@ compare() {
 	[ -f "$work/control.ok" ] && [ "$(cat "$work/control.ok")" = "$(stamp)" ] ||
 		fail "refusing to compare, task harness:control has not passed for these inputs"
 	warm >/dev/null
-	retries_up=0
-	retries_ours=0
-	retries_h3=0
+	: >"$retry_log"
 	bad=0
 	for leg in $legs; do
 		o="$work/out/compare-$leg"
@@ -269,8 +306,7 @@ inject() {
 	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GB/gb240p.png"
 	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBC/cgb-acid2.png"
 	echo "inject: $((extra_labels + 3)) labels of ${label_px}x${label_px} generated, the stale count below is a few lower because the rebuild has begun by the first frame"
-	retries_up=0
-	retries_ours=0
+	: >"$retry_log"
 	o="$work/out/inject"
 	: >"$o-nowait-1.txt"
 	: >"$o-nowait-2.txt"

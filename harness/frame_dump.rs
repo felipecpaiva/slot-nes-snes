@@ -138,6 +138,9 @@ trait Rig {
     fn settling(&self) -> bool;
     fn advance(&mut self, input: &mut Scripted, now: Millis);
     fn step(&self) -> bool;
+    fn locked(&self) -> bool {
+        true
+    }
     fn app(&self) -> &App;
     fn after(&mut self, leg: &str, frame: u64, running: bool);
     fn mark(&mut self, leg: &str, frame: u64);
@@ -195,6 +198,10 @@ impl Rig for CoreRig {
 
     fn step(&self) -> bool {
         self.session.step_emulator(present(), STEP_TIMEOUT)
+    }
+
+    fn locked(&self) -> bool {
+        self.session.emu().is_some_and(|emu| emu.locked())
     }
 
     fn app(&self) -> &App {
@@ -449,7 +456,16 @@ impl<R: Rig> Run<R> {
                     while began.elapsed() < LOCK_AFTER {
                         std::thread::sleep(Duration::from_micros(500));
                     }
-                    if began.elapsed() > LOCK_BEFORE {
+                    if !self.rig.locked() {
+                        // The emulator thread locks a variable time after the core is ready, and its
+                        // 25 ms stall clock starts with the lock, so a late lock is ticked at once.
+                        while !self.rig.locked() {
+                            if began.elapsed() > CORE_TIMEOUT {
+                                die("the emulator never locked after the core loaded");
+                            }
+                            std::thread::sleep(Duration::from_micros(500));
+                        }
+                    } else if began.elapsed() > LOCK_BEFORE {
                         late(&format!("slept too long to lock at frame {}", self.frame));
                     }
                 }
