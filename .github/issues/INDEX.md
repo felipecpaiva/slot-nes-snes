@@ -42,3 +42,5 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [36](36-deferred-option-b-video.md) | DEFERRED: Move to Option B variable frame size for true SNES hi-res | 6 | video | chore | L | 32-phase-6-deferred |
 | [38](38-dev-tools-mise.md) | Pin the developer toolchain with mise | 1 | infra | chore | S | none |
 | [39](39-cross-platform-performance.md) | Evaluate performance across every platform and core so each one feels like GBA | 5 | device | test | L | 17-device-gate-log, 22-ff-and-rewind, 26-cart-art, 30-release-workflow |
+| [40](40-cart-studio-nes-snes.md) | Bring NES and SNES label art to Cart Studio, as a PR or a credited fork | 4 | ui-art | feature | L | 26-cart-art, 27-cart-shell-grammar-region |
+| [41](41-label-fetcher-cli.md) | Fetch real NES and SNES cart labels onto the SD card with a small script | 4 | ui-art | feature | M | 26-cart-art, 27-cart-shell-grammar-region |

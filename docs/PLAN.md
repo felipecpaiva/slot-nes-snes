@@ -359,6 +359,10 @@ Device check:
 - gold Zelda shows gold;
 - shadows sit under the carts.
 
+### Cart labels for NES and SNES (Phase 4)
+
+Carts show the real cartridge label art, never a screenshot (maintainer goal, 2026-10-12). slot's Cart Studio (github.com/BrandonKowalski/slot-cart-studio, GPL-3.0) covers GB, GBC and GBA only. The owner was asked on slot #64 whether NES and SNES should land as a PR to Cart Studio or a credited fork (issue 40, GitHub #48). A user-side script that fetches real labels at user time is the fallback (issue 41, GitHub #49). No Nintendo art is ever committed.
+
 ### Phase 5: release, CI, rebase automation and the final device gate (blocking for the v1 release)
 
 Deliverables:
@@ -629,6 +633,8 @@ Rules:
 | T45 | 1 | harness leg H3 | NES, eject, GBA in the patched tree | Hashes equal to H1 |
 | T46 | 5 | `scripts/perf-eval.sh` | every platform and core on the RG35XXSP against the GBA baseline | full table for all 8 pairs, no missing run |
 | T47 | 5 | `docs/PERFORMANCE.md` | thresholds against the GBA baseline | every pair within threshold or a linked follow-up issue |
+| T48 | 4 | Cart Studio NES/SNES (PR or fork) | sample card with NES, Famicom, SNES, Super Famicom ROMs | labels sized per variant, valid cart_shell.txt lines, preview matches slot |
+| T49 | 4 | `tools/tests/test_fetch_labels.py` | offline fixtures for the label fetcher | CRC rules, label sizes, cart_shell.txt grammar, network failures |
 | T15 | 2 | `slot-store/tests/snes_header.rs` | LoROM/HiROM, with and without copier header, plus a JIS X 0201 title | Title parsed in the 4 ASCII cases; non-ASCII and garbage fall back to the stem |
 | T16 | 2 | `slot-retro/tests/snes_turbo.rs` | `apply(PassThrough, f)` / `apply(Turbo, f)` | X/Y kept; Turbo equals upstream `turbo(f)` |
 | T17 | 2 | `slot/tests/snes_shoulders.rs` | `taken_buttons()` playing | GBA `[]`, GB `[L1, R1]`, Nes `[L1, R1]`, Snes `[]` |
