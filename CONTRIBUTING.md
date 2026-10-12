@@ -15,8 +15,10 @@ code as possible, and prove GBA did not change.**
    A pull request that moves one GBA pixel is rejected, whatever else it fixes.
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
-   release. `scripts/check-upstream-tests.sh` enforces it. The only allowed exception is
+   release. `scripts/check-upstream-tests.sh` enforces it. One allowed exception is
    the single line `#[cfg(test)] mod env_tests;` in `libretro.rs` (issue 14).
+   A second named exception: upstream test helpers `label_band` in `crates/slot-ui/tests/chrome.rs` and `label_top` in `crates/slot/tests/render_shelves.rs` match exhaustively over `Platform`, so each gains `| Platform::Nes` (later `| Platform::Snes`) or `| CartPlatform::Nes` (later `| CartPlatform::Snes`) on its Game Boy arm, and nothing else.
+   A third named exception: upstream test `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs` uses `cart_platform=nes` as its unknown example, so that one value becomes `cart_platform=pce` (a system this project will never add) now that `nes` is a real platform.
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
 

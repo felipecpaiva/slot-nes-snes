@@ -14,3 +14,5 @@ One row per binding decision. Newest last.
 | 2026-10-11 | No new quick menu rows; NES/SNES shaders via SELECT+B/A | Keeps every upstream quick menu test unmodified |
 | 2026-10-11 | Host struct field list untouched; new state in a side struct | Upstream in-source test `host_with()` lists every Host field |
 | 2026-10-11 | macOS is the primary test job; Linux arm builds device artefacts | slot's host core tasks and headless render tests are macOS-only |
+| 2026-10-12 | Two upstream test files get one token each (`| Platform::Nes` in chrome.rs, `| CartPlatform::Nes` in render_shelves.rs; Snes later) | Their helper matches over Platform are exhaustive, so a new variant cannot compile otherwise; check-upstream-tests.sh allows exactly these tokens |
+| 2026-10-12 | `durability.rs` example value `cart_platform=nes` becomes `cart_platform=pce` | Upstream used `nes` as an unknown platform; NES is now real and must resume from `cart_platform=nes`; check-upstream-tests.sh allows only that value |

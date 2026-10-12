@@ -82,12 +82,32 @@ list_attrs() {
 }
 
 shown() { tr '\034' ' ' | cut -c1-90; }
+squeeze_tokens() {
+	tr -d ' \t\n' | sed -E "s/\|$1::Snes([^A-Za-z0-9_]|\$)/\1/g; s/\|$1::Nes([^A-Za-z0-9_]|\$)/\1/g"
+}
 normal() { tr '\034\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 
 # Every file under crates/*/tests/ in upstream: unchanged and present. New files are ours.
 for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	[ -f "$ours/$f" ] || { fail "$f removed"; continue; }
-	cmp -s "$up/$f" "$ours/$f" || fail "$f differs"
+	cmp -s "$up/$f" "$ours/$f" && continue
+	case "$f" in
+	crates/slot-ui/tests/chrome.rs) prefix=Platform ;;
+	crates/slot/tests/render_shelves.rs) prefix=CartPlatform ;;
+	crates/slot-store/tests/durability.rs)
+		if [ "$(sed 's/cart_platform=pce/cart_platform=nes/g' "$ours/$f")" = "$(cat "$up/$f")" ]; then
+			echo "upstream test code: $f uses the named exception (cart_platform=pce for cart_platform=nes)"
+		else
+			fail "$f differs beyond the allowed cart_platform=pce value"
+		fi
+		continue ;;
+	*) fail "$f differs"; continue ;;
+	esac
+	if [ "$(squeeze_tokens "$prefix" <"$ours/$f")" = "$(squeeze_tokens "$prefix" <"$up/$f")" ]; then
+		echo "upstream test code: $f uses the named exception (| $prefix::Nes / | $prefix::Snes in the Game Boy arm)"
+	else
+		fail "$f differs beyond the allowed | $prefix::Nes / | $prefix::Snes tokens"
+	fi
 done
 
 # Every in-source test block of a src file that differs.
