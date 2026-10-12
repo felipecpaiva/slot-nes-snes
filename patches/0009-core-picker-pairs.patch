@@ -1,0 +1,806 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 00:38:07 +0400
+Subject: [PATCH] core-picker-pairs
+
+---
+ crates/slot-store/src/core.rs            |  12 +-
+ crates/slot-store/src/core_policy.rs     |  23 ++-
+ crates/slot-store/src/platform_policy.rs |   4 +-
+ crates/slot-store/tests/core_pairs.rs    |  24 +++
+ crates/slot-store/tests/snes_platform.rs |   9 +-
+ crates/slot/src/core.rs                  |   2 +-
+ crates/slot/src/core_faces.rs            |  46 +++++
+ crates/slot/src/core_picker.rs           |  14 +-
+ crates/slot/src/frontend.rs              |  14 +-
+ crates/slot/src/lib.rs                   |   1 +
+ crates/slot/tests/alt_cores.rs           | 131 ++++++++++++
+ crates/slot/tests/gpsp.rs                |   2 +-
+ crates/slot/tests/nes_core_picker.rs     | 251 +++++++++++++++++++++++
+ 13 files changed, 515 insertions(+), 18 deletions(-)
+ create mode 100644 crates/slot-store/tests/core_pairs.rs
+ create mode 100644 crates/slot/src/core_faces.rs
+ create mode 100644 crates/slot/tests/alt_cores.rs
+ create mode 100644 crates/slot/tests/nes_core_picker.rs
+
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index cf08688..5c8b2f6 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -12,6 +12,8 @@ pub enum Core {
+     Gpsp,
+     Fceumm,
+     Snes9x,
++    Nestopia,
++    Snes9x2005Plus,
+ }
+ 
+ impl Core {
+@@ -23,6 +25,8 @@ impl Core {
+             Core::Gpsp => "gpsp",
+             Core::Fceumm => "fceumm",
+             Core::Snes9x => "snes9x",
++            Core::Nestopia => "nestopia",
++            Core::Snes9x2005Plus => "snes9x2005_plus",
+         }
+     }
+ 
+@@ -36,6 +40,8 @@ impl Core {
+             Core::Gpsp => "gpSP",
+             Core::Fceumm => "FCEUmm",
+             Core::Snes9x => "Snes9x",
++            Core::Nestopia => "Nestopia",
++            Core::Snes9x2005Plus => "Snes9x 2005+",
+         }
+     }
+ 
+@@ -45,6 +51,8 @@ impl Core {
+             "gpsp" => Some(Core::Gpsp),
+             "fceumm" => Some(Core::Fceumm),
+             "snes9x" => Some(Core::Snes9x),
++            "nestopia" => Some(Core::Nestopia),
++            "snes9x2005_plus" => Some(Core::Snes9x2005Plus),
+             _ => None,
+         }
+     }
+@@ -59,11 +67,11 @@ impl Core {
+                 Platform::Gba => true,
+                 Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => false,
+             },
+-            Core::Fceumm => match platform {
++            Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+                 Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Snes => false,
+             },
+-            Core::Snes9x => match platform {
++            Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+                 Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
+             },
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index cbe489b..e5ea20c 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -1,7 +1,14 @@
+ use crate::core::Core;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 4] = [Core::Mgba, Core::Gpsp, Core::Fceumm, Core::Snes9x];
++    pub const EVERY: [Core; 6] = [
++        Core::Mgba,
++        Core::Gpsp,
++        Core::Fceumm,
++        Core::Snes9x,
++        Core::Nestopia,
++        Core::Snes9x2005Plus,
++    ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+         match self {
+@@ -9,13 +16,23 @@ impl Core {
+             Core::Gpsp => "gpsp",
+             Core::Fceumm => "fceumm",
+             Core::Snes9x => "snes9x",
++            Core::Nestopia => "nestopia",
++            Core::Snes9x2005Plus => "snes9x2005_plus",
++        }
++    }
++
++    pub fn pair(self) -> (Core, Core) {
++        match self {
++            Core::Mgba | Core::Gpsp => (Core::Mgba, Core::Gpsp),
++            Core::Fceumm | Core::Nestopia => (Core::Fceumm, Core::Nestopia),
++            Core::Snes9x | Core::Snes9x2005Plus => (Core::Snes9x, Core::Snes9x2005Plus),
+         }
+     }
+ 
+     pub fn canvas(self) -> (u32, u32) {
+         match self {
+             Core::Mgba | Core::Gpsp => (240, 160),
+-            Core::Fceumm | Core::Snes9x => (360, 240),
++            Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => (360, 240),
+         }
+     }
+ 
+@@ -27,7 +44,7 @@ impl Core {
+     pub fn has_colour_correction(self) -> bool {
+         match self {
+             Core::Mgba | Core::Gpsp => true,
+-            Core::Fceumm | Core::Snes9x => false,
++            Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index c2efef4..7c5c76d 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -41,7 +41,9 @@ impl Platform {
+     pub fn picker_cores(self) -> Option<(Core, Core)> {
+         match self {
+             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => None,
++            Platform::Nes => Some((Core::Fceumm, Core::Nestopia)),
++            Platform::Snes => Some((Core::Snes9x, Core::Snes9x2005Plus)),
++            Platform::Gb | Platform::Gbc => None,
+         }
+     }
+ }
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+new file mode 100644
+index 0000000..f5a6d19
+--- /dev/null
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -0,0 +1,24 @@
++use slot_store::{Core, Platform};
++
++#[test]
++fn every_picker_pair_is_the_pair_of_both_its_cores() {
++    for platform in Platform::SHELVES {
++        if let Some((left, right)) = platform.picker_cores() {
++            assert_eq!(left.pair(), (left, right));
++            assert_eq!(right.pair(), (left, right));
++            assert!(left.runs(platform) && right.runs(platform));
++        }
++    }
++}
++
++#[test]
++fn the_pinned_core_list_stays_two_while_every_lists_six() {
++    assert_eq!(Core::ALL.len(), 2);
++    assert_eq!(Core::EVERY.len(), 6);
++    assert_eq!(
++        Platform::Nes.picker_cores(),
++        Some((Core::Fceumm, Core::Nestopia))
++    );
++    assert_eq!(Platform::Gb.picker_cores(), None);
++    assert_eq!(Platform::Gbc.picker_cores(), None);
++}
+diff --git a/crates/slot-store/tests/snes_platform.rs b/crates/slot-store/tests/snes_platform.rs
+index fba322b..f43156b 100644
+--- a/crates/slot-store/tests/snes_platform.rs
++++ b/crates/slot-store/tests/snes_platform.rs
+@@ -1,6 +1,6 @@
+ use std::path::Path;
+ 
+-use slot_store::Platform;
++use slot_store::{Core, Platform};
+ 
+ #[test]
+ fn the_shelves_are_the_three_game_boy_platforms_then_nes_then_snes() {
+@@ -37,9 +37,12 @@ fn snes_has_its_own_name_folder_and_picture() {
+ }
+ 
+ #[test]
+-fn snes_takes_no_game_boy_palette_and_no_core_picker() {
++fn snes_takes_no_game_boy_palette_and_picks_between_two_cores() {
+     assert!(!Platform::Snes.has_gb_palettes());
+-    assert_eq!(Platform::Snes.picker_cores(), None);
++    assert_eq!(
++        Platform::Snes.picker_cores(),
++        Some((Core::Snes9x, Core::Snes9x2005Plus))
++    );
+ }
+ 
+ #[test]
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index c37db3b..df12814 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -158,7 +158,7 @@ pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static st
+             "gpsp_color_correction",
+             if on { "enabled" } else { "disabled" },
+         )),
+-        Core::Fceumm | Core::Snes9x => None,
++        Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_faces.rs b/crates/slot/src/core_faces.rs
+new file mode 100644
+index 0000000..8058b67
+--- /dev/null
++++ b/crates/slot/src/core_faces.rs
+@@ -0,0 +1,46 @@
++use slot_gfx::TexId;
++use slot_store::Core;
++
++use crate::app::App;
++
++pub struct PairFaces {
++    sockets: Vec<TexId>,
++    chips: Vec<TexId>,
++    blank: TexId,
++    shadow: TexId,
++    shown: Option<(Core, Core)>,
++}
++
++impl PairFaces {
++    pub fn new(sockets: Vec<TexId>, chips: Vec<TexId>, blank: TexId, shadow: TexId) -> Self {
++        PairFaces {
++            sockets,
++            chips,
++            blank,
++            shadow,
++            shown: None,
++        }
++    }
++
++    pub fn show(&mut self, pair: (Core, Core), app: &mut App) {
++        if self.shown == Some(pair) {
++            return;
++        }
++        let sockets: Vec<TexId> = [pair.0, pair.1]
++            .iter()
++            .filter_map(|core| self.sockets.get(core.index()).copied())
++            .collect();
++        if sockets.len() != 2 {
++            eprintln!("slot: core: no socket faces for {}", pair.0.as_str());
++            return;
++        }
++        app.set_core_part_faces(sockets, self.chips.clone(), self.blank, self.shadow);
++        self.shown = Some(pair);
++    }
++
++    pub fn follow(&mut self, app: &mut App) {
++        if let Some(seat) = app.core_picker() {
++            self.show(seat.pair(), app);
++        }
++    }
++}
+diff --git a/crates/slot/src/core_picker.rs b/crates/slot/src/core_picker.rs
+index 433f2b8..4a3a792 100644
+--- a/crates/slot/src/core_picker.rs
++++ b/crates/slot/src/core_picker.rs
+@@ -45,6 +45,7 @@ struct Close {
+ 
+ #[derive(Copy, Clone)]
+ pub struct CorePicker {
++    pair: (Core, Core),
+     seat: Core,
+     opened: Millis,
+     started: Option<Millis>,
+@@ -55,7 +56,12 @@ pub struct CorePicker {
+ 
+ impl CorePicker {
+     pub fn open(seat: Core, now: Millis) -> Self {
++        Self::open_pair(seat, seat.pair(), now)
++    }
++
++    pub fn open_pair(seat: Core, pair: (Core, Core), now: Millis) -> Self {
+         CorePicker {
++            pair,
+             seat,
+             opened: now,
+             started: None,
+@@ -112,8 +118,8 @@ impl CorePicker {
+                 self.begin_close(now);
+                 return Outcome::Nothing;
+             }
+-            Press::Left => Core::Mgba,
+-            Press::Right => Core::Gpsp,
++            Press::Left => self.pair.0,
++            Press::Right => self.pair.1,
+         };
+         if self.waiting() {
+             return Outcome::Nothing;
+@@ -148,7 +154,7 @@ impl CorePicker {
+         let shake = self.refusal.map_or(0.0, |r| r.offset(now));
+         match (self.hop, self.hop_progress(now)) {
+             (Some(hop), Some(q)) => {
+-                let rightward = hop.from == Core::Mgba;
++                let rightward = hop.from == self.pair.0;
+                 let lean = if rightward { 1.0 } else { -1.0 };
+                 let arc = (std::f32::consts::PI * q).sin();
+                 Chip {
+@@ -160,7 +166,7 @@ impl CorePicker {
+                 }
+             }
+             _ => Chip {
+-                across: self.seat.index() as f32,
++                across: f32::from(self.seat == self.pair.1),
+                 lift: 0.0,
+                 tip: 0.0,
+                 seated: Some(self.seat),
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index 2be9a14..c98181d 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -19,6 +19,7 @@ use slot_ui::{
+ use crate::app::{App, LinkRow, Phase};
+ use crate::build_info::Build;
+ use crate::cart_faces::CartFaces;
++use crate::core_faces::PairFaces;
+ use crate::face_builder::FaceBuilder;
+ use crate::label_cache::{self, Rebuild};
+ use crate::link_art_builder::LinkArtBuilder;
+@@ -50,6 +51,7 @@ pub struct Frontend {
+     core_board_tex: Option<TexId>,
+     core_lid_tex: Option<TexId>,
+     core_built: Option<String>,
++    pair_faces: Option<PairFaces>,
+     undo_tex: Option<TexId>,
+     switcher: Switcher,
+     clocks: Clocks,
+@@ -131,6 +133,7 @@ impl Frontend {
+             core_board_tex: None,
+             core_lid_tex: None,
+             core_built: None,
++            pair_faces: None,
+             undo_tex: None,
+             switcher: Switcher::default(),
+             clocks: Clocks::default(),
+@@ -276,7 +279,9 @@ impl Frontend {
+             carets,
+             legend,
+         });
+-        app.set_core_part_faces(sockets, chips, blank, shadow);
++        let mut pair_faces = PairFaces::new(sockets, chips, blank, shadow);
++        pair_faces.show(slot_store::Core::Mgba.pair(), app);
++        self.pair_faces = Some(pair_faces);
+         app.set_core_legend_faces(core_legend);
+         app.set_link_menu_faces(roles);
+         app.set_link_linked_face(linked);
+@@ -363,6 +368,9 @@ impl Frontend {
+             &mut self.core_lid_tex,
+             &mut self.core_built,
+         );
++        if let Some(pair_faces) = &mut self.pair_faces {
++            pair_faces.follow(self.session.app_mut());
++        }
+         if !self.link_art_done {
+             if let Some(art) = self.link_art.take() {
+                 let mut up = |f: &slot_ui::CartFace| Sprite {
+@@ -601,11 +609,11 @@ impl UiFaces {
+                 .collect(),
+             quick_carets: [false, true].map(quick_caret_face),
+             quick_legend: quick_legend_faces(),
+-            sockets: slot_store::Core::ALL
++            sockets: slot_store::Core::EVERY
+                 .iter()
+                 .map(|c| socket_face(*c))
+                 .collect(),
+-            chips: slot_store::Core::ALL
++            chips: slot_store::Core::EVERY
+                 .iter()
+                 .map(|c| chip_face(Some(*c)))
+                 .collect(),
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index fa357ba..f248b18 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -8,6 +8,7 @@ pub mod build_info;
+ pub mod cable;
+ pub mod cart_faces;
+ pub mod core;
++pub mod core_faces;
+ pub mod core_options_policy;
+ pub mod core_picker;
+ pub mod crash;
+diff --git a/crates/slot/tests/alt_cores.rs b/crates/slot/tests/alt_cores.rs
+new file mode 100644
+index 0000000..af9f24d
+--- /dev/null
++++ b/crates/slot/tests/alt_cores.rs
+@@ -0,0 +1,131 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod snes_common;
++
++use std::path::PathBuf;
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::core::open_core_for;
++use slot_retro::{ButtonMask, MockCore, RetroCore};
++use slot_store::Core;
++use snes_common::{snes_rom, Map, SNES_TITLE};
++
++const PICTURE_X: usize = 52;
++const PICTURE_W: usize = 256;
++const NES_PICTURE_Y: usize = 0;
++const NES_PICTURE_H: usize = 240;
++const SNES_PICTURE_Y: usize = 8;
++const SNES_PICTURE_H: usize = 224;
++const FCEUMM_BACKDROP_BGRX: [u8; 4] = [0x20, 0x20, 0xd0, 0];
++const NESTOPIA_BACKDROP_BGRX: [u8; 4] = [32, 49, 181, 0];
++const SNES_HZ: f64 = 32040.0;
++const SNES9X_RED_BGRX: [u8; 4] = [57, 199, 255, 0];
++const SNES9X_2005_PLUS_RED_BGRX: [u8; 4] = [57, 195, 255, 0];
++
++fn red_backdrop_rom(name: &str) -> PathBuf {
++    let path = snes_rom(name, Map::Lo, false, 0);
++    let mut rom = std::fs::read(&path).expect("read rom");
++    let program = [
++        0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0xa9, 0x1f, 0x8d, 0x22, 0x21, 0x8d, 0x22,
++        0x21, 0xa9, 0x0f, 0x8d, 0x00, 0x21, 0x4c, 0x15, 0x80,
++    ];
++    rom[..program.len()].copy_from_slice(&program);
++    rom[0x7fdc..0x7fe0].copy_from_slice(&[0xff, 0xff, 0, 0]);
++    let sum = rom.iter().fold(0u16, |a, b| a.wrapping_add(u16::from(*b)));
++    rom[0x7fdc..0x7fde].copy_from_slice(&(!sum).to_le_bytes());
++    rom[0x7fde..0x7fe0].copy_from_slice(&sum.to_le_bytes());
++    std::fs::write(&path, rom).expect("write rom");
++    path
++}
++
++fn pixel(video: &[u8], x: usize, y: usize) -> [u8; 4] {
++    let at = (y * 360 + x) * 4;
++    [video[at], video[at + 1], video[at + 2], video[at + 3]]
++}
++
++fn booted_video(core: Core, dylib: PathBuf, rom: PathBuf) -> Vec<u8> {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut opened = open_core_for(d.path(), core, "auto", false, &[dylib]);
++    opened
++        .load(&rom)
++        .unwrap_or_else(|e| panic!("{} refused the {SNES_TITLE} cart: {e}", core.as_str()));
++    for _ in 0..60 {
++        opened.run_frame(ButtonMask::default());
++    }
++    assert_eq!(opened.canvas(), (360, 240));
++    opened.video_xrgb8888().to_vec()
++}
++
++fn assert_uniform_picture(video: &[u8], y0: usize, h: usize, want: [u8; 4]) {
++    assert_eq!(video.len(), 360 * 240 * 4);
++    for y in 0..240 {
++        for x in 0..360 {
++            let inside =
++                (PICTURE_X..PICTURE_X + PICTURE_W).contains(&x) && (y0..y0 + h).contains(&y);
++            let expected = if inside { want } else { [0; 4] };
++            assert_eq!(pixel(video, x, y), expected, "pixel {x},{y}");
++        }
++    }
++    assert_ne!(
++        video,
++        MockCore::sized((360, 240)).video_xrgb8888(),
++        "the mock ran with the core sitting right there"
++    );
++}
++
++#[test]
++fn nestopia_boots_a_generated_nes_cart_in_its_own_colours() {
++    let _g = core_lock();
++    let (Some(dylib), Some(_)) = (require_core("nestopia"), fceumm()) else {
++        return;
++    };
++    let video = booted_video(Core::Nestopia, dylib, nes_rom("alt_nestopia.nes", false));
++    assert_uniform_picture(&video, NES_PICTURE_Y, NES_PICTURE_H, NESTOPIA_BACKDROP_BGRX);
++    assert_ne!(NESTOPIA_BACKDROP_BGRX, FCEUMM_BACKDROP_BGRX);
++}
++
++#[test]
++fn snes9x_2005_plus_boots_a_generated_snes_cart_in_its_own_colours() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x2005_plus") else {
++        return;
++    };
++    let video = booted_video(
++        Core::Snes9x2005Plus,
++        dylib,
++        red_backdrop_rom("alt_snes9x_2005_plus.sfc"),
++    );
++    assert_uniform_picture(
++        &video,
++        SNES_PICTURE_Y,
++        SNES_PICTURE_H,
++        SNES9X_2005_PLUS_RED_BGRX,
++    );
++    assert_ne!(SNES9X_2005_PLUS_RED_BGRX, SNES9X_RED_BGRX);
++}
++
++#[test]
++fn snes9x_2005_plus_runs_both_rom_layouts() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x2005_plus") else {
++        return;
++    };
++    for (name, map) in [("alt_2005_lo.sfc", Map::Lo), ("alt_2005_hi.sfc", Map::Hi)] {
++        let d = common::tmp_root_with_real_carts(&[]);
++        let mut core = open_core_for(
++            d.path(),
++            Core::Snes9x2005Plus,
++            "auto",
++            false,
++            std::slice::from_ref(&dylib),
++        );
++        core.load(&snes_rom(name, map, false, 0))
++            .unwrap_or_else(|e| panic!("snes9x2005_plus refused {name}: {e}"));
++        core.run_frame(ButtonMask::default());
++        let hz = core.av_info().sample_rate;
++        assert!((hz - SNES_HZ).abs() < 1.0, "{name} reports {hz} Hz");
++    }
++}
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index ebd3482..db2dd2b 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -173,7 +173,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Snes9x => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
+new file mode 100644
+index 0000000..fd6a9df
+--- /dev/null
++++ b/crates/slot/tests/nes_core_picker.rs
+@@ -0,0 +1,251 @@
++#![cfg(target_os = "macos")]
++
++mod common;
++
++use std::sync::{Mutex, MutexGuard, PoisonError};
++
++use slot::app::App;
++use slot::core_faces::PairFaces;
++use slot_gfx::{Compositor, HeadlessSurface, TexId};
++use slot_input::{Action, Btn};
++use slot_store::{read_selected_cores, write_slot_state, Core, SlotState};
++use slot_ui::{
++    arrows_hint_face, board_face, cart_face, cart_shadow, chip_face, chip_shadow_face, hint_face,
++    padded, socket_face, CartFace, TURN_PAD,
++};
++use tempfile::TempDir;
++
++static GL: Mutex<()> = Mutex::new(());
++
++fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
++    let guard = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let surface = HeadlessSurface::new().ok()?;
++    let compositor = Compositor::new(&surface).ok()?;
++    Some((guard, surface, compositor))
++}
++
++fn tex(c: &mut Compositor, f: &CartFace) -> TexId {
++    c.create_texture(f.w, f.h, &f.rgba)
++}
++
++fn nes_root() -> TempDir {
++    let d = tempfile::tempdir().expect("tempdir");
++    for sub in slot::root::DIRS {
++        std::fs::create_dir(d.path().join(sub)).expect("create content dir");
++    }
++    let mut rom = vec![0u8; 16 + 0x4000 + 0x2000];
++    rom[..4].copy_from_slice(b"NES\x1a");
++    rom[4] = 1;
++    rom[5] = 1;
++    for stem in ["Contra", "Zelda"] {
++        std::fs::write(d.path().join(format!("Games/NES/{stem}.nes")), &rom).expect("write rom");
++    }
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            clock_set: true,
++            ..Default::default()
++        },
++    )
++    .unwrap();
++    d
++}
++
++fn faces_for(c: &mut Compositor, cores: &[Core]) -> (Vec<TexId>, Vec<TexId>) {
++    let sockets = cores.iter().map(|k| tex(c, &socket_face(*k))).collect();
++    let chips = cores.iter().map(|k| tex(c, &chip_face(Some(*k)))).collect();
++    (sockets, chips)
++}
++
++fn seat_board(app: &mut App, c: &mut Compositor) {
++    let row: Vec<TexId> = app.carts().map(|cart| tex(c, &cart_face(cart))).collect();
++    app.set_faces(row);
++    app.set_cart_shadow(tex(c, &cart_shadow()));
++    let blank = tex(c, &chip_face(None));
++    let shadow = tex(c, &chip_shadow_face());
++    let (sockets, chips) = faces_for(c, &Core::ALL);
++    app.set_core_part_faces(sockets, chips, blank, shadow);
++    let legend = [
++        hint_face("B", "Cancel"),
++        arrows_hint_face("Swap"),
++        hint_face("A", "Choose"),
++    ]
++    .iter()
++    .map(|f| (c.create_texture(f.w, f.h, &f.rgba), f.w))
++    .collect();
++    app.set_core_legend_faces(legend);
++    seat_board_faces(app, c);
++}
++
++fn seat_board_faces(app: &mut App, c: &mut Compositor) {
++    let highlighted = app.selected_stem().map(str::to_string);
++    let cart = app
++        .carts()
++        .find(|k| highlighted.as_deref() == Some(k.stem.as_str()))
++        .cloned()
++        .expect("a nes cart on the shelf");
++    let board = tex(c, &board_face(&cart));
++    let lid = tex(c, &padded(&cart_face(&cart), TURN_PAD));
++    app.set_core_board_faces(board, lid);
++}
++
++fn set_pair_faces(app: &mut App, c: &mut Compositor, pair: [Core; 2]) {
++    let sockets = pair.iter().map(|k| tex(c, &socket_face(*k))).collect();
++    let (_, chips) = faces_for(c, &Core::EVERY);
++    let blank = tex(c, &chip_face(None));
++    let shadow = tex(c, &chip_shadow_face());
++    app.set_core_part_faces(sockets, chips, blank, shadow);
++}
++
++fn pair_faces(c: &mut Compositor) -> PairFaces {
++    let (sockets, chips) = faces_for(c, &Core::EVERY);
++    let blank = tex(c, &chip_face(None));
++    let shadow = tex(c, &chip_shadow_face());
++    PairFaces::new(sockets, chips, blank, shadow)
++}
++
++fn picker_over_nes(d: &TempDir, c: &mut Compositor) -> App {
++    let mut app = App::boot(d.path());
++    seat_board(&mut app, c);
++    app.apply(Action::GbaDown(Btn::Start));
++    app.update(0.5);
++    app
++}
++
++fn shot(app: &App, c: &mut Compositor) -> Vec<u8> {
++    let mut out = Vec::new();
++    app.draw(&mut out);
++    c.begin_frame();
++    c.draw_list(&out);
++    c.read_frame()
++}
++
++#[test]
++fn right_then_a_on_a_nes_cart_writes_nestopia() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        eprintln!("no GL on this host, skipping");
++        return;
++    };
++    let d = nes_root();
++    let mut app = picker_over_nes(&d, &mut c);
++    assert_eq!(app.core_picker(), Some(Core::Fceumm));
++    assert_eq!(app.core_picker_chip().map(|k| k.across), Some(0.0));
++    app.apply(Action::GbaDown(Btn::Right));
++    app.update(0.25);
++    assert_eq!(app.core_picker(), Some(Core::Nestopia));
++    assert_eq!(app.core_picker_chip().map(|k| k.across), Some(1.0));
++    app.apply(Action::GbaDown(Btn::A));
++    app.update(0.5);
++    assert_eq!(
++        read_selected_cores(d.path()).get("Contra"),
++        Some(&Core::Nestopia)
++    );
++    let text = std::fs::read_to_string(d.path().join("Config/selected_core.txt")).unwrap();
++    assert!(text.contains("Contra = nestopia"), "{text}");
++}
++
++#[test]
++fn the_nes_picker_draws_fceumm_and_nestopia_sockets_and_chips() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        eprintln!("no GL on this host, skipping");
++        return;
++    };
++    let d = nes_root();
++    let mut app = picker_over_nes(&d, &mut c);
++    let mut faces = pair_faces(&mut c);
++    faces.follow(&mut app);
++    let ours = shot(&app, &mut c);
++
++    set_pair_faces(&mut app, &mut c, [Core::Fceumm, Core::Nestopia]);
++    assert!(
++        ours == shot(&app, &mut c),
++        "the NES picker did not draw FCEUmm and Nestopia"
++    );
++
++    set_pair_faces(&mut app, &mut c, [Core::Mgba, Core::Gpsp]);
++    assert!(
++        ours != shot(&app, &mut c),
++        "the NES picker drew the GBA faces"
++    );
++}
++
++#[test]
++fn the_chip_wears_nestopia_after_the_swap() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        eprintln!("no GL on this host, skipping");
++        return;
++    };
++    let d = nes_root();
++    let mut app = picker_over_nes(&d, &mut c);
++    let mut faces = pair_faces(&mut c);
++    faces.follow(&mut app);
++    let before = shot(&app, &mut c);
++    app.apply(Action::GbaDown(Btn::Right));
++    app.update(0.25);
++    let after = shot(&app, &mut c);
++    assert!(before != after, "the chip did not move to Nestopia");
++    app.apply(Action::GbaDown(Btn::Left));
++    app.update(0.25);
++    assert!(before == shot(&app, &mut c), "the chip did not come home");
++}
++
++fn mixed_root() -> TempDir {
++    let d = nes_root();
++    let mut rom = vec![0u8; 0x100];
++    rom[0xa0..0xa7].copy_from_slice(b"EMERALD");
++    std::fs::write(d.path().join("Games/GBA/Emerald.gba"), rom).expect("write gba rom");
++    d
++}
++
++fn open_shoot_close(
++    app: &mut App,
++    c: &mut Compositor,
++    faces: &mut PairFaces,
++    stem: &str,
++    pair: [Core; 2],
++) -> (Vec<u8>, Vec<u8>) {
++    for _ in 0..4 {
++        if app.selected_stem() == Some(stem) {
++            break;
++        }
++        app.apply(Action::GbaDown(Btn::R1));
++        app.update(0.5);
++    }
++    assert_eq!(app.selected_stem(), Some(stem));
++    seat_board_faces(app, c);
++    app.apply(Action::GbaDown(Btn::Start));
++    app.update(0.5);
++    faces.follow(app);
++    let ours = shot(app, c);
++    set_pair_faces(app, c, pair);
++    let reference = shot(app, c);
++    app.apply(Action::GbaDown(Btn::B));
++    app.update(0.5);
++    assert_eq!(app.core_picker(), None);
++    (ours, reference)
++}
++
++#[test]
++fn the_picker_redraws_gba_faces_after_a_nes_visit_in_one_process() {
++    let (_g, _s, mut c) = compositor().expect("a GL surface is required");
++    let d = mixed_root();
++    let mut app = App::boot(d.path());
++    seat_board(&mut app, &mut c);
++    let mut faces = pair_faces(&mut c);
++    let gba = [Core::Mgba, Core::Gpsp];
++    let nes = [Core::Fceumm, Core::Nestopia];
++    let (gba_first, gba_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Emerald", gba);
++    assert!(
++        gba_first == gba_ref,
++        "first GBA picker drew the wrong faces"
++    );
++    let (nes_shot, nes_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Contra", nes);
++    assert!(nes_shot == nes_ref, "the NES picker drew the wrong faces");
++    assert!(nes_shot != gba_first, "the NES and GBA pickers look alike");
++    let (gba_last, gba_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Emerald", gba);
++    assert!(gba_last == gba_ref, "the GBA picker kept the NES faces");
++    assert!(
++        gba_last == gba_first,
++        "the GBA picker changed between visits"
++    );
++}
