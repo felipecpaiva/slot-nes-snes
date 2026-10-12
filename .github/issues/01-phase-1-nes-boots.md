@@ -22,6 +22,7 @@ Child issues, in merge order:
 - [ ] 09-canvas
 - [ ] 10-dist-zip-deploy
 - [ ] 38-dev-tools-mise
+- [ ] 42-harness-retry-noise
 
 ## Tests
 | ID | File | Asserts |

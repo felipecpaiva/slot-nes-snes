@@ -44,3 +44,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [39](39-cross-platform-performance.md) | Evaluate performance across every platform and core so each one feels like GBA | 5 | device | test | L | 17-device-gate-log, 22-ff-and-rewind, 26-cart-art, 30-release-workflow |
 | [40](40-cart-studio-nes-snes.md) | Bring NES and SNES label art to Cart Studio, as a PR or a credited fork | 4 | ui-art | feature | L | 26-cart-art, 27-cart-shell-grammar-region |
 | [41](41-label-fetcher-cli.md) | Fetch real NES and SNES cart labels onto the SD card with a small script | 4 | ui-art | feature | M | 26-cart-art, 27-cart-shell-grammar-region |
+| [42](42-harness-retry-noise.md) | Stop scheduler noise from failing the harness retry rule | 1 | tests | chore | S | 05-gba-harness-and-bench |

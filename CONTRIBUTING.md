@@ -88,8 +88,9 @@ breaking it causes a conflict on most releases.
   of bounds on data from a ROM, a file or a core. Use `get`, `?`, or a guarded early
   return. (The `SOCKET_U[2]` crash in the plan is exactly this.)
 - **Unsafe:** only in `slot-retro` where the libretro FFI already lives, plus the GL texture
-  re-allocation in `slot-gfx` `GamePass::set_canvas`. Each block has a single-line `// SAFETY:`
-  comment.
+  re-allocation in `slot-gfx` `GamePass::set_canvas`, and in our own new test files where a test
+  must read GL output or a core symbol that slot does not expose (`nes_window.rs`,
+  `nes_fceumm.rs`). Each block has a single-line `// SAFETY:` comment.
 - **Dependencies:** none added. Not to `Cargo.toml`, not to the workspace. A real need
   goes to a new row in `docs/DECISIONS.md` first.
 - **No silent fallbacks.** An unknown platform, core, outline word or region gives an
