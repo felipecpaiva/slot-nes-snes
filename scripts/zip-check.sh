@@ -6,7 +6,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/scripts/lib.sh"
 read_pin
 
-cores="mgba gpsp fceumm snes9x"
+cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus"
 # Games/ folders the zip may hold.
 games="GBA GB GBC NES SNES"
 # Folders that ship empty, the user's own data lives there.
@@ -87,7 +87,7 @@ done
 
 # System/ holds exactly this set: upstream's dist output plus our core and licence files.
 req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
-mgba_libretro.so gpsp_libretro.so fceumm_libretro.so"
+mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so"
 for f in $req; do
 	[ -f "$sys/$f" ] || bad "System/$f is missing"
 done
@@ -95,13 +95,15 @@ mc="$(slot_var MGBA_COMMIT)"
 gc="$(slot_var GPSP_COMMIT)"
 [ -n "$mc" ] && [ -n "$gc" ] || bad "no MGBA_COMMIT or GPSP_COMMIT in build/slot/taskfile.yml, run task build"
 ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
-mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so
+mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/cores.sha256
 licenses/mgba-MPL-2.0.txt licenses/mgba-$mc.meta
 licenses/gpsp-GPL-2.0.txt licenses/gpsp-$gc.meta licenses/gpsp-$gc.tar.gz
 licenses/fceumm_libretro.so.meta licenses/fceumm-src.meta licenses/fceumm-src.tar.gz
 licenses/fceumm-GPL-2.0.txt licenses/fceumm-headerless-files.txt licenses/$src.tar.gz
-licenses/snes9x_libretro.so.meta licenses/snes9x-src.meta licenses/snes9x-src.tar.gz licenses/snes9x-LICENSE.txt"
+licenses/snes9x_libretro.so.meta licenses/snes9x-src.meta licenses/snes9x-src.tar.gz licenses/snes9x-LICENSE.txt
+licenses/nestopia_libretro.so.meta licenses/nestopia-src.meta licenses/nestopia-src.tar.gz licenses/nestopia-GPL-2.0.txt
+licenses/snes9x2005_plus_libretro.so.meta licenses/snes9x2005_plus-src.meta licenses/snes9x2005_plus-src.tar.gz licenses/snes9x2005-LICENSE.txt"
 for p in "$root"/build/slot/cores/mgba/*.patch; do ok="$ok licenses/mgba-$(basename "$p")"; done
 for p in "$root"/build/slot/cores/gpsp/*.patch; do ok="$ok licenses/gpsp-$(basename "$p")"; done
 for p in "$root"/patches/*.patch; do ok="$ok licenses/slot-nes-snes-$(basename "$p")"; done
@@ -126,10 +128,13 @@ done
 
 # Each core must be the one its name says: its own library name is in its strings and in no other
 # core's, and its sha256 is the one dist-device.sh recorded in licenses/cores.sha256.
-for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x; do
-	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x; do
+# snes9x2005_plus is built from snes9x 1.43 and its option keys are snes9x_2005_*, so "snes9x" is
+# legitimately in it: that one pair is skipped, and "Snes9x 2005 Plus" must stay out of snes9x.
+for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus; do
+	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus; do
 		f="$sys/${pair%%:*}_libretro.so"
 		[ -f "$f" ] || continue
+		[ "${pair%%:*}:${other%%:*}" != snes9x2005_plus:snes9x ] || continue
 		n="$(strings -a "$f" | grep -c -- "${other#*:}" || true)"
 		if [ "$pair" = "$other" ]; then
 			[ "$n" -gt 0 ] || bad "System/${pair%%:*}_libretro.so does not contain its own name ${pair#*:}, not that core"
@@ -160,14 +165,14 @@ for p in "$root"/patches/*.patch; do
 	[ ! -f "$lic/slot-nes-snes-$(basename "$p")" ] || cmp -s "$p" "$lic/slot-nes-snes-$(basename "$p")" ||
 		bad "System/licenses/slot-nes-snes-$(basename "$p") differs from patches/$(basename "$p")"
 done
-for core in fceumm snes9x; do
+for core in fceumm snes9x nestopia snes9x2005_plus; do
 	eval "cc=\${${core}_commit:-}"
 	[ -n "$cc" ] || bad "SLOT_PIN has no ${core}_commit"
 	for m in "$core-src.meta" "${core}_libretro.so.meta"; do
 		[ ! -f "$lic/$m" ] || grep -qx "commit=$cc" "$lic/$m" || bad "System/licenses/$m does not name the pinned commit $cc"
 	done
 done
-for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
+for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 nestopia:nestopia-src.tar.gz:nestopia_tarball_sha256 snes9x2005_plus:snes9x2005_plus-src.tar.gz:snes9x2005_plus_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
 	f="$lic/$(echo "$pair" | cut -d: -f2)"
 	eval "want=\${$(echo "$pair" | cut -d: -f3):-}"
 	[ -n "$want" ] || bad "SLOT_PIN has no $(echo "$pair" | cut -d: -f3)"
@@ -193,6 +198,8 @@ for core in $cores; do
 	gpsp) need 'gpsp-*.tar.gz' 'gpsp-*.meta' gpsp-GPL-2.0.txt ;;
 	fceumm) need fceumm_libretro.so.meta fceumm-src.tar.gz fceumm-src.meta fceumm-GPL-2.0.txt fceumm-headerless-files.txt ;;
 	snes9x) need snes9x_libretro.so.meta snes9x-src.tar.gz snes9x-src.meta snes9x-LICENSE.txt ;;
+	nestopia) need nestopia_libretro.so.meta nestopia-src.tar.gz nestopia-src.meta nestopia-GPL-2.0.txt ;;
+	snes9x2005_plus) need snes9x2005_plus_libretro.so.meta snes9x2005_plus-src.tar.gz snes9x2005_plus-src.meta snes9x2005-LICENSE.txt ;;
 	*) bad "no file list for core $core in zip-check.sh" ;;
 	esac
 done

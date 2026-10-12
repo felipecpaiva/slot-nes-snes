@@ -3,7 +3,7 @@
 # bench:device task (same docker path as dist-device.sh), pushes the binary and the ROM to a temp
 # dir on the SD card, runs it against the core already deployed in System/, prints the output and
 # removes the temp dir. Use task deploy:device first so the core under test is the one you built.
-#   CORE=mgba|gpsp|fceumm|snes9x   ROM=path/to/local/rom   SD=/mnt/sdcard   ARGS='--frames 3000 ...'
+#   CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus   ROM=path/to/local/rom   SD=/mnt/sdcard   ARGS='--frames 3000 ...'
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,9 +20,9 @@ trap '$ADB shell "rm -rf \"$tmp\"" >/dev/null 2>&1 || true' EXIT
 trap 'exit 130' INT TERM
 
 case "$CORE" in
-mgba | gpsp | fceumm | snes9x) ;;
+mgba | gpsp | fceumm | nestopia | snes9x | snes9x2005_plus) ;;
 *)
-	echo "slot-nes-snes: CORE is '$CORE', want mgba, gpsp, fceumm or snes9x" >&2
+	echo "slot-nes-snes: CORE is '$CORE', want mgba, gpsp, fceumm, nestopia, snes9x or snes9x2005_plus" >&2
 	exit 2
 	;;
 esac
