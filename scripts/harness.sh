@@ -16,6 +16,9 @@
 # the run is repeated (3 tries, 6 when CI is set). Retries are counted per tree and printed as
 # "retries: upstream N, patched M". The run fails when patched needed more than upstream + 1 retries,
 # so a regression that only shows up as intermittent lateness cannot hide behind the retry loop.
+# H3 has no upstream counterpart, so it has its own bound: at most 1 retry in each H3 run, printed
+# apart from the two counts above (frame 338, the first emulator step after the NES core loads, is
+# the one place it is late, 6 times in 10 control runs).
 # The gate needs a mostly idle machine: a loaded one fails closed, it never passes a bad frame.
 set -eu
 
@@ -132,17 +135,19 @@ one_run() {
 
 # h3_run OUT: one H3 run in the patched tree. Its retries are counted apart, because upstream has no H3
 # to set against them (the first emulator step after a core loads is often late), so they stay out of the
-# patched-against-upstream rule below and are printed.
+# patched-against-upstream rule below and are printed. One H3 run may retry once, a second retry fails.
 h3_run() {
 	kept=$retries_ours
 	one_run "$ours" H3 "$1"
-	retries_h3=$((retries_h3 + retries_ours - kept))
+	used=$((retries_ours - kept))
+	retries_h3=$((retries_h3 + used))
 	retries_ours=$kept
+	[ "$used" -le 1 ] || fail "H3 needed $used retries in one run, the most allowed is 1"
 }
 
 # verdict_retries: print the retry counts and fail when patched needed more than upstream + 1.
 verdict_retries() {
-	echo "retries: upstream $retries_up, patched $retries_ours, H3 (patched only, not counted) $retries_h3"
+	echo "retries: upstream $retries_up, patched $retries_ours, H3 (patched only, at most 1 per run) $retries_h3"
 	[ "$retries_ours" -le $((retries_up + 1)) ] ||
 		fail "patched needed $retries_ours retries against upstream's $retries_up, an intermittent regression"
 }

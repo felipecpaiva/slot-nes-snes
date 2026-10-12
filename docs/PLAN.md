@@ -99,7 +99,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Video: Option A, a fixed canvas per core.**
   - Mgba and Gpsp keep 240x160 at SCALE 3. Fceumm, Nestopia, Snes9x and Snes9x2005Plus use 360x240, which is 2x into the same 720x480 logical space.
   - Canvas truth is `Core::canvas()`, so `open_core`'s signature does not change.
-  - The new public `Compositor::set_game_canvas(w, h)` (in `fbo.rs`, which owns the private `GamePass`) is called on every core open, GBA included. GBA always gets (240, 160).
+  - The new public `Compositor::set_game_canvas(w, h)` (in `fbo.rs`, which owns the private `GamePass`) is called every frame from `Frontend::compose` and does nothing when the canvas is unchanged, so every core, GBA included, is covered. GBA always gets (240, 160).
   - Byte-identity is proven, not assumed, by a harness leg that runs NES, ejects, plays GBA, and compares the result to a GBA-only run.
   - On the RG35XXSP the canvas maps into the same 640x427 window and bezel as GBA (decided). NES shows about 455x427 and SNES about 455x398, both non-integer, the same treatment GBA gets.
   - Rejected: Option B (variable frames up to 512x480, a much bigger patch).
@@ -177,7 +177,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 | Runtime | Third Core reaches `SOCKET_U[2]` (`app.rs:2244`) and panics, or a chip draws off board (`core_picker.rs:163`) | Draw loop walks the platform pair with positions 0/1; `across` and `rightward` are pair-relative; T23 renders a NES picker frame |
 | Runtime | NES ROM with no selected core goes through `core_for` (`app.rs:2646`) and defaults to Mgba | Replaced with `core_for_platform(root, stem, cart.platform)` |
 | Runtime | NES dylib missing on device: MockCore (240x160 buffer) is uploaded into a 360x240 game texture | `MockCore::sized(core.canvas())` in the fallback in `slot/src/core.rs`; the upload guard requires an exact length (`len == w*h*4`), so a mismatch is skipped rather than drawn wrong |
-| Runtime | After NES, GBA plays with a stale 360x240 texture | `set_game_canvas` runs on every open, GBA included; harness leg H3 (NES, eject, GBA) must equal the GBA-only run |
+| Runtime | After NES, GBA plays with a stale 360x240 texture | `set_game_canvas` runs every frame from compose and does nothing when unchanged, GBA included; harness leg H3 (NES, eject, GBA) must equal the GBA-only run |
 | Runtime | fceumm region option or snes9x changes av mid-game; the resampler stays at the old rate and audio drifts | `HostExtra.av_change`; the emu loop calls `take_av_change()` after `run_frame` and rebuilds `Resampler::new` |
 | Input | SELECT+X chord added for SNES video mode changes GBA input behaviour | T22b runs the same SELECT+X sequence on a GBA cart in both trees and asserts identical core input masks |
 | Input | SELECT+Y on SNES flips `colour_correction` and toasts with no effect | Guard in `app.rs` near 1445: when `!core.has_colour_correction()`, return true with no state change and no toast |
@@ -220,13 +220,13 @@ Deliverables:
   - `option_prefix()`; `apply_core_options` sets `{prefix}_frameskip` only when the core declares it, and sets fceumm's overscan options so the full 256x240 is shown (key names taken from the T32 dump).
 - [ ] `patches/0004-canvas.patch`:
   - `slot-retro/src/canvas.rs` (centring copy, RGB565 conversion, hi-res blend);
-  - `HostExtra { canvas, av_change, av_enable }` owned by `LibretroCore`, with a thread-local `EXTRA` pointer set by a new `ExtraGuard` next to each `Active::bind` call site in `LibretroCore`. `Host` fields and `Active::bind` are unchanged. `Host.video` is sized `canvas.w * canvas.h * 4` at open, and when `EXTRA` is unbound `video_refresh` uses 240x160 exactly like upstream;
+  - `HostExtra { canvas }` (issue 14 adds `av_change` and `av_enable`) owned by `LibretroCore`, with a thread-local `EXTRA` pointer set by a new `ExtraGuard` next to each `Active::bind` call site in `LibretroCore`. `Host` fields and `Active::bind` are unchanged. `Host.video` is sized `canvas.w * canvas.h * 4` at open, and when `EXTRA` is unbound `video_refresh` uses 240x160 exactly like upstream;
   - `LibretroCore::set_canvas`; `RetroCore::canvas()` defaults to `(GBA_W, GBA_H)`;
   - `emu.rs:151` `Frames::new` sized from `core.canvas()`; `emu.rs:884` uses `thumb::png_sized`;
   - `MockCore::sized`;
   - `GamePass::set_canvas` (re-allocates the texture, re-sets `u_src`, scale = `OUT_W / w`); upload guard becomes `len == w*h*4`; `whole_scale_source` uses the pass's canvas;
   - `fbo.rs` `Compositor::set_game_canvas`, exported in `slot-gfx/src/lib.rs`;
-  - `frontend.rs` calls it on every core open;
+  - `frontend.rs` calls it every frame from `compose`, a no-op when unchanged;
   - `video_mode::source_rect` and `app.rs:930` `picture_rect` take the canvas.
 - [ ] `cores/fceumm/build.sh` (mirrors `cores/gpsp/build.sh`: `stamp COMMIT` and `build COMMIT SRC_TGZ WORKDIR OUT`; ships the source tarball as GPL-2 corresponding source).
 - [ ] `licenses/fceumm-GPL-2.0.txt`, with **licence gate:** fceumm's GPL-2.0-or-later status is verified from its `COPYING` and source headers at the pinned commit and recorded in `LICENSING.md`.
@@ -267,7 +267,7 @@ Deliverables:
   - title from the SNES internal header: LoROM/HiROM probe by checksum complement, skipping the 512-byte copier header, with a fallback to the stem when the bytes are not printable ASCII (JIS X 0201 titles);
   - provisional shader and cart arms like NES (cart `#b4b4bc`).
 - [ ] `Core::Snes9x` appended; `default_for(Snes) = Snes9x`; `text`, `colour_option` None.
-- [ ] `patches/0006-libretro-env.patch`: `SET_GEOMETRY`, `SET_SYSTEM_AV_INFO`, `GET_AUDIO_VIDEO_ENABLE` through `HostExtra`, plus trait `take_av_change()` (default None) and resampler rebuild in the emu loop. Unit tests go in new file `slot-retro/src/env_tests.rs` (one `#[cfg(test)] mod env_tests;` line).
+- [ ] `patches/0006-libretro-env.patch`: `SET_GEOMETRY`, `SET_SYSTEM_AV_INFO`, `GET_AUDIO_VIDEO_ENABLE` through `HostExtra` (this patch adds its `av_change` and `av_enable` fields), plus trait `take_av_change()` (default None) and resampler rebuild in the emu loop. Unit tests go in new file `slot-retro/src/env_tests.rs` (one `#[cfg(test)] mod env_tests;` line).
 - [ ] Hi-res blend active for width > 360 and height > 240.
 - [ ] `patches/0007-input.patch`:
   - `TurboMode` and `ButtonMask::apply(mode, frame)` delegating to the existing `turbo`/`without_turbo`;

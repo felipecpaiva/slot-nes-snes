@@ -5,14 +5,14 @@ Subject: [PATCH] canvas
 
 ---
  crates/slot-gfx/src/fbo.rs            |   4 +
- crates/slot-gfx/src/pipeline.rs       |  59 ++++++--
+ crates/slot-gfx/src/pipeline.rs       |  58 ++++++--
  crates/slot-gfx/tests/nes_pipeline.rs | 101 +++++++++++++
- crates/slot-retro/src/canvas.rs       | 206 ++++++++++++++++++++++++++
+ crates/slot-retro/src/canvas.rs       | 205 ++++++++++++++++++++++++++
  crates/slot-retro/src/core.rs         |   3 +
  crates/slot-retro/src/lib.rs          |   1 +
  crates/slot-retro/src/libretro.rs     |  39 +++++
  crates/slot-retro/src/mock.rs         |  19 ++-
- crates/slot-store/src/core_policy.rs  |   7 +
+ crates/slot-store/src/core_policy.rs  |  12 ++
  crates/slot/src/app.rs                |   4 +-
  crates/slot/src/core.rs               |   6 +-
  crates/slot/src/emu.rs                |  10 +-
@@ -26,13 +26,15 @@ Subject: [PATCH] canvas
  crates/slot/tests/nes_fceumm.rs       |   6 +-
  crates/slot/tests/nes_mock.rs         |  61 ++++++++
  crates/slot/tests/nes_thumb.rs        |  48 ++++++
- 22 files changed, 672 insertions(+), 44 deletions(-)
+ crates/slot/tests/nes_window.rs       | 200 +++++++++++++++++++++++++
+ 23 files changed, 875 insertions(+), 44 deletions(-)
  create mode 100644 crates/slot-gfx/tests/nes_pipeline.rs
  create mode 100644 crates/slot-retro/src/canvas.rs
  create mode 100644 crates/slot/src/thumb_sized.rs
  create mode 100644 crates/slot/tests/nes_emu.rs
  create mode 100644 crates/slot/tests/nes_mock.rs
  create mode 100644 crates/slot/tests/nes_thumb.rs
+ create mode 100644 crates/slot/tests/nes_window.rs
 
 diff --git a/crates/slot-gfx/src/fbo.rs b/crates/slot-gfx/src/fbo.rs
 index ae4325a..14e9057 100644
@@ -50,7 +52,7 @@ index ae4325a..14e9057 100644
          self.game.draw(&self.quad);
      }
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index 988bb8c..6a32bd3 100644
+index 988bb8c..9c79495 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
 @@ -13,6 +13,9 @@ pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
@@ -92,7 +94,7 @@ index 988bb8c..6a32bd3 100644
              u_rect,
              u_bright,
              u_uv,
-@@ -118,10 +121,40 @@ impl GamePass {
+@@ -118,10 +121,39 @@ impl GamePass {
          self.src = rect;
      }
  
@@ -106,8 +108,7 @@ index 988bb8c..6a32bd3 100644
 +        }
 +        let blank = vec![0u8; w as usize * h as usize * 4];
 +        let tex = crate::gl::texture(w, h, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::BGRA, Some(&blank));
-+        // SAFETY: the GL context is current on the render thread, self.game is a texture this pass
-+        // made, and u_src belongs to self.prog.
++        // SAFETY: the GL context is current here, self.game is this pass's own texture and u_src is self.prog's.
 +        unsafe {
 +            gl::DeleteTextures(1, &self.game);
 +            gl::UseProgram(self.prog);
@@ -134,7 +135,7 @@ index 988bb8c..6a32bd3 100644
          unsafe {
              gl::BindTexture(gl::TEXTURE_2D, self.game);
              gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-@@ -130,8 +163,8 @@ impl GamePass {
+@@ -130,8 +162,8 @@ impl GamePass {
                  0,
                  0,
                  0,
@@ -145,7 +146,7 @@ index 988bb8c..6a32bd3 100644
                  gl::BGRA,
                  gl::UNSIGNED_BYTE,
                  xrgb8888.as_ptr() as *const std::ffi::c_void,
-@@ -141,7 +174,7 @@ impl GamePass {
+@@ -141,7 +173,7 @@ impl GamePass {
  
      pub fn draw(&self, quad: &Quad) {
          let src = match self.effect {
@@ -154,7 +155,7 @@ index 988bb8c..6a32bd3 100644
              _ => self.src,
          };
          self.draw_source(self.game, quad, src);
-@@ -177,9 +210,9 @@ impl GamePass {
+@@ -177,9 +209,9 @@ impl GamePass {
      }
  }
  
@@ -276,10 +277,10 @@ index 0000000..8db0d29
 +}
 diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
 new file mode 100644
-index 0000000..c9b2cc7
+index 0000000..c084120
 --- /dev/null
 +++ b/crates/slot-retro/src/canvas.rs
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,205 @@
 +use std::cell::Cell;
 +use std::marker::PhantomData;
 +use std::ptr;
@@ -319,8 +320,7 @@ index 0000000..c9b2cc7
 +
 +pub fn bound_canvas() -> Option<(u32, u32)> {
 +    let p = EXTRA.with(|e| e.get());
-+    // SAFETY: the pointer is null or was taken from a live &mut HostExtra by an ExtraGuard on this
-+    // thread, which holds that borrow and clears the pointer when it drops.
++    // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
 +    unsafe { p.as_ref() }.map(|extra| extra.canvas)
 +}
 +
@@ -714,10 +714,10 @@ index d0734f8..f1fd33f 100644
 +    }
  }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
-index e805dac..a8116c9 100644
+index e805dac..442fbd4 100644
 --- a/crates/slot-store/src/core_policy.rs
 +++ b/crates/slot-store/src/core_policy.rs
-@@ -11,6 +11,13 @@ impl Core {
+@@ -11,6 +11,18 @@ impl Core {
          }
      }
  
@@ -728,11 +728,16 @@ index e805dac..a8116c9 100644
 +        }
 +    }
 +
++    pub fn canvas_f32(self) -> (f32, f32) {
++        let (w, h) = self.canvas();
++        (w as f32, h as f32)
++    }
++
      pub fn has_colour_correction(self) -> bool {
          match self {
              Core::Mgba | Core::Gpsp => true,
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 2f0f747..a3bd65c 100644
+index 2f0f747..b50bed0 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -848,7 +848,7 @@ impl App {
@@ -749,7 +754,7 @@ index 2f0f747..a3bd65c 100644
      pub fn picture_rect(&self) -> [f32; 4] {
          let (w, h) = self.platform.picture();
 -        let (sw, sh) = (slot_gfx::SRC_W as f32, slot_gfx::SRC_H as f32);
-+        let (sw, sh) = (self.core.canvas().0 as f32, self.core.canvas().1 as f32);
++        let (sw, sh) = self.core.canvas_f32();
          let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
          [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
      }
@@ -1201,4 +1206,210 @@ index 0000000..8375864
 +    assert!(thumb::png_sized(&[], 360, 240).is_none());
 +    assert!(thumb::png_sized(&vec![0u8; 360 * 240 * 4 - 4], 360, 240).is_none());
 +    assert!(thumb::png_sized(&gradient(GBA_W, GBA_H), 360, 240).is_none());
++}
+diff --git a/crates/slot/tests/nes_window.rs b/crates/slot/tests/nes_window.rs
+new file mode 100644
+index 0000000..0fa10e3
+--- /dev/null
++++ b/crates/slot/tests/nes_window.rs
+@@ -0,0 +1,200 @@
++#![cfg(target_os = "macos")]
++
++mod common;
++mod nes_common;
++
++use std::collections::VecDeque;
++use std::ffi::c_void;
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::{clocked, core_lock, tmp_root_with_real_carts};
++use nes_common::{fceumm, nes_rom};
++use slot::frontend::Frontend;
++use slot_gfx::{Compositor, HeadlessSurface, Surface};
++use slot_input::{Btn, InputSource, Millis, RawEvent};
++use slot_power::SimPlatform;
++
++const FRAMEBUFFERS: u32 = 512;
++const GL_FRAMEBUFFER: u32 = 0x8D40;
++const GL_PACK_ALIGNMENT: u32 = 0x0D05;
++const GL_RGBA: u32 = 0x1908;
++const GL_UNSIGNED_BYTE: u32 = 0x1401;
++
++type IsFramebuffer = unsafe extern "C" fn(u32) -> u8;
++type BindFramebuffer = unsafe extern "C" fn(u32, u32);
++type PixelStorei = unsafe extern "C" fn(u32, i32);
++type ReadPixels = unsafe extern "C" fn(i32, i32, i32, i32, u32, u32, *mut u8);
++
++struct Script(VecDeque<Vec<RawEvent>>);
++
++impl InputSource for Script {
++    fn poll(&mut self, _now: Millis) -> Vec<RawEvent> {
++        self.0.pop_front().unwrap_or_default()
++    }
++}
++
++fn gl_fn<T: Copy>(surface: &HeadlessSurface, name: &str) -> T {
++    let address = surface.proc_address(name);
++    assert!(!address.is_null(), "the GL loader has no {name}");
++    // SAFETY: the address is the OpenGL framework's own symbol for this name and T is its C signature.
++    unsafe { std::mem::transmute_copy::<*const c_void, T>(&address) }
++}
++
++fn framebuffers(surface: &HeadlessSurface) -> Vec<u32> {
++    let is_framebuffer: IsFramebuffer = gl_fn(surface, "glIsFramebuffer");
++    // SAFETY: glIsFramebuffer takes any integer name and only reads GL state on the current context.
++    (1..FRAMEBUFFERS)
++        .filter(|id| unsafe { is_framebuffer(*id) } != 0)
++        .collect()
++}
++
++fn read_output(surface: &HeadlessSurface, fbo: u32, (w, h): (u32, u32)) -> Vec<u8> {
++    let bind: BindFramebuffer = gl_fn(surface, "glBindFramebuffer");
++    let pack: PixelStorei = gl_fn(surface, "glPixelStorei");
++    let read: ReadPixels = gl_fn(surface, "glReadPixels");
++    let mut pixels = vec![0u8; w as usize * h as usize * 4];
++    // SAFETY: the buffer holds w * h RGBA bytes and the output framebuffer is complete on the current context.
++    unsafe {
++        bind(GL_FRAMEBUFFER, fbo);
++        pack(GL_PACK_ALIGNMENT, 1);
++        read(
++            0,
++            0,
++            w as i32,
++            h as i32,
++            GL_RGBA,
++            GL_UNSIGNED_BYTE,
++            pixels.as_mut_ptr(),
++        );
++    }
++    let stride = w as usize * 4;
++    pixels
++        .chunks_exact(stride)
++        .rev()
++        .flatten()
++        .copied()
++        .collect()
++}
++
++fn write_bezel(root: &Path, (w, h): (u32, u32), screen_h: u32) {
++    let dir = root.join("System/bezels");
++    std::fs::create_dir_all(&dir).expect("bezels dir");
++    let mut rgba = Vec::new();
++    for y in 0..h {
++        let px = if y < screen_h {
++            [0, 0, 0, 0]
++        } else {
++            [40, 90, 200, 255]
++        };
++        for _ in 0..w {
++            rgba.extend_from_slice(&px);
++        }
++    }
++    let file = std::fs::File::create(dir.join(format!("{w}x{h}.png"))).expect("bezel file");
++    let mut e = png::Encoder::new(std::io::BufWriter::new(file), w, h);
++    e.set_color(png::ColorType::Rgba);
++    e.set_depth(png::BitDepth::Eight);
++    e.write_header()
++        .expect("png header")
++        .write_image_data(&rgba)
++        .expect("png data");
++}
++
++fn lit_box(px: &[u8], (w, h): (u32, u32)) -> Option<(u32, u32, u32, u32)> {
++    let mut found: Option<(u32, u32, u32, u32)> = None;
++    for y in 0..h {
++        for x in 0..w {
++            let o = (y * w + x) as usize * 4;
++            if px[o] > 0xc0 && px[o + 1] < 0x50 && px[o + 2] < 0x50 {
++                let (x0, y0, x1, y1) = found.unwrap_or((x, y, x, y));
++                found = Some((x0.min(x), y0.min(y), x1.max(x), y1.max(y)));
++            }
++        }
++    }
++    found
++}
++
++fn nes_picture_in(window: (u32, u32), bezel_screen_h: Option<u32>) -> Option<(u32, u32, u32, u32)> {
++    let _g = core_lock();
++    let dylib = fceumm()?;
++    let surface = HeadlessSurface::new().ok()?;
++    let mut c = Compositor::new(&surface).ok()?;
++    let d = tmp_root_with_real_carts(&[]);
++    std::fs::copy(
++        nes_rom("nes_window.nes", false),
++        d.path().join("Games/NES/Backdrop.nes"),
++    )
++    .expect("plant the cart");
++    let file = dylib.file_name().expect("core file name");
++    std::fs::copy(&dylib, d.path().join("System").join(file)).expect("plant the core");
++    if let Some(h) = bezel_screen_h {
++        write_bezel(d.path(), window, h);
++    }
++    clocked(d.path());
++    c.set_panel_turn((window.1, window.0), false)
++        .expect("panel turn");
++    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
++    f.upload_faces(&mut c);
++    f.upload_bezel(&mut c, window);
++    let before = framebuffers(&surface);
++    c.fit(window);
++    c.begin_frame();
++    c.end_frame(window);
++    let made: Vec<u32> = framebuffers(&surface)
++        .into_iter()
++        .filter(|id| !before.contains(id))
++        .collect();
++    let [output] = made[..] else {
++        panic!("expected one output framebuffer, found {made:?}");
++    };
++    let mut input = Script(VecDeque::new());
++    for _ in 0..3 {
++        input.0.push_back(vec![RawEvent::Down(Btn::R1)]);
++        f.advance(&mut input);
++        input.0.push_back(vec![RawEvent::Up(Btn::R1)]);
++        f.advance(&mut input);
++        run_for(&mut f, &mut input, 0.3);
++    }
++    input.0.push_back(vec![RawEvent::Down(Btn::A)]);
++    f.advance(&mut input);
++    input.0.push_back(vec![RawEvent::Up(Btn::A)]);
++    f.advance(&mut input);
++    run_for(&mut f, &mut input, 5.0);
++    f.render(&mut c, window);
++    lit_box(&read_output(&surface, output, window), window)
++}
++
++fn run_for(f: &mut Frontend, input: &mut Script, secs: f32) {
++    let until = Instant::now() + Duration::from_secs_f32(secs);
++    while Instant::now() < until {
++        f.advance(input);
++        std::thread::sleep(Duration::from_millis(2));
++    }
++}
++
++fn near(got: u32, want: u32, what: &str) {
++    assert!(got.abs_diff(want) <= 1, "{what}: {got}, wanted {want} +-1");
++}
++
++#[test]
++fn a_nes_picture_fills_a_456_by_427_area_in_the_640_by_480_bezel_window() {
++    let Some((x0, y0, x1, y1)) = nes_picture_in((640, 480), Some(427)) else {
++        return;
++    };
++    near(x1 - x0 + 1, 456, "picture width");
++    near(y1 - y0 + 1, 427, "picture height");
++    near(x0, 92, "picture left");
++    assert_eq!(y0, 0, "the picture does not start at the top row");
++}
++
++#[test]
++fn a_nes_picture_is_512_by_480_and_centred_in_a_720_by_480_window() {
++    let Some((x0, y0, x1, y1)) = nes_picture_in((720, 480), None) else {
++        return;
++    };
++    near(x1 - x0 + 1, 512, "picture width");
++    near(y1 - y0 + 1, 480, "picture height");
++    near(x0, 104, "picture left");
++    assert_eq!(y0, 0, "the picture does not start at the top row");
 +}
