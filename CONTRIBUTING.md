@@ -15,10 +15,19 @@ code as possible, and prove GBA did not change.**
    A pull request that moves one GBA pixel is rejected, whatever else it fixes.
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
-   release. `scripts/check-upstream-tests.sh` enforces it. One allowed exception is
-   the single line `#[cfg(test)] mod env_tests;` in `libretro.rs` (issue 14).
-   A second named exception: upstream test helpers `label_band` in `crates/slot-ui/tests/chrome.rs` and `label_top` in `crates/slot/tests/render_shelves.rs` match exhaustively over `Platform`, so each gains `| Platform::Nes` (later `| Platform::Snes`) or `| CartPlatform::Nes` (later `| CartPlatform::Snes`) on its Game Boy arm, and nothing else. The check is exact: the file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails.
-   A third named exception: upstream test `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs` uses `cart_platform=nes` as its unknown example, so that one value becomes `cart_platform=pce` (a system this project will never add) now that `nes` is a real platform.
+   release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
+   five, and the guard checks each one exactly:
+   - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
+   - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`.
+   - (c) `label_top` in `crates/slot/tests/render_shelves.rs`: its Game Boy arm gains `| CartPlatform::Nes` and then optionally `| CartPlatform::Snes`. For (b) and (c) the file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails.
+   - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
+   - (e) `both_cores_are_told_about_colour_correction_in_their_own_words` in `crates/slot/tests/gpsp.rs`: the colour-correction match gains `| Core::Fceumm` on its `Core::Mgba` arm, then optionally `| Core::Nestopia`, `| Core::Snes9x` and `| Core::Snes9x2005Plus`, in that order, and nothing else.
+
+   **Standing rule for future sites:** a new site may be added without asking only if it
+   appends a new variant token to an existing arm of an existing exhaustive match. It must
+   be named in `scripts/check-upstream-tests.sh` and checked byte for byte, and it is added
+   to the list above. Any other kind of upstream test change, a value swap like (d)
+   included, stops and asks the maintainer.
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
 
@@ -92,6 +101,8 @@ breaking it causes a conflict on most releases.
 
 - **Where:** new test files only, named `nes_*.rs`, `snes_*.rs` or after their feature
   (`canvas.rs` in-source tests live in the new file). Never add a test to an upstream file.
+  A helper several of our tests need (`fceumm()`, `nes_rom()`) lives in a new shared module,
+  `crates/slot/tests/nes_common/mod.rs`, because upstream `common/mod.rs` cannot be edited.
 - **Names:** a plain sentence, like upstream:
   `fn a_nes_cart_lands_on_its_own_shelf()`, `fn select_x_never_reaches_the_snes_game()`.
 - **One behaviour per test.** Assert the actual value, not just "it did not crash".

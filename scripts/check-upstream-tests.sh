@@ -101,6 +101,16 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 			fail "$f differs beyond the one cart_platform=pce line"
 		fi
 		continue ;;
+	crates/slot/tests/gpsp.rs)
+		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)? => "gpsp_color_correction",$'
+		if [ "$(grep -cE "$mgba" "$ours/$f")" = 1 ] &&
+			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
+			cmp -s "$up/$f" "$tmp/x"; then
+			echo "upstream test code: $f uses the named exception (new cores on the Core::Mgba colour-correction arm)"
+		else
+			fail "$f differs beyond the Core::Mgba arm's new core tokens"
+		fi
+		continue ;;
 	*) fail "$f differs"; continue ;;
 	esac
 	# Exact rule: exactly one Game Boy arm line may carry | $prefix::Nes (and | $prefix::Snes);
