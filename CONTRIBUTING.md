@@ -66,7 +66,8 @@ breaking it causes a conflict on most releases.
 - **Toolchain:** Rust 1.96 from `rust-toolchain.toml`. No nightly features.
 - **Format:** default rustfmt settings. There is no `rustfmt.toml`; do not add one.
   `task fmt:check` runs `rustfmt --check` on every file we add or change, not the whole
-  tree.
+  tree. Upstream test files are skipped: rule 2 holds them byte for byte, so a token added
+  at a named site stays on its line even when rustfmt would reflow it.
 - **Lint:** `task lint` runs `cargo clippy --workspace --all-targets` and
   `cargo clippy -p slot --no-default-features --features device` in both trees. We must add
   zero warnings compared with upstream. No `#[allow(...)]` unless upstream already has one
@@ -103,16 +104,19 @@ breaking it causes a conflict on most releases.
 
 - **Where:** new test files only, named `nes_*.rs`, `snes_*.rs` or after their feature
   (`canvas.rs` in-source tests live in the new file). Never add a test to an upstream file.
-  A helper several of our tests need (`fceumm()`, `nes_rom()`) lives in a new shared module,
-  `crates/slot/tests/nes_common/mod.rs`, because upstream `common/mod.rs` cannot be edited.
+  A helper several of our tests need lives in a new shared module, because upstream
+  `common/mod.rs` cannot be edited: `crates/slot/tests/nes_common/mod.rs` (`require_core(name)`,
+  `fceumm()`, `nes_rom(name, battery)`) and `crates/slot/tests/snes_common/mod.rs`
+  (`snes_rom(name, map, copier, sram_kb)`, `Map`, `SNES_TITLE`). No `allow(dead_code)`: a binary
+  includes only the module it uses.
 - **Names:** a plain sentence, like upstream:
   `fn a_nes_cart_lands_on_its_own_shelf()`, `fn select_x_never_reaches_the_snes_game()`.
 - **One behaviour per test.** Assert the actual value, not just "it did not crash".
 - **Real cores:** every test that needs a core calls `require_core("fceumm")` first. It
   skips locally when the dylib is missing and **fails** under `SLOT_REQUIRE_CORES=1`,
   which `task check` and CI set. A test that silently skipped proves nothing.
-- **ROMs:** generated inside the test (`nes_rom(battery)`, `snes_rom(map, sram)` in the
-  shared helpers) or freely licensed homebrew in `harness/roms/` with its licence file
+- **ROMs:** generated inside the test (`nes_rom(name, battery)`,
+  `snes_rom(name, map, copier, sram_kb)` in the shared helpers) or freely licensed homebrew in `harness/roms/` with its licence file
   next to it. **Never commit a commercial ROM**, not even a few bytes of one. Device-gate
   titles are the tester's own dumps and stay on the SD card.
 - **Render tests** (`HeadlessSurface`) run on macOS only. Gate them with
