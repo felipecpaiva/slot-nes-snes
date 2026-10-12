@@ -17,7 +17,7 @@ code as possible, and prove GBA did not change.**
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. One allowed exception is
    the single line `#[cfg(test)] mod env_tests;` in `libretro.rs` (issue 14).
-   A second named exception: upstream test helpers `label_band` in `crates/slot-ui/tests/chrome.rs` and `label_top` in `crates/slot/tests/render_shelves.rs` match exhaustively over `Platform`, so each gains `| Platform::Nes` (later `| Platform::Snes`) or `| CartPlatform::Nes` (later `| CartPlatform::Snes`) on its Game Boy arm, and nothing else.
+   A second named exception: upstream test helpers `label_band` in `crates/slot-ui/tests/chrome.rs` and `label_top` in `crates/slot/tests/render_shelves.rs` match exhaustively over `Platform`, so each gains `| Platform::Nes` (later `| Platform::Snes`) or `| CartPlatform::Nes` (later `| CartPlatform::Snes`) on its Game Boy arm, and nothing else. The check is exact: the file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails.
    A third named exception: upstream test `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs` uses `cart_platform=nes` as its unknown example, so that one value becomes `cart_platform=pce` (a system this project will never add) now that `nes` is a real platform.
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
@@ -50,7 +50,7 @@ breaking it causes a conflict on most releases.
 | `Host` stays | New state in `HostExtra` (issue 09) | Add a field to `Host` in `libretro.rs` (its in-source test lists every field) |
 | `slot_state.rs` settings line stays | New keys written by a separate `push_str` after the upstream `format!`, parsed with `unwrap_or` | Edit the `format!` line, or parse new keys with `?` |
 | Match arms stay exhaustive | Add an explicit `Platform::Nes =>` arm | Add or keep a `_ =>` wildcard over `Platform`, `Core`, `Outline` or `Shape` |
-| `app.rs` stays small | 25 changed lines or fewer in total (`task diffsurface`) | Put logic in `app.rs` |
+| `app.rs` stays small | 25 changed lines or fewer in total (`task diffsurface` arrives with issue 31; until then count by hand in the PR) | Put logic in `app.rs` |
 
 ## 4. Rust style (match upstream exactly)
 
@@ -142,7 +142,7 @@ Match upstream's history:
   - [ ] `sh scripts/check-upstream-tests.sh` green
   - [ ] `task harness:compare` 0 differing frames (when the change touches a shared path)
   - [ ] `task bench:compare` within 2% (when the change touches a hot path)
-  - [ ] `task diffsurface` within budget
+  - [ ] `app.rs` within budget (`task diffsurface` arrives with issue 31; until then the changed-line count is done by hand in the PR)
   - [ ] every test ID from the issue present and passing
   - [ ] every acceptance box in the issue ticked or explained
   - [ ] device check done, or marked "needs device" for the maintainer

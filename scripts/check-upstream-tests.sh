@@ -82,9 +82,6 @@ list_attrs() {
 }
 
 shown() { tr '\034' ' ' | cut -c1-90; }
-squeeze_tokens() {
-	tr -d ' \t\n' | sed -E "s/\|$1::Snes([^A-Za-z0-9_]|\$)/\1/g; s/\|$1::Nes([^A-Za-z0-9_]|\$)/\1/g"
-}
 normal() { tr '\034\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 
 # Every file under crates/*/tests/ in upstream: unchanged and present. New files are ours.
@@ -95,18 +92,27 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	crates/slot-ui/tests/chrome.rs) prefix=Platform ;;
 	crates/slot/tests/render_shelves.rs) prefix=CartPlatform ;;
 	crates/slot-store/tests/durability.rs)
-		if [ "$(sed 's/cart_platform=pce/cart_platform=nes/g' "$ours/$f")" = "$(cat "$up/$f")" ]; then
+		pce='^[[:space:]]*\("cart_platform=pce\\n", None\),$'
+		if [ "$(grep -c 'cart_platform=pce' "$ours/$f")" = 1 ] && [ "$(grep -cE "$pce" "$ours/$f")" = 1 ] &&
+			perl -pe 's/cart_platform=pce/cart_platform=nes/ if /^[ \t]*\("cart_platform=pce\\n", None\),$/' "$ours/$f" >"$tmp/x" &&
+			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exception (cart_platform=pce for cart_platform=nes)"
 		else
-			fail "$f differs beyond the allowed cart_platform=pce value"
+			fail "$f differs beyond the one cart_platform=pce line"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;
 	esac
-	if [ "$(squeeze_tokens "$prefix" <"$ours/$f")" = "$(squeeze_tokens "$prefix" <"$up/$f")" ]; then
+	# Exact rule: exactly one Game Boy arm line may carry | $prefix::Nes (and | $prefix::Snes);
+	# everything else, whitespace and final newline included, must be byte-identical. A reflowed
+	# arm fails here on purpose: that is a decision for a human.
+	arm="^[[:space:]]*$prefix::Gb \\| $prefix::Gbc \\| $prefix::Nes( \\| $prefix::Snes)? =>"
+	if [ "$(grep -cE "$arm" "$ours/$f")" = 1 ] &&
+		perl -pe "s/^([ \\t]*$prefix::Gb \\| $prefix::Gbc) \\| $prefix::Nes( \\| $prefix::Snes)? =>/\$1 =>/" "$ours/$f" >"$tmp/x" &&
+		cmp -s "$up/$f" "$tmp/x"; then
 		echo "upstream test code: $f uses the named exception (| $prefix::Nes / | $prefix::Snes in the Game Boy arm)"
 	else
-		fail "$f differs beyond the allowed | $prefix::Nes / | $prefix::Snes tokens"
+		fail "$f differs beyond the Game Boy arm's | $prefix::Nes / | $prefix::Snes tokens"
 	fi
 done
 

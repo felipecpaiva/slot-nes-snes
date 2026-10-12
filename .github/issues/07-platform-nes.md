@@ -21,6 +21,9 @@ NES gets a first-class shelf with `Games/NES`, `Labels/NES`, `Saves/NES`, `State
 - [ ] Title stays empty and the display name is the file stem (no NES header parse), even when the bytes look like a GB header.
 - [ ] Provisional shader arms: `slot: crates/slot/src/app.rs:1044-1047` and `:1407-1410` map Nes to `shader_gb` / `Shader::GB` (replaced in 21-shaders).
 - [ ] Policy arms: `has_gb_palettes(Nes) = false`, `owns_shoulders(Nes) = true` (picture toggle like GB).
+- [ ] `slot: crates/slot/src/core.rs`: gpSP `runs(Nes) = false`; `default_for(Nes) = Mgba` as a temporary value that issue 08 replaces with Fceumm (never shipped on its own, patches ship together).
+- [ ] `slot: crates/slot-store/src/scan.rs`: explicit `Platform::Nes => {}` arm (no header parse).
+- [ ] `picker_cores(Nes) = None`.
 - [ ] Placeholder cart arms in `slot: crates/slot-ui/src/shell.rs:92`, `slot: crates/slot-ui/src/cart.rs:91,157,164`: GBA Spec, solid `#8c8c8c`.
 
 ## Tests
@@ -39,10 +42,10 @@ Upstream tests stay unmodified, in particular `slot: crates/slot-store/tests/pla
 | (none specific) | Downgrade with `cart_platform=nes` is covered in 23-states-quickmenu-resume |
 
 ## Acceptance
-- [ ] T4, T5, T7, T12 green; `task check` green.
-- [ ] GBA harness compare 0 diffs (H1, H2).
-- [ ] `Platform::ALL.len() == 3` still.
-- [ ] `app.rs` hunks are one token each.
+- [x] T4, T5, T7, T12 green; `task check` green (1408 passed).
+- [x] GBA harness compare 0 diffs (H1, H1G, H2, B1).
+- [x] `Platform::ALL.len() == 3` still.
+- [x] `app.rs` hunks are one token each: 8 changed lines for 0002, 14 total.
 
 ## Device check (RG35XXSP)
 None on its own; NES needs a core and the canvas to play. The phase device check is in 01-phase-1-nes-boots.
