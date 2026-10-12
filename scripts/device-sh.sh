@@ -2,8 +2,9 @@
 # Run a shell command line on the box the device build wants: natively on Linux aarch64, else in
 # rust:1-bullseye (glibc 2.31, the same as slot's release) with the repo mounted at /src.
 # Copy of slot's internal device:sh task, which cannot be called from outside slot.
-# DEVICE_ROOT=1 runs as root (slot's own tasks apt-get cmake) and hands /src/vendor and /src/build
-# back to the calling user on exit.
+# DEVICE_ROOT=1 runs as root (slot's own tasks apt-get cmake, and we do not edit slot's tasks) and,
+# on exit, hands every root-owned path under /src back to the calling user. find limits the chown
+# to what root created, so it stays fast on a large tree.
 set -eu
 
 [ $# -eq 1 ] && [ -n "$1" ] || {
@@ -23,7 +24,7 @@ else
 				exit 1
 			}
 			git config --global --add safe.directory "*"
-			trap '"'"'chown -R "$OWNER" /src/vendor /src/build'"'"' EXIT
+			trap '"'"'find /src -uid 0 -exec chown -h "$OWNER" {} +'"'"' EXIT
 			sh -c "$DEVICE_CMD"
 			'
 		exit

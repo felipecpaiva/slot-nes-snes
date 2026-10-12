@@ -21,5 +21,14 @@ same_identity() {
 
 # slot-nes-snes-v1.6.0-ns.0: slot's tag from SLOT_PIN plus the release counter in VERSION.
 release_name() {
-	echo "slot-nes-snes-$tag-$(cat "$root/VERSION")"
+	v="$(cat "$root/VERSION")"
+	printf '%s\n' "$v" | grep -Eq '^ns\.[0-9]+$' || {
+		echo "slot-nes-snes: VERSION is '$v', want ns.<number>" >&2
+		return 1
+	}
+	echo "slot-nes-snes-$tag-$v"
 }
+
+# True for an aarch64 ELF. The ", ARM aarch64," machine field is what file reads from e_machine;
+# matching "aarch64" anywhere also passes an x86-64 ELF whose interpreter path says aarch64.
+is_aarch64() { file "$1" | grep -q ', ARM aarch64,'; }

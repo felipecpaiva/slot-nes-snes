@@ -98,7 +98,7 @@ tasks:
         FCEUMM_BUILDER="$(sh cores/fceumm/build.sh builder)" sh scripts/device-sh.sh
         'sh cores/fceumm/build.sh build {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz
         build/fceumm-device vendor/fceumm_libretro.so'
-      - file vendor/fceumm_libretro.so | grep -q 'ELF 64-bit.*aarch64'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/fceumm_libretro.so'
       - 'echo "built vendor/fceumm_libretro.so from vendor/fceumm-src.tar.gz @ {{.FCEUMM_COMMIT}}"'
 
   test:
@@ -171,8 +171,26 @@ tasks:
       - sh scripts/bench-compare.sh
 
   dist:device:
-    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm core, its .meta, source and licences. Fails unless every core's shippable set exists
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm core, its .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
     deps: [build, core:device]
+    vars:
+      NAME:
+        sh: . ./SLOT_PIN && echo "slot-nes-snes-$tag-$(cat VERSION)"
+    sources:
+      - SLOT_PIN
+      - VERSION
+      - mise.toml
+      - patches/*.patch
+      - licenses/*
+      - cores/**/*
+      - vendor/fceumm_libretro.so*
+      - vendor/fceumm-src.*
+      - scripts/dist-device.sh
+      - scripts/device-sh.sh
+      - scripts/fetch-task.sh
+      - scripts/lib.sh
+    generates:
+      - build/dist/{{.NAME}}/System/slot
     cmds:
       - sh scripts/dist-device.sh
 
@@ -183,8 +201,9 @@ tasks:
       - sh scripts/src-tarball.sh
 
   zip:
-    desc: Write build/slot-nes-snes-<tag>-<ns.N>-h700.zip from the dist tree, source tarball included
+    desc: Write build/slot-nes-snes-<tag>-<ns.N>-h700.zip from a fresh dist tree, source tarball included
     cmds:
+      - task: dist:device
       - task: src-tarball
       - |
         set -eu
@@ -195,19 +214,24 @@ tasks:
         echo "built build/$name-h700.zip"
 
   deploy:device:
-    desc: Build the dist tree and push its System/ onto a device over adb, then restart it. SD defaults to /mnt/sdcard
+    desc: Build the dist tree and push its System/ onto a device over adb (not the 18 MB source tarball), then restart it. SD defaults to /mnt/sdcard
     vars:
       SD: '{{.SD | default "/mnt/sdcard"}}'
     cmds:
       - task: dist:device
-      - task: src-tarball
       - adb wait-for-device
       - |
         set -eu
         . ./SLOT_PIN
-        name="slot-nes-snes-$tag-$(cat VERSION)"
-        adb push "build/dist/$name/System/." '{{.SD}}/System/'
-      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/*.so {{.SD}}/System/*.sh && sync'
+        sys="build/dist/slot-nes-snes-$tag-$(cat VERSION)/System"
+        adb shell mkdir -p '{{.SD}}/System/licenses'
+        for f in "$sys"/*; do
+          [ "$f" = "$sys/licenses" ] || adb push "$f" '{{.SD}}/System/'
+        done
+        for f in "$sys"/licenses/*; do
+          case "$f" in */slot-nes-snes-src-*) ;; *) adb push "$f" '{{.SD}}/System/licenses/' ;; esac
+        done
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so && sync'
       - adb reboot
       - adb wait-for-device
       - 'echo "deployed to {{.SD}}, device rebooting"'

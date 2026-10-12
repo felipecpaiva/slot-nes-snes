@@ -42,7 +42,7 @@ colima start
 
 ## Install on a device
 
-Build the zip with `task dist:device && task zip && task src-tarball`. It lands in `build/` as
+Build the zip with `task zip` (it runs `task dist:device` and `task src-tarball` itself). It lands in `build/` as
 `slot-nes-snes-<slot tag>-<ns.N>-h700.zip`. `sh scripts/zip-check.sh <zip>` checks it.
 
 **Without adb (how most people install):** unzip, then copy the contents of the one top folder

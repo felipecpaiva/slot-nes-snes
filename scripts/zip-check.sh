@@ -3,8 +3,14 @@
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/scripts/lib.sh"
+read_pin
 
 cores="mgba gpsp fceumm"
+# Games/ folders the zip may hold. SNES joins in issue 12.
+games="GBA GB GBC NES"
+# Folders that ship empty, the user's own data lives there.
+empty="Config Saves States Labels BIOS Wallpapers"
 
 usage() {
 	echo "usage: $0 ZIP" >&2
@@ -27,22 +33,25 @@ bad() {
 
 need() {
 	for pattern in "$@"; do
-		set -- $lic/$pattern
+		set -- "$lic"/$pattern
 		[ -f "$1" ] || bad "System/licenses/$pattern is missing"
 	done
 }
 
 aarch64() {
-	file "$1" | grep -q 'ELF 64-bit.*aarch64' || bad "${1#"$d"/} is not an aarch64 ELF: $(file -b "$1")"
+	is_aarch64 "$1" || bad "${1#"$d"/} is not an aarch64 ELF: $(file -b "$1")"
 }
 
+release="$(release_name)"
+want="$release"
+src="slot-nes-snes-src-${release#slot-nes-snes-}"
 tops="$(unzip -Z1 "$zip" | cut -d/ -f1 | sort -u)"
 [ "$(printf '%s\n' "$tops" | wc -l | tr -d ' ')" = 1 ] || {
 	bad "expected one top folder, found: $(printf '%s' "$tops" | tr '\n' ' ')"
 	exit 1
 }
-want="$(basename "$zip" -h700.zip)"
-[ "$tops" = "$want" ] || bad "top folder is $tops, the zip name wants $want"
+[ "$tops" = "$want" ] || bad "top folder is $tops, SLOT_PIN and VERSION want $want"
+[ "$(basename "$zip")" = "$want-h700.zip" ] || bad "zip is named $(basename "$zip"), want $want-h700.zip"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -51,8 +60,47 @@ d="$work/$tops"
 sys="$d/System"
 lic="$sys/licenses"
 
-for dir in System BIOS Config Labels Saves States Wallpapers Games/GBA Games/GB Games/GBC Games/NES; do
+# A symlink in a release zip can point anywhere on the machine that unpacks it.
+find "$d" -type l | while read -r l; do echo "zip-check: symlink in zip: ${l#"$d"/}" >&2; done
+[ -z "$(find "$d" -type l)" ] || failed=1
+
+for dir in System $empty $(for g in $games; do echo "Games/$g"; done); do
 	[ -d "$d/$dir" ] || bad "$dir/ is missing"
+done
+for dir in $empty; do
+	[ -z "$(find "$d/$dir" ! -type d 2>/dev/null)" ] || bad "$dir/ must hold no files: $(find "$d/$dir" ! -type d | sed "s|^$d/||" | tr '\n' ' ')"
+done
+for g in "$d"/Games/*; do
+	[ -e "$g" ] || continue
+	case " $games " in *" $(basename "$g") "*) ;; *) bad "Games/$(basename "$g") is not a folder this release ships ($games)" ;; esac
+done
+
+# System/ holds exactly this set: upstream's dist output plus our core and licence files.
+req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
+mgba_libretro.so gpsp_libretro.so fceumm_libretro.so"
+for f in $req; do
+	[ -f "$sys/$f" ] || bad "System/$f is missing"
+done
+find "$sys" ! -type d | sed "s|^$sys/||" | sort | while read -r f; do
+	case $f in
+	bezels/640x480.png | bootlogo.bmp | coresave.sh | launch_frontend.sh | led.sh | slotlink.sh | slot) ;;
+	mgba_libretro.so | gpsp_libretro.so | fceumm_libretro.so) ;;
+	licenses/bezel-CC-BY-SA-4.0.txt | licenses/shaders.txt) ;;
+	licenses/mgba-MPL-2.0.txt | licenses/mgba-*.meta | licenses/mgba-*.patch) ;;
+	licenses/gpsp-GPL-2.0.txt | licenses/gpsp-*.meta | licenses/gpsp-*.tar.gz | licenses/gpsp-*.patch) ;;
+	licenses/fceumm_libretro.so.meta | licenses/fceumm-src.meta | licenses/fceumm-src.tar.gz) ;;
+	licenses/fceumm-GPL-2.0.txt | licenses/fceumm-headerless-files.txt) ;;
+	licenses/slot-nes-snes-*.patch | "licenses/$src.tar.gz") ;;
+	*) echo "zip-check: System/$f is not expected in a release" >&2 ;;
+	esac
+done 2>"$work/stray"
+if [ -s "$work/stray" ]; then
+	cat "$work/stray" >&2
+	failed=1
+fi
+
+for f in "$sys/slot" "$sys"/*_libretro.so; do
+	[ ! -f "$f" ] || [ -x "$f" ] || bad "${f#"$d"/} is not executable"
 done
 
 [ -x "$sys/slot" ] || bad "System/slot is missing or not executable"
@@ -76,11 +124,16 @@ for core in $cores; do
 	esac
 done
 
-need 'slot-nes-snes-src-*.tar.gz' 'slot-nes-snes-*.patch'
-set -- "$lic"/slot-nes-snes-src-*.tar.gz
-if [ -f "$1" ]; then
-	tar -tzf "$1" | grep -q '/slot/Cargo.toml$' && tar -tzf "$1" | grep -q '/slot-nes-snes/patches/' ||
-		bad "$(basename "$1") does not hold slot/ and slot-nes-snes/patches/"
+need 'slot-nes-snes-*.patch'
+n="$(find "$lic" -name 'slot-nes-snes-src-*' | wc -l | tr -d ' ')"
+if [ "$n" != 1 ] || [ ! -f "$lic/$src.tar.gz" ]; then
+	bad "System/licenses must hold exactly one slot-nes-snes-src-*, named $src.tar.gz"
+else
+	list="$(tar -tzf "$lic/$src.tar.gz")"
+	for f in slot/crates/slot-store/src/platform_policy.rs slot/crates/slot-retro/src/canvas.rs \
+		slot-nes-snes/patches/0001-step0-exhaustive-matches.patch; do
+		printf '%s\n' "$list" | grep -qxF "$src/$f" || bad "$src.tar.gz does not hold $f"
+	done
 fi
 
 [ "$failed" = 0 ] || exit 1

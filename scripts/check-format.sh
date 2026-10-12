@@ -1,6 +1,6 @@
 #!/bin/sh
-# rustfmt --check on every .rs file under build/slot (not target, target-device, vendor, .git) that we add or
-# change compared with upstream.
+# rustfmt --check on every .rs file under build/slot that we add or change compared with upstream
+# (not target, target-device, vendor, .git).
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

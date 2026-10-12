@@ -1,7 +1,9 @@
 #!/bin/sh
 # slot-nes-snes-src-<release>.tar.gz: the patched slot tree at work/slot HEAD plus this repo at HEAD,
 # the GPL-3 corresponding source of System/slot. Task runs patches:check first so work/slot HEAD
-# is known to be what patches/ rebuild.
+# is known to be what patches/ rebuild. Reproducible: sorted names, owner 0, every mtime the
+# commit time of this repo's HEAD (SOURCE_DATE_EPOCH if set), gzip -n. bsdtar (macOS) has no
+# --mtime or --sort, so the staged files are touched and the names listed in order instead.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,7 +36,18 @@ build() {
 	mkdir "$stage/$src" "$stage/$src/slot" "$stage/$src/slot-nes-snes"
 	git -C "$root/work/slot" archive --format=tar HEAD | tar -x -C "$stage/$src/slot"
 	git -C "$root" archive --format=tar HEAD | tar -x -C "$stage/$src/slot-nes-snes"
-	tar -czf "$root/build/$src.tar.gz" -C "$stage" "$src"
+
+	epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct HEAD)}"
+	stamp="$(date -u -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null || date -u -d "@$epoch" +%Y%m%d%H%M.%S)"
+	find "$stage" -exec touch -h -t "$stamp" {} +
+	(cd "$stage" && find "$src" | LC_ALL=C sort >list)
+	if tar --version | grep -q bsdtar; then
+		own="--uid 0 --gid 0 --uname root --gname root --no-xattrs --format gnutar"
+	else
+		own="--owner=0 --group=0 --numeric-owner"
+	fi
+	# shellcheck disable=SC2086
+	(cd "$stage" && COPYFILE_DISABLE=1 tar -cf - $own --no-recursion -T list) | gzip -n >"$root/build/$src.tar.gz"
 	cp "$root/build/$src.tar.gz" "$tree/System/licenses/"
 	echo "built build/$src.tar.gz and copied it into $tree/System/licenses/"
 }
