@@ -15,6 +15,8 @@ Child issues, in merge order:
 - [ ] 25-cart-variant-research
 - [ ] 26-cart-art
 - [ ] 27-cart-shell-grammar-region
+- [ ] 40-cart-studio-nes-snes
+- [ ] 41-label-fetcher-cli
 
 ## Tests
 | ID | File | Asserts |
