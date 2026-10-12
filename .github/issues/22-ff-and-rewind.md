@@ -35,7 +35,7 @@ Upstream tests stay unmodified, in particular `slot: crates/slot/tests/core_opti
 - [ ] GBA harness compare 0 diffs (H1, H2); mgba/gpsp frameskip keys unchanged.
 - [ ] Rewind measurement recorded in the PR description; `rewind_every()` added only if it exceeded budget.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Rewind and FF on Super Mario RPG are in the phase device check in 18-phase-3-parity.
 
 ## Review notes

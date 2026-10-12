@@ -41,7 +41,7 @@ No upstream test file is touched; `frame_dump.rs` is copied as an example in bot
 - [ ] Failure injection: `task harness:inject` generates at run time, into a temporary root and never committed, 403 label PNGs (6000x6000 greyscale, the decoder's limit is 64 MiB) with their carts, so the label cache is cold. It prints the label count and the stale count at the first frame, then runs `frame_dump composite --no-wait` on it twice (no label wait, composites hashed from frame 1) and fails unless the two runs differ in at least 20 frames (five runs gave 242 to 274). It also fails if the same `--no-wait` run on a warm cache reports any diff (the control, 0 diffs), or if `frame_dump composite --wait` on the same cold script, run twice, reports any diff (0 diffs, with 0 stale labels at the first frame).
 - [ ] Every ROM in `harness/roms/` has a licence file; no commercial ROM is committed. The GPL carts ship with their v0.23 source tarball and a written source offer in `harness/roms/README.md`.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, host only (macOS, `HeadlessSurface`). The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

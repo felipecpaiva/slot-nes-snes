@@ -11,7 +11,7 @@ depends_on: [17-device-gate-log, 22-ff-and-rewind, 26-cart-art, 30-release-workf
 The goal of the project is one platform experience: a NES or SNES cart must feel exactly like a GBA cart in slot. Correctness is covered by the harness and the parity tests; this issue measures speed and smoothness for every platform and core against the same baseline, once all implementation is done (maintainer request, 2026-10-12).
 
 ## Scope
-- [ ] `scripts/perf-eval.sh` and `task perf:eval`: one run per platform and core on the RG35XXSP with the release zip: GBA (mGBA, gpSP), GB and GBC (mGBA), NES (fceumm, nestopia), SNES (snes9x, snes9x2005_plus).
+- [ ] `scripts/perf-eval.sh` and `task perf:eval`: one run per platform and core on the RG34XXSP with the release zip: GBA (mGBA, gpSP), GB and GBC (mGBA), NES (fceumm, nestopia), SNES (snes9x, snes9x2005_plus).
 - [ ] Baseline: unpatched slot v1.6.0 playing GBA on mGBA on the same device, same firmware, same CPU governor, same battery state (on charger), measured in the same session.
 - [ ] Metrics per platform and core, each with median and worst case over at least 3 runs:
   - boot to first shelf frame, and cart insert to first game frame (`slot: boot:` log lines, `SLOT_TRACE`)
@@ -41,11 +41,11 @@ The goal of the project is one platform experience: a NES or SNES cart must feel
 | Run to run noise | At least 3 runs; thresholds compare medians, worst cases are reported but not gated |
 
 ## Acceptance
-- [ ] `task perf:eval` runs end to end on the RG35XXSP for all 8 pairs.
+- [ ] `task perf:eval` runs end to end on the RG34XXSP for all 8 pairs.
 - [ ] Thresholds against the GBA baseline: frame time median within 5%, p99 within 10%, zero audio underruns, insert to first frame within 10%, save and load state within 20%, fast-forward reaches at least the GBA multiple.
 - [ ] `docs/PERFORMANCE.md` published with every table, and a follow-up issue for every miss.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 This whole issue runs on the device.
 
 ## Review notes

@@ -26,7 +26,7 @@ depends_on: [32-phase-6-deferred]
 ## Acceptance
 - [ ] A decision recorded in docs/DECISIONS.md.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, deferred.
 
 ## Review notes

@@ -1,5 +1,5 @@
 ---
-title: "Phase 1: NES boots on the RG35XXSP from a release-shaped zip"
+title: "Phase 1: NES boots on the RG34XXSP from a release-shaped zip"
 phase: 1
 area: device
 type: tracking
@@ -44,10 +44,10 @@ Phase 1 ships when:
 - [ ] Host smoke: `task run:4x3` (`SLOT_WINDOW=1280x960`) exercises the RG35XXSP bezel path with a NES cart.
 - [ ] Device check below passes.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 1. Unzip `slot-nes-snes-v1.6.0-ns.0-h700.zip`, copy the top folder's contents to the SD root, boot.
 2. The NES shelf appears after GBC.
-3. Super Mario Bros. 3 and Mega Man 2 (user-owned dumps, never committed) are playable at full speed, save on eject and resume on reboot.
+3. Super Mario Bros. 3 and Mega Man 2 (user-owned dumps, never committed) are playable at full speed, save on eject and resume on reboot. On the RG34XXSP's 720x480 panel the picture is full height at 2x (512x480), centred, with no bezel.
 4. A GBA cart still plays.
 5. `task log:device`: `slot.log` shows `slot: core /mnt/sdcard/System/fceumm_libretro.so` and no `running the mock test pattern` line.
 

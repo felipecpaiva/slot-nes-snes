@@ -40,7 +40,7 @@ T1 and the harness compare must stay green with this patch applied. No upstream 
 - [ ] No `_ =>` arm left on `Platform` in the touched functions.
 - [ ] `app.rs` hunks are one token or one expression each (6 changed lines).
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, behaviour-identical refactor. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

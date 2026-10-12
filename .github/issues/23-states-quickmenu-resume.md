@@ -38,7 +38,7 @@ Upstream tests stay unmodified, in particular `slot: crates/slot-ui/tests/quick_
 - [ ] GBA harness compare 0 diffs (H1, H2).
 - [ ] AC-to-code coverage rows Insert and eject, Resume on boot, Saves and autosave, Save states and polaroids, Quick menu, Turbo and Settings/volume/sleep each point at a passing test.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Lid close, sleep, volume and brightness are in the phase device check in 18-phase-3-parity.
 
 ## Review notes

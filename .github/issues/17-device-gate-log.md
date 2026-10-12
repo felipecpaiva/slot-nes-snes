@@ -1,5 +1,5 @@
 ---
-title: "Create docs/DEVICE-GATE.md and the RG35XXSP measurement routine"
+title: "Create docs/DEVICE-GATE.md and the RG34XXSP measurement routine"
 phase: 2
 area: device
 type: chore
@@ -8,7 +8,7 @@ depends_on: [10-dist-zip-deploy, 15-snes-input]
 ---
 
 ## Why
-Success criterion 4 is a manual gate on the RG35XXSP: full speed and zero audio underruns over 10 minutes per title, read from `SLOT_TRACE`/`slot.log` (docs/PLAN.md Spec, Working process, Outcome verification mechanisms). Results need one place to live from the first SNES pass onward.
+Success criterion 4 is a manual gate on the RG34XXSP: full speed and zero audio underruns over 10 minutes per title, read from `SLOT_TRACE`/`slot.log` (docs/PLAN.md Spec, Working process, Outcome verification mechanisms). Results need one place to live from the first SNES pass onward.
 
 ## Scope
 - [ ] `docs/DEVICE-GATE.md`: checklist and a per-title results table (fps, underrun count, CPU governor, p99 frame time, date, zip version) for the 11 titles:
@@ -33,7 +33,7 @@ No upstream test file is touched.
 - [ ] `docs/DEVICE-GATE.md` exists with all 11 titles and the thresholds: 0 underruns per 10 minutes, p99 frame time under 16.7 ms.
 - [ ] Any governor change is backed by a recorded before/after measurement.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. The first SNES pass is step 4 of the device check in 11-phase-2-snes; the full 11-title passes are in 18-phase-3-parity and 28-phase-5-release.
 
 ## Review notes

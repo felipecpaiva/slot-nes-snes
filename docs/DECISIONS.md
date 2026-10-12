@@ -6,7 +6,7 @@ One row per binding decision. Newest last.
 |---|---|---|
 | 2026-10-11 | Patch set over pinned slot releases, not a fork and not a shim core | slot's owner declined more systems (slot#30). A shim would squeeze NES/SNES into the 240x160 GBA frame and the GBA shelf |
 | 2026-10-11 | Cores: fceumm (NES default), nestopia (alt), snes9x (SNES default), snes9x2005_plus (alt) | Defaults on muOS, Knulli, ROCKNIX and NextUI for H700-class devices |
-| 2026-10-11 | Reference device: Anbernic RG35XXSP | The maintainer of this repo owns one |
+| 2026-10-11 | Reference device: Anbernic RG35XXSP (superseded 2026-10-12, see below) | The maintainer of this repo owns one |
 | 2026-10-11 | Video: fixed per-platform 2x canvas (360x240 logical) | Smallest patch, GBA untouched. SNES hi-res blended 2:1 |
 | 2026-10-11 | NES and SNES keep the GBA SP bezel on the RG35XXSP (640x427 window) | Same nostalgia look as GBA |
 | 2026-10-11 | Real NES, Famicom, SNES and Super Famicom cart art with variants in v1 | Same depth slot gives GB, GBC and GBA carts |
@@ -24,3 +24,4 @@ One row per binding decision. Newest last.
 | 2026-10-12 | `video_mode::source_rect` takes the canvas as a second parameter: `source_rect(platform, canvas, mode)`. `Core::canvas_f32` (new, in `core_policy.rs`) keeps the `app.rs` `picture_rect` hunk to one line | The old body derived the centring offsets from the fixed `SRC_W`/`SRC_H`. Its only caller is `App::source_rect`. No upstream test calls it |
 | 2026-10-12 | Named `unsafe` exception: the GL texture re-allocation in `slot-gfx` `GamePass::set_canvas` (`DeleteTextures`, `UseProgram`, `Uniform2f`), next to `slot-retro`'s FFI | `GamePass` owns the texture and uniform locations and its other GL calls are already unsafe blocks in the same file. A safe wrapper would add a new GL helper to an upstream file |
 | 2026-10-12 | `unsafe` is also allowed in our own new test files that must read GL output or a core symbol slot does not expose (`nes_window.rs`, `nes_fceumm.rs`) | Proving the NES window size and that fceumm consumed the overscan options needs the window pixels and `retro_get_system_av_info`, which slot has no safe API for; tests never ship to the device |
+| 2026-10-12 | Reference and test device is the Anbernic RG34XXSP (720x480, 3:2), not the RG35XXSP | The maintainer's device is an RG34XXSP. Same H700 and stock OS, so the same zip. Its 720x480 panel is an exact 3x of GBA, so there is no bezel: GBA fills the screen and NES/SNES show at an integer 2x (512x480, 512x448), centred. The RG35XXSP bezel decision (640x427 window) still holds for 4:3 devices and stays covered by harness leg B1 and `nes_window.rs` |

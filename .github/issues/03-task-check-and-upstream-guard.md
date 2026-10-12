@@ -37,7 +37,7 @@ Every upstream test stays unmodified, including the shape-pinning ones: `slot: c
 - [ ] Skip report lists only ROM-dependent upstream tests (those needing `sdcard/Games/...`).
 - [ ] Changing one line in any `crates/*/tests/` file of `build/slot` makes the guard fail.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, host only. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

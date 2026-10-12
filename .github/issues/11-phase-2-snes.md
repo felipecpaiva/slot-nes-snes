@@ -37,7 +37,7 @@ Phase 2 ships when:
 - [ ] Host smoke: `task run:4x3` with a SNES cart.
 - [ ] SNES buttons and chords verified on device (below).
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 1. Super Mario World and Super Metroid run at full speed.
 2. X, Y, L and R reach the game.
 3. A SELECT tap reaches the game; SELECT+R1 saves a state without sending R; SELECT+Y sends no Y and does nothing; SELECT+X toggles Stretch/Actual.

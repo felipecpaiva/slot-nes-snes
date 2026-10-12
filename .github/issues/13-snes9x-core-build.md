@@ -35,7 +35,7 @@ No upstream test file is touched.
 - [ ] `LICENSING.md` snes9x section filled; README notice present.
 - [ ] `zip-check.sh` sees the snes9x licence in `System/licenses/`.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own. The phase device check is in 11-phase-2-snes.
 
 ## Review notes

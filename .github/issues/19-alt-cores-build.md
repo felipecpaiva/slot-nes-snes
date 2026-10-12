@@ -34,7 +34,7 @@ No upstream test file is touched.
 - [ ] `LICENSING.md` nestopia and snes9x2005 sections filled.
 - [ ] `task check` builds all 6 host cores before testing.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own. Opening all 6 cores is in the phase device check in 18-phase-3-parity.
 
 ## Review notes

@@ -36,7 +36,7 @@ Phase 4 ships when:
 - [ ] `evals/eval-cart-likeness.sh` and `evals/eval-colour-sources.sh` pass.
 - [ ] Host smoke: `task run:4x3` with a mixed shelf.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 1. A mixed shelf of NES, Famicom, SNES and SFC carts.
 2. Insert and seat animations land in the correct boxes.
 3. Gold Zelda shows gold.

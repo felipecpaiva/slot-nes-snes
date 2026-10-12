@@ -38,7 +38,7 @@ Upstream `slot: crates/slot/tests/core_picker.rs` and `slot: crates/slot/tests/r
 - [ ] `SOCKET_U` stays `[f32; 2]` (`slot: crates/slot-ui/src/board.rs:164`).
 - [ ] `Core::ALL.len() == 2` still.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Socket names and swaps are in the phase device check in 18-phase-3-parity.
 
 ## Review notes

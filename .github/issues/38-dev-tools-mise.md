@@ -37,7 +37,7 @@ No upstream test file is touched.
 - [ ] `mise exec -- cmake --version` prints `cmake version 3.31.12`.
 - [ ] The README Setup section is present.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, infra only. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

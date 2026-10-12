@@ -38,7 +38,7 @@ No upstream test file is touched.
 - [ ] Zip tree matches docs/PLAN.md "Verification" step 4 (cores present so far).
 - [ ] `task deploy:device` then `task log:device` shows `slot: core /mnt/sdcard/System/fceumm_libretro.so`.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate; the zip produced here is what the phase device check in 01-phase-1-nes-boots installs.
 
 ## Review notes

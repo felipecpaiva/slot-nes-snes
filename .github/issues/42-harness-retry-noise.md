@@ -31,7 +31,7 @@ The harness fails when the patched tree needs more than upstream + 1 retries. Du
 - [ ] 30 consecutive idle `harness:control` runs pass.
 - [ ] The faked extra-retry injection still fails.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, host only.
 
 ## Review notes
