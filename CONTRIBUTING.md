@@ -66,7 +66,8 @@ breaking it causes a conflict on most releases.
 - **Toolchain:** Rust 1.96 from `rust-toolchain.toml`. No nightly features.
 - **Format:** default rustfmt settings. There is no `rustfmt.toml`; do not add one.
   `task fmt:check` runs `rustfmt --check` on every file we add or change, not the whole
-  tree.
+  tree. Upstream test files are skipped: rule 2 holds them byte for byte, so a token added
+  at a named site stays on its line even when rustfmt would reflow it.
 - **Lint:** `task lint` runs `cargo clippy --workspace --all-targets` and
   `cargo clippy -p slot --no-default-features --features device` in both trees. We must add
   zero warnings compared with upstream. No `#[allow(...)]` unless upstream already has one

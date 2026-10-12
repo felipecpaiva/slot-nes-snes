@@ -1,6 +1,7 @@
 #!/bin/sh
 # rustfmt --check on every .rs file under build/slot that we add or change compared with upstream
-# (not target, target-device, vendor, .git).
+# (not target, target-device, vendor, .git). Upstream test files are skipped: they are held
+# byte for byte by check-upstream-tests.sh, so rustfmt must never reflow them.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,6 +18,7 @@ edition="$(sed -n 's/^edition = "\(.*\)"/\1/p' "$up/Cargo.toml" | head -n 1)"
 
 files="$(cd "$ours" && find . \( -name target -o -name target-device -o -name vendor -o -name .git \) -prune -o -name '*.rs' -print |
 	sed 's|^\./||' | sort | while read -r f; do
+	case "$f" in (crates/*/tests/*) [ -f "$up/$f" ] && continue ;; esac
 	[ -f "$up/$f" ] && cmp -s "$up/$f" "$ours/$f" || echo "$f"
 done)"
 
