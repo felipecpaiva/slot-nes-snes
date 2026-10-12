@@ -39,8 +39,11 @@ already met for as long as it stays in the repository.
 
 ## Generated at run time
 
-`harness/make_assets.py` builds two things into a temporary copy of the harness root, and neither
-is committed: a DMG-only cart `zdmg-blank.gb` (the GB palette option only applies to DMG-only
+`harness/make_assets.py` builds three things into a temporary copy of the harness root, and none
+is committed: a generated NES cart `znes-backdrop.nes` for leg H3 (a 16 KiB NROM that writes one
+backdrop colour to the palette and loops, a 23-byte 6502 program assembled by hand, byte-identical to the
+`nes_rom` helper in `crates/slot/tests/nes_common/mod.rs`, no third-party code or art, so there is
+no licence to record), a DMG-only cart `zdmg-blank.gb` (the GB palette option only applies to DMG-only
 carts, and the three carts above all declare CGB support) made from the Nintendo logo bytes of
 `gb240p.gb` and zeros, and the large label PNGs used by `task harness:inject`.
 

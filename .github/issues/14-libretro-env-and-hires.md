@@ -12,7 +12,7 @@ fceumm and snes9x call env commands upstream answers with false (`slot: crates/s
 
 ## Scope
 `patches/0006-libretro-env.patch`:
-- [ ] Env arms in `slot: crates/slot-retro/src/libretro.rs` that read `EXTRA`: `SET_GEOMETRY` returns true; `SET_SYSTEM_AV_INFO` stores the av info in `HostExtra.av_change`; `GET_AUDIO_VIDEO_ENABLE` returns 3, with the video bit clear on FF-skipped frames. All three return false when `HostExtra` is unbound.
+- [ ] Add the fields `av_change` and `av_enable` to `HostExtra` in `slot: crates/slot-retro/src/canvas.rs` (patch 0004 ships it with `canvas` only). Env arms in `slot: crates/slot-retro/src/libretro.rs` that read `EXTRA`: `SET_GEOMETRY` returns true; `SET_SYSTEM_AV_INFO` stores the av info in `HostExtra.av_change`; `GET_AUDIO_VIDEO_ENABLE` returns 3, with the video bit clear on FF-skipped frames. All three return false when `HostExtra` is unbound.
 - [ ] `RetroCore::take_av_change(&mut self) -> Option<AvInfo>` default method (returns None) in `slot: crates/slot-retro/src/core.rs`.
 - [ ] `slot: crates/slot/src/emu.rs`: after `run_frame`, call `take_av_change()` and rebuild `Resampler::new` at the new rate.
 - [ ] Hi-res blend in `canvas.rs` active: average 2:1 horizontally when `width > 360`, vertically when `height > 240`.
