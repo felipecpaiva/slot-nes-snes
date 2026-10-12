@@ -17,6 +17,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
   A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
   Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 - `fceumm-src.tar.gz` and `fceumm-src.meta`: the exact fceumm source and its sha256.
+- `snes9x-src.tar.gz` and `snes9x-src.meta`: the same for snes9x.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 
@@ -79,7 +80,48 @@ slot, the core we distribute is GPL-3.0-or-later with the full corresponding sou
 
 ## snes9x
 
-To be verified in issues 13 and 19.
+Checked at commit `fae2fea08f74180759ef540ee94259213f503480`, the commit `SLOT_PIN` pins. The
+licence is the `LICENSE` file at the root of that source, copied verbatim to
+`licenses/snes9x-LICENSE.txt`. The exact source ships with the core as `snes9x-src.tar.gz`, with
+`snes9x-src.meta` recording its sha256.
+
+**snes9x is not free software and is not GPL-compatible.** Its terms, quoted from that file:
+
+- Permission to use, copy, modify and distribute is granted "for non-commercial purposes", in
+  binary and source form, provided the licence and copyright notice appear with all copies and
+  derived work.
+- "Snes9x is freeware for PERSONAL USE only." Commercial use includes "charging money for Snes9x
+  or software derived from Snes9x, including Snes9x or derivatives in commercial game bundles,
+  and/or using Snes9x as a promotion for your commercial product." Commercial users must ask the
+  copyright holders first.
+- The software is provided as-is, with no warranty.
+- Some parts have their own terms (snes_ntsc LGPL, xBRZ GPLv3, JMA), listed at the end of the file.
+  At the pinned commit only `filter/snes_ntsc.c` (LGPL) is compiled into `snes9x_libretro.so`
+  (`libretro/Makefile.common`). xBRZ and JMA are not in the libretro source tree. The snes_ntsc
+  licence travels inside `snes9x-src.tar.gz` as `filter/snes_ntsc-license.txt`.
+- On the device the core links the C++ runtime statically (`-static-libstdc++ -static-libgcc`,
+  recorded as `device_ldflags=` in its `.meta`), so it needs only `libc` and `libm`. libstdc++ and
+  libgcc are GPL-3.0 with the GCC Runtime Library Exception, which allows that.
+
+Because the non-commercial clause is a restriction GPL-3.0 forbids, snes9x code cannot be
+combined into slot's GPL-3.0-or-later binary, and we do not claim it can. **The plugin boundary
+stance:** `snes9x_libretro.so` is a separate program that slot loads at run time across the libretro
+C ABI (`retro_*` functions through `dlopen`). slot contains no snes9x code and does not link it.
+The libretro buildbot distributes `snes9x_libretro` beside the GPL RetroArch
+(<https://buildbot.libretro.com/nightly/linux/aarch64/latest/snes9x_libretro.so.zip>). We treat the zip as an aggregate of separate
+works, each under its own licence, and this is our reading, not legal advice.
+
+What follows for users:
+
+- **The zip must never be sold, or bundled with anything that is sold.** Commercial redistribution
+  is unsupported. Every release must carry the notice below.
+- The licence file stays in `System/licenses/` beside the core, as its terms require.
+
+Notice text (README "Licences" and the release notes carry it):
+
+> snes9x is licensed for non-commercial use only and is not GPL. This release includes it, with
+> its licence in System/licenses/snes9x-LICENSE.txt. Do not sell this zip or bundle it with
+> anything that is sold.
 
 ## nestopia
 

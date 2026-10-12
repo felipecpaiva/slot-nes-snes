@@ -3,6 +3,8 @@ version: '3'
 vars:
   FCEUMM_COMMIT:
     sh: . ./SLOT_PIN && echo "$fceumm_commit"
+  SNES9X_COMMIT:
+    sh: . ./SLOT_PIN && echo "$snes9x_commit"
 
 tasks:
   default:
@@ -74,9 +76,19 @@ tasks:
       - sh cores/fceumm/build.sh fetch {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz
       - echo "{{.FCEUMM_COMMIT}}" > vendor/fceumm-src.sha
 
+  core:snes9x:src:
+    desc: Fetch the pinned snes9x source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/snes9x-src.tar.gz
+      - test "$(cat vendor/snes9x-src.sha 2>/dev/null)" = "{{.SNES9X_COMMIT}}"
+    cmds:
+      - rm -f vendor/snes9x-src.tar.gz vendor/snes9x-src.sha
+      - sh cores/snes9x/build.sh fetch {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz
+      - echo "{{.SNES9X_COMMIT}}" > vendor/snes9x-src.sha
+
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm from its pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src]
+    desc: Build mGBA, fetch gpSP and build fceumm and snes9x from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -85,21 +97,46 @@ tasks:
         test -f vendor/fceumm_libretro.dylib &&
           test "$(cat vendor/fceumm_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/fceumm/build.sh stamp {{.FCEUMM_COMMIT}} host)" ||
           sh cores/fceumm/build.sh build {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz build/fceumm-host vendor/fceumm_libretro.dylib
+      - |
+        test -f vendor/snes9x_libretro.dylib &&
+          test "$(cat vendor/snes9x_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/snes9x/build.sh stamp {{.SNES9X_COMMIT}} host)" ||
+          sh cores/snes9x/build.sh build {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz build/snes9x-host vendor/snes9x_libretro.dylib
 
   core:device:
+    desc: Build the aarch64 linux fceumm and snes9x cores into vendor/
+    cmds:
+      - task: core:device:fceumm
+      - task: core:device:snes9x
+
+  core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
     deps: [core:fceumm:src]
     status:
       - test -f vendor/fceumm_libretro.so
-      - test -f vendor/fceumm-src.meta
+      - test "$(cat vendor/fceumm-src.meta 2>/dev/null)" = "$(sh cores/fceumm/build.sh srcmeta {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz)"
       - test "$(cat vendor/fceumm_libretro.so.meta 2>/dev/null)" = "$(sh cores/fceumm/build.sh stamp {{.FCEUMM_COMMIT}} device)"
     cmds:
       - >-
-        FCEUMM_BUILDER="$(sh cores/fceumm/build.sh builder)" sh scripts/device-sh.sh
+        CORE_BUILDER="$(sh cores/fceumm/build.sh builder)" sh scripts/device-sh.sh
         'sh cores/fceumm/build.sh build {{.FCEUMM_COMMIT}} vendor/fceumm-src.tar.gz
         build/fceumm-device vendor/fceumm_libretro.so'
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/fceumm_libretro.so'
       - 'echo "built vendor/fceumm_libretro.so from vendor/fceumm-src.tar.gz @ {{.FCEUMM_COMMIT}}"'
+
+  core:device:snes9x:
+    desc: Build the aarch64 linux snes9x core into vendor/snes9x_libretro.so, in rust:1-bullseye via scripts/device-sh.sh
+    deps: [core:snes9x:src]
+    status:
+      - test -f vendor/snes9x_libretro.so
+      - test "$(cat vendor/snes9x-src.meta 2>/dev/null)" = "$(sh cores/snes9x/build.sh srcmeta {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz)"
+      - test "$(cat vendor/snes9x_libretro.so.meta 2>/dev/null)" = "$(sh cores/snes9x/build.sh stamp {{.SNES9X_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/snes9x/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/snes9x/build.sh build {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz
+        build/snes9x-device vendor/snes9x_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/snes9x_libretro.so'
+      - 'echo "built vendor/snes9x_libretro.so from vendor/snes9x-src.tar.gz @ {{.SNES9X_COMMIT}}"'
 
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
@@ -117,6 +154,7 @@ tasks:
       - test -f vendor/mgba_libretro.dylib
       - test -f vendor/gpsp_libretro.dylib
       - test -f vendor/fceumm_libretro.dylib
+      - test -f vendor/snes9x_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
@@ -185,6 +223,8 @@ tasks:
       - cores/**/*
       - vendor/fceumm_libretro.so*
       - vendor/fceumm-src.*
+      - vendor/snes9x_libretro.so*
+      - vendor/snes9x-src.*
       - scripts/dist-device.sh
       - scripts/device-sh.sh
       - scripts/fetch-task.sh
@@ -233,7 +273,7 @@ tasks:
         for f in "$sys"/licenses/*; do
           case "$f" in */slot-nes-snes-src-*) ;; *) adb push "$f" '{{.SD}}/System/licenses/' ;; esac
         done
-      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so && sync'
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so && sync'
       - adb reboot
       - adb wait-for-device
       - 'echo "deployed to {{.SD}}, device rebooting"'

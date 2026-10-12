@@ -13,7 +13,7 @@ Every release must carry the snes9x licence and the GPL-3 corresponding-source t
 ## Scope
 - [ ] `.github/workflows/release.yml` on tag: needs both `test.yml` jobs; builds the zip and `slot-nes-snes-src-<tag>.tar.gz`; runs ship checks; creates a GitHub release with both assets.
 - [ ] Ship checks (also in `scripts/zip-check.sh`): `file | grep aarch64` for `slot` and all 6 cores; `test -x System/slot`; licence, `.meta` and patch files for every core; `System/licenses/slot-nes-snes-src-<tag>.tar.gz`; `System/licenses/snes9x-LICENSE.txt` and the snes9x2005 licence; `Games/NES` and `Games/SNES`.
-- [ ] Release notes: non-commercial snes9x notice; "do not report to slot's tracker"; install and update steps.
+- [ ] Release notes: non-commercial snes9x notice (use the "Notice text" quote in LICENSING.md, snes9x section); "do not report to slot's tracker"; install and update steps.
 - [ ] README known-gaps section: SNES loses the L/R picture toggle (SELECT+X instead); hi-res blended 2:1; no colour correction on NES/SNES; Turbo quick row is a no-op on SNES; PAL titles run about 20% fast; stem-keyed settings collide across systems; zip ROMs unsupported.
 
 ## Tests
