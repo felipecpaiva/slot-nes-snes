@@ -379,6 +379,10 @@ Acceptance:
 - the zip installs on a clean SD card;
 - the device gate passes on all 11 titles.
 
+### Cross-platform performance evaluation (Phase 5, after all implementation)
+
+One platform experience: every platform and core (GBA on mGBA and gpSP, GB, GBC, NES on fceumm and nestopia, SNES on snes9x and snes9x2005_plus) is measured on the RG35XXSP against unpatched slot playing GBA on mGBA, in the same session. Metrics: boot and insert to first frame, frame time median and p99, audio underruns, fast-forward speed, rewind cost, save and load state time, shelf and menu frame time, input latency. Results in `docs/PERFORMANCE.md`; every miss gets a follow-up issue. Tracked in `.github/issues/39-cross-platform-performance.md` (GitHub #45). Added at the maintainer's request on 2026-10-12.
+
 ### Phase 6+: deferred (non-blocking)
 
 - Famicom Disk System variant and core support (needs a BIOS and a different save model).
@@ -623,6 +627,8 @@ Rules:
 | T13 | 1 | `scripts/zip-check.sh` | Local zip | One top folder; aarch64 ELF for slot and cores; licences and source tarball present |
 | T14 | 1 | `slot/tests/nes_mock.rs` | NES cart with fceumm missing (no `SLOT_REQUIRE_CORES`) | `MockCore::sized` 360x240; no panic; upload accepted |
 | T45 | 1 | harness leg H3 | NES, eject, GBA in the patched tree | Hashes equal to H1 |
+| T46 | 5 | `scripts/perf-eval.sh` | every platform and core on the RG35XXSP against the GBA baseline | full table for all 8 pairs, no missing run |
+| T47 | 5 | `docs/PERFORMANCE.md` | thresholds against the GBA baseline | every pair within threshold or a linked follow-up issue |
 | T15 | 2 | `slot-store/tests/snes_header.rs` | LoROM/HiROM, with and without copier header, plus a JIS X 0201 title | Title parsed in the 4 ASCII cases; non-ASCII and garbage fall back to the stem |
 | T16 | 2 | `slot-retro/tests/snes_turbo.rs` | `apply(PassThrough, f)` / `apply(Turbo, f)` | X/Y kept; Turbo equals upstream `turbo(f)` |
 | T17 | 2 | `slot/tests/snes_shoulders.rs` | `taken_buttons()` playing | GBA `[]`, GB `[L1, R1]`, Nes `[L1, R1]`, Snes `[]` |
