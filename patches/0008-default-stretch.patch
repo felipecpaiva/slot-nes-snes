@@ -1,0 +1,192 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 22:27:41 +0400
+Subject: [PATCH] default-stretch
+
+---
+ crates/slot/src/lib.rs              |  1 +
+ crates/slot/src/platform_video.rs   | 19 ++++++++++
+ crates/slot/src/session.rs          |  4 ++-
+ crates/slot/tests/nes_video_mode.rs | 56 +++++++++++++++++++++++++++++
+ crates/slot/tests/snes_select.rs    | 29 ++++++++++-----
+ 5 files changed, 99 insertions(+), 10 deletions(-)
+ create mode 100644 crates/slot/src/platform_video.rs
+ create mode 100644 crates/slot/tests/nes_video_mode.rs
+
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index a6e3365..fa357ba 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -27,6 +27,7 @@ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
+ pub mod persist;
++pub mod platform_video;
+ pub mod prefetch;
+ pub mod resample;
+ pub mod rewind;
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+new file mode 100644
+index 0000000..c1a80d4
+--- /dev/null
++++ b/crates/slot/src/platform_video.rs
+@@ -0,0 +1,19 @@
++use std::path::Path;
++
++use slot_store::{ini, Platform};
++
++use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
++
++pub fn default_video_mode(platform: Platform) -> VideoMode {
++    match platform {
++        Platform::Gba | Platform::Gb | Platform::Gbc => VideoMode::Actual,
++        Platform::Nes | Platform::Snes => VideoMode::Stretch,
++    }
++}
++
++pub fn video_mode_for(root: &Path, stem: &str, platform: Platform) -> VideoMode {
++    ini::value(root, VIDEO_MODE_FILE, stem)
++        .as_deref()
++        .and_then(VideoMode::parse)
++        .unwrap_or_else(|| default_video_mode(platform))
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 7c29799..c98e7d5 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -440,7 +440,9 @@ impl Session {
+         self.app.set_core(core);
+         self.app.set_platform(platform);
+         self.app
+-            .set_video_mode(crate::video_mode::video_mode_for(&self.root, stem));
++            .set_video_mode(crate::platform_video::video_mode_for(
++                &self.root, stem, platform,
++            ));
+         self.app.set_link_loaded(serial);
+         let resume = (!self.app.starting_clean())
+             .then(|| persist::read_resume(&self.root, platform, core, stem))
+diff --git a/crates/slot/tests/nes_video_mode.rs b/crates/slot/tests/nes_video_mode.rs
+new file mode 100644
+index 0000000..eadf7be
+--- /dev/null
++++ b/crates/slot/tests/nes_video_mode.rs
+@@ -0,0 +1,56 @@
++mod common;
++mod input_common;
++
++use input_common::playing;
++use slot::platform_video::video_mode_for;
++use slot::video_mode::{VideoMode, VIDEO_MODE_FILE};
++use slot_store::Platform;
++use tempfile::TempDir;
++
++const STEM: &str = "Zzz";
++
++fn root_with_line(line: Option<&str>) -> TempDir {
++    let d = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir(d.path().join("Config")).expect("config dir");
++    if let Some(line) = line {
++        std::fs::write(d.path().join(VIDEO_MODE_FILE), format!("{STEM}={line}\n"))
++            .expect("write video_mode.txt");
++    }
++    d
++}
++
++fn mode(line: Option<&str>, platform: Platform) -> VideoMode {
++    let d = root_with_line(line);
++    video_mode_for(d.path(), STEM, platform)
++}
++
++#[test]
++fn nes_and_snes_with_no_saved_line_read_stretch() {
++    assert_eq!(mode(None, Platform::Nes), VideoMode::Stretch);
++    assert_eq!(mode(None, Platform::Snes), VideoMode::Stretch);
++}
++
++#[test]
++fn a_saved_actual_line_wins_on_nes_and_snes() {
++    assert_eq!(mode(Some("actual"), Platform::Nes), VideoMode::Actual);
++    assert_eq!(mode(Some("actual"), Platform::Snes), VideoMode::Actual);
++}
++
++#[test]
++fn gba_gb_and_gbc_with_no_saved_line_read_actual() {
++    assert_eq!(mode(None, Platform::Gba), VideoMode::Actual);
++    assert_eq!(mode(None, Platform::Gb), VideoMode::Actual);
++    assert_eq!(mode(None, Platform::Gbc), VideoMode::Actual);
++}
++
++#[test]
++fn an_unparseable_line_on_nes_falls_back_to_stretch() {
++    assert_eq!(mode(Some("wide"), Platform::Nes), VideoMode::Stretch);
++}
++
++#[test]
++fn a_never_played_nes_cart_seats_in_stretch_and_writes_nothing() {
++    let (root, session) = playing(Platform::Nes, STEM);
++    assert_ne!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert!(!root.path().join(VIDEO_MODE_FILE).exists());
++}
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 37ff520..a3028dd 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -69,8 +69,8 @@ impl Rig {
+         read_slot_state(self.root.path()).colour_correction
+     }
+ 
+-    fn picture(&self) -> slot::video_mode::VideoMode {
+-        slot::video_mode::video_mode_for(self.root.path(), STEM)
++    fn picture(&self, platform: Platform) -> slot::video_mode::VideoMode {
++        slot::platform_video::video_mode_for(self.root.path(), STEM, platform)
+     }
+ 
+     fn states(&self, platform: Platform, core: Core) -> usize {
+@@ -199,13 +199,19 @@ fn select_and_y_still_flip_colour_correction_on_a_gba_cart() {
+ #[test]
+ fn select_and_x_on_snes_never_sends_x_and_toggles_the_picture_mode_both_ways() {
+     let mut r = rig(Platform::Snes);
+-    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    r.chord(Btn::X);
+     assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    assert_eq!(r.picture(), slot::video_mode::VideoMode::Stretch);
+     r.chord(Btn::X);
+     assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    assert_eq!(r.picture(), slot::video_mode::VideoMode::Actual);
++    assert_eq!(
++        r.picture(Platform::Snes),
++        slot::video_mode::VideoMode::Actual
++    );
++    r.chord(Btn::X);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(
++        r.picture(Platform::Snes),
++        slot::video_mode::VideoMode::Stretch
++    );
+     assert_eq!(r.ever & ButtonMask::X, 0, "X was sent to the game");
+ }
+ 
+@@ -214,15 +220,20 @@ fn l1_and_r1_do_not_change_the_snes_picture_mode() {
+     let mut r = rig(Platform::Snes);
+     r.press(Btn::L1);
+     r.release(Btn::L1);
+-    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    r.press(Btn::R1);
++    r.release(Btn::R1);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+ }
+ 
+ #[test]
+ fn select_and_x_on_nes_leave_the_picture_alone_and_x_goes_down() {
+     let mut r = rig(Platform::Nes);
+     r.chord(Btn::X);
+-    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    assert_eq!(r.picture(), slot::video_mode::VideoMode::Actual);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(
++        r.picture(Platform::Nes),
++        slot::video_mode::VideoMode::Stretch
++    );
+     assert_eq!(r.ever & ButtonMask::X, ButtonMask::X);
+ }
+ 
