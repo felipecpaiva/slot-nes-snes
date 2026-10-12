@@ -12,6 +12,7 @@ NES carts must open fceumm by default without growing `Core::ALL`, which upstrea
 
 ## Scope
 `patches/0003-core-fceumm.patch`:
+- [ ] `Core::runs`: replace upstream's `Core::Mgba => true` with an exhaustive `match platform` (Mgba runs Gba, Gb, Gbc only). This arm can never cause a compile error on a new platform, so it must be changed here by hand; T6 proves a `Mario = mgba` line is dropped for a NES cart.
 - [ ] `slot: crates/slot-store/src/core.rs`: append `Core::Fceumm`; `as_str` = `fceumm` (dylib stem); `text` "FCEUmm"; `parse`, `runs`, `default_for(Nes) = Fceumm` arms (`:44-55`).
 - [ ] New file `crates/slot-store/src/core_policy.rs`: `Core::EVERY`, `option_prefix()`, `has_colour_correction()` (false for Fceumm).
 - [ ] `core_for_platform(root, stem, platform)`: a `selected_core.txt` line naming a core that does not run the platform is dropped.

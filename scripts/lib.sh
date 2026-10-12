@@ -11,3 +11,10 @@ read_pin() {
 	: "${commit:?SLOT_PIN lacks commit}"
 	: "${tarball_sha256:?SLOT_PIN lacks tarball_sha256}"
 }
+
+same_identity() {
+	for key in user.name user.email; do
+		value="$(git -C "$2" config "$key" || true)"
+		[ -z "$value" ] || git -C "$1" config "$key" "$value"
+	done
+}

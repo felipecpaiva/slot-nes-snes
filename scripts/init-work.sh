@@ -28,6 +28,7 @@ init() {
 		GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" \
 		git -C "$work" -c commit.gpgsign=false commit -q -m "slot $tag ($short)"
 	git -C "$work" tag "slot-$tag"
+	same_identity "$work" "$root"
 	git -C "$work" log --oneline -1 nes-snes
 }
 

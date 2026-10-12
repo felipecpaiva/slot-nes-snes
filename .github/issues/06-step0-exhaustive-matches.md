@@ -38,7 +38,7 @@ T1 and the harness compare must stay green with this patch applied. No upstream 
 - [ ] `task check` green; `upstream test code: 0 blocks changed`.
 - [ ] GBA harness compare 0 diffs (H1, H2).
 - [ ] No `_ =>` arm left on `Platform` in the touched functions.
-- [ ] `app.rs` hunks are one token each.
+- [ ] `app.rs` hunks are one token or one expression each (6 changed lines).
 
 ## Device check (RG35XXSP)
 None, behaviour-identical refactor. The phase device check is in 01-phase-1-nes-boots.
