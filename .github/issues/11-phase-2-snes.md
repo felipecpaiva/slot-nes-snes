@@ -16,6 +16,7 @@ Child issues, in merge order:
 - [ ] 13-snes9x-core-build
 - [ ] 14-libretro-env-and-hires
 - [ ] 15-snes-input
+- [ ] 43-nes-snes-default-stretch
 - [ ] 16-frontend-cost-eval
 - [ ] 17-device-gate-log
 
