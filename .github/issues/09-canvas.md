@@ -53,8 +53,8 @@ Upstream tests stay unmodified, in particular the in-source `host_with()` at `sl
 - [x] Failure injection: add a field to `Host` in `work/slot` and run `task check`; it fails to compile in `host_with()`. Done in `build/slot` (`cargo test -p slot-retro --no-run`): `error[E0063]: missing field `injected` in initializer of `libretro::Host`` at `libretro.rs:742`, the in-source `host_with()`, and at `:494`.
 - [ ] Host smoke (needs a person at the screen, explained): `task run:4x3` shows a NES picture inside the bezel window. Needs a person at the screen; the new test `crates/slot/tests/nes_window.rs` renders it headless with real fceumm: in a 640x480 window with a bezel the lit picture is 456x427 from row 0 (box x 92 to 547, y 0 to 426), in 720x480 it is 511x480 centred (x 105 to 615). With the canvas set to 384x240 both fail (widths 426 and 478).
 
-## Device check (RG35XXSP)
-None separate. NES playing inside the 640x427 window is part of the phase device check in 01-phase-1-nes-boots.
+## Device check (RG34XXSP)
+None separate. On the RG34XXSP (720x480) NES shows full height at 2x, 512x480, centred with no bezel; this is part of the phase device check in 01-phase-1-nes-boots. On 4:3 devices (RG35XXSP) it shows in the 640x427 window above the bezel, covered by harness leg B1 and nes_window.rs.
 
 ## Review notes
 - Gotcha 4 (`Host` cannot grow): any new field breaks `host_with()`. New state goes only in `HostExtra`; `Active::bind`'s signature is unchanged.

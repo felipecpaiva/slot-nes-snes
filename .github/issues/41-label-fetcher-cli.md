@@ -41,7 +41,7 @@ Carts must show the real physical cartridge label, never a screenshot (maintaine
 - [ ] T49 passes offline on macOS and Linux with no third-party packages.
 - [ ] Nothing from Nintendo committed.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 After running the script on the card: every matched NES and SNES cart shows its real label on the right cart shape.
 
 ## Review notes

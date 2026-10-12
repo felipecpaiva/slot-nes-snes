@@ -37,7 +37,7 @@ Phase 5 / v1 ships when:
 
 Post-release signals (tracked, not blocking): 0 new files in `crash/` on the SD card after a week of use; 0 issues labelled `gba-regression`. Adoption success is declared when two consecutive slot releases are each rebased in one session with zero GBA regressions reported.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 1. Download the release zip from GitHub (not a local build).
 2. Clean install: unzip, copy the top folder's contents to a freshly formatted SD root, boot.
 3. Play each of the 11 gate titles for 10 minutes; record fps, underruns and governor in `docs/DEVICE-GATE.md`.

@@ -33,10 +33,10 @@ Carts must show the real physical cartridge label, never a screenshot, so the sh
 
 ## Acceptance
 - [ ] Owner's choice recorded.
-- [ ] NES and SNES labels and shells written by Studio (or the fork) for the sample card, and shown correctly on the RG35XXSP.
+- [ ] NES and SNES labels and shells written by Studio (or the fork) for the sample card, and shown correctly on the RG34XXSP.
 - [ ] Nothing from Nintendo committed to any of our repos.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 Insert the sample card, check every cart on the NES and SNES shelves shows its real label on the right cart shape.
 
 ## Review notes

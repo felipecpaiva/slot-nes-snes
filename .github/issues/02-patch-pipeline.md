@@ -39,7 +39,7 @@ No upstream test file is touched.
 - [ ] Failure injection: corrupt one byte of a patch (for example `patches/0004-canvas.patch` once it exists) and run `task build`; it stops naming that patch and exits non-zero.
 - [ ] `task patches:check` reports no tree difference.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, infra only. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

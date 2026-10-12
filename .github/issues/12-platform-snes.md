@@ -46,7 +46,7 @@ SNES gets its own shelf and folders, and carts are titled from the internal head
 - `option_prefix` "snes9x" confirmed from libretro/snes9x master `fae2fea0` (`libretro_core_options.h` keys `snes9x_region`, `snes9x_overscan`, and so on). That file declares no frameskip key, so the existing "declares no frameskip option" log line will print for snes9x. Issue 13 pins the commit.
 - Every new test was shown red under a throwaway mutation (22 mutations across `snes_header`, `snes_platform`, `snes_core`, `snes_rom` and the `snes.rs` in-source tests).
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own. The phase device check is in 11-phase-2-snes.
 
 ## Review notes

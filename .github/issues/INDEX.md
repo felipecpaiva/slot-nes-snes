@@ -4,7 +4,7 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 
 | NN | title | phase | area | type | size | depends_on |
 |---|---|---|---|---|---|---|
-| [01](01-phase-1-nes-boots.md) | Phase 1: NES boots on the RG35XXSP from a release-shaped zip | 1 | device | tracking | L | none |
+| [01](01-phase-1-nes-boots.md) | Phase 1: NES boots on the RG34XXSP from a release-shaped zip | 1 | device | tracking | L | none |
 | [02](02-patch-pipeline.md) | Pin slot v1.6.0 and build both trees from the patch set | 1 | infra | chore | M | none |
 | [03](03-task-check-and-upstream-guard.md) | Add task check with shared host cores and the upstream-test-unmodified guard | 1 | tests | test | M | 02-patch-pipeline |
 | [04](04-fceumm-core-build.md) | Build fceumm for host and device from a pinned commit and record its licence | 1 | cores | feature | M | 02-patch-pipeline |
@@ -20,7 +20,7 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [14](14-libretro-env-and-hires.md) | Patch 0006: Answer SET_GEOMETRY, SET_SYSTEM_AV_INFO and GET_AUDIO_VIDEO_ENABLE, and enable the hi-res blend | 2 | cores | feature | M | 12-platform-snes, 13-snes9x-core-build |
 | [15](15-snes-input.md) | Patch 0007: Pass SNES X/Y/L/R to the game, add SELECT+X picture mode and guard SELECT+Y | 2 | input | feature | M | 14-libretro-env-and-hires |
 | [16](16-frontend-cost-eval.md) | Add eval-frontend-cost.sh and hold NES/SNES frontend cost inside the GBA budget | 2 | tests | test | S | 14-libretro-env-and-hires |
-| [17](17-device-gate-log.md) | Create docs/DEVICE-GATE.md and the RG35XXSP measurement routine | 2 | device | chore | S | 10-dist-zip-deploy, 15-snes-input |
+| [17](17-device-gate-log.md) | Create docs/DEVICE-GATE.md and the RG34XXSP measurement routine | 2 | device | chore | S | 10-dist-zip-deploy, 15-snes-input |
 | [18](18-phase-3-parity.md) | Phase 3: full NES/SNES parity | 3 | device | tracking | L | 11-phase-2-snes |
 | [19](19-alt-cores-build.md) | Build nestopia and snes9x2005_plus for host and device and record their licences | 3 | cores | feature | M | 04-fceumm-core-build |
 | [20](20-core-picker-pairs.md) | Patch 0008: Make the core picker pair-relative and add Core::Nestopia and Core::Snes9x2005Plus | 3 | cores | feature | M | 15-snes-input, 19-alt-cores-build |

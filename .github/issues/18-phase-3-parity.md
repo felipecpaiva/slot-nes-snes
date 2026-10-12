@@ -38,7 +38,7 @@ Phase 3 ships when:
 - [ ] Gate numbers recorded in `docs/DEVICE-GATE.md`.
 - [ ] Host smoke: `task run:4x3` on NES and SNES.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 1. The picker swaps fceumm and nestopia, and snes9x and snes9x2005_plus, with the correct socket names; the choice survives a reboot.
 2. Rewind (L2) and FF (R2) on Super Mario RPG with zero underruns in `SLOT_TRACE`.
 3. Shaders cycle with SELECT+B/A on NES and SNES.

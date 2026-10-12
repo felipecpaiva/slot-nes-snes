@@ -1,4 +1,4 @@
-# slot NES/SNES: patch set over pinned slot v1.6.0, phased build plan (RG35XXSP reference)
+# slot NES/SNES: patch set over pinned slot v1.6.0, phased build plan (RG34XXSP reference)
 
 ## Plan changelog
 
@@ -45,7 +45,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
   - real NES/Famicom and SNES/Super Famicom cart shapes with colour and finish variants.
 
   It ships as `patches/*.patch` over a pinned slot commit, built into `slot-nes-snes-vX-h700.zip` laid out exactly like slot's release zip. A GPL-3 corresponding-source tarball goes with every release.
-- **Who it's for:** slot users on Anbernic H700 handhelds who want NES and SNES with slot's feel. The reference and test device is the user's RG35XXSP.
+- **Who it's for:** slot users on Anbernic H700 handhelds who want NES and SNES with slot's feel. The reference and test device is the user's RG34XXSP.
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
@@ -55,7 +55,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.6.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
   2. **Every parity row works on NES and SNES:** carousel, letter jump, cart art and labels, core picker, insert and eject, resume on boot, saves and autosave, save states and polaroids, rewind, fast-forward, turbo, shaders, video mode, quick menu, settings, volume, sleep and lid-close save.
   3. **Frontend cost stays inside the GBA budget.** Pixel conversion, publish and upload per frame on NES/SNES stay within the GBA budget measured on the same host.
-  4. **Manual device gate on the RG35XXSP:** full speed and zero audio underruns, read from `SLOT_TRACE`/`slot.log` over 10 minutes of play each. The ROMs are dumps the user owns and are never committed.
+  4. **Manual device gate on the RG34XXSP:** full speed and zero audio underruns, read from `SLOT_TRACE`/`slot.log` over 10 minutes of play each. The ROMs are dumps the user owns and are never committed.
      - SNES: Star Fox, Yoshi's Island, Kirby Super Star, Super Mario RPG, Seiken Densetsu 3.
      - NES: Super Mario Bros. 3 (MMC3), Kirby's Adventure (MMC3, heavy scenes), Castlevania III (MMC5), Akumajou Densetsu (VRC6 expansion audio), Mega Man 2 (MMC1), Battletoads (AxROM, timing-sensitive).
   5. **Install and update work like slot.** A user installs by unzipping, copying the top folder's contents to the SD root and booting. An update deletes `System/` and copies the new one, and `Config/` survives.
@@ -79,7 +79,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
   - `core_bench` GBA frame cost within 2%;
   - NES/SNES frontend cost at or below the GBA budget;
   - the parity checklist 100% green through T1 to T47.
-- **Critic:** a separate reviewer who runs the real build (`task check` on macOS) and the blind compare. Cart art is judged against reference photos of real carts, side by side with labels stripped. The device gate is manual (the user on the RG35XXSP), not the critic's call.
+- **Critic:** a separate reviewer who runs the real build (`task check` on macOS) and the blind compare. Cart art is judged against reference photos of real carts, side by side with labels stripped. The device gate is manual (the user on the RG34XXSP), not the critic's call.
 - **Bar fetch method:** `task upstream:build` builds `build/slot-upstream` from the pinned tarball with no patches. The critic diffs `harness/frame_dump` output from both trees (both linked to the same `vendor/`) and runs the upstream suite on the patched tree. Cart reference images live in `docs/cart-art/refs/` with source URLs. Gauntlet prompt: `docs/gauntlet-prompt.md`.
 
 ## Approach
@@ -190,7 +190,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 
 ## Phased rollout
 
-### Phase 1: NES boots on the RG35XXSP from a release-shaped zip (blocking)
+### Phase 1: NES boots on the RG34XXSP from a release-shaped zip (blocking)
 
 Smallest end-to-end slice: patch infra, `Platform::Nes`, fceumm, the 2x canvas, the Step-0 fixes and the GBA-unchanged harness. `Platform::Snes` does not exist until Phase 2.
 
@@ -252,7 +252,7 @@ Acceptance:
 - `bench:compare` within 2%;
 - device check passes.
 
-Device check (RG35XXSP):
+Device check (RG34XXSP):
 - unzip, copy to the SD root, boot;
 - the NES shelf appears after GBC;
 - Super Mario Bros. 3 and Mega Man 2 (user-owned dumps) are playable at full speed, save on eject and resume on reboot;
@@ -375,7 +375,7 @@ Deliverables:
 - [ ] `scripts/rebase.sh NEW_TAG`: fetch, `git rebase --onto` in `work/slot`, re-export, `task check`, update `SLOT_PIN`.
 - [ ] `docs/REBASE.md`: re-apply, full suite, harness against the new upstream, device smoke, bump the pin, tag `vNEW-ns.1`.
 - [ ] `task diffsurface`: per-file changed lines over upstream files. Target: `app.rs` at 25 lines or fewer (pair loop included).
-- [ ] Final device gate on the RG35XXSP, using the zip downloaded from GitHub.
+- [ ] Final device gate on the RG34XXSP, using the zip downloaded from GitHub.
 - [ ] New tests T41 to T44.
 
 Acceptance:
@@ -385,7 +385,7 @@ Acceptance:
 
 ### Cross-platform performance evaluation (Phase 5, after all implementation)
 
-One platform experience: every platform and core (GBA on mGBA and gpSP, GB, GBC, NES on fceumm and nestopia, SNES on snes9x and snes9x2005_plus) is measured on the RG35XXSP against unpatched slot playing GBA on mGBA, in the same session. Metrics: boot and insert to first frame, frame time median and p99, audio underruns, fast-forward speed, rewind cost, save and load state time, shelf and menu frame time, input latency. Results in `docs/PERFORMANCE.md`; every miss gets a follow-up issue. Tracked in `.github/issues/39-cross-platform-performance.md` (GitHub #45). Added at the maintainer's request on 2026-10-12.
+One platform experience: every platform and core (GBA on mGBA and gpSP, GB, GBC, NES on fceumm and nestopia, SNES on snes9x and snes9x2005_plus) is measured on the RG34XXSP against unpatched slot playing GBA on mGBA, in the same session. Metrics: boot and insert to first frame, frame time median and p99, audio underruns, fast-forward speed, rewind cost, save and load state time, shelf and menu frame time, input latency. Results in `docs/PERFORMANCE.md`; every miss gets a follow-up issue. Tracked in `.github/issues/39-cross-platform-performance.md` (GitHub #45). Added at the maintainer's request on 2026-10-12.
 
 ### Phase 6+: deferred (non-blocking)
 
@@ -487,7 +487,7 @@ One platform experience: every platform and core (GBA on mGBA and gpSP, GB, GBC,
 | `./.github/workflows/test.yml` | macOS host job (required) + Linux arm device job | 3 to 4 KB |
 | `./.github/workflows/release.yml` | Tag build, ship checks, zip + source tarball, gh release | 4 KB |
 | `./docs/REBASE.md` | Rebase procedure and log | 2 KB |
-| `./docs/DEVICE-GATE.md` | RG35XXSP checklist and per-title results | 2 KB |
+| `./docs/DEVICE-GATE.md` | RG34XXSP checklist and per-title results | 2 KB |
 | `./docs/cart-art/VARIANTS.md` + `refs/` | Verified variant and colour research with sources | 5 KB + images |
 | `./evals/{eval-frontend-cost,eval-cart-likeness,eval-colour-sources}.sh` | Qualitative evals | 1 to 2 KB each |
 
@@ -575,7 +575,7 @@ Failure-injection checks:
 - [ ] Signature table covers RetroCore, GamePass, Compositor, Host, ButtonMask, CorePicker::open, SlotState.
 - [ ] Existing-test inventory lists pinning tests, in-source test modules and silent-skip tests.
 - [ ] AC-to-code coverage maps every parity row to a code site and a test ID.
-- [ ] Every phase has checkbox deliverables, named tests, an acceptance gate and an RG35XXSP check.
+- [ ] Every phase has checkbox deliverables, named tests, an acceptance gate and an RG34XXSP check.
 - [ ] `## Gotchas` present.
 - [ ] Bezel recorded as decided.
 - [ ] Phase 4 starts with research and forbids uncited colours.
@@ -587,7 +587,7 @@ Failure-injection checks:
 
 | Signal | Source | Target threshold |
 |---|---|---|
-| Audio underruns per 10-minute session on gate titles | `SLOT_TRACE` in `slot.log` / `slot-session.log` on the RG35XXSP | 0 on all 11 titles |
+| Audio underruns per 10-minute session on gate titles | `SLOT_TRACE` in `slot.log` / `slot-session.log` on the RG34XXSP | 0 on all 11 titles |
 | Frame pacing | `SLOT_TRACE_LATENCY` (`System/trace-latency.on`) | p99 under 16.7 ms per title |
 | Crash rate | `crash/` on the SD card after a week of use | 0 new files |
 | Rebase cost | `scripts/rebase.sh` output plus a `docs/REBASE.md` row | Each slot release rebased in 1 session; conflicts only in `app.rs`/`frontend.rs` |
@@ -631,7 +631,7 @@ Rules:
 | T13 | 1 | `scripts/zip-check.sh` | Local zip | One top folder; aarch64 ELF for slot and cores; licences and source tarball present |
 | T14 | 1 | `slot/tests/nes_mock.rs` | NES cart with fceumm missing (no `SLOT_REQUIRE_CORES`) | `MockCore::sized` 360x240; no panic; upload accepted |
 | T45 | 1 | harness leg H3 | NES, eject, GBA in the patched tree | Hashes equal to H1 |
-| T46 | 5 | `scripts/perf-eval.sh` | every platform and core on the RG35XXSP against the GBA baseline | full table for all 8 pairs, no missing run |
+| T46 | 5 | `scripts/perf-eval.sh` | every platform and core on the RG34XXSP against the GBA baseline | full table for all 8 pairs, no missing run |
 | T47 | 5 | `docs/PERFORMANCE.md` | thresholds against the GBA baseline | every pair within threshold or a linked follow-up issue |
 | T48 | 4 | Cart Studio NES/SNES (PR or fork) | sample card with NES, Famicom, SNES, Super Famicom ROMs | labels sized per variant, valid cart_shell.txt lines, preview matches slot |
 | T49 | 4 | `tools/tests/test_fetch_labels.py` | offline fixtures for the label fetcher | CRC rules, label sizes, cart_shell.txt grammar, network failures |
@@ -669,11 +669,11 @@ Rules:
 
 ### Manual smoke tests
 
-- **RG35XXSP Phase 1:** NES boot, save and resume; GBA plays.
-- **RG35XXSP Phase 2:** SNES X/Y/L/R/SELECT and the SELECT+X/Y chords; first pass over the gate titles.
-- **RG35XXSP Phase 3:** picker socket names and swaps; rewind; FF; shaders; lid close; sleep; volume; all 11 titles.
-- **RG35XXSP Phase 4:** variant carts, animations, shadows.
-- **RG35XXSP Phase 5:** clean install from the GitHub zip; update by replacing `System/` with `Config/` preserved.
+- **RG34XXSP Phase 1:** NES boot, save and resume; GBA plays.
+- **RG34XXSP Phase 2:** SNES X/Y/L/R/SELECT and the SELECT+X/Y chords; first pass over the gate titles.
+- **RG34XXSP Phase 3:** picker socket names and swaps; rewind; FF; shaders; lid close; sleep; volume; all 11 titles.
+- **RG34XXSP Phase 4:** variant carts, animations, shadows.
+- **RG34XXSP Phase 5:** clean install from the GitHub zip; update by replacing `System/` with `Config/` preserved.
 - **Host:** `task run:4x3` (`SLOT_WINDOW=1280x960`) each phase, to exercise the RG35XXSP bezel path.
 
 ## AC-to-code coverage stub
@@ -748,7 +748,7 @@ Rules:
 
 ### Acceptance gates
 
-- **Phase 1 ships when:** T1 to T14 and T45 are green under `SLOT_REQUIRE_CORES=1` on macOS; upstream test code is unmodified; control and compare show 0 diffs; bench is within 2%; fceumm's licence gate is recorded; and a NES game boots, saves and resumes on the RG35XXSP from the zip.
+- **Phase 1 ships when:** T1 to T14 and T45 are green under `SLOT_REQUIRE_CORES=1` on macOS; upstream test code is unmodified; control and compare show 0 diffs; bench is within 2%; fceumm's licence gate is recorded; and a NES game boots, saves and resumes on the RG34XXSP from the zip.
 - **Phase 2 ships when:** T1 to T22b are green; `eval-frontend-cost.sh` passes for SNES; and the SNES buttons and chords are verified on device.
 - **Phase 3 ships when:** T1 to T33 are green; the AC table is fully ticked; nestopia's licence gate is recorded; all 6 cores open on device; and the gate numbers are recorded.
 - **Phase 4 ships when:** T34 to T40 are green and both cart evals pass.

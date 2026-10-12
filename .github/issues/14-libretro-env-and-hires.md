@@ -38,7 +38,7 @@ Upstream tests stay unmodified, in particular the in-source libretro tests and `
 - [ ] GBA harness compare 0 diffs (H1, H2); H3 equals H1.
 - [ ] Only one line added to `libretro.rs` for the test module.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own. The phase device check is in 11-phase-2-snes.
 
 ## Review notes

@@ -32,7 +32,7 @@ No upstream test file is touched.
 - [ ] `task diffsurface` prints per-file counts; `app.rs` at 25 lines or fewer.
 - [ ] `docs/REBASE.md` has the procedure and an empty log table.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, tooling only. Device smoke after a real rebase is a step in `docs/REBASE.md`.
 
 ## Review notes

@@ -29,7 +29,7 @@ Items the plan explicitly defers past v1 (docs/PLAN.md "Phase 6+: deferred (non-
 ## Acceptance
 - [ ] Each child is either closed as won't-do with a reason, or re-planned into a new phase with its own tests.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, nothing ships from this phase.
 
 ## Review notes

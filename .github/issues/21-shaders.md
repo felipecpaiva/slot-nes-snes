@@ -34,7 +34,7 @@ Upstream tests stay unmodified, in particular every `SlotState {` literal under 
 - [ ] GBA harness compare 0 diffs (H1, H2): `slot.state` bytes for a GBA-only session match upstream up to the appended lines.
 - [ ] `slot: crates/slot-store/src/slot_state.rs:130` `format!` line untouched.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Shader cycling is in the phase device check in 18-phase-3-parity.
 
 ## Review notes

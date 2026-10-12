@@ -37,7 +37,7 @@ No upstream test file is touched.
 - [ ] `fceumm_libretro.so` built through `device-sh.sh` is `ELF 64-bit ... aarch64`.
 - [ ] `LICENSING.md` records the verified fceumm licence and which files were checked.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, the core is loaded on device by the phase check in 01-phase-1-nes-boots.
 
 ## Review notes

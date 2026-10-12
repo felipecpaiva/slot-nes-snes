@@ -41,7 +41,7 @@ Users pick a cart variant per game in `cart_shell.txt`, and `auto` should pick t
 - [ ] GBA harness compare 0 diffs (H1, H2).
 - [ ] Round-trip result (kept or dropped) recorded in `VARIANTS.md`; README states where overrides belong.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Variant selection shows up in the phase device check in 24-phase-4-cart-art.
 
 ## Review notes

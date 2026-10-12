@@ -42,7 +42,7 @@ Upstream tests stay unmodified, in particular `slot-retro/tests/turbo.rs` and `s
 - [ ] GBA harness compare 0 diffs (H1, H2).
 - [ ] `app.rs` changes limited to the two guarded arms plus one-token hunks.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Button and chord checks are in the phase device check in 11-phase-2-snes.
 
 ## Review notes

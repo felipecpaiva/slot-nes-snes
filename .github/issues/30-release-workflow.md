@@ -34,7 +34,7 @@ No upstream test file is touched.
 - [ ] Failure injection: remove `licenses/snes9x-LICENSE.txt` and run `zip-check.sh`; it fails.
 - [ ] Release notes contain both notices.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. Installing the downloaded asset is in the phase device check in 28-phase-5-release.
 
 ## Review notes

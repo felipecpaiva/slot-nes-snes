@@ -43,7 +43,7 @@ Upstream slot-ui tests stay unmodified and green, including `slot: crates/slot-u
 - [ ] GBA harness compare 0 diffs (H1, H2); GB/GBA cart renders unchanged.
 - [ ] Binary assets survive `task patches:check`.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None separate. The mixed-shelf check is in the phase device check in 24-phase-4-cart-art.
 
 ## Review notes

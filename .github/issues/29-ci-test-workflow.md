@@ -32,7 +32,7 @@ No upstream test file is touched.
 - [ ] `host` job skip report lists only ROM-dependent upstream tests.
 - [ ] `host` is a required status check.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, CI only. The phase device check is in 28-phase-5-release.
 
 ## Review notes

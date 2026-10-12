@@ -31,7 +31,7 @@ No upstream test file is touched. If a LUT is added, the 65,536-input equality t
 - [ ] `evals/eval-frontend-cost.sh` passes for NES and SNES.
 - [ ] If a LUT lands: GBA harness compare 0 diffs including gpSP carts, and `bench:compare` within 2%.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, host measurement. Device speed is in the phase device check in 11-phase-2-snes.
 
 ## Review notes

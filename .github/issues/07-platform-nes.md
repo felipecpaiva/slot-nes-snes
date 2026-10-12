@@ -47,7 +47,7 @@ Upstream tests stay unmodified, in particular `slot: crates/slot-store/tests/pla
 - [x] `Platform::ALL.len() == 3` still.
 - [x] `app.rs` hunks are one token each: 8 changed lines for 0002, 14 total.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own; NES needs a core and the canvas to play. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

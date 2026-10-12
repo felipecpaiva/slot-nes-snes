@@ -37,7 +37,7 @@ Upstream tests stay unmodified, in particular `slot: crates/slot-store/tests/cor
 - [x] GBA harness compare 0 diffs (H1, H1G, H2, B1): mgba still gets `mgba_frameskip` exactly as upstream (32 mgba and gpsp option sets compared with upstream, identical); `core_bench` minimum of medians 99.0% to 100.0% of upstream.
 - [x] `Core::ALL.len() == 2` still.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None on its own. The phase device check is in 01-phase-1-nes-boots.
 
 ## Review notes

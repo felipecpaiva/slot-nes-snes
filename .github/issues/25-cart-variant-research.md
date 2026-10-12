@@ -35,7 +35,7 @@ No upstream test file is touched.
 - [ ] The SNES region byte offset is stated as verified, with the reference used.
 - [ ] One reference image per variant in `docs/cart-art/refs/`.
 
-## Device check (RG35XXSP)
+## Device check (RG34XXSP)
 None, research only.
 
 ## Review notes
