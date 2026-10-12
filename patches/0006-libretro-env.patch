@@ -4,23 +4,31 @@ Date: Mon, 12 Oct 2026 21:15:46 +0400
 Subject: [PATCH] libretro-env
 
 ---
- crates/slot-retro/src/canvas.rs             | 187 ++++++++++++++++++--
+ crates/slot-retro/src/canvas.rs             | 239 ++++++++++++++++++--
  crates/slot-retro/src/core.rs               |   3 +
  crates/slot-retro/src/libretro.rs           |  13 ++
- crates/slot-retro/src/libretro/env_tests.rs |  91 ++++++++++
- crates/slot/src/av_rate.rs                  |  35 ++++
- crates/slot/src/emu.rs                      |  10 +-
+ crates/slot-retro/src/libretro/env_tests.rs | 112 +++++++++
+ crates/slot/src/av_rate.rs                  |  56 +++++
+ crates/slot/src/emu.rs                      |  11 +-
  crates/slot/src/lib.rs                      |   1 +
- crates/slot/tests/nes_av.rs                 |  38 ++++
- crates/slot/tests/snes_emu.rs               | 137 ++++++++++++++
- 9 files changed, 494 insertions(+), 21 deletions(-)
+ crates/slot/tests/core_common/mod.rs        |  20 ++
+ crates/slot/tests/emu_av_change.rs          |  90 ++++++++
+ crates/slot/tests/nes_av.rs                 |  39 ++++
+ crates/slot/tests/nes_common/mod.rs         |  21 +-
+ crates/slot/tests/nes_emu.rs                |   1 +
+ crates/slot/tests/nes_fceumm.rs             |   1 +
+ crates/slot/tests/nes_window.rs             |   1 +
+ crates/slot/tests/snes_emu.rs               | 122 ++++++++++
+ 15 files changed, 688 insertions(+), 42 deletions(-)
  create mode 100644 crates/slot-retro/src/libretro/env_tests.rs
  create mode 100644 crates/slot/src/av_rate.rs
+ create mode 100644 crates/slot/tests/core_common/mod.rs
+ create mode 100644 crates/slot/tests/emu_av_change.rs
  create mode 100644 crates/slot/tests/nes_av.rs
  create mode 100644 crates/slot/tests/snes_emu.rs
 
 diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
-index c084120..62be427 100644
+index c084120..1412f1b 100644
 --- a/crates/slot-retro/src/canvas.rs
 +++ b/crates/slot-retro/src/canvas.rs
 @@ -1,21 +1,43 @@
@@ -68,7 +76,7 @@ index c084120..62be427 100644
  thread_local! {
      static EXTRA: Cell<*mut HostExtra> = const { Cell::new(ptr::null_mut()) };
  }
-@@ -41,6 +63,36 @@ pub fn bound_canvas() -> Option<(u32, u32)> {
+@@ -41,6 +63,39 @@ pub fn bound_canvas() -> Option<(u32, u32)> {
      unsafe { p.as_ref() }.map(|extra| extra.canvas)
  }
  
@@ -96,16 +104,19 @@ index c084120..62be427 100644
 +}
 +
 +pub unsafe fn av_enable_get(data: *mut c_int) -> bool {
-+    if data.is_null() {
-+        return false;
-+    }
-+    with_av(|e| *data = e.av_enable).is_some()
++    // A NULL data pointer is the spec's availability query: answer true without writing.
++    with_av(|e| {
++        if let Some(mask) = data.as_mut() {
++            *mask = e.av_enable;
++        }
++    })
++    .is_some()
 +}
 +
  pub fn bgrx_from_rgb565(p: u16) -> [u8; 4] {
      let r = ((p >> 11) & 0x1f) as u8;
      let g = ((p >> 5) & 0x3f) as u8;
-@@ -69,26 +121,52 @@ pub unsafe fn copy_centred(
+@@ -69,26 +124,53 @@ pub unsafe fn copy_centred(
          );
          return;
      }
@@ -159,15 +170,16 @@ index c084120..62be427 100644
 +                    }
 +                }
 +            }
++            let n = (step_x * step_y) as u32;
 +            for (o, total) in px.iter_mut().zip(sum) {
-+                *o = (total / (step_x * step_y) as u32) as u8;
++                *o = ((total + n / 2) / n) as u8;
              }
 -        } else {
 -            ptr::copy_nonoverlapping(from, out.as_mut_ptr(), cols * 4);
          }
      }
  }
-@@ -157,23 +235,97 @@ mod tests {
+@@ -157,23 +239,145 @@ mod tests {
      }
  
      #[test]
@@ -217,8 +229,8 @@ index c084120..62be427 100644
 +        };
 +        for y in 8..232 {
 +            assert_eq!(grey(&video, 51, y), [0; 3], "left border at row {y}");
-+            assert_eq!(grey(&video, 52, y), [127; 3], "first column at row {y}");
-+            assert_eq!(grey(&video, 307, y), [127; 3], "last column at row {y}");
++            assert_eq!(grey(&video, 52, y), [128; 3], "first column at row {y}");
++            assert_eq!(grey(&video, 307, y), [128; 3], "last column at row {y}");
 +            assert_eq!(grey(&video, 308, y), [0; 3], "right border at row {y}");
 +        }
 +        assert_eq!(grey(&video, 100, 7), [0; 3]);
@@ -249,10 +261,58 @@ index c084120..62be427 100644
 +            )
 +        };
 +        for (x, y) in [(52, 8), (307, 8), (52, 231), (307, 231), (180, 120)] {
-+            assert_eq!(grey(&video, x, y), [127; 3], "picture at {x},{y}");
++            assert_eq!(grey(&video, x, y), [128; 3], "picture at {x},{y}");
 +        }
 +        assert_eq!(grey(&video, 180, 7), [0; 3]);
 +        assert_eq!(grey(&video, 180, 232), [0; 3]);
++    }
++
++    fn grey_frame(w: usize, h: usize, f: impl Fn(usize) -> u8) -> Vec<u8> {
++        (0..w * h).flat_map(|i| [f(i / w); 4]).collect()
++    }
++
++    fn blend_to_canvas(frame: &[u8], w: usize, h: usize) -> Vec<u8> {
++        let mut video = vec![0u8; 360 * 240 * 4];
++        // SAFETY: frame holds h rows of w XRGB8888 pixels.
++        unsafe {
++            copy_centred(
++                &mut video,
++                (360, 240),
++                frame.as_ptr(),
++                (w as u32, h as u32),
++                w * 4,
++                false,
++            )
++        };
++        video
++    }
++
++    #[test]
++    fn a_256_by_448_frame_of_alternating_white_and_black_rows_blends_to_mid_grey() {
++        let frame = grey_frame(256, 448, |y| if y % 2 == 0 { 0xff } else { 0 });
++        let video = blend_to_canvas(&frame, 256, 448);
++        for (x, y) in [(52, 8), (307, 8), (180, 120), (52, 231), (307, 231)] {
++            assert_eq!(grey(&video, x, y), [128; 3], "picture at {x},{y}");
++        }
++        assert_eq!(grey(&video, 51, 120), [0; 3]);
++        assert_eq!(grey(&video, 180, 7), [0; 3]);
++        assert_eq!(grey(&video, 180, 232), [0; 3]);
++    }
++
++    #[test]
++    fn a_512_by_448_frame_whose_rows_differ_averages_the_row_pair_and_the_column_pair() {
++        let frame = grey_frame(512, 448, |y| if y % 2 == 0 { 200 } else { 100 });
++        let video = blend_to_canvas(&frame, 512, 448);
++        for (x, y) in [(52, 8), (307, 231), (180, 120)] {
++            assert_eq!(grey(&video, x, y), [150; 3], "picture at {x},{y}");
++        }
++    }
++
++    #[test]
++    fn a_blend_that_does_not_divide_evenly_rounds_to_the_nearest() {
++        let frame = grey_frame(256, 448, |y| if y % 2 == 0 { 101 } else { 100 });
++        let video = blend_to_canvas(&frame, 256, 448);
++        assert_eq!(grey(&video, 180, 120), [101; 3]);
 +    }
 +
 +    #[test]
@@ -263,14 +323,14 @@ index c084120..62be427 100644
 +        let mut video = vec![0u8; 360 * 240 * 4];
 +        // SAFETY: frame holds 1 row of 1024 bytes, 512 RGB565 pixels.
 +        unsafe { copy_centred(&mut video, (360, 240), frame.as_ptr(), (512, 1), 1024, true) };
-+        assert_eq!(grey(&video, 52, 119), [0, 0, 127]);
-+        assert_eq!(grey(&video, 307, 119), [0, 0, 127]);
++        assert_eq!(grey(&video, 52, 119), [0, 0, 128]);
++        assert_eq!(grey(&video, 307, 119), [0, 0, 128]);
 +    }
 +
      #[test]
      fn a_video_buffer_of_the_wrong_length_is_left_alone() {
          let frame = white(256, 240);
-@@ -195,7 +347,10 @@ mod tests {
+@@ -195,7 +399,10 @@ mod tests {
      #[test]
      fn the_canvas_is_bound_only_while_a_guard_lives() {
          assert_eq!(bound_canvas(), None);
@@ -340,10 +400,10 @@ index 8e89627..66f2b65 100644
 +mod env_tests;
 diff --git a/crates/slot-retro/src/libretro/env_tests.rs b/crates/slot-retro/src/libretro/env_tests.rs
 new file mode 100644
-index 0000000..209378f
+index 0000000..1a6c9bb
 --- /dev/null
 +++ b/crates/slot-retro/src/libretro/env_tests.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,112 @@
 +use super::*;
 +use crate::canvas::HostExtra;
 +
@@ -435,21 +495,48 @@ index 0000000..209378f
 +    extra.skip_video(false);
 +    assert_eq!(bound(&mut extra, av_enable), Some(3));
 +}
++
++fn av_enable_available() -> bool {
++    // SAFETY: GET_AUDIO_VIDEO_ENABLE with NULL data is the spec's availability query.
++    unsafe { environment(canvas::GET_AUDIO_VIDEO_ENABLE, ptr::null_mut()) }
++}
++
++#[test]
++fn audio_video_enable_with_null_data_is_answered_true_only_off_the_gba_canvas() {
++    let mut extra = snes_extra();
++    assert!(bound(&mut extra, av_enable_available));
++    assert!(!av_enable_available());
++    let mut gba = HostExtra::default();
++    assert!(!bound(&mut gba, av_enable_available));
++}
++
++#[test]
++fn the_env_command_numbers_are_the_libretro_ones() {
++    assert_eq!(canvas::SET_SYSTEM_AV_INFO, 32);
++    assert_eq!(canvas::SET_GEOMETRY, 37);
++    assert_eq!(canvas::GET_AUDIO_VIDEO_ENABLE, 47 | 0x10000);
++}
 diff --git a/crates/slot/src/av_rate.rs b/crates/slot/src/av_rate.rs
 new file mode 100644
-index 0000000..d74f1f3
+index 0000000..e89a74f
 --- /dev/null
 +++ b/crates/slot/src/av_rate.rs
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,56 @@
 +use std::time::Duration;
 +
 +use slot_retro::AvInfo;
 +
-+pub fn core_hz(av: AvInfo, present: Duration) -> f64 {
++use crate::resample::Resampler;
++
++fn core_hz(av: AvInfo, present: Duration) -> f64 {
 +    match av.fps {
 +        fps if fps > 0.0 => av.sample_rate / (fps * present.as_secs_f64()),
 +        _ => av.sample_rate,
 +    }
++}
++
++pub fn rebuilt_resampler(av: AvInfo, present: Duration, device_hz: f64) -> Resampler {
++    Resampler::new(core_hz(av, present), device_hz)
 +}
 +
 +#[cfg(test)]
@@ -475,12 +562,27 @@ index 0000000..d74f1f3
 +        };
 +        assert_eq!(core_hz(av, PRESENT), 32040.0);
 +    }
++
++    #[test]
++    fn a_rebuilt_resampler_turns_one_second_of_core_audio_into_device_rate_frames() {
++        let av = AvInfo {
++            fps: 50.0,
++            sample_rate: 32040.0,
++        };
++        let mut out = Vec::new();
++        rebuilt_resampler(av, PRESENT, 32768.0).process(&vec![0i16; 2 * 38448], &mut out);
++        assert!(
++            (out.len() / 2).abs_diff(32768) <= 2,
++            "{} frames",
++            out.len() / 2
++        );
++    }
 +}
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 8bdbfb3..fbc7d5e 100644
+index 8bdbfb3..a0a5358 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -9,6 +9,7 @@ use crate::cable::{self, Cable};
+@@ -9,11 +9,11 @@ use crate::cable::{self, Cable};
  use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
  
  use crate::audio::Ring;
@@ -488,7 +590,12 @@ index 8bdbfb3..fbc7d5e 100644
  use crate::drc::{drc_ratio, drc_target};
  use crate::frames::{FrameRef, Frames};
  use crate::link_state;
-@@ -523,11 +524,7 @@ impl Worker {
+ use crate::persist::Snapshot;
+-use crate::resample::Resampler;
+ use crate::rewind::{RewindThread, REWIND_BYTES};
+ 
+ const PRESENT: Duration = Duration::from_nanos(16_666_667);
+@@ -523,11 +523,7 @@ impl Worker {
              0 => av.sample_rate,
              hz => hz as f64,
          };
@@ -497,16 +604,16 @@ index 8bdbfb3..fbc7d5e 100644
 -            _ => av.sample_rate,
 -        };
 -        let mut resampler = Resampler::new(core_hz, device_hz);
-+        let mut resampler = Resampler::new(av_rate::core_hz(av, PRESENT), device_hz);
++        let mut resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
          ring.clear_faults();
          self.shared
              .state
-@@ -777,6 +774,9 @@ impl Worker {
+@@ -777,6 +773,9 @@ impl Worker {
                      }
                  }
  
 +                if let Some(av) = core.take_av_change() {
-+                    resampler = Resampler::new(av_rate::core_hz(av, PRESENT), device_hz);
++                    resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
 +                }
                  let audio = core.take_audio();
                  if speed == Speed::Normal || ff_sound {
@@ -522,13 +629,136 @@ index fd22e10..348f1fa 100644
  pub mod bezel;
  pub mod boot_time;
  pub mod bootlogo;
+diff --git a/crates/slot/tests/core_common/mod.rs b/crates/slot/tests/core_common/mod.rs
+new file mode 100644
+index 0000000..398197b
+--- /dev/null
++++ b/crates/slot/tests/core_common/mod.rs
+@@ -0,0 +1,20 @@
++use std::path::PathBuf;
++
++use crate::common;
++
++pub fn require_core(name: &str) -> Option<PathBuf> {
++    let p = common::repo_root().join(format!(
++        "vendor/{name}_libretro.{}",
++        std::env::consts::DLL_EXTENSION
++    ));
++    if p.exists() {
++        return Some(p);
++    }
++    assert!(
++        std::env::var_os("SLOT_REQUIRE_CORES").is_none_or(|v| v != "1"),
++        "{name} core required (SLOT_REQUIRE_CORES=1), {} is missing",
++        p.display()
++    );
++    eprintln!("skipping: no {name} dylib at {}", p.display());
++    None
++}
+diff --git a/crates/slot/tests/emu_av_change.rs b/crates/slot/tests/emu_av_change.rs
+new file mode 100644
+index 0000000..0a6a347
+--- /dev/null
++++ b/crates/slot/tests/emu_av_change.rs
+@@ -0,0 +1,90 @@
++use std::path::{Path, PathBuf};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++use slot::audio::{AudioSink, StubSink};
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++
++const CHANGE_AT: usize = 15;
++const CALLS: usize = 45;
++
++struct Pal {
++    inner: MockCore,
++    sink: StubSink,
++    calls: usize,
++    drained: Arc<Mutex<Vec<usize>>>,
++}
++
++impl RetroCore for Pal {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.inner.run_frame(input);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        let queued = self.sink.device_drain();
++        self.drained.lock().expect("the drain log").push(queued);
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++    fn take_av_change(&mut self) -> Option<AvInfo> {
++        self.calls += 1;
++        (self.calls == CHANGE_AT).then_some(AvInfo {
++            fps: 50.0,
++            sample_rate: 32040.0,
++        })
++    }
++}
++
++fn mean(log: &[usize]) -> f64 {
++    log.iter().sum::<usize>() as f64 / log.len() as f64
++}
++
++#[test]
++fn the_emu_loop_rebuilds_its_resampler_when_the_core_changes_its_av_rate() {
++    let mut sink = StubSink::new();
++    sink.open(32_768).expect("the stub refused to open");
++    let drained = Arc::new(Mutex::new(Vec::new()));
++    let core = Box::new(Pal {
++        inner: MockCore::new(),
++        sink: sink.clone(),
++        calls: 0,
++        drained: drained.clone(),
++    });
++    let emu = EmuHandle::spawn(core, PathBuf::from("mock"), sink.ring(), None, None);
++    emu.set_speed(Speed::Normal);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while drained.lock().expect("the drain log").len() < CALLS {
++        assert!(Instant::now() < deadline, "the worker stopped presenting");
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    assert_eq!(emu.state(), CoreState::Ready);
++    let log = drained.lock().expect("the drain log").clone();
++    // Call n drains what the presents before it pushed, so the change lands in the log
++    // one call after the take_av_change that returned it.
++    let before = mean(&log[3..CHANGE_AT]);
++    let after = mean(&log[CHANGE_AT + 3..CALLS]);
++    assert!(
++        after < before * 0.92,
++        "frames pushed a present did not drop after the 50 fps change: {before:.0} then {after:.0}"
++    );
++}
 diff --git a/crates/slot/tests/nes_av.rs b/crates/slot/tests/nes_av.rs
 new file mode 100644
-index 0000000..c08b7ba
+index 0000000..cf86fd4
 --- /dev/null
 +++ b/crates/slot/tests/nes_av.rs
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,39 @@
 +mod common;
++mod core_common;
 +mod nes_common;
 +
 +use common::core_lock;
@@ -566,18 +796,86 @@ index 0000000..c08b7ba
 +    );
 +    assert!((core.av_info().fps - av.fps).abs() < 1e-9);
 +}
+diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
+index f3dbdf0..a9646fd 100644
+--- a/crates/slot/tests/nes_common/mod.rs
++++ b/crates/slot/tests/nes_common/mod.rs
+@@ -1,28 +1,9 @@
+ use std::path::{Path, PathBuf};
+ 
+-use crate::common;
+-
+ const BACKDROP: u8 = 0x16;
+ 
+-pub fn require_core(name: &str) -> Option<PathBuf> {
+-    let p = common::repo_root().join(format!(
+-        "vendor/{name}_libretro.{}",
+-        std::env::consts::DLL_EXTENSION
+-    ));
+-    if p.exists() {
+-        return Some(p);
+-    }
+-    assert!(
+-        std::env::var_os("SLOT_REQUIRE_CORES").is_none_or(|v| v != "1"),
+-        "{name} core required (SLOT_REQUIRE_CORES=1), {} is missing",
+-        p.display()
+-    );
+-    eprintln!("skipping: no {name} dylib at {}", p.display());
+-    None
+-}
+-
+ pub fn fceumm() -> Option<PathBuf> {
+-    require_core("fceumm")
++    crate::core_common::require_core("fceumm")
+ }
+ 
+ pub fn nes_rom(name: &str, battery: bool) -> PathBuf {
+diff --git a/crates/slot/tests/nes_emu.rs b/crates/slot/tests/nes_emu.rs
+index 4393f80..76ba970 100644
+--- a/crates/slot/tests/nes_emu.rs
++++ b/crates/slot/tests/nes_emu.rs
+@@ -1,4 +1,5 @@
+ mod common;
++mod core_common;
+ mod nes_common;
+ 
+ use common::core_lock;
+diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
+index 5ba478e..703def4 100644
+--- a/crates/slot/tests/nes_fceumm.rs
++++ b/crates/slot/tests/nes_fceumm.rs
+@@ -1,4 +1,5 @@
+ mod common;
++mod core_common;
+ mod nes_common;
+ 
+ use std::path::Path;
+diff --git a/crates/slot/tests/nes_window.rs b/crates/slot/tests/nes_window.rs
+index 0fa10e3..9317b6a 100644
+--- a/crates/slot/tests/nes_window.rs
++++ b/crates/slot/tests/nes_window.rs
+@@ -1,6 +1,7 @@
+ #![cfg(target_os = "macos")]
+ 
+ mod common;
++mod core_common;
+ mod nes_common;
+ 
+ use std::collections::VecDeque;
 diff --git a/crates/slot/tests/snes_emu.rs b/crates/slot/tests/snes_emu.rs
 new file mode 100644
-index 0000000..5c4a7f8
+index 0000000..79b97b6
 --- /dev/null
 +++ b/crates/slot/tests/snes_emu.rs
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,122 @@
 +mod common;
++mod core_common;
 +mod snes_common;
 +
 +use std::path::PathBuf;
 +
 +use common::core_lock;
++use core_common::require_core;
 +use slot::core::open_core_for;
 +use slot_retro::{ButtonMask, MockCore, RetroCore};
 +use slot_store::Core;
@@ -588,23 +886,6 @@ index 0000000..5c4a7f8
 +const PICTURE_W: usize = 256;
 +const PICTURE_H: usize = 224;
 +const RED_BACKDROP_BGRX: [u8; 4] = [57, 199, 255, 0];
-+
-+fn snes9x() -> Option<PathBuf> {
-+    let p = common::repo_root().join(format!(
-+        "vendor/snes9x_libretro.{}",
-+        std::env::consts::DLL_EXTENSION
-+    ));
-+    if p.exists() {
-+        return Some(p);
-+    }
-+    assert!(
-+        std::env::var_os("SLOT_REQUIRE_CORES").is_none_or(|v| v != "1"),
-+        "snes9x core required (SLOT_REQUIRE_CORES=1), {} is missing",
-+        p.display()
-+    );
-+    eprintln!("skipping: no snes9x dylib at {}", p.display());
-+    None
-+}
 +
 +fn booted(dylib: PathBuf, rom: PathBuf) -> Box<dyn RetroCore> {
 +    let d = common::tmp_root_with_real_carts(&[]);
@@ -643,7 +924,7 @@ index 0000000..5c4a7f8
 +#[test]
 +fn snes9x_draws_a_uniform_256_by_224_picture_in_the_middle_of_a_360_by_240_canvas() {
 +    let _g = core_lock();
-+    let Some(dylib) = snes9x() else {
++    let Some(dylib) = require_core("snes9x") else {
 +        return;
 +    };
 +    let mut core = booted(dylib, red_backdrop_rom());
@@ -673,7 +954,7 @@ index 0000000..5c4a7f8
 +#[test]
 +fn snes9x_runs_both_rom_layouts_and_reports_a_32040_hz_sample_rate() {
 +    let _g = core_lock();
-+    let Some(dylib) = snes9x() else {
++    let Some(dylib) = require_core("snes9x") else {
 +        return;
 +    };
 +    for (name, map) in [("snes_emu_lo.sfc", Map::Lo), ("snes_emu_hi.sfc", Map::Hi)] {
@@ -687,7 +968,7 @@ index 0000000..5c4a7f8
 +#[test]
 +fn a_frame_the_frontend_skips_is_not_drawn_by_snes9x() {
 +    let _g = core_lock();
-+    let Some(dylib) = snes9x() else {
++    let Some(dylib) = require_core("snes9x") else {
 +        return;
 +    };
 +    let mut core = booted(dylib, red_backdrop_rom());
