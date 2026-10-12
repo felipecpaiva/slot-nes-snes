@@ -267,7 +267,7 @@ Deliverables:
   - title from the SNES internal header: LoROM/HiROM probe by checksum complement, skipping the 512-byte copier header, with a fallback to the stem when the bytes are not printable ASCII (JIS X 0201 titles);
   - provisional shader and cart arms like NES (cart `#b4b4bc`).
 - [ ] `Core::Snes9x` appended; `default_for(Snes) = Snes9x`; `text`, `colour_option` None.
-- [ ] `patches/0006-libretro-env.patch`: `SET_GEOMETRY`, `SET_SYSTEM_AV_INFO`, `GET_AUDIO_VIDEO_ENABLE` through `HostExtra` (this patch adds its `av_change` and `av_enable` fields), plus trait `take_av_change()` (default None) and resampler rebuild in the emu loop. Unit tests go in new file `slot-retro/src/env_tests.rs` (one `#[cfg(test)] mod env_tests;` line).
+- [ ] `patches/0006-libretro-env.patch`: `SET_GEOMETRY`, `SET_SYSTEM_AV_INFO`, `GET_AUDIO_VIDEO_ENABLE` through `HostExtra` (this patch adds its `av_change` and `av_enable` fields), plus trait `take_av_change()` (default None) and resampler rebuild in the emu loop. Unit tests go in new file `slot-retro/src/libretro/env_tests.rs` (one `#[cfg(test)] mod env_tests;` line in `libretro.rs`). Beyond the original text: `slot/src/av_rate.rs` (core and device rate maths, shared by both resampler sites), its `pub mod av_rate;` line in `slot/src/lib.rs`, and `slot/tests/nes_av.rs`, `slot/tests/emu_av_change.rs`. Known: the rebuild gives one click at the change, because `resample.rs` has no setter to keep the phase.
 - [ ] Hi-res blend active for width > 360 and height > 240.
 - [ ] `patches/0007-input.patch`:
   - `TurboMode` and `ButtonMask::apply(mode, frame)` delegating to the existing `turbo`/`without_turbo`;
@@ -499,7 +499,7 @@ New files inside patches (created in `work/slot`):
 | `crates/slot-store/src/core_policy.rs` | `impl Core`: `EVERY`, `canvas`, `option_prefix`, `has_colour_correction` | 1.5 KB |
 | `crates/slot-store/src/snes.rs`, `nes.rs` | SNES header title/region (copier skip, ASCII check); NES stem-tag region | 3 KB |
 | `crates/slot-retro/src/canvas.rs` | `HostExtra`, `ExtraGuard`, centring copy, RGB565, hi-res blend | 4 KB |
-| `crates/slot-retro/src/env_tests.rs` | Env call unit tests | 3 KB |
+| `crates/slot-retro/src/libretro/env_tests.rs` | Env call unit tests | 3 KB |
 | `crates/*/tests/nes_*.rs`, `snes_*.rs`, `tests/nes_common/mod.rs` | New tests and ROM generators (NROM/LoROM/HiROM with battery flags) | 30 to 50 KB |
 | `crates/slot-ui/assets/{nes,famicom,snes,sfc}_cart{,_detail}.svg`, `lettering_{nes,snes}.png` | Cart art | 40 to 120 KB |
 
@@ -608,7 +608,7 @@ Rules:
 
 ### Unit tests
 
-- `slot-retro/src/env_tests.rs`: env calls with `HostExtra` bound and unbound (unbound returns false, like upstream).
+- `slot-retro/src/libretro/env_tests.rs`: env calls with `HostExtra` bound and unbound (unbound returns false, like upstream).
 - `slot-retro/src/canvas.rs` `#[cfg(test)]`: centring, hi-res blend, and RGB565 conversion equal to the upstream formula for all 65,536 inputs.
 - `slot-store/src/snes.rs` and `nes.rs` `#[cfg(test)]`: header and tag parsers.
 
@@ -639,8 +639,8 @@ Rules:
 | T15 | 2 | `slot-store/tests/snes_header.rs` | LoROM/HiROM, with and without copier header, plus a JIS X 0201 title | Title parsed in the 4 ASCII cases; non-ASCII and garbage fall back to the stem |
 | T16 | 2 | `slot-retro/tests/snes_turbo.rs` | `apply(PassThrough, f)` / `apply(Turbo, f)` | X/Y kept; Turbo equals upstream `turbo(f)` |
 | T17 | 2 | `slot/tests/snes_shoulders.rs` | `taken_buttons()` playing | GBA `[]`, GB `[L1, R1]`, Nes `[L1, R1]`, Snes `[]` |
-| T18 | 2 | `env_tests.rs` | `SET_GEOMETRY`; `SET_SYSTEM_AV_INFO` 50.0 fps / 32040 Hz | true; `take_av_change()` returns it once; unbound returns false |
-| T19 | 2 | `env_tests.rs` | `GET_AUDIO_VIDEO_ENABLE` | 3 normally; video bit clear on an FF-skipped frame |
+| T18 | 2 | `libretro/env_tests.rs` | `SET_GEOMETRY`; `SET_SYSTEM_AV_INFO` 50.0 fps / 32040 Hz | true; `take_av_change()` returns it once; unbound returns false |
+| T19 | 2 | `libretro/env_tests.rs` | `GET_AUDIO_VIDEO_ENABLE` | 3 normally; video bit clear on an FF-skipped frame |
 | T20 | 2 | `canvas.rs` tests | 512x224 alternating columns; 512x448 checkerboard | 256 wide mid-grey; 448 halved to 224 |
 | T21 | 2 | `slot/tests/snes_emu.rs` | snes9x boots `snes_rom(Lo)` | Uniform recorded RGB, not mock; `av_info().sample_rate` about 32040 |
 | T22 | 2 | `slot/tests/snes_select.rs` | SNES: SELECT tap; SELECT+R1; SELECT held then Y; SELECT+X | Tap reaches the core mask; R1 chord saves a state with the R bit never sent; Y never sent and `colour_correction` unchanged with no toast; X never sent and video mode toggles |
