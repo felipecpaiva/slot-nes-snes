@@ -11,7 +11,7 @@ depends_on: [03-task-check-and-upstream-guard, 10-dist-zip-deploy]
 Upstream has no test workflow. Slot's host core tasks, `.dylib` test paths and headless render tests are macOS-only, so tests run on macOS and Linux only builds device artefacts (docs/PLAN.md Approach "CI is macOS-primary", Build step 29). Decision: macOS is the primary test job (docs/DECISIONS.md).
 
 ## Scope
-- [ ] `.github/workflows/test.yml`:
+- [x] `.github/workflows/test.yml`:
   - Job `host` (`macos-14`, required): Rust toolchain, `brew install cmake`, `task core:host` (all 6 dylibs), `task check`. That covers the upstream suite with the shared vendor, the new tests under `SLOT_REQUIRE_CORES=1`, `check-upstream-tests.sh`, `harness:control`, `harness:compare`, the render tests and `bench:compare` (informational on CI runners).
   - Job `device` (`ubuntu-24.04-arm`, container `rust:1-bullseye`): `task dist:device`, `task zip`, `scripts/zip-check.sh`. No host tests.
 

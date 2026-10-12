@@ -1,0 +1,88 @@
+# Issue 29. Actions are pinned by full commit SHA (docs/SUPPLY-CHAIN.md); toolchains come from
+# mise.toml, the same pins a developer gets. Branch protection is a maintainer setting, not set here.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Host tests are macOS-only (Mach-O asserts, .dylib paths, HeadlessSurface). macos-14 is Apple
+  # silicon, which SLOT_PIN needs: it only pins gpsp_host_sha256_arm64 (macos-13 is x86_64).
+  host:
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      SLOT_REQUIRE_CORES: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          # adb is a macOS download only needed for device deploys, not CI
+          install_args: rust task cmake
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            vendor
+          key: host-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('SLOT_PIN', 'mise.toml', 'cores/**', 'scripts/core-host.sh') }}
+          restore-keys: host-${{ runner.os }}-${{ runner.arch }}-
+      - run: task core:host
+      - run: task check
+      # bench:compare gates locally at 2%. Shared runners are too noisy for that, so here it only reports.
+      - name: bench:compare (informational)
+        run: task bench:compare || echo "::warning::bench:compare is over its limit on this runner, informational on CI"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: host-logs
+          path: |
+            build/harness/out
+            build/harness/*.log
+          if-no-files-found: ignore
+
+  # Runs inside rust:1-bullseye (glibc 2.31, what the device and slot's release use). Inside the
+  # container uname is Linux-aarch64, so scripts/device-sh.sh runs its commands natively: the same
+  # build as the local docker flow, without docker-in-docker.
+  device:
+    runs-on: ubuntu-24.04-arm
+    container: rust:1-bullseye
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tools zip-check and the zip need
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends zip unzip file binutils
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            vendor
+          key: device-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('SLOT_PIN', 'mise.toml', 'cores/**', 'scripts/dist-device.sh') }}
+      - name: Build the zip
+        run: |
+          # No mise in the container: fetch-task.sh gives the pinned task binary, sha256 checked.
+          task="$(sh scripts/fetch-task.sh)"
+          # task zip builds the source tarball, which needs work/slot rebuilt from patches/.
+          "$task" work:init
+          "$task" work:resume
+          "$task" zip
+      - name: zip-check
+        run: sh scripts/zip-check.sh "$(ls build/slot-nes-snes-*-h700.zip)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: h700-zip
+          path: build/slot-nes-snes-*-h700.zip
+          if-no-files-found: error
