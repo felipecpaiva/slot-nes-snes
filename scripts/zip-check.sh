@@ -7,8 +7,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 read_pin
 
 cores="mgba gpsp fceumm snes9x"
-# Games/ folders the zip may hold. NOTE for whoever merges second: issue 12 adds Games/SNES here, issue 13 adds the snes9x core.
-games="GBA GB GBC NES"
+# Games/ folders the zip may hold.
+games="GBA GB GBC NES SNES"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States Labels BIOS Wallpapers"
 
