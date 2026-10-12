@@ -7,20 +7,21 @@ Subject: [PATCH] input
  crates/slot-input/src/gesture.rs         |  10 +-
  crates/slot-retro/src/lib.rs             |   2 +
  crates/slot-retro/src/turbo_mode.rs      |  28 +++
- crates/slot-retro/tests/snes_turbo.rs    |  35 ++++
+ crates/slot-retro/tests/snes_turbo.rs    |  35 +++
  crates/slot-store/src/platform_policy.rs |  18 +-
  crates/slot-store/tests/snes_platform.rs |   5 +-
  crates/slot/src/app.rs                   |   3 +-
- crates/slot/src/emu.rs                   |  23 ++-
+ crates/slot/src/emu.rs                   |  23 +-
  crates/slot/src/lib.rs                   |   1 +
  crates/slot/src/session.rs               |   3 +
  crates/slot/src/snes_input.rs            |  13 ++
  crates/slot/tests/input_common/mod.rs    |  27 +++
  crates/slot/tests/select_x_gba.rs        | 106 ++++++++++
- crates/slot/tests/snes_emu_input.rs      | 117 +++++++++++
- crates/slot/tests/snes_select.rs         | 248 +++++++++++++++++++++++
+ crates/slot/tests/snes_emu_input.rs      | 117 ++++++++++
+ crates/slot/tests/snes_select.rs         | 258 +++++++++++++++++++++++
  crates/slot/tests/snes_shoulders.rs      |  30 +++
- 16 files changed, 658 insertions(+), 11 deletions(-)
+ crates/slot/tests/snes_then_gba.rs       | 121 +++++++++++
+ 17 files changed, 789 insertions(+), 11 deletions(-)
  create mode 100644 crates/slot-retro/src/turbo_mode.rs
  create mode 100644 crates/slot-retro/tests/snes_turbo.rs
  create mode 100644 crates/slot/src/snes_input.rs
@@ -29,6 +30,7 @@ Subject: [PATCH] input
  create mode 100644 crates/slot/tests/snes_emu_input.rs
  create mode 100644 crates/slot/tests/snes_select.rs
  create mode 100644 crates/slot/tests/snes_shoulders.rs
+ create mode 100644 crates/slot/tests/snes_then_gba.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
 index a0837ab..e6aeabc 100644
@@ -612,10 +614,10 @@ index 0000000..1f315a7
 +}
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
 new file mode 100644
-index 0000000..b0ebcbc
+index 0000000..37ff520
 --- /dev/null
 +++ b/crates/slot/tests/snes_select.rs
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,258 @@
 +mod common;
 +mod input_common;
 +
@@ -864,6 +866,16 @@ index 0000000..b0ebcbc
 +        assert_eq!(Stretch.flipped(platform), from_stretch, "{platform:?}");
 +    }
 +}
++
++#[test]
++fn l2_starts_the_rewind_on_snes_and_never_reaches_the_core() {
++    let mut r = rig(Platform::Snes);
++    r.press(Btn::L2);
++    r.session.update(1.0 / 60.0);
++    assert_eq!(r.session.app().hud_icon(), Icon::Rewind);
++    assert_eq!(r.pad(), 0);
++    r.release(Btn::L2);
++}
 diff --git a/crates/slot/tests/snes_shoulders.rs b/crates/slot/tests/snes_shoulders.rs
 new file mode 100644
 index 0000000..e53e33b
@@ -899,4 +911,131 @@ index 0000000..e53e33b
 +#[test]
 +fn a_snes_game_keeps_both_shoulders() {
 +    assert_eq!(taken(Platform::Snes), vec![]);
++}
+diff --git a/crates/slot/tests/snes_then_gba.rs b/crates/slot/tests/snes_then_gba.rs
+new file mode 100644
+index 0000000..2f1d629
+--- /dev/null
++++ b/crates/slot/tests/snes_then_gba.rs
+@@ -0,0 +1,121 @@
++mod common;
++
++use std::time::{Duration, Instant};
++
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::Platform;
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++fn write_cart(root: &TempDir, platform: Platform, stem: &str) {
++    let dir = root.path().join("Games").join(platform.dir_name());
++    let cart = dir.join(format!("{stem}.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(10);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn shelf_after_a_snes_game() -> Rig {
++        let root = common::tmp_root_with_real_carts(&[]);
++        write_cart(&root, Platform::Snes, "Aaa");
++        write_cart(&root, Platform::Gba, "Bbb");
++        common::clocked(root.path());
++        let mut r = Rig {
++            session: Session::boot(root.path().to_path_buf()),
++            root,
++            now: 0,
++        };
++        r.tap(Btn::R1);
++        r.tap(Btn::A);
++        r.until("the snes cart to seat", |s| {
++            matches!(s.app().phase(), Phase::Playing { .. })
++        });
++        assert!(r.session.emu().expect("core").passes_through());
++        r.feed(RawEvent::Down(Btn::Menu));
++        r.until("the eject", |s| !s.has_core());
++        r.feed(RawEvent::Up(Btn::Menu));
++        r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++        r
++    }
++
++    fn insert_the_gba_cart(&mut self) {
++        self.tap(Btn::L1);
++        self.tap(Btn::A);
++        self.until("the gba cart to seat", |s| {
++            matches!(s.app().phase(), Phase::Playing { .. })
++        });
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_snes_game_gets_gba_input_behaviour_back() {
++    let mut r = Rig::shelf_after_a_snes_game();
++    r.insert_the_gba_cart();
++    assert!(!r.session.emu().expect("core").passes_through());
++
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::X));
++    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X, "X never reached");
++    r.feed(RawEvent::Up(Btn::X));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert!(!r.root.path().join("Config/video_mode.txt").exists());
++
++    r.now += 300;
++    r.session.feed([], r.now);
++    r.feed(RawEvent::Down(Btn::X));
++    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X);
++    r.feed(RawEvent::Up(Btn::X));
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++}
++
++#[test]
++fn known_limit_shelf_select_and_y_after_a_snes_game_is_ignored_until_a_gba_game_runs() {
++    let mut r = Rig::shelf_after_a_snes_game();
++    let before = r.session.app().colour_correction();
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().colour_correction(), before);
++    assert_eq!(r.session.app().toast(), None);
++
++    r.insert_the_gba_cart();
++    r.feed(RawEvent::Down(Btn::Select));
++    r.feed(RawEvent::Down(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Y));
++    r.feed(RawEvent::Up(Btn::Select));
++    assert_eq!(r.session.app().colour_correction(), !before);
 +}
