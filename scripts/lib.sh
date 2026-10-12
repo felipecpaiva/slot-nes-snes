@@ -35,3 +35,24 @@ is_aarch64() { file "$1" | grep -q ', ARM aarch64,'; }
 
 # The value of NAME in build/slot's taskfile vars, the one place upstream pins MGBA_COMMIT and GPSP_COMMIT.
 slot_var() { sed -n "s/^  $1: *//p" "$root/build/slot/taskfile.yml"; }
+
+# Print the sha256 of FILE.
+file_sha256() {
+	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi |
+		cut -d' ' -f1
+}
+
+# Extract TARBALL (a github archive, one top directory) into DIR as a fresh repo with a single base commit,
+# dated like task work:init so the same input gives the same commit.
+base_repo() {
+	rm -rf "$2"
+	mkdir -p "$2"
+	tar -xzf "$1" -C "$2" --strip-components=1
+	git -C "$2" init -q -b nes-snes
+	git -C "$2" add -A -f -- . ':!vendor'
+	GIT_AUTHOR_NAME=slot-nes-snes GIT_COMMITTER_NAME=slot-nes-snes \
+		GIT_AUTHOR_EMAIL=slot-nes-snes@users.noreply.github.com \
+		GIT_COMMITTER_EMAIL=slot-nes-snes@users.noreply.github.com \
+		GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" \
+		git -C "$2" -c commit.gpgsign=false commit -q -m "base"
+}

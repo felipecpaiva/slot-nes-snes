@@ -372,9 +372,9 @@ Deliverables:
 - [ ] `.github/workflows/release.yml` on tag: needs both jobs; builds the zip and `slot-nes-snes-src-<tag>.tar.gz`; ship checks; gh release with both assets.
   - Ship checks: `file | grep aarch64` for `slot` and all 6 cores; `test -x System/slot`; licence, `.meta` and patch files for every core; `System/licenses/slot-nes-snes-src-<tag>.tar.gz`; `System/licenses/snes9x-LICENSE.txt` and the snes9x2005 licence; `Games/NES` and `Games/SNES`.
   - Notes include the non-commercial snes9x notice and "do not report to slot's tracker".
-- [ ] `scripts/rebase.sh NEW_TAG`: fetch, `git rebase --onto` in `work/slot`, re-export, `task check`, update `SLOT_PIN`.
-- [ ] `docs/REBASE.md`: re-apply, full suite, harness against the new upstream, device smoke, bump the pin, tag `vNEW-ns.1`.
-- [ ] `task diffsurface`: per-file changed lines over upstream files. Target: `app.rs` at 25 lines or fewer (pair loop included).
+- [x] `scripts/rebase.sh NEW_TAG`: fetch, `git rebase --onto` in `work/slot`, re-export, `task check`, update `SLOT_PIN`.
+- [x] `docs/REBASE.md`: re-apply, full suite, harness against the new upstream, device smoke, bump the pin, tag `vNEW-ns.1`.
+- [x] `task diffsurface`: per-file changed lines over upstream files. Target: `app.rs` at 25 lines or fewer (pair loop included).
 - [ ] Final device gate on the RG34XXSP, using the zip downloaded from GitHub.
 - [ ] New tests T41 to T44.
 
