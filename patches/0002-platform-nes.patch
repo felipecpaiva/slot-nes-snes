@@ -1,0 +1,481 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 12 Oct 2026 12:40:57 +0400
+Subject: [PATCH] platform-nes
+
+---
+ crates/slot-store/src/core.rs            |  4 +--
+ crates/slot-store/src/platform.rs        |  5 +++
+ crates/slot-store/src/platform_policy.rs |  8 +++--
+ crates/slot-store/src/scan.rs            |  3 +-
+ crates/slot-store/src/slot_state.rs      |  2 +-
+ crates/slot-store/tests/durability.rs    |  2 +-
+ crates/slot-store/tests/nes_platform.rs  | 29 ++++++++++++++++
+ crates/slot-store/tests/nes_scan.rs      | 20 +++++++++++
+ crates/slot-store/tests/nes_state.rs     | 21 ++++++++++++
+ crates/slot-ui/src/cart.rs               |  6 ++--
+ crates/slot-ui/src/shell.rs              |  1 +
+ crates/slot-ui/tests/chrome.rs           |  2 +-
+ crates/slot/src/app.rs                   |  8 +++--
+ crates/slot/src/root.rs                  |  6 +++-
+ crates/slot/tests/nes_dist.rs            | 42 ++++++++++++++++++++++++
+ crates/slot/tests/nes_palette.rs         | 28 ++++++++++++++++
+ crates/slot/tests/render_shelves.rs      |  2 +-
+ 17 files changed, 172 insertions(+), 17 deletions(-)
+ create mode 100644 crates/slot-store/tests/nes_platform.rs
+ create mode 100644 crates/slot-store/tests/nes_scan.rs
+ create mode 100644 crates/slot-store/tests/nes_state.rs
+ create mode 100644 crates/slot/tests/nes_dist.rs
+ create mode 100644 crates/slot/tests/nes_palette.rs
+
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 51f6ab7..727973c 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -46,14 +46,14 @@ impl Core {
+             Core::Mgba => true,
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+-                Platform::Gb | Platform::Gbc => false,
++                Platform::Gb | Platform::Gbc | Platform::Nes => false,
+             },
+         }
+     }
+ 
+     pub fn default_for(platform: Platform) -> Core {
+         match platform {
+-            Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => Core::Mgba,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 3dfccff..605833a 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -6,6 +6,7 @@ pub enum Platform {
+     Gba,
+     Gb,
+     Gbc,
++    Nes,
+ }
+ 
+ impl Platform {
+@@ -16,6 +17,7 @@ impl Platform {
+             Platform::Gba => "Game Boy Advance",
+             Platform::Gb => "Game Boy",
+             Platform::Gbc => "Game Boy Color",
++            Platform::Nes => "Nintendo Entertainment System",
+         }
+     }
+ 
+@@ -24,6 +26,7 @@ impl Platform {
+             Platform::Gba => "GBA",
+             Platform::Gb => "GB",
+             Platform::Gbc => "GBC",
++            Platform::Nes => "NES",
+         }
+     }
+ 
+@@ -31,6 +34,7 @@ impl Platform {
+         match self {
+             Platform::Gba => &["gba"],
+             Platform::Gb | Platform::Gbc => &["gb", "gbc"],
++            Platform::Nes => &["nes"],
+         }
+     }
+ 
+@@ -38,6 +42,7 @@ impl Platform {
+         match self {
+             Platform::Gba => (240, 160),
+             Platform::Gb | Platform::Gbc => (160, 144),
++            Platform::Nes => (256, 240),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index c513aeb..a66d208 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -2,9 +2,11 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Platform {
++    pub const SHELVES: [Platform; 4] = [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes];
++
+     pub fn has_gb_palettes(self) -> bool {
+         match self {
+-            Platform::Gba => false,
++            Platform::Gba | Platform::Nes => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+@@ -12,14 +14,14 @@ impl Platform {
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+             Platform::Gba => false,
+-            Platform::Gb | Platform::Gbc => true,
++            Platform::Gb | Platform::Gbc | Platform::Nes => true,
+         }
+     }
+ 
+     pub fn picker_cores(self) -> Option<(Core, Core)> {
+         match self {
+             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
+-            Platform::Gb | Platform::Gbc => None,
++            Platform::Gb | Platform::Gbc | Platform::Nes => None,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index f479047..2d6d3a7 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -30,6 +30,7 @@ impl Cart {
+                     self.title = title;
+                 }
+             }
++            Platform::Nes => {}
+         }
+     }
+ }
+@@ -62,7 +63,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
+         &read(crate::LABELS_SHELL_FILE),
+     );
+     let mut carts = Vec::new();
+-    for platform in Platform::ALL {
++    for platform in Platform::SHELVES {
+         let dir = root.join("Games").join(platform.dir_name());
+         let entries = match std::fs::read_dir(&dir) {
+             Ok(d) => d,
+diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
+index dc5f227..76b3ab3 100644
+--- a/crates/slot-store/src/slot_state.rs
++++ b/crates/slot-store/src/slot_state.rs
+@@ -237,7 +237,7 @@ fn platform_key(platform: Platform) -> String {
+ }
+ 
+ fn platform_value(value: &str) -> Option<Platform> {
+-    Platform::ALL
++    Platform::SHELVES
+         .into_iter()
+         .find(|p| value.eq_ignore_ascii_case(p.dir_name()))
+ }
+diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
+index 62510cb..265190a 100644
+--- a/crates/slot-store/tests/durability.rs
++++ b/crates/slot-store/tests/durability.rs
+@@ -351,7 +351,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
+     let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+     for (line, want) in [
+         ("cart_platform=\n", None),
+-        ("cart_platform=nes\n", None),
++        ("cart_platform=pce\n", None),
+         ("cart_platform=gameboy\n", None),
+         ("cart_platform=0\n", None),
+         ("cart_platform=nds\n", None),
+diff --git a/crates/slot-store/tests/nes_platform.rs b/crates/slot-store/tests/nes_platform.rs
+new file mode 100644
+index 0000000..f801fae
+--- /dev/null
++++ b/crates/slot-store/tests/nes_platform.rs
+@@ -0,0 +1,29 @@
++use std::path::Path;
++
++use slot_store::Platform;
++
++#[test]
++fn the_shelves_are_the_three_game_boy_platforms_then_nes() {
++    assert_eq!(
++        Platform::SHELVES,
++        [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes]
++    );
++}
++
++#[test]
++fn the_pinned_platform_list_still_has_three_entries() {
++    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gb, Platform::Gbc]);
++}
++
++#[test]
++fn nes_accepts_nes_files_and_refuses_gba_files() {
++    assert!(Platform::Nes.accepts(Path::new("x.nes")));
++    assert!(Platform::Nes.accepts(Path::new("X.NES")));
++    assert!(!Platform::Nes.accepts(Path::new("x.gba")));
++}
++
++#[test]
++fn nes_has_its_own_folder_name_and_picture() {
++    assert_eq!(Platform::Nes.dir_name(), "NES");
++    assert_eq!(Platform::Nes.picture(), (256, 240));
++}
+diff --git a/crates/slot-store/tests/nes_scan.rs b/crates/slot-store/tests/nes_scan.rs
+new file mode 100644
+index 0000000..1ee940a
+--- /dev/null
++++ b/crates/slot-store/tests/nes_scan.rs
+@@ -0,0 +1,20 @@
++use slot_store::{scan, Platform};
++
++#[test]
++fn a_nes_cart_lands_on_the_nes_shelf_with_its_stem_as_the_name() {
++    let d = tempfile::tempdir().expect("tempdir");
++    let dir = d.path().join("Games/NES");
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let mut rom = vec![0u8; 0x150];
++    rom[0x134..0x13c].copy_from_slice(b"TETRIS\0\0");
++    std::fs::write(dir.join("Super Mario Bros. 3 (USA).nes"), rom).expect("write rom");
++
++    let mut carts = scan(d.path()).expect("scan");
++    assert_eq!(carts.len(), 1);
++    let cart = &mut carts[0];
++    assert_eq!(cart.platform, Platform::Nes);
++    assert_eq!(cart.stem, "Super Mario Bros. 3 (USA)");
++    cart.read_header();
++    assert!(cart.title.is_empty());
++    assert!(cart.code.is_empty());
++}
+diff --git a/crates/slot-store/tests/nes_state.rs b/crates/slot-store/tests/nes_state.rs
+new file mode 100644
+index 0000000..d120810
+--- /dev/null
++++ b/crates/slot-store/tests/nes_state.rs
+@@ -0,0 +1,21 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{read_slot_state, write_slot_state, Platform, SlotState};
++
++#[test]
++fn a_nes_cart_with_a_sentence_name_resumes_as_a_nes_cart() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Super Mario Bros. 3 (USA)".into()),
++        cart_platform: Some(Platform::Nes),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).unwrap();
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
++    assert!(text.lines().any(|l| l == "cart_platform=nes"), "{text:?}");
++    let back = read_slot_state(d.path());
++    assert_eq!(back.cart_platform, Some(Platform::Nes));
++    assert_eq!(back, s);
++}
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index e895d1a..046c3bd 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -87,7 +87,7 @@ enum Shape {
+ 
+ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+     match cart.platform {
+-        Platform::Gba => None,
++        Platform::Gba | Platform::Nes => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -153,14 +153,14 @@ const GB_SEATED_H: u32 = 259;
+ 
+ pub fn seated_box(platform: Platform) -> (u32, u32) {
+     match platform {
+-        Platform::Gba => (SEATED_W, SEATED_H),
++        Platform::Gba | Platform::Nes => (SEATED_W, SEATED_H),
+         Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
+     }
+ }
+ 
+ pub fn cart_box(platform: Platform) -> (u32, u32) {
+     let s = spec(match platform {
+-        Platform::Gba => Shape::Gba,
++        Platform::Gba | Platform::Nes => Shape::Gba,
+         Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
+     });
+     (s.w, s.h)
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index a3fd299..af25a8f 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -90,6 +90,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+     match cart.platform {
+         Platform::Gba => gba_shell_for(&gba_code(cart)),
+         Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
++        Platform::Nes => shell([0x8c, 0x8c, 0x8c], Finish::Solid),
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index d335228..e3e187a 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 4afec5c..2f0f747 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -362,7 +362,7 @@ pub struct FaceWant {
+ 
+ fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
+     let mut rows: Vec<(Platform, Vec<Cart>)> =
+-        Platform::ALL.iter().map(|p| (*p, Vec::new())).collect();
++        Platform::SHELVES.iter().map(|p| (*p, Vec::new())).collect();
+     for cart in carts {
+         if let Some((_, row)) = rows.iter_mut().find(|(p, _)| *p == cart.platform) {
+             row.push(cart);
+@@ -1043,7 +1043,7 @@ impl App {
+     pub fn screen_shader(&self) -> Shader {
+         match self.platform {
+             Platform::Gba => self.state.shader_gba,
+-            Platform::Gb | Platform::Gbc => self.state.shader_gb,
++            Platform::Gb | Platform::Gbc | Platform::Nes => self.state.shader_gb,
+         }
+     }
+ 
+@@ -1406,7 +1406,9 @@ impl App {
+         }
+         let (shader, choices) = match self.platform {
+             Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+-            Platform::Gb | Platform::Gbc => (&mut self.state.shader_gb, &Shader::GB[..]),
++            Platform::Gb | Platform::Gbc | Platform::Nes => {
++                (&mut self.state.shader_gb, &Shader::GB[..])
++            }
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 87b52c6..1dbb0cc 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,24 +1,28 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 20] = [
++pub const DIRS: [&str; 24] = [
+     "BIOS",
+     "Config",
+     "Games",
+     "Games/GBA",
+     "Games/GB",
+     "Games/GBC",
++    "Games/NES",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+     "Labels/GBC",
++    "Labels/NES",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+     "Saves/GBC",
++    "Saves/NES",
+     "States",
+     "States/GBA",
+     "States/GB",
+     "States/GBC",
++    "States/NES",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/tests/nes_dist.rs b/crates/slot/tests/nes_dist.rs
+new file mode 100644
+index 0000000..ad081f3
+--- /dev/null
++++ b/crates/slot/tests/nes_dist.rs
+@@ -0,0 +1,42 @@
++use std::process::Command;
++
++const UPSTREAM_DIRS: [&str; 20] = [
++    "BIOS",
++    "Config",
++    "Games",
++    "Games/GBA",
++    "Games/GB",
++    "Games/GBC",
++    "Labels",
++    "Labels/GBA",
++    "Labels/GB",
++    "Labels/GBC",
++    "Saves",
++    "Saves/GBA",
++    "Saves/GB",
++    "Saves/GBC",
++    "States",
++    "States/GBA",
++    "States/GB",
++    "States/GBC",
++    "System",
++    "Wallpapers",
++];
++
++#[test]
++fn init_root_creates_the_nes_folders_and_every_upstream_folder() {
++    let d = tempfile::tempdir().expect("tempdir");
++    let root = d.path().join("dist");
++    let status = Command::new(env!("CARGO_BIN_EXE_slot"))
++        .arg("--init-root")
++        .arg(&root)
++        .status()
++        .expect("run slot");
++    assert!(status.success());
++    for name in UPSTREAM_DIRS
++        .iter()
++        .chain(&["Games/NES", "Labels/NES", "Saves/NES", "States/NES"])
++    {
++        assert!(root.join(name).is_dir(), "{name} was not created");
++    }
++}
+diff --git a/crates/slot/tests/nes_palette.rs b/crates/slot/tests/nes_palette.rs
+new file mode 100644
+index 0000000..f84e9bf
+--- /dev/null
++++ b/crates/slot/tests/nes_palette.rs
+@@ -0,0 +1,28 @@
++use slot_store::{GbPalette, Platform};
++
++fn rom_with_clear_colour_flag() -> (tempfile::TempDir, std::path::PathBuf) {
++    let d = tempfile::tempdir().expect("tempdir");
++    let rom = d.path().join("x.nes");
++    std::fs::write(&rom, vec![0u8; 0x8000]).expect("write rom");
++    (d, rom)
++}
++
++#[test]
++fn a_nes_game_never_takes_a_game_boy_palette() {
++    let (_d, rom) = rom_with_clear_colour_flag();
++    let p = GbPalette::DEFAULT;
++    assert_eq!(
++        slot::core::palette_for(Some(p), Platform::Nes, &rom, None),
++        None
++    );
++}
++
++#[test]
++fn the_same_bytes_as_a_game_boy_game_do_take_the_palette() {
++    let (_d, rom) = rom_with_clear_colour_flag();
++    let p = GbPalette::DEFAULT;
++    assert_eq!(
++        slot::core::palette_for(Some(p), Platform::Gb, &rom, None),
++        Some(p)
++    );
++}
+diff --git a/crates/slot/tests/render_shelves.rs b/crates/slot/tests/render_shelves.rs
+index 939330b..6df42eb 100644
+--- a/crates/slot/tests/render_shelves.rs
++++ b/crates/slot/tests/render_shelves.rs
+@@ -636,7 +636,7 @@ fn cartridges() -> [(&'static str, Cart); 2] {
+ fn label_top(p: CartPlatform) -> usize {
+     match p {
+         CartPlatform::Gba => LABEL_Y as usize,
+-        CartPlatform::Gb | CartPlatform::Gbc => GB_LABEL_Y as usize,
++        CartPlatform::Gb | CartPlatform::Gbc | CartPlatform::Nes => GB_LABEL_Y as usize,
+     }
+ }
+ 

@@ -44,7 +44,7 @@ done
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-git -C "$work" format-patch -q --binary --no-signature --zero-commit -o "$tmp" "$base..$branch"
+git -C "$work" format-patch -q -N --binary --no-signature --zero-commit -o "$tmp" "$base..$branch"
 
 set -- "$tmp"/*.patch
 if [ ! -f "$1" ]; then
