@@ -107,6 +107,28 @@ session as the others, on the same governor.
   against 18.46 ms. The governor was already `performance`, so the SA-1 governor retry does not apply.
 - Seiken Densetsu 3 and Akumajou Densetsu are not on the test card and were not run.
 
+2026-10-13 audio reopen fix (patch 0021, issue 47; 2 minutes per title, 1 run, same scripted input, governor
+`performance`, logs in `docs/perf/2026-10-13-audio/`). Session summary line, samples:
+
+| Title | Core | Before (gate, 3 min): dropped / starved | After (2 min): dropped / starved | Device releases in game, before / after | p99 frame ms after |
+|---|---|---|---|---|---|
+| Battletoads | fceumm | 46336 / 3072 | 0 / 0 | 2 / 0 | 17.40 |
+| Super Mario RPG | snes9x | 48038 / 4096 | 0 / 0 | 2 / 0 | 19.02 |
+| Kirby's Adventure | fceumm | 0 / 2048 | 0 / 0 | 0 / 0 | 17.36 |
+| Golden Sun (GBA reference) | mgba | 22818 / 4096 | 0 / 0 | 1 / 0 | 18.26 |
+
+- Cause, measured with a timing build: `snd_pcm_set_params` on plug:default takes about 251 ms and the
+  release about 242 ms, both on the audio thread. The dropped samples came from those two stalls, the
+  starved ones from the ring running dry during the cart insert (see the DECISIONS row).
+- Shelf check, scripted: boot to the shelf, `audio released after silence` logged, A inserts Golden Sun,
+  `audio reopened at 11138 ms` (wake at 10875 ms, play unpaused at 11641 ms), 30 s of play at 0 dropped and
+  0 starved, eject, and `audio released after silence` again on the shelf. The same run on the NES shelf with
+  Kirby's Adventure (fceumm, the fastest loader: emu ready 31 ms after the insert): wake at 10877 ms, reopened at
+  11138 ms, unpaused at 11630 ms, 0 dropped and 0 starved. The insert animation, not the core load, is what
+  hides the open.
+- These are 2-minute runs, not the 10-minute gate. Not measured: a resume after more than 3 s of pause still
+  reopens the device (one ~251 ms stall), and whether the speaker buzzes during long in-game silence.
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.
@@ -117,3 +139,15 @@ session as the others, on the same governor.
 | 2026-10-12 | v1.6.0-ns.0 (main after #59) | performance | gpsp | 240pee_mb.gba | 0.924 | 1083 |
 | 2026-10-12 | v1.6.0-ns.0 (main after #59) | performance | fceumm | generated NES cart | 1.624 | 616 |
 | 2026-10-12 | v1.6.0-ns.0 (main after #59) | performance | snes9x | generated SNES cart | 3.295 | 304 |
+
+2026-10-13 retro shader run (patches to 0021, `task perf:play`, 2 minutes per mode, logs in
+`docs/perf/2026-10-13-shaders/`): Super Mario RPG (snes9x) once per SNES mode, Battletoads (fceumm)
+with Off and crt-pi.
+- All four new shaders build on the Mali-G31 (no "did not build" line) and every run reads 0 dropped,
+  0 starved with patch 0021.
+- After the first window the longest present and the p99 match Off for every mode (Super Mario RPG
+  about 18-19.7 ms in every mode, Off included; Battletoads 17.4-18.2 ms). The shaders add no
+  measurable per-frame cost.
+- Each new mode shows one long present (31-67 ms) in the first window, Off does not: most likely the
+  driver finishing the retro program on its first draw. A warm-up draw when the program is built
+  would move it out of play. Not fixed yet.

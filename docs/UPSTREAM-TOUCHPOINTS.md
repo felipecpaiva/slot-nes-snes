@@ -33,16 +33,16 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0020-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes |
 | `crates/slot/src/app.rs` | 24 | 41 (+31/-10) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0018-quick-menu-retro-shaders, 0019-shelf-memory, 0020-retro-shaders |
-| `crates/slot/src/audio/alsa.rs` | 5 | 7 (+5/-2) | 0016-audio-release-pace |
-| `crates/slot/src/audio/mod.rs` | 1 | 1 (+1/-0) | 0016-audio-release-pace |
+| `crates/slot/src/audio/alsa.rs` | 7 | 17 (+11/-6) | 0016-audio-release-pace, 0021-audio-reopen |
+| `crates/slot/src/audio/mod.rs` | 3 | 3 (+3/-0) | 0016-audio-release-pace, 0021-audio-reopen |
 | `crates/slot/src/core.rs` | 7 | 12 (+8/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs |
 | `crates/slot/src/core_picker.rs` | 6 | 14 (+10/-4) | 0009-core-picker-pairs |
 | `crates/slot/src/device_app.rs` | 5 | 7 (+7/-0) | 0017-frame-trace |
-| `crates/slot/src/emu.rs` | 11 | 42 (+27/-15) | 0004-canvas, 0006-libretro-env, 0007-input |
+| `crates/slot/src/emu.rs` | 12 | 45 (+30/-15) | 0004-canvas, 0006-libretro-env, 0007-input, 0021-audio-reopen |
 | `crates/slot/src/frontend.rs` | 12 | 29 (+24/-5) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0020-retro-shaders |
 | `crates/slot/src/lib.rs` | 7 | 9 (+9/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0017-frame-trace, 0018-quick-menu-retro-shaders, 0019-shelf-memory |
 | `crates/slot/src/root.rs` | 5 | 10 (+9/-1) | 0002-platform-nes, 0005-platform-snes |
-| `crates/slot/src/session.rs` | 2 | 7 (+6/-1) | 0007-input, 0008-default-stretch |
+| `crates/slot/src/session.rs` | 3 | 8 (+7/-1) | 0007-input, 0008-default-stretch, 0021-audio-reopen |
 | `crates/slot/src/state_writer.rs` | 8 | 32 (+27/-5) | 0019-shelf-memory |
 | `crates/slot/src/thumb.rs` | 1 | 1 (+1/-0) | 0004-canvas |
 | `crates/slot/src/video_mode.rs` | 5 | 19 (+10/-9) | 0004-canvas |
@@ -214,11 +214,15 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#20 | 2646 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn shader_value(shader: Shader) -> QuickValue {#1 | 3394 | +1/-0 | fn shader_value(shader: Shader) -> QuickValue { | Shows the retro shader's name in the NES and SNES quick menu row |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use std::thread::JoinHandle;#1 | 5 | +1/-1 | use std::thread::JoinHandle; | Imports the Instant needed for released-pace timing |
-| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use libloading::Library;#1 | 8 | +1/-0 | use libloading::Library; | Imports the released-pace helper |
-| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#1 | 223 | +1/-0 | impl Playback { | Starts a pace tracker for the audio thread |
-| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#2 | 229 | +1/-0 | impl Playback { | Restarts the pace tracker when playback resumes |
-| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#3 | 253 | +1/-1 | impl Playback { | Sleeps by the pace tracker instead of a fixed span |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use libloading::Library;#1 | 8 | +2/-0 | use libloading::Library; | Imports the released-pace helper and the hold that keeps a fed device open |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use super::ring::Ring;#1 | 10 | +0/-1 | use super::ring::Ring; | Drops the Silence import, the hold replaces it |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#1 | 223 | +2/-1 | impl Playback { | Starts the hold in place of Silence, and a pace tracker for the audio thread |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#2 | 225-226 | +4/-2 | impl Playback { | Lets the hold fill the ring and decide: the device stays open while a game feeds the ring, and a session start reopens it at once |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#3 | 229 | +1/-0 | impl Playback { | Restarts the pace tracker when the device is released |
+| `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#4 | 253 | +1/-1 | impl Playback { | Sleeps by the pace tracker instead of a fixed span |
+| `crates/slot/src/audio/mod.rs` | crates/slot/src/audio/mod.rs#mod alsa;#1 | 1 | +1/-0 | mod alsa; | Declares the hold module |
 | `crates/slot/src/audio/mod.rs` | crates/slot/src/audio/mod.rs#mod host;#1 | 3 | +1/-0 | mod host; | Declares the released_pace module |
+| `crates/slot/src/audio/mod.rs` | crates/slot/src/audio/mod.rs#pub use alsa::AlsaSink;#1 | 11 | +1/-0 | pub use alsa::AlsaSink; | Exports wake_device and prefill_silence for the session and emu hooks |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#use slot_store::{Core, GbPalette, Platform};#1 | 5 | +1/-0 | use slot_store::{Core, GbPalette, Platform}; | Imports the policy options applied per core |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#pub fn open_core(#1 | 54 | +1/-1 | pub fn open_core( | Sizes the mock core from the core's canvas instead of GBA size |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#pub fn open_core_for_palette(#1 | 81 | +1/-1 | pub fn open_core_for_palette( | Sizes the mock core from the core's canvas instead of GBA size |
@@ -245,9 +249,10 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl EmuHandle {#2 | 159 | +1/-0 | impl EmuHandle { | Starts pass-through off |
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl EmuHandle {#3 | 354 | +8/-0 | impl EmuHandle { | Adds the pass-through setter and getter for the emulator thread |
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#1 | 527-531 | +1/-5 | impl Worker { | Builds the resampler from the core's real audio and video rate |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#2 | 662-665 | +7/-4 | impl Worker { | Chooses turbo or pass-through from both flags |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#3 | 780 | +3/-0 | impl Worker { | Rebuilds the resampler when the core reports an AV change |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#4 | 884 | +2/-1 | impl Worker { | Sizes the thumbnail from the core's canvas instead of fixed 240x160 |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#2 | 612 | +3/-0 | impl Worker { | Tops the ring up with silence when play starts or resumes, so the first fills after a cart insert or a pause do not starve |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#3 | 662-665 | +7/-4 | impl Worker { | Chooses turbo or pass-through from both flags |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#4 | 780 | +3/-0 | impl Worker { | Rebuilds the resampler when the core reports an AV change |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#5 | 884 | +2/-1 | impl Worker { | Sizes the thumbnail from the core's canvas instead of fixed 240x160 |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#use crate::cart_faces::CartFaces;#1 | 21 | +1/-0 | use crate::cart_faces::CartFaces; | Imports the per-core cart face set for the core picker |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#pub struct Frontend {#1 | 52 | +1/-0 | pub struct Frontend { | Holds the pair faces the picker shows |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#1 | 133 | +1/-0 | impl Frontend { | Starts without pair faces |
@@ -272,8 +277,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/root.rs` | crates/slot/src/root.rs#pub const DIRS: [&str; 20] = [#2 | 13 | +2/-0 | pub const DIRS: [&str; 20] = [ | Adds the Labels/NES and Labels/SNES folders |
 | `crates/slot/src/root.rs` | crates/slot/src/root.rs#pub const DIRS: [&str; 20] = [#3 | 17 | +2/-0 | pub const DIRS: [&str; 20] = [ | Adds the Saves/NES and Saves/SNES folders |
 | `crates/slot/src/root.rs` | crates/slot/src/root.rs#pub const DIRS: [&str; 20] = [#4 | 21 | +2/-0 | pub const DIRS: [&str; 20] = [ | Adds the States/NES and States/SNES folders |
-| `crates/slot/src/session.rs` | crates/slot/src/session.rs#impl Session {#1 | 443 | +3/-1 | impl Session { | Reads the video mode through the per-platform helper |
-| `crates/slot/src/session.rs` | crates/slot/src/session.rs#impl Session {#2 | 470 | +3/-0 | impl Session { | Sets pass-through and the picture chord for the platform on session start |
+| `crates/slot/src/session.rs` | crates/slot/src/session.rs#impl Session {#1 | 437 | +1/-0 | impl Session { | Wakes the audio device as a cart starts loading, so the 250 ms ALSA open hides behind the core load |
+| `crates/slot/src/session.rs` | crates/slot/src/session.rs#impl Session {#2 | 443 | +3/-1 | impl Session { | Reads the video mode through the per-platform helper |
+| `crates/slot/src/session.rs` | crates/slot/src/session.rs#impl Session {#3 | 470 | +3/-0 | impl Session { | Sets pass-through and the picture chord for the platform on session start |
 | `crates/slot/src/state_writer.rs` | crates/slot/src/state_writer.rs#struct Queue {#1 | 10 | +1/-0 | struct Queue { | Adds a latest-wins slot for a second file (shelf.state) |
 | `crates/slot/src/state_writer.rs` | crates/slot/src/state_writer.rs#impl StateWriter {#1 | 49 | +9/-0 | impl StateWriter { | save_file queues a whole-file write on the same writer thread |
 | `crates/slot/src/state_writer.rs` | crates/slot/src/state_writer.rs#impl StateWriter {#2 | 57 | +1/-1 | impl StateWriter { | flush also waits for a queued file write |
