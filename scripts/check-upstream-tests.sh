@@ -93,12 +93,14 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	crates/slot/tests/render_shelves.rs) prefix=CartPlatform ;;
 	crates/slot-store/tests/durability.rs)
 		pce='^[[:space:]]*\("cart_platform=pce\\n", None\),$'
+		shaders='^[[:space:]]+shader_(nes|snes): Shader::Off,$'
 		if [ "$(grep -c 'cart_platform=pce' "$ours/$f")" = 1 ] && [ "$(grep -cE "$pce" "$ours/$f")" = 1 ] &&
-			perl -pe 's/cart_platform=pce/cart_platform=nes/ if /^[ \t]*\("cart_platform=pce\\n", None\),$/' "$ours/$f" >"$tmp/x" &&
+			[ "$(grep -cE "$shaders" "$ours/$f")" = 2 ] &&
+			perl -0pe 's/(cart_platform=)pce(\\n", None\),\n)/$1nes$2/; s/(\n([ \t]+)shader_gb: Shader::Simpletex,\n)\2shader_nes: Shader::Off,\n\2shader_snes: Shader::Off,\n/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exception (cart_platform=pce for cart_platform=nes)"
+			echo "upstream test code: $f uses the named exceptions (cart_platform=pce for cart_platform=nes, shader_nes and shader_snes in the full SlotState literal)"
 		else
-			fail "$f differs beyond the one cart_platform=pce line"
+			fail "$f differs beyond the cart_platform=pce line and the two shader lines"
 		fi
 		continue ;;
 	crates/slot/tests/gpsp.rs)

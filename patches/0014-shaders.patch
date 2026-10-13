@@ -1,0 +1,356 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 00:58:43 +0400
+Subject: [PATCH] shaders
+
+---
+ crates/slot-store/src/platform_policy.rs    |   9 ++
+ crates/slot-store/src/slot_state.rs         |  19 ++++
+ crates/slot-store/tests/durability.rs       |   2 +
+ crates/slot-store/tests/nes_shader_state.rs | 120 ++++++++++++++++++++
+ crates/slot/src/app.rs                      |  10 +-
+ crates/slot/tests/nes_snes_shader.rs        |  57 ++++++++++
+ crates/slot/tests/select_x_gba.rs           |   2 +
+ 7 files changed, 215 insertions(+), 4 deletions(-)
+ create mode 100644 crates/slot-store/tests/nes_shader_state.rs
+ create mode 100644 crates/slot/tests/nes_snes_shader.rs
+
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 7c5c76d..4660891 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -1,5 +1,6 @@
+ use crate::core::Core;
+ use crate::platform::Platform;
++use crate::slot_state::Shader;
+ 
+ impl Platform {
+     pub const SHELVES: [Platform; 5] = [
+@@ -46,4 +47,12 @@ impl Platform {
+             Platform::Gb | Platform::Gbc => None,
+         }
+     }
++
++    pub fn shader_choices(self) -> &'static [Shader] {
++        match self {
++            Platform::Gba => &Shader::GBA,
++            Platform::Gb | Platform::Gbc => &Shader::GB,
++            Platform::Nes | Platform::Snes => &Shader::RETRO,
++        }
++    }
+ }
+diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
+index 76b3ab3..f417303 100644
+--- a/crates/slot-store/src/slot_state.rs
++++ b/crates/slot-store/src/slot_state.rs
+@@ -38,6 +38,8 @@ pub struct SlotState {
+     pub rewind: bool,
+     pub gb_palettes: bool,
+     pub gb_palette: GbPalette,
++    pub shader_nes: Shader,
++    pub shader_snes: Shader,
+ }
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+@@ -52,6 +54,7 @@ pub enum Shader {
+ impl Shader {
+     pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
+     pub const GB: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Simpletex];
++    pub const RETRO: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Dot];
+ 
+     pub fn name(self) -> &'static str {
+         match self {
+@@ -110,6 +113,8 @@ impl Default for SlotState {
+             rewind: true,
+             gb_palettes: false,
+             gb_palette: GbPalette::DEFAULT,
++            shader_nes: Shader::Off,
++            shader_snes: Shader::Off,
+         }
+     }
+ }
+@@ -151,6 +156,12 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
+         s.gb_palettes as u8,
+         s.gb_palette.core_name()
+     );
++    let mut text = text;
++    text.push_str(&format!(
++        "shader_nes={}\nshader_snes={}\n",
++        s.shader_nes.name(),
++        s.shader_snes.name()
++    ));
+     atomic_write(&state_path(root), text.as_bytes())
+ }
+ 
+@@ -176,6 +187,8 @@ fn parse(text: &str) -> Option<SlotState> {
+     let mut rewind = None;
+     let mut gb_palettes = None;
+     let mut gb_palette = None;
++    let mut shader_nes = None;
++    let mut shader_snes = None;
+     for line in text.lines().filter(|l| !l.is_empty()) {
+         let Some((key, value)) = line.split_once('=') else {
+             continue;
+@@ -202,6 +215,10 @@ fn parse(text: &str) -> Option<SlotState> {
+             "gb_palettes" => gb_palettes = flag(value),
+             "gb_palette" => gb_palette = GbPalette::parse(value),
+             "shader_gb" => shader_gb = Shader::parse(value).filter(|s| Shader::GB.contains(s)),
++            "shader_nes" => shader_nes = Shader::parse(value).filter(|s| Shader::RETRO.contains(s)),
++            "shader_snes" => {
++                shader_snes = Shader::parse(value).filter(|s| Shader::RETRO.contains(s))
++            }
+             _ => {}
+         }
+     }
+@@ -229,6 +246,8 @@ fn parse(text: &str) -> Option<SlotState> {
+         rewind: rewind.unwrap_or(fallback.rewind),
+         gb_palettes: gb_palettes.unwrap_or(fallback.gb_palettes),
+         gb_palette: gb_palette.unwrap_or(fallback.gb_palette),
++        shader_nes: shader_nes.unwrap_or(fallback.shader_nes),
++        shader_snes: shader_snes.unwrap_or(fallback.shader_snes),
+     })
+ }
+ 
+diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
+index 265190a..73c1353 100644
+--- a/crates/slot-store/tests/durability.rs
++++ b/crates/slot-store/tests/durability.rs
+@@ -196,6 +196,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
+             colour_correction: false,
+             shader_gba: Shader::Grid,
+             shader_gb: Shader::Simpletex,
++            shader_nes: Shader::Off,
++            shader_snes: Shader::Off,
+             eject_save: true,
+             turbo: true,
+             rewind: true,
+diff --git a/crates/slot-store/tests/nes_shader_state.rs b/crates/slot-store/tests/nes_shader_state.rs
+new file mode 100644
+index 0000000..2b0c8e7
+--- /dev/null
++++ b/crates/slot-store/tests/nes_shader_state.rs
+@@ -0,0 +1,120 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{read_slot_state, write_slot_state, Platform, Shader, SlotState};
++
++fn state_file(root: &std::path::Path) -> std::path::PathBuf {
++    root.join("Config/slot.state")
++}
++
++#[test]
++fn nes_and_snes_shaders_round_trip_and_are_appended_after_the_upstream_lines() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Zzz".into()),
++        clock_set: true,
++        shader_nes: Shader::Dot,
++        shader_snes: Shader::Grid,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).unwrap();
++    let text = std::fs::read_to_string(state_file(d.path())).unwrap();
++    assert!(
++        text.ends_with("shader_nes=dot\nshader_snes=grid\n"),
++        "{text:?}"
++    );
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn a_file_from_unpatched_slot_gives_off_and_keeps_the_other_fields() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Zzz".into()),
++        clock_set: true,
++        volume: 33,
++        shader_gba: Shader::Dot,
++        shader_gb: Shader::Grid,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).unwrap();
++    let text = std::fs::read_to_string(state_file(d.path())).unwrap();
++    let old: String = text
++        .lines()
++        .filter(|l| !l.starts_with("shader_nes=") && !l.starts_with("shader_snes="))
++        .map(|l| format!("{l}\n"))
++        .collect();
++    std::fs::write(state_file(d.path()), old).unwrap();
++    let back = read_slot_state(d.path());
++    assert_eq!(back.shader_nes, Shader::Off);
++    assert_eq!(back.shader_snes, Shader::Off);
++    assert_eq!(back, s);
++}
++
++#[test]
++fn a_shader_outside_the_retro_list_falls_back_to_off_without_losing_the_file() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Zzz".into()),
++        clock_set: true,
++        volume: 33,
++        shader_nes: Shader::Dot,
++        shader_snes: Shader::Dot,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).unwrap();
++    let text = std::fs::read_to_string(state_file(d.path()))
++        .unwrap()
++        .replace("shader_nes=dot", "shader_nes=lcd3x")
++        .replace("shader_snes=dot", "shader_snes=simpletex");
++    std::fs::write(state_file(d.path()), text).unwrap();
++    let back = read_slot_state(d.path());
++    assert_eq!(back.shader_nes, Shader::Off);
++    assert_eq!(back.shader_snes, Shader::Off);
++    assert_eq!(back.volume, 33);
++    assert_eq!(back.cart.as_deref(), Some("Zzz"));
++}
++
++#[test]
++fn every_platform_names_its_own_shader_list() {
++    assert_eq!(Platform::Gba.shader_choices(), &Shader::GBA[..]);
++    assert_eq!(Platform::Gb.shader_choices(), &Shader::GB[..]);
++    assert_eq!(Platform::Gbc.shader_choices(), &Shader::GB[..]);
++    assert_eq!(Platform::Nes.shader_choices(), &Shader::RETRO[..]);
++    assert_eq!(Platform::Snes.shader_choices(), &Shader::RETRO[..]);
++}
++
++#[test]
++fn a_gba_only_slot_state_matches_upstream_up_to_the_appended_lines() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Emerald".into()),
++        cart_platform: Some(Platform::Gba),
++        brightness: 3,
++        volume: 40,
++        volume_hp: 41,
++        muted: true,
++        clock_set: true,
++        utc_offset_min: -300,
++        shader_gba: Shader::Grid,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).unwrap();
++    let text = std::fs::read_to_string(state_file(d.path())).unwrap();
++    let upstream = format!(
++        "cart=Emerald\ncart_platform=gba\nbrightness=3\nblue_light={}\nvolume=40\nvolume_hp=41\nmuted=1\nmuted_hp={}\nclock_set=1\nutc_offset_min=-300\nrumble={}\nff_speed={}\nff_sound={}\ncolour_correction={}\nshader_gba=grid\nshader_gb={}\neject_save={}\nturbo={}\nrewind={}\ngb_palettes={}\ngb_palette={}\n",
++        s.blue_light,
++        s.muted_hp as u8,
++        s.rumble as u8,
++        s.ff_speed,
++        s.ff_sound as u8,
++        s.colour_correction as u8,
++        s.shader_gb.name(),
++        s.eject_save as u8,
++        s.turbo as u8,
++        s.rewind as u8,
++        s.gb_palettes as u8,
++        s.gb_palette.core_name()
++    );
++    assert_eq!(text, format!("{upstream}shader_nes=off\nshader_snes=off\n"));
++}
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 14cb687..eb2a364 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1043,7 +1043,9 @@ impl App {
+     pub fn screen_shader(&self) -> Shader {
+         match self.platform {
+             Platform::Gba => self.state.shader_gba,
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => self.state.shader_gb,
++            Platform::Gb | Platform::Gbc => self.state.shader_gb,
++            Platform::Nes => self.state.shader_nes,
++            Platform::Snes => self.state.shader_snes,
+         }
+     }
+ 
+@@ -1407,9 +1409,9 @@ impl App {
+         }
+         let (shader, choices) = match self.platform {
+             Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => {
+-                (&mut self.state.shader_gb, &Shader::GB[..])
+-            }
++            Platform::Gb | Platform::Gbc => (&mut self.state.shader_gb, &Shader::GB[..]),
++            Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
++            Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+diff --git a/crates/slot/tests/nes_snes_shader.rs b/crates/slot/tests/nes_snes_shader.rs
+new file mode 100644
+index 0000000..af31e57
+--- /dev/null
++++ b/crates/slot/tests/nes_snes_shader.rs
+@@ -0,0 +1,57 @@
++mod common;
++mod input_common;
++
++use input_common::playing;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{read_slot_state, Platform, Shader, SlotState};
++
++fn chord(session: &mut slot::session::Session, now: &mut Millis, b: Btn) -> u16 {
++    let mut ever = 0;
++    for ev in [
++        RawEvent::Down(Btn::Select),
++        RawEvent::Down(b),
++        RawEvent::Up(b),
++        RawEvent::Up(Btn::Select),
++    ] {
++        *now += 20;
++        session.feed([ev], *now);
++        ever |= session.emu().expect("core").input().0;
++    }
++    ever
++}
++
++fn cycle(platform: Platform, pick: fn(&SlotState) -> Shader) {
++    let (root, mut session) = playing(platform, "Zzz");
++    let mut now = 100;
++    assert_eq!(session.app().screen_shader(), Shader::Off);
++    let (mut seen, mut ever) = (vec![], 0);
++    for _ in 0..3 {
++        ever |= chord(&mut session, &mut now, Btn::A);
++        session.app().flush_state();
++        let st = read_slot_state(root.path());
++        assert_eq!(st.shader_gb, SlotState::default().shader_gb);
++        assert_eq!(st.shader_gba, SlotState::default().shader_gba);
++        assert_eq!(session.app().screen_shader(), pick(&st));
++        seen.push(pick(&st));
++    }
++    assert_eq!(seen, [Shader::Grid, Shader::Dot, Shader::Off]);
++    ever |= chord(&mut session, &mut now, Btn::B);
++    session.app().flush_state();
++    assert_eq!(pick(&read_slot_state(root.path())), Shader::Dot);
++    assert_eq!(
++        ever & (ButtonMask::A | ButtonMask::B),
++        0,
++        "A or B reached the game"
++    );
++}
++
++#[test]
++fn select_a_and_b_cycle_the_nes_shader_through_retro_and_leave_shader_gb_alone() {
++    cycle(Platform::Nes, |s| s.shader_nes);
++}
++
++#[test]
++fn select_a_and_b_cycle_the_snes_shader_through_retro_and_leave_shader_gb_alone() {
++    cycle(Platform::Snes, |s| s.shader_snes);
++}
+diff --git a/crates/slot/tests/select_x_gba.rs b/crates/slot/tests/select_x_gba.rs
+index d9c9691..770ac60 100644
+--- a/crates/slot/tests/select_x_gba.rs
++++ b/crates/slot/tests/select_x_gba.rs
+@@ -45,6 +45,8 @@ turbo=1
+ rewind=1
+ gb_palettes=0
+ gb_palette=DMG Green
++shader_nes=off
++shader_snes=off
+ ";
+ 
+ fn trace() -> (Vec<(&'static str, u16)>, String, String) {

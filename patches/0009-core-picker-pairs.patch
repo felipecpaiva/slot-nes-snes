@@ -5,19 +5,19 @@ Subject: [PATCH] core-picker-pairs
 
 ---
  crates/slot-store/src/core.rs            |  12 +-
- crates/slot-store/src/core_policy.rs     |  23 ++-
+ crates/slot-store/src/core_policy.rs     |  23 +-
  crates/slot-store/src/platform_policy.rs |   4 +-
- crates/slot-store/tests/core_pairs.rs    |  24 +++
+ crates/slot-store/tests/core_pairs.rs    |  24 ++
  crates/slot-store/tests/snes_platform.rs |   9 +-
  crates/slot/src/core.rs                  |   2 +-
- crates/slot/src/core_faces.rs            |  46 +++++
+ crates/slot/src/core_faces.rs            |  46 ++++
  crates/slot/src/core_picker.rs           |  14 +-
  crates/slot/src/frontend.rs              |  14 +-
  crates/slot/src/lib.rs                   |   1 +
- crates/slot/tests/alt_cores.rs           | 131 ++++++++++++
+ crates/slot/tests/alt_cores.rs           | 131 ++++++++++
  crates/slot/tests/gpsp.rs                |   2 +-
- crates/slot/tests/nes_core_picker.rs     | 251 +++++++++++++++++++++++
- 13 files changed, 515 insertions(+), 18 deletions(-)
+ crates/slot/tests/nes_core_picker.rs     | 312 +++++++++++++++++++++++
+ 13 files changed, 576 insertions(+), 18 deletions(-)
  create mode 100644 crates/slot-store/tests/core_pairs.rs
  create mode 100644 crates/slot/src/core_faces.rs
  create mode 100644 crates/slot/tests/alt_cores.rs
@@ -549,10 +549,10 @@ index ebd3482..db2dd2b 100644
          assert_eq!(
 diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
 new file mode 100644
-index 0000000..fd6a9df
+index 0000000..1b7b193
 --- /dev/null
 +++ b/crates/slot/tests/nes_core_picker.rs
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,312 @@
 +#![cfg(target_os = "macos")]
 +
 +mod common;
@@ -644,19 +644,36 @@ index 0000000..fd6a9df
 +    app.set_core_board_faces(board, lid);
 +}
 +
-+fn set_pair_faces(app: &mut App, c: &mut Compositor, pair: [Core; 2]) {
-+    let sockets = pair.iter().map(|k| tex(c, &socket_face(*k))).collect();
-+    let (_, chips) = faces_for(c, &Core::EVERY);
-+    let blank = tex(c, &chip_face(None));
-+    let shadow = tex(c, &chip_shadow_face());
-+    app.set_core_part_faces(sockets, chips, blank, shadow);
++struct Parts {
++    sockets: Vec<TexId>,
++    chips: Vec<TexId>,
++    blank: TexId,
++    shadow: TexId,
 +}
 +
-+fn pair_faces(c: &mut Compositor) -> PairFaces {
-+    let (sockets, chips) = faces_for(c, &Core::EVERY);
-+    let blank = tex(c, &chip_face(None));
-+    let shadow = tex(c, &chip_shadow_face());
-+    PairFaces::new(sockets, chips, blank, shadow)
++impl Parts {
++    fn upload(c: &mut Compositor) -> Parts {
++        let (sockets, chips) = faces_for(c, &Core::EVERY);
++        Parts {
++            sockets,
++            chips,
++            blank: tex(c, &chip_face(None)),
++            shadow: tex(c, &chip_shadow_face()),
++        }
++    }
++
++    fn faces(&self) -> PairFaces {
++        PairFaces::new(
++            self.sockets.clone(),
++            self.chips.clone(),
++            self.blank,
++            self.shadow,
++        )
++    }
++
++    fn set(&self, app: &mut App, pair: [Core; 2]) {
++        self.faces().show((pair[0], pair[1]), app);
++    }
 +}
 +
 +fn picker_over_nes(d: &TempDir, c: &mut Compositor) -> App {
@@ -673,6 +690,28 @@ index 0000000..fd6a9df
 +    c.begin_frame();
 +    c.draw_list(&out);
 +    c.read_frame()
++}
++
++fn spread(a: &[u8], b: &[u8]) -> String {
++    let w = slot_gfx::OUT_W as usize;
++    let mut n = 0;
++    let mut hi = 0;
++    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
++    for (i, (p, q)) in a.chunks(4).zip(b.chunks(4)).enumerate() {
++        if p != q {
++            let (x, y) = (i % w, i / w);
++            n += 1;
++            hi = hi.max(
++                p.iter()
++                    .zip(q)
++                    .map(|(u, v)| u.abs_diff(*v))
++                    .max()
++                    .unwrap_or(0),
++            );
++            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
++        }
++    }
++    format!("{n} px differ, max channel delta {hi}, box x {x0}..{x1} y {y0}..{y1}")
 +}
 +
 +#[test]
@@ -707,17 +746,20 @@ index 0000000..fd6a9df
 +    };
 +    let d = nes_root();
 +    let mut app = picker_over_nes(&d, &mut c);
-+    let mut faces = pair_faces(&mut c);
++    let parts = Parts::upload(&mut c);
++    let mut faces = parts.faces();
 +    faces.follow(&mut app);
 +    let ours = shot(&app, &mut c);
 +
-+    set_pair_faces(&mut app, &mut c, [Core::Fceumm, Core::Nestopia]);
++    parts.set(&mut app, [Core::Fceumm, Core::Nestopia]);
++    let nes = shot(&app, &mut c);
 +    assert!(
-+        ours == shot(&app, &mut c),
-+        "the NES picker did not draw FCEUmm and Nestopia"
++        ours == nes,
++        "the NES picker did not draw FCEUmm and Nestopia: {}",
++        spread(&ours, &nes)
 +    );
 +
-+    set_pair_faces(&mut app, &mut c, [Core::Mgba, Core::Gpsp]);
++    parts.set(&mut app, [Core::Mgba, Core::Gpsp]);
 +    assert!(
 +        ours != shot(&app, &mut c),
 +        "the NES picker drew the GBA faces"
@@ -732,7 +774,7 @@ index 0000000..fd6a9df
 +    };
 +    let d = nes_root();
 +    let mut app = picker_over_nes(&d, &mut c);
-+    let mut faces = pair_faces(&mut c);
++    let mut faces = Parts::upload(&mut c).faces();
 +    faces.follow(&mut app);
 +    let before = shot(&app, &mut c);
 +    app.apply(Action::GbaDown(Btn::Right));
@@ -741,7 +783,12 @@ index 0000000..fd6a9df
 +    assert!(before != after, "the chip did not move to Nestopia");
 +    app.apply(Action::GbaDown(Btn::Left));
 +    app.update(0.25);
-+    assert!(before == shot(&app, &mut c), "the chip did not come home");
++    let home = shot(&app, &mut c);
++    assert!(
++        before == home,
++        "the chip did not come home: {}",
++        spread(&before, &home)
++    );
 +}
 +
 +fn mixed_root() -> TempDir {
@@ -755,6 +802,7 @@ index 0000000..fd6a9df
 +fn open_shoot_close(
 +    app: &mut App,
 +    c: &mut Compositor,
++    parts: &Parts,
 +    faces: &mut PairFaces,
 +    stem: &str,
 +    pair: [Core; 2],
@@ -772,7 +820,7 @@ index 0000000..fd6a9df
 +    app.update(0.5);
 +    faces.follow(app);
 +    let ours = shot(app, c);
-+    set_pair_faces(app, c, pair);
++    parts.set(app, pair);
 +    let reference = shot(app, c);
 +    app.apply(Action::GbaDown(Btn::B));
 +    app.update(0.5);
@@ -786,21 +834,34 @@ index 0000000..fd6a9df
 +    let d = mixed_root();
 +    let mut app = App::boot(d.path());
 +    seat_board(&mut app, &mut c);
-+    let mut faces = pair_faces(&mut c);
++    let parts = Parts::upload(&mut c);
++    let mut faces = parts.faces();
 +    let gba = [Core::Mgba, Core::Gpsp];
 +    let nes = [Core::Fceumm, Core::Nestopia];
-+    let (gba_first, gba_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Emerald", gba);
++    let (gba_first, gba_ref) =
++        open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Emerald", gba);
 +    assert!(
 +        gba_first == gba_ref,
-+        "first GBA picker drew the wrong faces"
++        "first GBA picker drew the wrong faces: {}",
++        spread(&gba_first, &gba_ref)
 +    );
-+    let (nes_shot, nes_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Contra", nes);
-+    assert!(nes_shot == nes_ref, "the NES picker drew the wrong faces");
++    let (nes_shot, nes_ref) = open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Contra", nes);
++    assert!(
++        nes_shot == nes_ref,
++        "the NES picker drew the wrong faces: {}",
++        spread(&nes_shot, &nes_ref)
++    );
 +    assert!(nes_shot != gba_first, "the NES and GBA pickers look alike");
-+    let (gba_last, gba_ref) = open_shoot_close(&mut app, &mut c, &mut faces, "Emerald", gba);
-+    assert!(gba_last == gba_ref, "the GBA picker kept the NES faces");
++    let (gba_last, gba_ref) =
++        open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Emerald", gba);
++    assert!(
++        gba_last == gba_ref,
++        "the GBA picker kept the NES faces: {}",
++        spread(&gba_last, &gba_ref)
++    );
 +    assert!(
 +        gba_last == gba_first,
-+        "the GBA picker changed between visits"
++        "the GBA picker changed between visits: {}",
++        spread(&gba_last, &gba_first)
 +    );
 +}
