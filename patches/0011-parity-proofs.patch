@@ -1,0 +1,790 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 01:47:29 +0400
+Subject: [PATCH] parity-proofs
+
+---
+ crates/slot/tests/nes_eject_save.rs  | 112 +++++++++++
+ crates/slot/tests/nes_quick_menu.rs  | 276 +++++++++++++++++++++++++++
+ crates/slot/tests/nes_resume.rs      |  66 +++++++
+ crates/slot/tests/nes_states.rs      | 150 +++++++++++++++
+ crates/slot/tests/real_seat/mod.rs   |  52 +++++
+ crates/slot/tests/snes_common/mod.rs |  25 ++-
+ crates/slot/tests/snes_emu.rs        |  16 +-
+ 7 files changed, 678 insertions(+), 19 deletions(-)
+ create mode 100644 crates/slot/tests/nes_eject_save.rs
+ create mode 100644 crates/slot/tests/nes_quick_menu.rs
+ create mode 100644 crates/slot/tests/nes_resume.rs
+ create mode 100644 crates/slot/tests/nes_states.rs
+ create mode 100644 crates/slot/tests/real_seat/mod.rs
+
+diff --git a/crates/slot/tests/nes_eject_save.rs b/crates/slot/tests/nes_eject_save.rs
+new file mode 100644
+index 0000000..aff4a58
+--- /dev/null
++++ b/crates/slot/tests/nes_eject_save.rs
+@@ -0,0 +1,112 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod real_seat;
++mod snes_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::app::Phase;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::{read_slot_state, write_slot_state, Platform};
++use snes_common::{snes_rom, Map};
++
++const STEM: &str = "Zelda";
++
++fn battery_carts() -> Vec<(Platform, PathBuf, PathBuf)> {
++    let mut carts = Vec::new();
++    if let Some(dylib) = fceumm() {
++        carts.push((Platform::Nes, nes_rom("nes_eject.nes", true), dylib));
++    }
++    if let Some(dylib) = require_core("snes9x") {
++        for (name, map) in [
++            ("snes_eject_lo.sfc", Map::Lo),
++            ("snes_eject_hi.sfc", Map::Hi),
++        ] {
++            carts.push((Platform::Snes, snes_rom(name, map, false, 8), dylib.clone()));
++        }
++    }
++    carts
++}
++
++fn with_a_second_cart(platform: Platform, rom: &Path, dylib: &Path) -> tempfile::TempDir {
++    let root = real_seat::rooted(platform, STEM, rom, dylib);
++    let spare = format!("Zzz.{}", platform.extensions()[0]);
++    std::fs::copy(
++        rom,
++        root.path()
++            .join("Games")
++            .join(platform.dir_name())
++            .join(spare),
++    )
++    .expect("copy spare cart");
++    root
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++fn sav(root: &Path, platform: Platform) -> PathBuf {
++    root.join("Saves")
++        .join(platform.dir_name())
++        .join(format!("{STEM}.sav"))
++}
++
++#[test]
++fn ejecting_a_battery_cart_writes_its_sav_under_saves_for_its_platform() {
++    let _g = core_lock();
++    for (platform, rom, dylib) in battery_carts() {
++        let root = with_a_second_cart(platform, &rom, &dylib);
++        let mut session = real_seat::play(root.path(), true);
++        let ram = session
++            .emu()
++            .expect("no core")
++            .snapshot()
++            .save_ram()
++            .expect("the core has no save ram");
++        assert!(!ram.is_empty(), "{platform:?} save ram is empty");
++        assert!(!sav(root.path(), platform).exists());
++        eject(&mut session);
++        assert_eq!(
++            std::fs::read(sav(root.path(), platform)).expect("no .sav after eject"),
++            ram,
++            "{platform:?}"
++        );
++        assert_eq!(read_slot_state(root.path()).cart, None);
++    }
++}
++
++#[test]
++fn a_sav_on_the_card_is_loaded_into_the_core_when_the_cart_goes_back_in() {
++    let _g = core_lock();
++    for (platform, rom, dylib) in battery_carts() {
++        let root = with_a_second_cart(platform, &rom, &dylib);
++        let mut state = read_slot_state(root.path());
++        state.eject_save = false;
++        write_slot_state(root.path(), &state).expect("write slot.state");
++        let mut first = real_seat::play(root.path(), true);
++        eject(&mut first);
++        let written = std::fs::read(sav(root.path(), platform)).expect("no .sav after eject");
++        drop(first);
++        let marked = vec![0xa5u8; written.len()];
++        std::fs::write(sav(root.path(), platform), &marked).expect("write .sav");
++        let second = real_seat::play(root.path(), true);
++        assert_eq!(
++            second.emu().expect("no core").snapshot().save_ram(),
++            Some(marked),
++            "{platform:?}"
++        );
++    }
++}
+diff --git a/crates/slot/tests/nes_quick_menu.rs b/crates/slot/tests/nes_quick_menu.rs
+new file mode 100644
+index 0000000..667dda2
+--- /dev/null
++++ b/crates/slot/tests/nes_quick_menu.rs
+@@ -0,0 +1,276 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod snes_common;
++
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++use common::{boot, core_lock, tmp_root_with_real_carts};
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::app::{App, Phase};
++use slot::audio::{AudioSink, StubSink};
++use slot::core::open_core_for;
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_input::{Action, Btn};
++use slot_retro::{AvInfo, ButtonMask, CoreError, Link, RetroCore, Rumble};
++use slot_store::{read_slot_state, Core, Platform, FF_SPEEDS, FF_SPEED_DEFAULT};
++use slot_ui::{QuickRow, QuickValue};
++use snes_common::{snes_rom, Map};
++use tempfile::TempDir;
++
++struct Tapped {
++    inner: Box<dyn RetroCore>,
++    ran: Arc<AtomicU64>,
++    inputs: Arc<Mutex<Vec<u16>>>,
++}
++
++impl RetroCore for Tapped {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.inputs.lock().expect("inputs").push(input.0);
++        self.ran.fetch_add(1, Ordering::Relaxed);
++        self.inner.run_frame(input);
++    }
++    fn set_option(&mut self, key: &str, value: &str) {
++        self.inner.set_option(key, value);
++    }
++    fn set_frame_skip(&mut self, skip: bool) {
++        self.inner.set_frame_skip(skip);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++    fn rumble(&self) -> Rumble {
++        self.inner.rumble()
++    }
++    fn net(&self) -> Link {
++        self.inner.net()
++    }
++    fn canvas(&self) -> (u32, u32) {
++        self.inner.canvas()
++    }
++    fn take_av_change(&mut self) -> Option<AvInfo> {
++        self.inner.take_av_change()
++    }
++}
++
++fn shelves() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&[]);
++    for platform in [Platform::Nes, Platform::Snes] {
++        let cart = root
++            .path()
++            .join("Games")
++            .join(platform.dir_name())
++            .join(format!("Zelda.{}", platform.extensions()[0]));
++        std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++    }
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn on_shelf(platform: Platform) -> (TempDir, App) {
++    let (root, mut app) = shelves();
++    for _ in 0..2 {
++        if app.shelf_platform_name() == Some(platform.name()) {
++            break;
++        }
++        press(&mut app, Btn::R1);
++    }
++    assert_eq!(app.shelf_platform_name(), Some(platform.name()));
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_at(app: &mut App, row: QuickRow) {
++    app.apply(Action::QuickMenu);
++    let parent = row.parent();
++    for _ in 0..parent.unwrap_or(row).position() {
++        press(app, Btn::Down);
++    }
++    if parent.is_some() {
++        press(app, Btn::A);
++        for _ in 0..row.position() {
++            press(app, Btn::Down);
++        }
++    }
++    assert_eq!(app.quick_menu(), Some(row), "the bar never reached {row:?}");
++}
++
++#[test]
++fn the_quick_menu_opens_and_walks_the_same_rows_on_the_nes_and_snes_shelves() {
++    for platform in [Platform::Nes, Platform::Snes] {
++        let (_root, mut app) = on_shelf(platform);
++        app.apply(Action::QuickMenu);
++        for want in QuickRow::MAIN {
++            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
++            press(&mut app, Btn::Down);
++        }
++        press(&mut app, Btn::Down);
++        press(&mut app, Btn::A);
++        for want in QuickRow::GAME {
++            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
++            press(&mut app, Btn::Down);
++        }
++        press(&mut app, Btn::B);
++        assert_eq!(app.quick_menu(), Some(QuickRow::Game), "{platform:?}");
++        press(&mut app, Btn::B);
++        assert!(matches!(app.phase(), Phase::Shelf), "{platform:?}");
++    }
++}
++
++#[test]
++fn the_rewind_row_turns_rewind_off_and_on_and_the_card_remembers_it() {
++    for platform in [Platform::Nes, Platform::Snes] {
++        let (root, mut app) = on_shelf(platform);
++        open_at(&mut app, QuickRow::Rewind);
++        assert_eq!(app.quick_value(QuickRow::Rewind), Some(QuickValue::On));
++        press(&mut app, Btn::Right);
++        assert_eq!(app.quick_value(QuickRow::Rewind), Some(QuickValue::Off));
++        assert!(!app.may_rewind(), "{platform:?} still rewinds");
++        assert!(!read_slot_state(root.path()).rewind, "{platform:?}");
++        press(&mut app, Btn::Left);
++        assert!(app.may_rewind(), "{platform:?}");
++        assert!(read_slot_state(root.path()).rewind, "{platform:?}");
++    }
++}
++
++#[test]
++fn the_fast_forward_row_steps_the_speed_and_the_card_remembers_it() {
++    for platform in [Platform::Nes, Platform::Snes] {
++        let (root, mut app) = on_shelf(platform);
++        open_at(&mut app, QuickRow::FastForward);
++        assert_eq!(app.ff_speed(), FF_SPEED_DEFAULT);
++        press(&mut app, Btn::Right);
++        let at = FF_SPEEDS
++            .iter()
++            .position(|s| *s == FF_SPEED_DEFAULT)
++            .expect("default speed");
++        let next = FF_SPEEDS[(at + 1) % FF_SPEEDS.len()];
++        assert_eq!(app.ff_speed(), next, "{platform:?}");
++        assert_eq!(read_slot_state(root.path()).ff_speed, next, "{platform:?}");
++    }
++}
++
++#[test]
++fn the_turbo_row_flips_its_setting_on_the_nes_and_snes_shelves() {
++    for platform in [Platform::Nes, Platform::Snes] {
++        let (root, mut app) = on_shelf(platform);
++        open_at(&mut app, QuickRow::Turbo);
++        assert!(app.turbo());
++        press(&mut app, Btn::Right);
++        assert_eq!(app.quick_value(QuickRow::Turbo), Some(QuickValue::Off));
++        assert!(!app.turbo(), "{platform:?}");
++        assert!(!read_slot_state(root.path()).turbo, "{platform:?}");
++    }
++}
++
++fn recorded(
++    platform: Platform,
++    turbo: bool,
++    which: Core,
++    dylib: PathBuf,
++    rom: PathBuf,
++) -> Vec<u16> {
++    let root = tmp_root_with_real_carts(&[]);
++    let (ran, inputs) = (
++        Arc::new(AtomicU64::new(0)),
++        Arc::new(Mutex::new(Vec::new())),
++    );
++    let core = Tapped {
++        inner: open_core_for(root.path(), which, "auto", false, &[dylib]),
++        ran: ran.clone(),
++        inputs: inputs.clone(),
++    };
++    let mut sink = StubSink::draining();
++    sink.open(32_768).expect("the stub refused to open");
++    let emu = EmuHandle::spawn(Box::new(core), rom, sink.ring(), None, None);
++    emu.set_speed(Speed::Normal);
++    emu.set_pass_through(platform.passes_xy_through());
++    emu.set_turbo(turbo);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while emu.state() == CoreState::Loading {
++        assert!(Instant::now() < deadline, "the core never loaded");
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    emu.set_input(held());
++    let from = ran.load(Ordering::Relaxed) + 5;
++    while ran.load(Ordering::Relaxed) < from + 30 {
++        assert!(Instant::now() < deadline, "the core never ran");
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    let seen = inputs.lock().expect("inputs");
++    seen[from as usize..].to_vec()
++}
++
++fn held() -> ButtonMask {
++    ButtonMask(ButtonMask::X | ButtonMask::Y | ButtonMask::START)
++}
++
++#[test]
++fn the_turbo_setting_changes_nothing_that_reaches_the_snes_core() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("snes9x") else {
++        return;
++    };
++    for (turbo, map) in [(true, Map::Lo), (false, Map::Hi), (false, Map::Lo)] {
++        let rom = snes_rom("snes_turbo.sfc", map, false, 0);
++        let seen = recorded(Platform::Snes, turbo, Core::Snes9x, dylib.clone(), rom);
++        assert!(
++            seen.iter().all(|m| *m == held().0),
++            "turbo {turbo}: the core was handed something else: {seen:?}"
++        );
++    }
++}
++
++#[test]
++fn the_turbo_setting_does_change_what_reaches_the_nes_core() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let rom = nes_rom("nes_turbo.nes", false);
++    let on = recorded(
++        Platform::Nes,
++        true,
++        Core::Fceumm,
++        dylib.clone(),
++        rom.clone(),
++    );
++    let off = recorded(Platform::Nes, false, Core::Fceumm, dylib, rom);
++    assert!(
++        on.iter().any(|m| m & ButtonMask::A != 0) && on.iter().any(|m| m & ButtonMask::A == 0),
++        "turbo never pulsed A: {on:?}"
++    );
++    assert!(
++        off.iter().all(|m| *m == ButtonMask::START),
++        "turbo off still sent X, Y or A: {off:?}"
++    );
++}
+diff --git a/crates/slot/tests/nes_resume.rs b/crates/slot/tests/nes_resume.rs
+new file mode 100644
+index 0000000..15e43eb
+--- /dev/null
++++ b/crates/slot/tests/nes_resume.rs
+@@ -0,0 +1,66 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod real_seat;
++
++use common::core_lock;
++use nes_common::{fceumm, nes_rom};
++use slot::app::{App, Phase};
++use slot_store::{read_slot_state, write_slot_state, Core, Platform};
++
++const STEM: &str = "Mario";
++
++fn remembering(root: &std::path::Path, platform: Option<Platform>) {
++    let mut state = read_slot_state(root);
++    state.cart = Some(STEM.into());
++    state.cart_platform = platform;
++    write_slot_state(root, &state).expect("write slot.state");
++}
++
++#[test]
++fn a_nes_cart_in_slot_state_boots_into_the_nes_cart_on_fceumm() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let root = real_seat::rooted(
++        Platform::Nes,
++        STEM,
++        &nes_rom("nes_resume.nes", false),
++        &dylib,
++    );
++    std::fs::write(root.path().join("Games/GBA/Mario.gba"), common::gba_rom()).expect("write cart");
++    remembering(root.path(), Some(Platform::Nes));
++    let session = real_seat::play(root.path(), false);
++    let seated = session.app().seated_cart().expect("no cart in the slot");
++    assert_eq!(
++        (seated.platform, seated.stem.as_str()),
++        (Platform::Nes, STEM)
++    );
++    assert_eq!(session.app().core(), Core::Fceumm);
++    assert!(session.has_core(), "the NES cart booted with no core");
++}
++
++#[test]
++fn the_remembered_platform_picks_between_two_carts_with_the_same_name() {
++    let root = common::tmp_root_with_real_carts(&[STEM]);
++    std::fs::copy(
++        nes_rom("nes_resume_twin.nes", false),
++        root.path().join("Games/NES/Mario.nes"),
++    )
++    .expect("copy cart");
++    common::clocked(root.path());
++    for platform in [Platform::Nes, Platform::Gba] {
++        remembering(root.path(), Some(platform));
++        let app = App::boot(root.path());
++        assert!(
++            matches!(app.phase(), Phase::Inserting { .. }),
++            "{platform:?}"
++        );
++        assert_eq!(
++            app.seated_cart().map(|c| c.platform),
++            Some(platform),
++            "slot.state named {platform:?}"
++        );
++    }
++}
+diff --git a/crates/slot/tests/nes_states.rs b/crates/slot/tests/nes_states.rs
+new file mode 100644
+index 0000000..266ddab
+--- /dev/null
++++ b/crates/slot/tests/nes_states.rs
+@@ -0,0 +1,150 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod real_seat;
++mod snes_common;
++
++use std::path::PathBuf;
++use std::time::Duration;
++
++use common::core_lock;
++use core_common::require_core;
++use nes_common::{fceumm, nes_rom};
++use slot::emu::EmuHandle;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_store::{Core, Platform, StateRing};
++use snes_common::{snes_rom_red, Map};
++
++const STEM: &str = "Zelda";
++const PRESENT: Duration = Duration::from_nanos(16_666_667);
++const NES_BACKDROP_RGB: [u8; 3] = [0xd0, 0x20, 0x20];
++const SNES_BACKDROP_RGB: [u8; 3] = [0xff, 0xc7, 0x39];
++
++fn battery_carts() -> Vec<(Platform, Core, PathBuf, PathBuf)> {
++    let mut carts = Vec::new();
++    if let Some(dylib) = fceumm() {
++        carts.push((
++            Platform::Nes,
++            Core::Fceumm,
++            nes_rom("nes_states.nes", true),
++            dylib,
++        ));
++    }
++    if let Some(dylib) = require_core("snes9x") {
++        for (name, map) in [
++            ("snes_states_lo.sfc", Map::Lo),
++            ("snes_states_hi.sfc", Map::Hi),
++        ] {
++            carts.push((
++                Platform::Snes,
++                Core::Snes9x,
++                snes_rom_red(name, map, false, 8),
++                dylib.clone(),
++            ));
++        }
++    }
++    carts
++}
++
++fn chord(session: &mut Session, now: &mut Millis, btn: Btn) {
++    for ev in [
++        RawEvent::Down(Btn::Select),
++        RawEvent::Down(btn),
++        RawEvent::Up(btn),
++        RawEvent::Up(Btn::Select),
++    ] {
++        *now += 20;
++        session.feed([ev], *now);
++    }
++    session.update(1.0 / 60.0);
++}
++
++fn ring(root: &std::path::Path, platform: Platform, core: Core) -> StateRing {
++    StateRing::new(root, platform, core, STEM)
++}
++
++fn decode(png_bytes: &[u8]) -> (Vec<u8>, u32, u32) {
++    let mut reader = png::Decoder::new(png_bytes).read_info().expect("read info");
++    let mut buf = vec![0u8; reader.output_buffer_size()];
++    let info = reader.next_frame(&mut buf).expect("decode");
++    buf.truncate(info.buffer_size());
++    (buf, info.width, info.height)
++}
++
++fn step(session: &Session, frames: u32) {
++    for _ in 0..frames {
++        assert!(session.step_emulator(PRESENT, Duration::from_secs(2)));
++    }
++}
++
++fn driven(session: &mut Session) {
++    session.set_driven(true);
++    for _ in 0..400 {
++        session.update(1.0 / 60.0);
++        if session.emu().is_some_and(EmuHandle::locked) {
++            return;
++        }
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    panic!("the emulator never took the clock");
++}
++
++#[test]
++fn select_and_r1_write_a_state_and_a_full_canvas_polaroid_under_the_platform_dir() {
++    let _g = core_lock();
++    for (platform, core, rom, dylib) in battery_carts() {
++        let root = real_seat::rooted(platform, STEM, &rom, &dylib);
++        let mut session = real_seat::play(root.path(), true);
++        let mut now = 100;
++        chord(&mut session, &mut now, Btn::R1);
++        let entries = ring(root.path(), platform, core).list().expect("list");
++        assert_eq!(entries.len(), 1, "{platform:?}");
++        let under = root.path().join("States").join(platform.dir_name());
++        assert!(
++            entries[0].state.starts_with(&under),
++            "{:?}",
++            entries[0].state
++        );
++        assert!(
++            entries[0].thumb.starts_with(&under),
++            "{:?}",
++            entries[0].thumb
++        );
++        let (rgb, w, h) = decode(&std::fs::read(&entries[0].thumb).expect("polaroid"));
++        assert_eq!((w, h), (360, 240), "{platform:?}");
++        assert_eq!(&rgb[..3], [0, 0, 0], "{platform:?} corner is cropped");
++        let centre = (120 * 360 + 180) * 3;
++        let backdrop = match platform {
++            Platform::Nes => NES_BACKDROP_RGB,
++            _ => SNES_BACKDROP_RGB,
++        };
++        assert_eq!(rgb[centre..centre + 3], backdrop, "{platform:?}");
++    }
++}
++
++#[test]
++fn select_and_l1_put_the_core_back_where_select_and_r1_saved_it() {
++    let _g = core_lock();
++    for (platform, core, rom, dylib) in battery_carts() {
++        let root = real_seat::rooted(platform, STEM, &rom, &dylib);
++        let mut session = real_seat::play(root.path(), true);
++        driven(&mut session);
++        step(&session, 30);
++        let snapshot = session.emu().expect("no core").snapshot();
++        let saved = snapshot.state().expect("no state");
++        let mut now = 100;
++        chord(&mut session, &mut now, Btn::R1);
++        let entries = ring(root.path(), platform, core).list().expect("list");
++        assert_eq!(
++            std::fs::read(&entries[0].state).expect("state file"),
++            saved,
++            "{platform:?}"
++        );
++        step(&session, 30);
++        assert_ne!(snapshot.state().expect("no state"), saved, "{platform:?}");
++        chord(&mut session, &mut now, Btn::L1);
++        assert_eq!(snapshot.state().expect("no state"), saved, "{platform:?}");
++    }
++}
+diff --git a/crates/slot/tests/real_seat/mod.rs b/crates/slot/tests/real_seat/mod.rs
+new file mode 100644
+index 0000000..5d9d2d4
+--- /dev/null
++++ b/crates/slot/tests/real_seat/mod.rs
+@@ -0,0 +1,52 @@
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++use crate::common;
++
++pub fn rooted(platform: Platform, stem: &str, rom: &Path, dylib: &Path) -> TempDir {
++    let core = Core::default_for(platform);
++    let root = common::tmp_root_with_real_carts(&[]);
++    let cart = root
++        .path()
++        .join("Games")
++        .join(platform.dir_name())
++        .join(format!("{stem}.{}", platform.extensions()[0]));
++    std::fs::copy(rom, cart).expect("copy cart");
++    std::os::unix::fs::symlink(
++        std::fs::canonicalize(dylib).expect("core path"),
++        root.path().join("System").join(dylib_name(core)),
++    )
++    .expect("link core");
++    common::clocked(root.path());
++    root
++}
++
++pub fn play(root: &Path, insert: bool) -> Session {
++    let mut sink = StubSink::draining();
++    sink.open(32_768).expect("the stub refused to open");
++    let mut session = Session::boot_with(root.to_path_buf(), Box::new(sink));
++    if insert {
++        session.feed([RawEvent::Down(Btn::A)], 16);
++        session.feed([RawEvent::Up(Btn::A)], 32);
++    }
++    let deadline = Instant::now() + Duration::from_secs(20);
++    while !matches!(session.app().phase(), Phase::Playing { .. }) {
++        assert!(Instant::now() < deadline, "the cart never seated");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    while session.frames_published() < 10 {
++        assert!(Instant::now() < deadline, "the core never drew");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    session
++}
+diff --git a/crates/slot/tests/snes_common/mod.rs b/crates/slot/tests/snes_common/mod.rs
+index 66c1543..777e068 100644
+--- a/crates/slot/tests/snes_common/mod.rs
++++ b/crates/slot/tests/snes_common/mod.rs
+@@ -1,3 +1,5 @@
++#![allow(dead_code)]
++
+ use std::path::{Path, PathBuf};
+ 
+ #[derive(Clone, Copy)]
+@@ -8,21 +10,34 @@ pub enum Map {
+ 
+ pub const SNES_TITLE: &str = "SLOT TEST ROM";
+ 
++const BLACK: &[u8] = &[
++    0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0x8d, 0x22, 0x21, 0x8d, 0x22, 0x21, 0xa9, 0x0f,
++    0x8d, 0x00, 0x21, 0x4c, 0x13, 0x80,
++];
++const RED: &[u8] = &[
++    0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0xa9, 0x1f, 0x8d, 0x22, 0x21, 0x8d, 0x22, 0x21,
++    0xa9, 0x0f, 0x8d, 0x00, 0x21, 0x4c, 0x15, 0x80,
++];
++
+ pub fn snes_rom(name: &str, map: Map, copier: bool, sram_kb: u32) -> PathBuf {
++    build(name, map, copier, sram_kb, BLACK)
++}
++
++pub fn snes_rom_red(name: &str, map: Map, copier: bool, sram_kb: u32) -> PathBuf {
++    build(name, map, copier, sram_kb, RED)
++}
++
++fn build(name: &str, map: Map, copier: bool, sram_kb: u32, program: &[u8]) -> PathBuf {
+     let (size, header, mode) = match map {
+         Map::Lo => (0x8000usize, 0x7fc0usize, 0x20u8),
+         Map::Hi => (0x10000, 0xffc0, 0x21),
+     };
+     let mut rom = vec![0u8; size];
+-    let program = [
+-        0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0x8d, 0x22, 0x21, 0x8d, 0x22, 0x21, 0xa9,
+-        0x0f, 0x8d, 0x00, 0x21, 0x4c, 0x13, 0x80,
+-    ];
+     let code = match map {
+         Map::Lo => 0,
+         Map::Hi => 0x8000,
+     };
+-    rom[code..code + program.len()].copy_from_slice(&program);
++    rom[code..code + program.len()].copy_from_slice(program);
+     rom[header..header + 21].fill(b' ');
+     rom[header..header + SNES_TITLE.len()].copy_from_slice(SNES_TITLE.as_bytes());
+     rom[header + 0x15] = mode;
+diff --git a/crates/slot/tests/snes_emu.rs b/crates/slot/tests/snes_emu.rs
+index 79b97b6..44d40e3 100644
+--- a/crates/slot/tests/snes_emu.rs
++++ b/crates/slot/tests/snes_emu.rs
+@@ -9,7 +9,7 @@ use core_common::require_core;
+ use slot::core::open_core_for;
+ use slot_retro::{ButtonMask, MockCore, RetroCore};
+ use slot_store::Core;
+-use snes_common::{snes_rom, Map, SNES_TITLE};
++use snes_common::{snes_rom, snes_rom_red, Map, SNES_TITLE};
+ 
+ const PICTURE_X: usize = 52;
+ const PICTURE_Y: usize = 8;
+@@ -26,19 +26,7 @@ fn booted(dylib: PathBuf, rom: PathBuf) -> Box<dyn RetroCore> {
+ }
+ 
+ fn red_backdrop_rom() -> PathBuf {
+-    let path = snes_rom("snes_emu_red.sfc", Map::Lo, false, 0);
+-    let mut rom = std::fs::read(&path).expect("read rom");
+-    let program = [
+-        0x78, 0x18, 0xfb, 0xa9, 0x00, 0x8d, 0x21, 0x21, 0xa9, 0x1f, 0x8d, 0x22, 0x21, 0x8d, 0x22,
+-        0x21, 0xa9, 0x0f, 0x8d, 0x00, 0x21, 0x4c, 0x15, 0x80,
+-    ];
+-    rom[..program.len()].copy_from_slice(&program);
+-    rom[0x7fdc..0x7fe0].copy_from_slice(&[0xff, 0xff, 0, 0]);
+-    let sum = rom.iter().fold(0u16, |a, b| a.wrapping_add(u16::from(*b)));
+-    rom[0x7fdc..0x7fde].copy_from_slice(&(!sum).to_le_bytes());
+-    rom[0x7fde..0x7fe0].copy_from_slice(&sum.to_le_bytes());
+-    std::fs::write(&path, rom).expect("write rom");
+-    path
++    snes_rom_red("snes_emu_red.sfc", Map::Lo, false, 0)
+ }
+ 
+ fn pixel(video: &[u8], x: usize, y: usize) -> [u8; 4] {

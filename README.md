@@ -23,7 +23,8 @@ set adds two more shelves the same way:
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
-byte-identical to upstream. That is the goal. The first version has known gaps, listed in [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md#known-gaps-not-hidden).
+byte-identical to upstream. That is the goal. The quick menu keeps its rows on every shelf. The Turbo
+Buttons row does nothing on SNES, where X and Y are real buttons and always reach the game. The first version has known gaps, listed in [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md#known-gaps-not-hidden).
 
 ## How it works
 
@@ -52,6 +53,14 @@ there. An update replaces `System/` and keeps `Config/`, `Saves/` and `States/`.
 
 **With adb:** `task deploy:device` pushes `System/` to `/mnt/sdcard` and reboots the device
 (`SD=/other/path` overrides the target), then `task log:device` prints `slot.log`.
+
+**Going back to stock slot:** an unpatched slot does not know the NES or SNES shelves. If its
+`Config/slot.state` says `cart_platform=nes` (or `snes`) because a NES or SNES cart was in the slot,
+it reads that as no platform and looks the cart up by name. The cart sits in `Games/NES`, which
+stock slot never scans, so it finds nothing and boots to the shelf with the slot empty (unless a
+GBA, GB or GBC cart has the same name, which it seats instead). Nothing panics and no file is
+deleted: `Games/NES`, `Games/SNES`, `Saves/` and `States/` stay as they are.
+`sh scripts/check-downgrade.sh` runs this case against the upstream tree.
 
 ## Status
 
