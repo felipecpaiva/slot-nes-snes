@@ -96,7 +96,7 @@ gc="$(slot_var GPSP_COMMIT)"
 [ -n "$mc" ] && [ -n "$gc" ] || bad "no MGBA_COMMIT or GPSP_COMMIT in build/slot/taskfile.yml, run task build"
 ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
-licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/cores.sha256
+licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/retro-shaders.txt licenses/cores.sha256
 licenses/mgba-MPL-2.0.txt licenses/mgba-$mc.meta
 licenses/gpsp-GPL-2.0.txt licenses/gpsp-$gc.meta licenses/gpsp-$gc.tar.gz
 licenses/fceumm_libretro.so.meta licenses/fceumm-src.meta licenses/fceumm-src.tar.gz

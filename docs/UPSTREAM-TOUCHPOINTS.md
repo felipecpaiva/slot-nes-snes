@@ -8,7 +8,8 @@ the reasons (docs/REBASE.md).
 | File | Hunks | Lines changed (+/-) | Patches |
 |---|---|---|---|
 | `crates/slot-gfx/src/fbo.rs` | 1 | 4 (+4/-0) | 0004-canvas |
-| `crates/slot-gfx/src/pipeline.rs` | 10 | 58 (+45/-13) | 0004-canvas |
+| `crates/slot-gfx/src/lcd3x.rs` | 2 | 10 (+9/-1) | 0020-retro-shaders |
+| `crates/slot-gfx/src/pipeline.rs` | 14 | 65 (+52/-13) | 0004-canvas, 0020-retro-shaders |
 | `crates/slot-input/src/gesture.rs` | 5 | 10 (+9/-1) | 0007-input |
 | `crates/slot-retro/src/core.rs` | 1 | 6 (+6/-0) | 0004-canvas, 0006-libretro-env |
 | `crates/slot-retro/src/lib.rs` | 3 | 3 (+3/-0) | 0004-canvas, 0007-input |
@@ -16,28 +17,29 @@ the reasons (docs/REBASE.md).
 | `crates/slot-retro/src/mock.rs` | 5 | 19 (+15/-4) | 0004-canvas |
 | `crates/slot-store/src/cart_shell.rs` | 3 | 12 (+12/-0) | 0013-cart-shell-region |
 | `crates/slot-store/src/core.rs` | 6 | 36 (+34/-2) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0003-core-fceumm, 0005-platform-snes, 0009-core-picker-pairs |
-| `crates/slot-store/src/lib.rs` | 4 | 4 (+4/-0) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0005-platform-snes, 0013-cart-shell-region |
+| `crates/slot-store/src/lib.rs` | 5 | 6 (+6/-0) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0005-platform-snes, 0013-cart-shell-region, 0020-retro-shaders |
 | `crates/slot-store/src/platform.rs` | 5 | 10 (+10/-0) | 0002-platform-nes, 0005-platform-snes |
 | `crates/slot-store/src/scan.rs` | 3 | 10 (+8/-2) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes |
-| `crates/slot-store/src/slot_state.rs` | 8 | 21 (+20/-1) | 0002-platform-nes, 0014-shaders |
+| `crates/slot-store/src/slot_state.rs` | 10 | 23 (+22/-1) | 0002-platform-nes, 0014-shaders, 0020-retro-shaders |
 | `crates/slot-store/tests/durability.rs` | 2 | 4 (+3/-1) | 0002-platform-nes, 0014-shaders |
 | `crates/slot-ui/examples/lettering.rs` | 1 | 8 (+8/-0) | 0012-cart-art |
 | `crates/slot-ui/src/board.rs` | 3 | 7 (+6/-1) | 0012-cart-art |
 | `crates/slot-ui/src/cart.rs` | 14 | 91 (+83/-8) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region |
 | `crates/slot-ui/src/lib.rs` | 6 | 18 (+15/-3) | 0012-cart-art, 0018-quick-menu-retro-shaders |
-| `crates/slot-ui/src/quick_menu.rs` | 6 | 14 (+12/-2) | 0018-quick-menu-retro-shaders |
+| `crates/slot-ui/src/quick_menu.rs` | 9 | 21 (+18/-3) | 0018-quick-menu-retro-shaders, 0020-retro-shaders |
 | `crates/slot-ui/src/shelf.rs` | 7 | 36 (+32/-4) | 0012-cart-art, 0015-lazy-shelf, 0019-shelf-memory |
 | `crates/slot-ui/src/shell.rs` | 1 | 1 (+1/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art |
 | `crates/slot-ui/src/silhouette.rs` | 5 | 10 (+5/-5) | 0012-cart-art |
+| `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0020-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes |
-| `crates/slot/src/app.rs` | 22 | 39 (+29/-10) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0018-quick-menu-retro-shaders, 0019-shelf-memory |
+| `crates/slot/src/app.rs` | 24 | 41 (+31/-10) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0018-quick-menu-retro-shaders, 0019-shelf-memory, 0020-retro-shaders |
 | `crates/slot/src/audio/alsa.rs` | 5 | 7 (+5/-2) | 0016-audio-release-pace |
 | `crates/slot/src/audio/mod.rs` | 1 | 1 (+1/-0) | 0016-audio-release-pace |
 | `crates/slot/src/core.rs` | 7 | 12 (+8/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs |
 | `crates/slot/src/core_picker.rs` | 6 | 14 (+10/-4) | 0009-core-picker-pairs |
 | `crates/slot/src/device_app.rs` | 5 | 7 (+7/-0) | 0017-frame-trace |
 | `crates/slot/src/emu.rs` | 11 | 42 (+27/-15) | 0004-canvas, 0006-libretro-env, 0007-input |
-| `crates/slot/src/frontend.rs` | 9 | 24 (+21/-3) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art |
+| `crates/slot/src/frontend.rs` | 12 | 29 (+24/-5) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0020-retro-shaders |
 | `crates/slot/src/lib.rs` | 7 | 9 (+9/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0017-frame-trace, 0018-quick-menu-retro-shaders, 0019-shelf-memory |
 | `crates/slot/src/root.rs` | 5 | 10 (+9/-1) | 0002-platform-nes, 0005-platform-snes |
 | `crates/slot/src/session.rs` | 2 | 7 (+6/-1) | 0007-input, 0008-default-stretch |
@@ -52,16 +54,22 @@ the reasons (docs/REBASE.md).
 | File | Key | Upstream lines | +/- | Context | Why |
 |---|---|---|---|---|---|
 | `crates/slot-gfx/src/fbo.rs` | crates/slot-gfx/src/fbo.rs#impl Compositor {#1 | 131 | +4/-0 | impl Compositor { | Lets the compositor resize the game texture to the core's canvas |
+| `crates/slot-gfx/src/lcd3x.rs` | crates/slot-gfx/src/lcd3x.rs#pub enum ScreenEffect {#1 | 18 | +1/-0 | pub enum ScreenEffect { | The one retro hook in ScreenEffect: Retro(n) for the NES and SNES shaders (0020), drawn by pipeline/retro.rs |
+| `crates/slot-gfx/src/lcd3x.rs` | crates/slot-gfx/src/lcd3x.rs#impl ScreenEffect {#1 | 23 | +8/-1 | impl ScreenEffect { | `self as u8` cannot cast an enum with a payload, so mode() lists upstream's values 0 to 4 by hand; Retro gives 0 so the game program draws it plain if the retro program is missing |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#use crate::surface::{GfxError, OUT_H, OUT_W};#1 | 6 | +2/-0 | use crate::surface::{GfxError, OUT_H, OUT_W}; | Declares pipeline/retro.rs, the NES and SNES shader program; a child module so it reads GamePass's private fields |
 | `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#pub struct GamePass {#1 | 15 | +3/-0 | pub struct GamePass { | Stores the game canvas size, a refusal flag and the u_src uniform location |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#pub struct GamePass {#2 | 29 | +1/-0 | pub struct GamePass { | Holds the NES and SNES shader program, None if it did not build |
 | `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#1 | 44 | +1/-1 | impl GamePass { | Keeps the u_src uniform location so the canvas can change later |
 | `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#2 | 48-52 | +2/-5 | impl GamePass { | Reads u_src through a saved location instead of the fixed 240x160 constant |
 | `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#3 | 69 | +3/-0 | impl GamePass { | Starts the pass with the default GBA canvas and no refusal |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#4 | 120 | +20/-0 | impl GamePass { | Adds set_canvas to reallocate the game texture and u_src for a new canvas size |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#5 | 122 | +9/-1 | impl GamePass { | Accepts frames of the canvas size so NES and SNES frames are not dropped |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#6 | 124 | +1/-0 | impl GamePass { | Clears the refusal flag once a frame of the right size arrives |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#7 | 133-134 | +2/-2 | impl GamePass { | Uploads the frame at the canvas size instead of fixed 240x160 |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#8 | 144 | +1/-1 | impl GamePass { | Passes the canvas into the grid whole-scale source calculation |
-| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#9 | 180-182 | +3/-3 | impl GamePass { | Sizes the grid whole-scale math from the canvas instead of fixed source constants |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#4 | 83 | +1/-0 | impl GamePass { | Builds the NES and SNES shader program next to the game program; a failure logs and leaves None, so GBA never depends on it |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#5 | 120 | +20/-0 | impl GamePass { | Adds set_canvas to reallocate the game texture and u_src for a new canvas size |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#6 | 122 | +9/-1 | impl GamePass { | Accepts frames of the canvas size so NES and SNES frames are not dropped |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#7 | 124 | +1/-0 | impl GamePass { | Clears the refusal flag once a frame of the right size arrives |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#8 | 133-134 | +2/-2 | impl GamePass { | Uploads the frame at the canvas size instead of fixed 240x160 |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#9 | 144 | +1/-1 | impl GamePass { | Passes the canvas into the grid whole-scale source calculation |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#10 | 154 | +3/-0 | impl GamePass { | Hands a Retro effect to the separate NES and SNES program; every other effect still draws with the untouched game program |
+| `crates/slot-gfx/src/pipeline.rs` | crates/slot-gfx/src/pipeline.rs#impl GamePass {#11 | 180-182 | +3/-3 | impl GamePass { | Sizes the grid whole-scale math from the canvas instead of fixed source constants |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#pub enum Action {#1 | 50 | +1/-0 | pub enum Action { | Adds a VideoModeToggle action for the Select+X picture toggle on NES and SNES |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#pub struct Gestures {#1 | 84 | +1/-0 | pub struct Gestures { | Tracks whether the Select+X picture chord is enabled |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#impl Gestures {#1 | 101 | +4/-0 | impl Gestures { | Adds a setter so only NES and SNES sessions enable the chord |
@@ -108,8 +116,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/src/core.rs` | crates/slot-store/src/core.rs#impl Core {#5 | 53 | +2/-0 | impl Core { | Defaults NES to FCEUmm and SNES to Snes9x |
 | `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#mod core;#1 | 4 | +1/-0 | mod core; | Declares core_policy for NES and SNES core rules |
 | `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#pub mod ini;#1 | 8 | +1/-0 | pub mod ini; | Declares the nes module for ROM handling |
-| `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#mod platform;#1 | 9 | +1/-0 | mod platform; | Declares platform_policy for NES and SNES platform rules |
+| `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#mod platform;#1 | 9 | +2/-0 | mod platform; | Declares platform_policy for NES and SNES platform rules, and retro_shader for the NES and SNES shader list |
 | `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#mod slot_state;#1 | 12 | +1/-0 | mod slot_state; | Declares the snes module for ROM header parsing |
+| `crates/slot-store/src/lib.rs` | crates/slot-store/src/lib.rs#pub use platform::Platform;#1 | 24 | +1/-0 | pub use platform::Platform; | Exports RetroShader, the type the retro hook variants carry |
 | `crates/slot-store/src/platform.rs` | crates/slot-store/src/platform.rs#pub enum Platform {#1 | 8 | +2/-0 | pub enum Platform { | Adds Nes and Snes arms so the exhaustive Platform match compiles |
 | `crates/slot-store/src/platform.rs` | crates/slot-store/src/platform.rs#impl Platform {#1 | 18 | +2/-0 | impl Platform { | Names the NES and SNES platforms in full |
 | `crates/slot-store/src/platform.rs` | crates/slot-store/src/platform.rs#impl Platform {#2 | 26 | +2/-0 | impl Platform { | Gives NES and SNES their short names |
@@ -119,7 +128,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/src/scan.rs` | crates/slot-store/src/scan.rs#impl Cart {#2 | 32 | +6/-0 | impl Cart { | Reads the SNES ROM header title; NES carts have none |
 | `crates/slot-store/src/scan.rs` | crates/slot-store/src/scan.rs#pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {#1 | 65 | +1/-1 | pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> { | Scans the shelves list, which includes NES and SNES |
 | `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#pub struct SlotState {#1 | 40 | +2/-0 | pub struct SlotState { | Stores a separate shader choice for NES and SNES |
-| `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#impl Shader {#1 | 54 | +1/-0 | impl Shader { | Adds the retro shader set of Off, Grid and Dot |
+| `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#pub enum Shader {#1 | 49 | +1/-0 | pub enum Shader { | The one retro hook in Shader: Retro carries a RetroShader; the list and names live in retro_shader.rs |
+| `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#impl Shader {#1 | 62 | +1/-0 | impl Shader { | Names a retro shader by its own name in slot.state |
+| `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#impl Shader {#2 | 75 | +1/-0 | impl Shader { | Parses the retro shader names; shader_gba and shader_gb still filter them out |
 | `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#impl Default for SlotState {#1 | 112 | +2/-0 | impl Default for SlotState { | Defaults the NES and SNES shaders to Off |
 | `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {#1 | 153 | +6/-0 | pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> { | Persists the NES and SNES shader choices to the slot state file |
 | `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#fn parse(text: &str) -> Option<SlotState> {#1 | 178 | +2/-0 | fn parse(text: &str) -> Option<SlotState> { | Starts the NES and SNES shader values while parsing the state file |
@@ -158,6 +169,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#3 | 75 | +2/-0 | impl QuickRow { | Gives the new shader rows their NES and SNES screen pages |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#4 | 88 | +3/-1 | impl QuickRow { | Lets the NES and SNES shader rows go back to the Screen row |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#5 | 121 | +2/-0 | impl QuickRow { | Labels the new rows NES Shader and SNES Shader |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickValue {#1 | 154 | +1/-0 | pub enum QuickValue { | The one retro hook in QuickValue: Retro carries a RetroShader; QuickValue::ALL stays the upstream 10 |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#1 | 172 | +4/-1 | impl QuickValue { | `self as usize` cannot cast an enum with a payload; same position lookup as Toast::index, retro faces follow ALL |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#2 | 186 | +1/-0 | impl QuickValue { | Prints a retro shader by its label |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#use std::sync::atomic::{AtomicU32, Ordering};#1 | 3 | +1/-0 | use std::sync::atomic::{AtomicU32, Ordering}; | Imports the OnceLock used for lazy per-cart shell lookup |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#use crate::hud::Millis;#1 | 6 | +2/-0 | use crate::hud::Millis; | Imports the retro shell lookup and the published shadows |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#pub struct Shelf {#1 | 55 | +3/-1 | pub struct Shelf { | Makes shell lookups lazy and adds retro shell and shadow storage |
@@ -171,6 +185,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/silhouette.rs` | crates/slot-ui/src/silhouette.rs#const GBA_LETTERING: &[u8] = include_bytes!("../assets/lettering_gba.png");#1 | 147 | +1/-1 | const GBA_LETTERING: &[u8] = include_bytes!("../assets/lettering_gba.png"); | Makes emboss crate-visible so the retro shells can reuse it |
 | `crates/slot-ui/src/silhouette.rs` | crates/slot-ui/src/silhouette.rs#fn rasterise(w: u32, h: u32) -> Option<Vec<u8>> {#1 | 203 | +1/-1 | fn rasterise(w: u32, h: u32) -> Option<Vec<u8>> { | Makes rasterise_detail crate-visible so the retro shells can reuse it |
 | `crates/slot-ui/src/silhouette.rs` | crates/slot-ui/src/silhouette.rs#fn rasterise_detail(svg: &str, w: u32, h: u32) -> Option<Detail> {#1 | 216 | +1/-1 | fn rasterise_detail(svg: &str, w: u32, h: u32) -> Option<Detail> { | Makes rasterise_svg crate-visible so the retro shells can reuse it |
+| `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#pub enum Toast {#1 | 26 | +1/-0 | pub enum Toast { | The one retro hook in Toast: Retro carries a RetroShader, like Palette carries a GbPalette |
+| `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#impl Toast {#1 | 57 | +1/-0 | impl Toast { | Places retro banners after the palette ones; Toast::all() stays upstream's list, Toast::every() adds them |
+| `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#impl Toast {#2 | 90 | +1/-0 | impl Toast { | Says which retro shader was picked |
 | `crates/slot-ui/tests/chrome.rs` | crates/slot-ui/tests/chrome.rs#fn label_band(c: &Cart) -> (f32, f32) {#1 | 45 | +1/-1 | fn label_band(c: &Cart) -> (f32, f32) { | Includes NES and SNES in the test's label band match |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#use slot_ui::{#1 | 17 | +1/-1 | use slot_ui::{ | Uses shelf_cart_of so the cart's shelf platform sets its lid size |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#pub struct App {#1 | 350 | +1/-0 | pub struct App { | Holds the per-platform shelf memory (shelf_recall.rs) |
@@ -189,11 +206,13 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#12 | 1354 | +2/-0 | impl App { | New shader rows change only with Left/Right; exhaustive match needs the arm |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#13 | 1392 | +1/-0 | impl App { | Hands the NES and SNES shader rows to the retro quick menu stepper |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#14 | 1409 | +2/-0 | impl App { | Left/Right cycles the NES or SNES shader through Shader::RETRO and persists |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#15 | 1445 | +1/-1 | impl App { | Toggles colour correction only if the core has it (NES and SNES do not) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#16 | 1742 | +4/-0 | impl App { | On the shelf, records the selection and queues shelf.state when it changed |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#17 | 2227 | +1/-1 | impl App { | Uses shelf_cart_of so the lid fits the current shelf's platform |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#18 | 2643 | +1/-1 | impl App { | Opens the core picker for any platform with a core pair, not just GBA |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#19 | 2646 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#15 | 1417 | +1/-0 | impl App { | Shows the retro shader's own banner when SELECT+A/B picks it |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#16 | 1445 | +1/-1 | impl App { | Toggles colour correction only if the core has it (NES and SNES do not) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#17 | 1742 | +4/-0 | impl App { | On the shelf, records the selection and queues shelf.state when it changed |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#18 | 2227 | +1/-1 | impl App { | Uses shelf_cart_of so the lid fits the current shelf's platform |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#19 | 2643 | +1/-1 | impl App { | Opens the core picker for any platform with a core pair, not just GBA |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#20 | 2646 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn shader_value(shader: Shader) -> QuickValue {#1 | 3394 | +1/-0 | fn shader_value(shader: Shader) -> QuickValue { | Shows the retro shader's name in the NES and SNES quick menu row |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use std::thread::JoinHandle;#1 | 5 | +1/-1 | use std::thread::JoinHandle; | Imports the Instant needed for released-pace timing |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use libloading::Library;#1 | 8 | +1/-0 | use libloading::Library; | Imports the released-pace helper |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#1 | 223 | +1/-0 | impl Playback { | Starts a pace tracker for the audio thread |
@@ -234,10 +253,13 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#1 | 133 | +1/-0 | impl Frontend { | Starts without pair faces |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#2 | 204 | +8/-0 | impl Frontend { | Publishes the NES and SNES cart shadows to the shelf |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#3 | 279 | +3/-1 | impl Frontend { | Builds the pair faces for the picker from the sockets and chips |
-| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#4 | 341 | +2/-0 | impl Frontend { | Sets the game texture size from the core's canvas |
-| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#5 | 363 | +3/-0 | impl Frontend { | Updates the pair faces to follow the session's app |
-| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#1 | 602 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
-| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#2 | 606 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#4 | 336 | +1/-0 | impl Frontend { | Maps a retro shader to the Retro screen effect by its place in RetroShader::ALL |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#5 | 341 | +2/-0 | impl Frontend { | Sets the game texture size from the core's canvas |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#6 | 363 | +3/-0 | impl Frontend { | Updates the pair faces to follow the session's app |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#1 | 596 | +1/-1 | impl UiFaces { | Builds quick menu value faces for the retro shaders too (QuickValue::every) |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#2 | 602 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#3 | 606 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#4 | 633 | +1/-1 | impl UiFaces { | Builds the retro shader banners too (Toast::every) |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod audio;#1 | 2 | +1/-0 | pub mod audio; | Declares the av_rate module |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod core;#1 | 9 | +2/-0 | pub mod core; | Declares core_faces and core_options_policy |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod face_builder;#1 | 14 | +1/-0 | pub mod face_builder; | Declares the frame_trace module |
