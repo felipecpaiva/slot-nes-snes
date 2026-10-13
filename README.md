@@ -41,6 +41,21 @@ mise trust && mise install   # in the repo: rust 1.96, task, cmake 3.x, adb (mac
 colima start
 ```
 
+## Choosing a cart shell by hand
+
+Each cart on the shelf is drawn from one of four outlines: `nes`, `famicom` (NES shelf) and `snes`, `sfc` (SNES shelf). By default slot picks one from the game's region. A NES file with `(Japan)` in its name (and no `(USA)`, `(Europe)` or `(World)` tag) is drawn as a Famicom, any other NES file as a NES. A SNES ROM is read from the region byte in its internal header: Japan and the PAL regions give the Super Famicom, USA gives the Super NES. Korea, Canada and Brazil also give the Super Famicom for now (no source settles their shell yet), and a ROM with no readable header is drawn as a Super NES. The `(Japan)` tag match is case sensitive, as in No-Intro names.
+
+To override one game, add a line to `Config/cart_shell.txt` on the SD card, one line per game, the file name without its extension, then `=`, then the outline word, a colour and a finish:
+
+```
+Super Mario Bros. (USA)=famicom 7a7a7a solid
+Some Game=auto ac8642 glitter
+```
+
+Words: `nes`, `famicom`, `snes`, `sfc`, `auto` (the region pick), plus the Game Boy words `notched` and `rounded`. A word that belongs to another platform is ignored and the cart is treated as `auto`: `sfc` on a NES game does nothing. The colour is six hex digits, the finish is `solid`, `clear` or `glitter`.
+
+Keep NES and SNES overrides in `Config/cart_shell.txt`. The cart studio at studio.slot-cfw.fyi writes `Labels/cart_shell.txt`, and whether it keeps the new words when it rewrites that file has not been checked.
+
 ## Install on a device
 
 Build the zip with `task zip` (it runs `task dist:device` and `task src-tarball` itself). It lands in `build/` as
