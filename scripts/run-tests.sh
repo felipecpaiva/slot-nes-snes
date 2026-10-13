@@ -24,9 +24,10 @@ fi
 
 # Shared CI runners (GitHub sets CI=true) fail upstream's real-time tests on the unpatched upstream
 # tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
-# say nothing about the patches. On CI these binaries are left out of the gating run and run on their
+# say nothing about the patches. Our own real-time budget tests (snes_ff.rs, snes_rewind.rs: run
+# 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
 # own afterwards as information only. Locally they still gate.
-ci_timing="emu audio"
+ci_timing="emu audio snes_ff snes_rewind"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for t in $ci_timing; do
@@ -59,7 +60,7 @@ if [ "${CI:-}" = true ]; then
 			grep '^test result' "$log.$t"
 		else
 			grep -E '^test result|^test .* FAILED' "$log.$t"
-			echo "::warning::upstream $t real-time tests failed on this runner (information only)"
+			echo "::warning::$t real-time tests failed on this runner (information only)"
 		fi
 		rm -f "$log.$t"
 	done
@@ -87,7 +88,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-[ -z "$ci_skips" ] || echo "  [runner] crates/slot/tests/{emu,audio}.rs (upstream real-time tests, run apart as information on CI only)"
+[ -z "$ci_skips" ] || echo "  [runner] crates/slot/tests/{emu,audio,snes_ff,snes_rewind}.rs (real-time tests, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
