@@ -1,0 +1,482 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 16:25:27 +0400
+Subject: [PATCH] shelf-memory
+
+---
+ crates/slot-ui/src/shelf.rs       |   4 +
+ crates/slot/src/app.rs            |   9 ++
+ crates/slot/src/lib.rs            |   1 +
+ crates/slot/src/shelf_recall.rs   | 121 +++++++++++++++++++++
+ crates/slot/src/state_writer.rs   |  32 +++++-
+ crates/slot/tests/shelf_memory.rs | 173 ++++++++++++++++++++++++++++++
+ 6 files changed, 335 insertions(+), 5 deletions(-)
+ create mode 100644 crates/slot/src/shelf_recall.rs
+ create mode 100644 crates/slot/tests/shelf_memory.rs
+
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index 712601c..fc75e85 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -251,6 +251,10 @@ impl Shelf {
+         self.held = None;
+     }
+ 
++    pub fn held(&self) -> bool {
++        self.held.is_some()
++    }
++
+     pub fn tick(&mut self, now: Millis) {
+         let Some((by, due, fired)) = self.held else {
+             return;
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index b8e4f8d..c09433a 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -348,6 +348,7 @@ pub struct App {
+     powering_off: bool,
+     radio: Box<dyn RadioJobs>,
+     state_writer: crate::state_writer::StateWriter,
++    shelf_memory: crate::shelf_recall::ShelfMemory,
+ }
+ 
+ const FACE_AHEAD: i32 = 8;
+@@ -471,6 +472,7 @@ impl App {
+             battery: None,
+             last_led: None,
+             powering_off: false,
++            shelf_memory: Default::default(),
+         }
+     }
+ 
+@@ -483,6 +485,7 @@ impl App {
+         let mut app = App::new(carts);
+         app.root = Some(root.to_path_buf());
+         app.state = read_slot_state(root);
++        app.shelf_memory = crate::shelf_recall::read(root);
+         if app.state.clock_set {
+             app.start();
+         } else {
+@@ -499,6 +502,7 @@ impl App {
+             let platform = self.state.cart_platform;
+             stem.and_then(|stem| self.seat_of(&stem, platform))
+         };
++        let recalled = crate::shelf_recall::restore(&self.shelf_memory, &mut self.shelves);
+         self.phase = Phase::Shelf;
+         match seated {
+             Some((at, i)) => {
+@@ -511,6 +515,7 @@ impl App {
+                 }
+             }
+             None => {
++                self.shelf_at = recalled.unwrap_or(self.shelf_at);
+                 self.state.cart = None;
+                 self.state.cart_platform = None;
+                 self.name_pending = true;
+@@ -1750,6 +1755,10 @@ impl App {
+ 
+     fn timers(&mut self) {
+         self.play_hold();
++        if matches!(self.phase, Phase::Shelf) {
++            let (shelf, root) = (&self.shelves[self.shelf_at], self.root.as_deref());
++            crate::shelf_recall::note(&mut self.shelf_memory, shelf, root, &self.state_writer);
++        }
+         let offer = self.undo_label();
+         if let Some(p) = &mut self.polaroids {
+             p.set_undo(offer);
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index c97bb81..d03e1fe 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -36,6 +36,7 @@ pub mod retro_quick;
+ pub mod rewind;
+ pub mod root;
+ pub mod session;
++pub mod shelf_recall;
+ pub mod snes_input;
+ pub mod state_writer;
+ pub mod thumb;
+diff --git a/crates/slot/src/shelf_recall.rs b/crates/slot/src/shelf_recall.rs
+new file mode 100644
+index 0000000..6c06c23
+--- /dev/null
++++ b/crates/slot/src/shelf_recall.rs
+@@ -0,0 +1,121 @@
++//! Which shelf the user was last on and which cart was selected on each shelf, kept across
++//! restarts in Config/shelf.state as `shelf=<platform>` and `shelf_<platform>=<stem>` lines.
++//! Carts are kept by stem so adding or removing ROMs does not shift them. slot.state is left
++//! alone: upstream tests build SlotState as an exhaustive literal.
++
++use std::path::{Path, PathBuf};
++
++use slot_store::{Platform, CONFIG_DIR};
++use slot_ui::Shelf;
++
++use crate::state_writer::StateWriter;
++
++pub const SHELF_STATE_FILE: &str = "shelf.state";
++
++#[derive(Clone, PartialEq, Eq, Debug, Default)]
++pub struct ShelfMemory {
++    pub platform: Option<Platform>,
++    pub carts: Vec<(Platform, String)>,
++}
++
++impl ShelfMemory {
++    pub fn cart(&self, platform: Platform) -> Option<&str> {
++        self.carts
++            .iter()
++            .find(|(p, _)| *p == platform)
++            .map(|(_, stem)| stem.as_str())
++    }
++
++    /// Makes `platform` current with `stem` selected on it. Returns whether anything changed.
++    pub fn note(&mut self, platform: Platform, stem: &str) -> bool {
++        if self.platform == Some(platform) && self.cart(platform) == Some(stem) {
++            return false;
++        }
++        self.platform = Some(platform);
++        match self.carts.iter_mut().find(|(p, _)| *p == platform) {
++            Some((_, s)) => *s = stem.to_string(),
++            None => self.carts.push((platform, stem.to_string())),
++        }
++        true
++    }
++
++    pub fn text(&self) -> String {
++        let mut text = String::new();
++        if let Some(p) = self.platform {
++            text.push_str(&format!("shelf={}\n", key(p)));
++        }
++        for (p, stem) in &self.carts {
++            text.push_str(&format!("shelf_{}={stem}\n", key(*p)));
++        }
++        text
++    }
++
++    /// Unknown keys and unknown platforms are skipped, so a damaged file reads as less memory.
++    pub fn parse(text: &str) -> ShelfMemory {
++        let mut memory = ShelfMemory::default();
++        for (k, value) in text.lines().filter_map(|l| l.split_once('=')) {
++            if k == "shelf" {
++                memory.platform = platform(value);
++            } else if let Some(p) = k.strip_prefix("shelf_").and_then(platform) {
++                if !value.is_empty() && memory.cart(p).is_none() {
++                    memory.carts.push((p, value.to_string()));
++                }
++            }
++        }
++        memory
++    }
++}
++
++pub fn path(root: &Path) -> PathBuf {
++    root.join(CONFIG_DIR).join(SHELF_STATE_FILE)
++}
++
++pub fn read(root: &Path) -> ShelfMemory {
++    std::fs::read_to_string(path(root))
++        .map(|t| ShelfMemory::parse(&t))
++        .unwrap_or_default()
++}
++
++/// Selects each shelf's remembered cart (index 0 when its stem is gone) and returns the
++/// remembered shelf, unless it is missing or empty.
++pub fn restore(memory: &ShelfMemory, shelves: &mut [(Platform, Shelf)]) -> Option<usize> {
++    for (platform, shelf) in shelves.iter_mut() {
++        let at = memory
++            .cart(*platform)
++            .and_then(|stem| shelf.carts.iter().position(|c| c.stem == stem));
++        shelf.select(at.unwrap_or(0));
++    }
++    let want = memory.platform?;
++    shelves
++        .iter()
++        .position(|(p, s)| *p == want && !s.carts.is_empty())
++}
++
++/// Records the selection once the cursor is at rest, so a held direction does not write on
++/// every repeat step, and queues the file on the state writer when it changed.
++pub fn note(
++    memory: &mut ShelfMemory,
++    (platform, shelf): &(Platform, Shelf),
++    root: Option<&Path>,
++    writer: &StateWriter,
++) {
++    if shelf.held() {
++        return;
++    }
++    let Some(cart) = shelf.carts.get(shelf.index) else {
++        return;
++    };
++    if let (true, Some(root)) = (memory.note(*platform, &cart.stem), root) {
++        writer.save_file(path(root), memory.text().into_bytes());
++    }
++}
++
++fn key(platform: Platform) -> String {
++    platform.dir_name().to_ascii_lowercase()
++}
++
++fn platform(value: &str) -> Option<Platform> {
++    Platform::SHELVES
++        .into_iter()
++        .find(|p| value.eq_ignore_ascii_case(p.dir_name()))
++}
+diff --git a/crates/slot/src/state_writer.rs b/crates/slot/src/state_writer.rs
+index cd83516..7e81c21 100644
+--- a/crates/slot/src/state_writer.rs
++++ b/crates/slot/src/state_writer.rs
+@@ -8,6 +8,7 @@ use slot_store::{write_slot_state, SlotState};
+ #[derive(Default)]
+ struct Queue {
+     next: Option<(PathBuf, SlotState)>,
++    file: Option<(PathBuf, Vec<u8>)>,
+     busy: bool,
+     closed: bool,
+ }
+@@ -47,6 +48,15 @@ impl StateWriter {
+         wake.notify_all();
+     }
+ 
++    pub fn save_file(&self, path: PathBuf, bytes: Vec<u8>) {
++        if !self.threaded {
++            return write_file(&path, &bytes, &self.failing);
++        }
++        let (lock, wake) = &*self.shared;
++        lock.lock().unwrap_or_else(|e| e.into_inner()).file = Some((path, bytes));
++        wake.notify_all();
++    }
++
+     pub fn card_failing(&self) -> Arc<AtomicBool> {
+         self.failing.clone()
+     }
+@@ -54,7 +64,7 @@ impl StateWriter {
+     pub fn flush(&self) {
+         let (lock, wake) = &*self.shared;
+         let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+-        while q.next.is_some() || q.busy {
++        while q.next.is_some() || q.file.is_some() || q.busy {
+             q = wake.wait(q).unwrap_or_else(|e| e.into_inner());
+         }
+     }
+@@ -72,12 +82,12 @@ impl Drop for StateWriter {
+ fn work(shared: &Shared, failing: &AtomicBool) {
+     let (lock, wake) = &**shared;
+     loop {
+-        let (root, state) = {
++        let (job, file) = {
+             let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+             loop {
+-                if let Some(job) = q.next.take() {
++                if q.next.is_some() || q.file.is_some() {
+                     q.busy = true;
+-                    break job;
++                    break (q.next.take(), q.file.take());
+                 }
+                 if q.closed {
+                     return;
+@@ -85,7 +95,12 @@ fn work(shared: &Shared, failing: &AtomicBool) {
+                 q = wake.wait(q).unwrap_or_else(|e| e.into_inner());
+             }
+         };
+-        write(&root, &state, failing);
++        if let Some((root, state)) = job {
++            write(&root, &state, failing);
++        }
++        if let Some((path, bytes)) = file {
++            write_file(&path, &bytes, failing);
++        }
+         lock.lock().unwrap_or_else(|e| e.into_inner()).busy = false;
+         wake.notify_all();
+     }
+@@ -98,3 +113,10 @@ fn write(root: &Path, state: &SlotState, failing: &AtomicBool) {
+     }
+     failing.store(written.is_err(), Ordering::Relaxed);
+ }
++
++fn write_file(path: &Path, bytes: &[u8], failing: &AtomicBool) {
++    if let Err(e) = slot_store::atomic_write(path, bytes) {
++        eprintln!("slot: {}: {e}", path.display());
++        failing.store(true, Ordering::Relaxed);
++    }
++}
+diff --git a/crates/slot/tests/shelf_memory.rs b/crates/slot/tests/shelf_memory.rs
+new file mode 100644
+index 0000000..b0994e1
+--- /dev/null
++++ b/crates/slot/tests/shelf_memory.rs
+@@ -0,0 +1,173 @@
++mod common;
++
++use std::path::Path;
++
++use common::{boot, tmp_root_with_carts};
++use slot::app::{App, Phase};
++use slot::shelf_recall::{self, ShelfMemory};
++use slot_input::{Action, Btn};
++use slot_store::{read_slot_state, write_slot_state, Platform, SlotState};
++use tempfile::TempDir;
++
++fn two_shelves() -> TempDir {
++    let d = tmp_root_with_carts(&["Advance", "Boktai", "Castlevania"]);
++    let mut rom = vec![0u8; 16 + 0x4000 + 0x2000];
++    rom[..4].copy_from_slice(b"NES\x1a");
++    rom[4] = 1;
++    rom[5] = 1;
++    for stem in ["Contra", "Metroid", "Zelda"] {
++        std::fs::write(d.path().join(format!("Games/NES/{stem}.nes")), &rom).expect("write rom");
++    }
++    d
++}
++
++fn remember(root: &Path, text: &str) {
++    std::fs::write(shelf_recall::path(root), text).expect("write shelf.state");
++}
++
++fn settle(app: &mut App) {
++    app.update(0.1);
++    app.flush_state();
++}
++
++#[test]
++fn shelf_state_round_trips_through_its_file() {
++    let memory = ShelfMemory {
++        platform: Some(Platform::Nes),
++        carts: vec![
++            (Platform::Gba, "Boktai".into()),
++            (Platform::Nes, "Super Mario Bros. 3 (USA) = Rev 1".into()),
++        ],
++    };
++    let text = memory.text();
++    assert!(text.lines().any(|l| l == "shelf=nes"), "{text:?}");
++    assert!(text.lines().any(|l| l == "shelf_gba=Boktai"), "{text:?}");
++    assert_eq!(ShelfMemory::parse(&text), memory);
++}
++
++#[test]
++fn a_missing_or_damaged_shelf_file_reads_as_no_memory() {
++    let d = two_shelves();
++    assert_eq!(shelf_recall::read(d.path()), ShelfMemory::default());
++    remember(d.path(), "shelf=pce\nshelf_pce=Bonk\nshelf_gba=\ngarbage\n");
++    assert_eq!(shelf_recall::read(d.path()), ShelfMemory::default());
++}
++
++#[test]
++fn an_old_card_with_no_shelf_file_opens_on_the_first_cart() {
++    let d = two_shelves();
++    std::fs::write(
++        d.path().join("Config/slot.state"),
++        "cart=\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n",
++    )
++    .unwrap();
++    let app = App::boot(d.path());
++    assert!(matches!(app.phase(), Phase::Shelf));
++    assert_eq!(app.selected_stem(), Some("Advance"));
++}
++
++#[test]
++fn boot_opens_the_remembered_shelf_on_its_remembered_cart() {
++    let d = two_shelves();
++    remember(
++        d.path(),
++        "shelf=nes\nshelf_nes=Metroid\nshelf_gba=Castlevania\n",
++    );
++    let mut app = boot(d.path());
++    assert!(matches!(app.phase(), Phase::Shelf));
++    assert_eq!(app.selected_stem(), Some("Metroid"));
++    app.apply(Action::GbaDown(Btn::R1));
++    assert_eq!(
++        app.selected_stem(),
++        Some("Castlevania"),
++        "GBA lost its own cart"
++    );
++}
++
++#[test]
++fn a_remembered_cart_that_is_gone_falls_back_to_the_first_cart() {
++    let d = two_shelves();
++    remember(d.path(), "shelf=nes\nshelf_nes=Kirby\n");
++    let app = boot(d.path());
++    assert_eq!(app.selected_stem(), Some("Contra"));
++}
++
++#[test]
++fn a_remembered_shelf_that_is_empty_falls_back_to_the_first_full_shelf() {
++    let d = two_shelves();
++    remember(d.path(), "shelf=snes\nshelf_snes=Mario\nshelf_gba=Boktai\n");
++    let app = boot(d.path());
++    assert_eq!(app.selected_stem(), Some("Boktai"));
++}
++
++#[test]
++fn a_seated_cart_still_wins_over_the_remembered_shelf() {
++    let d = two_shelves();
++    remember(d.path(), "shelf=nes\nshelf_nes=Metroid\n");
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            cart: Some("Boktai".into()),
++            cart_platform: Some(Platform::Gba),
++            clock_set: true,
++            ..SlotState::default()
++        },
++    )
++    .unwrap();
++    let app = App::boot(d.path());
++    assert!(matches!(app.phase(), Phase::Inserting { .. }));
++    assert_eq!(
++        app.seated_cart().map(|c| (c.platform, c.stem.as_str())),
++        Some((Platform::Gba, "Boktai"))
++    );
++}
++
++#[test]
++fn moving_on_the_shelf_is_remembered_across_a_restart() {
++    let d = two_shelves();
++    let mut app = boot(d.path());
++    settle(&mut app);
++    let slot_state = std::fs::read(d.path().join("Config/slot.state")).unwrap();
++    app.apply(Action::GbaDown(Btn::Right));
++    app.apply(Action::GbaUp(Btn::Right));
++    settle(&mut app);
++    app.apply(Action::GbaDown(Btn::R1));
++    app.apply(Action::GbaDown(Btn::Right));
++    app.apply(Action::GbaUp(Btn::Right));
++    app.apply(Action::GbaDown(Btn::Right));
++    app.apply(Action::GbaUp(Btn::Right));
++    settle(&mut app);
++    assert_eq!(app.selected_stem(), Some("Zelda"));
++    drop(app);
++    assert_eq!(
++        std::fs::read(d.path().join("Config/slot.state")).unwrap(),
++        slot_state,
++        "moving on the shelf rewrote slot.state"
++    );
++
++    let mut app = App::boot(d.path());
++    assert_eq!(app.selected_stem(), Some("Zelda"));
++    app.apply(Action::GbaDown(Btn::L1));
++    assert_eq!(app.selected_stem(), Some("Boktai"));
++    assert_eq!(read_slot_state(d.path()).cart, None);
++}
++
++#[test]
++fn a_held_direction_is_written_once_it_is_let_go() {
++    let d = two_shelves();
++    let mut app = boot(d.path());
++    settle(&mut app);
++    app.apply(Action::GbaDown(Btn::Right));
++    settle(&mut app);
++    assert_eq!(
++        shelf_recall::read(d.path()).cart(Platform::Gba),
++        Some("Advance"),
++        "wrote while the button was still held"
++    );
++    app.apply(Action::GbaUp(Btn::Right));
++    settle(&mut app);
++    assert_eq!(
++        shelf_recall::read(d.path()).cart(Platform::Gba),
++        app.selected_stem()
++    );
++}
