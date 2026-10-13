@@ -6,21 +6,21 @@ Subject: [PATCH] retro-shaders
 ---
  crates/slot-gfx/src/lcd3x.rs                  |  10 +-
  crates/slot-gfx/src/pipeline.rs               |   7 +
- crates/slot-gfx/src/pipeline/retro.rs         | 209 ++++++++++++++++++
- crates/slot-gfx/tests/retro_pipeline.rs       |  85 +++++++
+ crates/slot-gfx/src/pipeline/retro.rs         | 257 ++++++++++++++++++
+ crates/slot-gfx/tests/retro_pipeline.rs       |  85 ++++++
  crates/slot-store/src/lib.rs                  |   2 +
- crates/slot-store/src/retro_shader.rs         |  65 ++++++
+ crates/slot-store/src/retro_shader.rs         |  65 +++++
  crates/slot-store/src/slot_state.rs           |   4 +-
- crates/slot-store/tests/retro_shader_state.rs | 121 ++++++++++
+ crates/slot-store/tests/retro_shader_state.rs | 121 +++++++++
  crates/slot-ui/src/quick_menu.rs              |   7 +-
  crates/slot-ui/src/quick_retro.rs             |  23 +-
  crates/slot-ui/src/toast.rs                   |   3 +
  crates/slot-ui/tests/retro_faces.rs           |  46 ++++
  crates/slot/src/app.rs                        |   2 +
  crates/slot/src/frontend.rs                   |   5 +-
- crates/slot/tests/nes_snes_shader.rs          |  26 ++-
- crates/slot/tests/quick_retro_shader.rs       |  26 ++-
- 16 files changed, 625 insertions(+), 16 deletions(-)
+ crates/slot/tests/nes_snes_shader.rs          |  26 +-
+ crates/slot/tests/quick_retro_shader.rs       |  26 +-
+ 16 files changed, 673 insertions(+), 16 deletions(-)
  create mode 100644 crates/slot-gfx/src/pipeline/retro.rs
  create mode 100644 crates/slot-gfx/tests/retro_pipeline.rs
  create mode 100644 crates/slot-store/src/retro_shader.rs
@@ -93,10 +93,10 @@ index 9c79495..47ab7b3 100644
              gl::UseProgram(self.prog);
 diff --git a/crates/slot-gfx/src/pipeline/retro.rs b/crates/slot-gfx/src/pipeline/retro.rs
 new file mode 100644
-index 0000000..87c2391
+index 0000000..27220e4
 --- /dev/null
 +++ b/crates/slot-gfx/src/pipeline/retro.rs
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,257 @@
 +use super::GamePass;
 +use crate::lcd3x::ScreenEffect;
 +use crate::power::{screen_brightness, screen_rect};
@@ -133,6 +133,7 @@ index 0000000..87c2391
 +            gl::Uniform1i(at("u_game"), 0);
 +            gl::Uniform2f(at("u_target"), OUT_W as f32, OUT_H as f32);
 +        }
++        warm(prog, at("u_rect"), at("u_src"));
 +        Some(RetroProgram {
 +            prog,
 +            u_src: at("u_src"),
@@ -143,6 +144,53 @@ index 0000000..87c2391
 +            u_bright: at("u_bright"),
 +            u_mode: at("u_mode"),
 +        })
++    }
++}
++
++/// One off-screen draw of every retro mode into a 1x1 RGBA target. The Mali driver finishes a
++/// program on its first draw, which cost one 31-67 ms present the first time a retro shader drew in
++/// a game (docs/DEVICE-GATE.md, 2026-10-13); this moves that cost to start-up. The caller's
++/// framebuffer, viewport and program are put back.
++fn warm(prog: gl::types::GLuint, u_rect: gl::types::GLint, u_src: gl::types::GLint) {
++    let tex = crate::gl::texture(1, 1, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::RGBA, None);
++    let quad = Quad::new();
++    // SAFETY: the GL context is current while the compositor is built; every object made here is
++    // deleted here, and the bindings read first are restored.
++    unsafe {
++        let (mut old_fbo, mut old_prog, mut old_view) = (0, 0, [0i32; 4]);
++        gl::GetIntegerv(gl::FRAMEBUFFER_BINDING, &mut old_fbo);
++        gl::GetIntegerv(gl::CURRENT_PROGRAM, &mut old_prog);
++        gl::GetIntegerv(gl::VIEWPORT, old_view.as_mut_ptr());
++        let mut fbo = 0;
++        gl::GenFramebuffers(1, &mut fbo);
++        gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
++        gl::FramebufferTexture2D(
++            gl::FRAMEBUFFER,
++            gl::COLOR_ATTACHMENT0,
++            gl::TEXTURE_2D,
++            tex,
++            0,
++        );
++        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE {
++            gl::Viewport(0, 0, 1, 1);
++            gl::UseProgram(prog);
++            gl::Uniform4f(u_rect, 0.0, 0.0, OUT_W as f32, OUT_H as f32);
++            gl::Uniform2f(u_src, 1.0, 1.0);
++            gl::ActiveTexture(gl::TEXTURE0);
++            gl::BindTexture(gl::TEXTURE_2D, tex);
++            let u_mode = crate::gl::uniform_location(prog, "u_mode");
++            // the four branches of RETRO_FRAG
++            for n in 0..4u8 {
++                gl::Uniform1f(u_mode, n as f32);
++                quad.draw();
++            }
++            gl::Finish();
++        }
++        gl::BindFramebuffer(gl::FRAMEBUFFER, old_fbo as u32);
++        gl::Viewport(old_view[0], old_view[1], old_view[2], old_view[3]);
++        gl::UseProgram(old_prog as u32);
++        gl::DeleteFramebuffers(1, &fbo);
++        gl::DeleteTextures(1, &tex);
 +    }
 +}
 +

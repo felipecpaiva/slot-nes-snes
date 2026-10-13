@@ -149,5 +149,12 @@ with Off and crt-pi.
   about 18-19.7 ms in every mode, Off included; Battletoads 17.4-18.2 ms). The shaders add no
   measurable per-frame cost.
 - Each new mode shows one long present (31-67 ms) in the first window, Off does not: most likely the
-  driver finishing the retro program on its first draw. A warm-up draw when the program is built
-  would move it out of play. Not fixed yet.
+  driver finishing the retro program on its first draw.
+- Follow-up, same day (logs in `docs/perf/2026-10-13-shaders-warm/`): the retro program now draws each
+  mode once off screen when it is built. First-window longest present: Sharp on Super Mario RPG
+  33.95 to 19.45 ms, crt-pi on Battletoads 66.66 to 23.59 ms (under 1.5x the period); crt-pi on
+  Super Mario RPG 30.97 to 29.90 ms, one run each, so that title's start-up spike is not shown to be
+  the shader.
+- Boot cost: building the retro program at start-up made `boot: compositor` take about 306 ms
+  against 172 ms before patch 0020 (every play log since), and the warm-up adds about 15-25 ms
+  more. Kept at boot by maintainer choice over building it at the first NES/SNES insert.
