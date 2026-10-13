@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 11:58:49 +0400
+Subject: [PATCH] lazy-shelf
+
+---
+ crates/slot-ui/src/shelf.rs              |  21 +++--
+ crates/slot-ui/tests/shelf_lazy_probe.rs | 100 +++++++++++++++++++++++
+ 2 files changed, 115 insertions(+), 6 deletions(-)
+ create mode 100644 crates/slot-ui/tests/shelf_lazy_probe.rs
+
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index bd57016..712601c 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -1,6 +1,7 @@
+ use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
+ use slot_store::Cart;
+ use std::sync::atomic::{AtomicU32, Ordering};
++use std::sync::OnceLock;
+ 
+ use crate::cart::{cart_box, gb_shell_of, label_colour, label_text, CART_H, CART_W};
+ use crate::hud::Millis;
+@@ -54,8 +55,8 @@ pub struct Shelf {
+     shadow: Option<TexId>,
+     gb_shadow: Option<TexId>,
+     gbc_shadow: Option<TexId>,
+-    shells: Vec<Option<GbShell>>,
+-    retro: Vec<Option<RetroShell>>,
++    shells: Vec<OnceLock<Option<GbShell>>>,
++    retro: Vec<OnceLock<Option<RetroShell>>>,
+     retro_shadows: [Option<TexId>; 4],
+     ride: f32,
+     vel: f32,
+@@ -65,8 +66,8 @@ pub struct Shelf {
+ impl Shelf {
+     pub fn new(carts: Vec<Cart>) -> Self {
+         Shelf {
+-            shells: carts.iter().map(gb_shell_of).collect(),
+-            retro: carts.iter().map(retro_shell_of).collect(),
++            shells: carts.iter().map(|_| OnceLock::new()).collect(),
++            retro: carts.iter().map(|_| OnceLock::new()).collect(),
+             retro_shadows: [None; 4],
+             faces: vec![None; carts.len()],
+             carts,
+@@ -346,8 +347,16 @@ impl Shelf {
+             let x = x + shake;
+             let y = foot_y(ch as f32) - h;
+             if alpha < 1.0 {
+-                let backing = match self.shells.get(i).copied().flatten() {
+-                    None => match self.retro.get(i).copied().flatten() {
++                let shell = self
++                    .shells
++                    .get(i)
++                    .and_then(|once| *once.get_or_init(|| gb_shell_of(cart)));
++                let backing = match shell {
++                    None => match self
++                        .retro
++                        .get(i)
++                        .and_then(|once| *once.get_or_init(|| retro_shell_of(cart)))
++                    {
+                         Some(kind) => self.retro_shadows[kind.slot()].or_else(|| published(kind)),
+                         None => self.shadow,
+                     },
+diff --git a/crates/slot-ui/tests/shelf_lazy_probe.rs b/crates/slot-ui/tests/shelf_lazy_probe.rs
+new file mode 100644
+index 0000000..fc67ac4
+--- /dev/null
++++ b/crates/slot-ui/tests/shelf_lazy_probe.rs
+@@ -0,0 +1,100 @@
++use std::fs;
++use std::path::Path;
++
++use slot_store::{Cart, Platform};
++use slot_ui::{Draw, GbShell, RetroShell, Shelf, SnesShell, TexId};
++
++const NOTCHED: TexId = TexId::from_raw(1);
++const ROUNDED: TexId = TexId::from_raw(2);
++const SNES: TexId = TexId::from_raw(3);
++const SFC: TexId = TexId::from_raw(4);
++const PLAIN: TexId = TexId::from_raw(5);
++
++fn cart(platform: Platform, stem: &str, rom: &Path) -> Cart {
++    Cart {
++        platform,
++        stem: stem.into(),
++        rom: rom.into(),
++        label: None,
++        code: String::new(),
++        shell: None,
++        title: String::new(),
++    }
++}
++
++fn gbc_rom() -> Vec<u8> {
++    let mut rom = vec![0u8; 0x150];
++    rom[0x143] = 0xc0;
++    rom
++}
++
++fn sfc_rom() -> Vec<u8> {
++    let mut rom = vec![0u8; 0x8000];
++    rom[0x7fc0 + 0x15] = 0x20;
++    rom[0x7fc0 + 0x19] = 0x00;
++    rom[0x7fc0 + 0x1c..0x7fc0 + 0x1e].copy_from_slice(&(!0x1234u16).to_le_bytes());
++    rom[0x7fc0 + 0x1e..0x7fc0 + 0x20].copy_from_slice(&0x1234u16.to_le_bytes());
++    rom
++}
++
++fn shelf_over(carts: Vec<Cart>) -> Shelf {
++    let mut shelf = Shelf::new(carts);
++    shelf.set_shadow(PLAIN);
++    shelf.set_gb_shadow(GbShell::Notched, NOTCHED);
++    shelf.set_gb_shadow(GbShell::Rounded, ROUNDED);
++    shelf.set_retro(&[
++        (RetroShell::Snes(SnesShell::Snes), SNES),
++        (RetroShell::Snes(SnesShell::Sfc), SFC),
++    ]);
++    shelf
++}
++
++fn faded_backings(shelf: &Shelf) -> Vec<TexId> {
++    let mut out = Vec::new();
++    shelf.draw(0.0, &mut out);
++    out.iter()
++        .filter_map(|d| match *d {
++            Draw::Tex { tex, .. } => Some(tex),
++            _ => None,
++        })
++        .collect()
++}
++
++fn three_carts(dir: &Path) -> Vec<Cart> {
++    vec![
++        cart(Platform::Gba, "Front", &dir.join("front.gba")),
++        cart(Platform::Gbc, "Colour", &dir.join("colour.gbc")),
++        cart(Platform::Snes, "Super", &dir.join("super.sfc")),
++    ]
++}
++
++#[test]
++fn a_neighbours_backing_follows_the_rom_as_it_is_at_draw_time() {
++    let dir = tempfile::tempdir().unwrap();
++    let shelf = shelf_over(three_carts(dir.path()));
++    fs::write(dir.path().join("colour.gbc"), gbc_rom()).unwrap();
++    fs::write(dir.path().join("super.sfc"), sfc_rom()).unwrap();
++    let backings = faded_backings(&shelf);
++    assert!(backings.contains(&ROUNDED));
++    assert!(backings.contains(&SFC));
++    assert!(!backings.contains(&NOTCHED));
++    assert!(!backings.contains(&SNES));
++}
++
++#[test]
++fn a_neighbours_backing_is_the_same_when_the_roms_exist_before_the_shelf() {
++    let dir = tempfile::tempdir().unwrap();
++    fs::write(dir.path().join("colour.gbc"), gbc_rom()).unwrap();
++    fs::write(dir.path().join("super.sfc"), sfc_rom()).unwrap();
++    let backings = faded_backings(&shelf_over(three_carts(dir.path())));
++    assert!(backings.contains(&ROUNDED));
++    assert!(backings.contains(&SFC));
++}
++
++#[test]
++fn missing_roms_still_draw_the_notched_and_plain_snes_backings() {
++    let dir = tempfile::tempdir().unwrap();
++    let backings = faded_backings(&shelf_over(three_carts(dir.path())));
++    assert!(backings.contains(&NOTCHED));
++    assert!(backings.contains(&SNES));
++}
