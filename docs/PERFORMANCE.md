@@ -30,7 +30,7 @@ is the GBA row in the same session.
 | Metric | Threshold | Gated on |
 |---|---|---|
 | Frame time median | within 5% of GBA | median over runs |
-| Frame time p99 | within 10% | median over runs (manual, needs a trace) |
+| Frame time p99 | present p99 within 1.1x the median present interval, and 0 presents above 1.5x the period (see `docs/DEVICE-GATE.md`) | `slot: frametime:` lines, every session |
 | Audio underruns | zero | every session |
 | Insert to first frame | within 10% | median over runs |
 | Save state and load state | within 20% | median over runs |
@@ -188,8 +188,7 @@ Proposed, not yet filed as GitHub issues (maintainer to confirm). Each carries t
    nestopia is +3.5% on the same cart.
 3. snes9x2005_plus on SA-1: faster (4.661 ms, 3.58x) but correctness on this game is unchecked. Run the
    SA-1 gate titles on it before offering it as the fast SNES core.
-4. Frame-time trace patch: slot logs no per-frame wall time, so p99 (threshold 10%) cannot be measured
-   from logs. Add a trace through a patch, since upstream has no equivalent.
+4. Frame-time trace: done by the `frame-trace` patch (see Play results). Earlier logs have no `frametime:` lines.
 5. Gate titles not on the card: the DEVICE-GATE SNES and NES sets, Super FX and other mappers, and GB and
    GBC card carts were not run. A real GB and GBC cart is needed for non-harness numbers.
 
@@ -243,8 +242,7 @@ starve is fixed.
 ## Not measured yet
 
 - Everything in the interactive table above (needs a person at the device).
-- In-game frame time p99 and dropped or late presents: slot logs no per-frame wall time. Needs a
-  frame-time trace patch (not in this round) or the video method.
+- In-game frame time p99 and dropped or late presents for the 2026-10-13 logs: they predate the `frame-trace` patch. Re-run `task perf:play` with it.
 - NES and SNES fast-forward with frameskip (`core_bench` has no frameskip option for those cores).
 - Fast-forward as slot itself runs it (`--steps` reproduces the emulation cost, not the real FF path with
   audio and presents).
@@ -262,13 +260,22 @@ starve is fixed.
 
 | Pair | Work per frame, median / worst window (ms) | Input latency, median / p99 (ms) | Starved samples | Missed latches |
 |---|---|---|---|---|
-| GBA mGBA heavy (baseline) | 7.6 / 26.8 | 17.4 / 27.5 | 5120 | 2 |
-| GBA mGBA light (baseline) | 9.5 / 24.8 | 18.9 / 27.4 | 6144 | 2 |
-| GBA gpSP heavy / light | 5.8 / 20.6, 5.5 / 19.7 | 15.4 / 23.9, 15.5 / 26.3 | 4096, 5120 | 2, 2 |
-| GBC mGBA | 5.3 / 20.2 | 15.9 / 23.9 | 4096 | 3 |
-| NES fceumm heavy / light | 6.4 / 29.0, 12.6 / 22.9 | 15.7 / 24.1, 20.5 / 48.5 | 6202, 1024 | 1, 2 |
-| NES nestopia heavy / light | 8.9 / 27.6, 8.9 / 18.9 | 17.9 / 27.2, 20.3 / 47.8 | 4096, 4096 | 1, 2 |
-| SNES snes9x heavy / light | **12.8 / 37.0**, 10.2 / 28.8 | **23.1 / 345.3**, 18.8 / 30.3 | 5120, 3072 | 1, 2 |
-| SNES snes9x2005_plus heavy / light | 10.5 / 13.2, 8.6 / 22.7 | 18.8 / 29.6, 17.7 / 26.9 | 5120, 3072 | 0, 2 |
+| GBA mGBA heavy (baseline) | 7.6 / 9.8 | 17.4 / 27.5 | 5120 | 1 |
+| GBA mGBA light (baseline) | 9.4 / 11.4 | 18.9 / 27.4 | 6144 | 1 |
+| GBA gpSP heavy / light | 5.4 / 7.4, 5.4 / 7.6 | 15.4 / 23.9, 15.3 / 24.6 | 4096, 5120 | 1, 1 |
+| GBC mGBA | 5.2 / 5.7 | 15.7 / 23.8 | 4096 | 2 |
+| NES fceumm heavy / light | 6.4 / 7.6, 8.0 / 15.8 | 15.7 / 24.1, 20.5 / 48.5 | 6202, 1024 | 0, 1 |
+| NES nestopia heavy / light | 8.8 / 10.6, 8.7 / 15.9 | 17.9 / 27.2, 20.3 / 47.8 | 4096, 4096 | 0, 1 |
+| SNES snes9x heavy / light | 12.8 / 15.7, 10.1 / 13.4 | 22.9 / 32.9, 18.8 / 30.3 | 5120, 3072 | 0, 1 |
+| SNES snes9x2005_plus heavy / light | 10.5 / 13.2, 8.4 / 10.4 | 18.8 / 29.6, 17.7 / 26.9 | 5120, 3072 | 0, 1 |
 
-Every session ran at the full 60 Hz present period (16.78 ms), ended cleanly and logged no crash. Starved samples appear on every platform including the GBA baseline (the known start-up starve), so they are not a NES/SNES regression; they still fail the 0-underrun gate for everyone. The one clear outlier is snes9x on the heavy Super FX game: a worst 600-frame window of 37 ms of work per 16.7 ms frame and an input latency p99 of 345 ms. snes9x2005_plus stays smooth on the same game (13.2 ms worst window). NES light p99 latency (about 48 ms) is also above the GBA baseline (27 ms). One 3-minute run per pair is noisy; treat single-run deltas as leads, not verdicts.
+Every session ran at the full 60 Hz present period (16.78 ms), ended cleanly and logged no crash. Starved samples appear on every platform including the GBA baseline (the known start-up starve), so they are not a NES/SNES regression; they still fail the 0-underrun gate for everyone. After the parser corrections below, snes9x on the heavy Super FX game has a latency p99 of 32.9 ms (the earlier 345 ms was volume-key lines) and a steady worst 600-frame window of 15.7 ms of work (the earlier 37 ms was the eject window), the same range as the other cores. NES light p99 latency (about 48 ms) is still above the GBA baseline (27 ms), and is the same on fceumm and nestopia. One 3-minute run per pair is noisy; treat single-run deltas as leads, not verdicts.
+
+### Parser corrections (2026-10-13 re-parse)
+
+The first parse of these logs mixed in two measurement artifacts. `scripts/auto-play.sh` now drops both, and `sh scripts/auto-play.sh eval 2026-10-13` was re-run on the same logs to produce the table above.
+
+- The last `slot: pace:` window of a session is the eject window (the MENU hold and teardown), not play. It is dropped. This is what made the worst work window look like 20 to 37 ms.
+- `slot: latency:` lines after a VolumeUp or VolumeDown key are not input latency. Upstream `latency::read()` stamps on any key-down (`crates/slot/src/input/device.rs`), but `latency::applied()` only fires on a pad bit (`emu.rs`), so a volume key leaves a stale stamp and the next pad press reports the gap (up to 435 ms). This is a trace-only quirk in upstream code and slot is not patched for it. The parser drops a latency line when a `slot: Volume` line appeared since the previous latency line. Before and after: snes9x heavy p99 345.3 to 32.9 ms, gpSP light max 328.2 to 26.3 ms, GBC max 135.5 to 24.4 ms.
+- A real bug the same logs exposed (patch `audio-release-pace`): after 3 s of silence the audio thread released the PCM and slept a relative 512 frames per loop, which drains slower than real time. The ring filled and `push_blocking` held the emulator thread, adding 8 to 17 ms of pad to emu latency on silent NES games. It now sleeps to an absolute deadline.
+- Frame time: `slot: frametime:` lines (patch `frame-trace`, with the latency trace on) give present-to-present p50, p99 and max per 600 presents. The parser reports `ft_p50_med`, `ft_p99_worst` and `ft_max` for runs made after that patch. The 2026-10-13 logs predate it, so those rows read n/a.

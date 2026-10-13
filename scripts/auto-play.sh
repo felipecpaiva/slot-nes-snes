@@ -85,8 +85,10 @@ parse_log() {
 	/^slot: launch: first frame shown at / { if (ff == "") ff = $(NF - 1) }
 	/^slot: audio: [0-9]+ samples dropped/ { sd = num($3); ss = num($6); sum = 1 }
 	/^slot: audio: [0-9]+\/[0-9]+ queued/ { d = num($5); s = num($7); if (d > td) td = d; if (s > ts) ts = s; tc++ }
-	/^slot: latency: .* total [0-9.]+ ms/ { lat[++nl] = $(NF - 1) + 0 }
-	/^slot: pace: 600 frames/ { pm += num($5); pe += num($9); w[++np] = num($13); p[np] = num($16) }
+	/^slot: Volume(Up|Down) / { vol = 1 }
+	/^slot: latency: .* total [0-9.]+ ms/ { if (vol) vol = 0; else lat[++nl] = $(NF - 1) + 0 }
+	/^slot: pace: 600 frames/ { np++; pmv[np] = num($5); pev[np] = num($9); wv[np] = num($13); pv[np] = num($16) }
+	/^slot: frametime: 600 presents/ { nf++; f50[nf] = $6 + 0; f99[nf] = $8 + 0; fmx[nf] = $10 + 0 }
 	/^slot: crash:/ { crash++ }
 	END {
 		if (bf != "") print "boot_ms", bf
@@ -95,7 +97,10 @@ parse_log() {
 		if (sum) { print "starved", ss; print "dropped", sd }
 		if (tc) { print "trace_starved_max", ts + 0; print "trace_dropped_max", td + 0 }
 		if (nl) { sorted(lat, nl); print "lat_med", lat[int((nl + 1) / 2)]; print "lat_p99", pick(lat, nl, 0.99); print "lat_max", lat[nl]; print "lat_n", nl }
-		if (np) { sorted(w, np); sorted(p, np); print "pace_missed", pm; print "pace_early", pe; print "pace_work_med", w[int((np + 1) / 2)]; print "pace_work_max", w[np]; print "pace_period_med", p[int((np + 1) / 2)] }
+		np--; nf--
+		for (i = 1; i <= np; i++) { pm += pmv[i]; pe += pev[i]; w[i] = wv[i]; p[i] = pv[i] }
+		if (np > 0) { sorted(w, np); sorted(p, np); print "pace_missed", pm; print "pace_early", pe; print "pace_work_med", w[int((np + 1) / 2)]; print "pace_work_max", w[np]; print "pace_period_med", p[int((np + 1) / 2)] }
+		if (nf > 0) { sorted(f50, nf); mx = fmx[1]; w99 = f99[1]; for (i = 2; i <= nf; i++) { if (fmx[i] > mx) mx = fmx[i]; if (f99[i] > w99) w99 = f99[i] } print "ft_p50_med", f50[int((nf + 1) / 2)]; print "ft_p99_worst", w99; print "ft_max", mx }
 		print "crash", crash + 0
 	}' "$1"
 }
@@ -129,8 +134,8 @@ eval_play() {
 		for (i = 1; i <= ni; i++) if (ids[i] != o[1] && ids[i] != o[2]) rest[++nr] = ids[i]
 		for (i = 2; i <= nr; i++) { x = rest[i]; for (j = i - 1; j >= 1 && rest[j] > x; j--) rest[j + 1] = rest[j]; rest[j + 1] = x }
 		for (i = 1; i <= nr; i++) o[++no] = rest[i]
-		nm = split("boot_ms insert_ms starved dropped trace_starved_max trace_dropped_max lat_med lat_p99 lat_max pace_missed pace_early pace_work_med pace_work_max pace_period_med crash", mm, " ")
-		split("Boot to first frame (ms)|Insert or resume to first game frame (ms)|Audio starved samples, session total|Audio dropped samples, session total|Audio starved, trace maximum (per 300 frames, cumulative)|Audio dropped, trace maximum|Input latency median (ms)|Input latency p99 (ms)|Input latency max (ms)|Presents that missed a latch (total over the session)|Presents drawn early (total)|Work per frame, median over 600 frame windows (ms)|Work per frame, worst 600 frame window (ms)|Present period, median (ms)|Crash lines", ti, "|")
+		nm = split("boot_ms insert_ms starved dropped trace_starved_max trace_dropped_max lat_med lat_p99 lat_max pace_missed pace_early pace_work_med pace_work_max pace_period_med ft_p50_med ft_p99_worst ft_max crash", mm, " ")
+		split("Boot to first frame (ms)|Insert or resume to first game frame (ms)|Audio starved samples, session total|Audio dropped samples, session total|Audio starved, trace maximum (per 300 frames, cumulative)|Audio dropped, trace maximum|Input latency median (ms)|Input latency p99 (ms)|Input latency max (ms)|Presents that missed a latch (total over the session)|Presents drawn early (total)|Work per frame, median over 600 frame windows (ms)|Work per frame, worst 600 frame window (ms)|Present period, median (ms)|Present interval p50, median over windows (ms)|Present interval p99, worst window (ms)|Present interval, longest (ms)|Crash lines", ti, "|")
 		print "# Performance evaluation, automated play on the device\n"
 		while ((getline line < meta) > 0) print "    " line
 		print "\nEach cell is median / worst over runs. Every run plays the same script on every core: START x3, then right held with A every 700 ms and B every 2.3 s, then eject. Latency is input to screen swap. Slot logs no per-frame wall time: the pace lines (work per frame, missed latches) are the nearest frame-time figure, and only exist with the latency trace on. Starved and dropped count samples, not events. A run without a session summary line did not end cleanly.\n"
@@ -173,10 +178,12 @@ selftest() {
 	printf '%s\n' 'slot: boot: first frame at 900.0 ms' 'slot: launch: opening X on mgba at 1000.0 ms' \
 		'slot: launch: first frame shown at 1600.5 ms' 'slot: audio: 5/10 queued, 0 dropped, 12 starved, locked true at 1.0' \
 		'slot: audio: 3 samples dropped, 40 starved' 'slot: latency: read>pad 1 total 20.0 ms' 'slot: latency: read>pad 1 total 30.0 ms' \
-		'slot: pace: 600 frames, 2 missed a latch, 1 drawn early, work 9.5 ms, period 16.70 ms' >"$f"
+		'slot: pace: 600 frames, 2 missed a latch, 1 drawn early, work 9.5 ms, period 16.70 ms' \
+		'slot: frametime: 600 presents, p50 16.78 p99 17.10 max 20.00 ms' 'slot: VolumeUp in Playing' 'slot: latency: read>pad 400 total 405.0 ms' \
+		'slot: pace: 600 frames, 7 missed a latch, 0 drawn early, work 99.0 ms, period 99.00 ms' 'slot: frametime: 600 presents, p50 50.00 p99 60.00 max 70.00 ms' >"$f"
 	got="$(parse_log "$f" | tr '\n' ';')"
 	rm -f "$f"
-	want="boot_ms 900.0;insert_ms 600.5;summary 1;starved 40;dropped 3;trace_starved_max 12;trace_dropped_max 0;lat_med 20;lat_p99 30;lat_max 30;lat_n 2;pace_missed 2;pace_early 1;pace_work_med 9.5;pace_work_max 9.5;pace_period_med 16.7;crash 0;"
+	want="boot_ms 900.0;insert_ms 600.5;summary 1;starved 40;dropped 3;trace_starved_max 12;trace_dropped_max 0;lat_med 20;lat_p99 30;lat_max 30;lat_n 2;pace_missed 2;pace_early 1;pace_work_med 9.5;pace_work_max 9.5;pace_period_med 16.7;ft_p50_med 16.78;ft_p99_worst 17.1;ft_max 20;crash 0;"
 	[ "$got" = "$want" ] || die "selftest: parse_log gave $got"
 	echo "selftest ok"
 }

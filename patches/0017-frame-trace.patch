@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 14:14:47 +0400
+Subject: [PATCH] frame-trace
+
+---
+ crates/slot/src/device_app.rs  |  7 ++++
+ crates/slot/src/frame_trace.rs | 69 ++++++++++++++++++++++++++++++++++
+ crates/slot/src/lib.rs         |  1 +
+ 3 files changed, 77 insertions(+)
+ create mode 100644 crates/slot/src/frame_trace.rs
+
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index cada2b8..74b7dd2 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -20,6 +20,7 @@ struct Pacer {
+     work: Duration,
+     works: [Duration; WORK_WINDOW],
+     next: usize,
++    seen: Option<Duration>,
+ }
+ 
+ const WORK_WINDOW: usize = 32;
+@@ -32,6 +33,7 @@ impl Pacer {
+             work: Duration::from_millis(4),
+             works: [Duration::from_millis(4); WORK_WINDOW],
+             next: 0,
++            seen: None,
+         }
+     }
+ 
+@@ -50,6 +52,7 @@ impl Pacer {
+         let mut missed = false;
+         if let Some(last) = self.last_return {
+             let seen = now - last;
++            self.seen = Some(seen);
+             missed = seen > self.period.mul_f64(1.5);
+             if blocked && seen > Duration::from_millis(12) && seen < Duration::from_millis(22) {
+                 self.period = self.period.mul_f64(0.95) + seen.mul_f64(0.05);
+@@ -131,6 +134,7 @@ pub fn run() {
+     frontend.drive_emulator();
+     let mut pacer = Pacer::new();
+     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
++    let mut frame_trace = slot::frame_trace::FrameTrace::new();
+     loop {
+         pacer.wait();
+         let began = Instant::now();
+@@ -157,6 +161,9 @@ pub fn run() {
+             frames += 1;
+             missed += u32::from(dropped);
+             early += u32::from(swap_took > pacer.period / 2);
++            if let Some(line) = pacer.seen.and_then(|seen| frame_trace.present(seen)) {
++                eprintln!("{line}");
++            }
+             if frames == 600 {
+                 eprintln!(
+                     "slot: pace: 600 frames, {missed} missed a latch, {early} drawn early, work {:.1} ms, period {:.2} ms",
+diff --git a/crates/slot/src/frame_trace.rs b/crates/slot/src/frame_trace.rs
+new file mode 100644
+index 0000000..caa63e6
+--- /dev/null
++++ b/crates/slot/src/frame_trace.rs
+@@ -0,0 +1,69 @@
++use std::time::Duration;
++
++const WINDOW: usize = 600;
++
++pub struct FrameTrace {
++    seen: Vec<f64>,
++}
++
++impl FrameTrace {
++    pub fn new() -> Self {
++        FrameTrace {
++            seen: Vec::with_capacity(WINDOW),
++        }
++    }
++
++    pub fn present(&mut self, seen: Duration) -> Option<String> {
++        self.seen.push(seen.as_secs_f64() * 1e3);
++        if self.seen.len() < WINDOW {
++            return None;
++        }
++        self.seen.sort_by(f64::total_cmp);
++        let at = |q: f64| self.seen.get((WINDOW as f64 * q).ceil() as usize - 1);
++        let line = match (at(0.5), at(0.99), self.seen.last()) {
++            (Some(p50), Some(p99), Some(max)) => Some(format!(
++                "slot: frametime: {WINDOW} presents, p50 {p50:.2} p99 {p99:.2} max {max:.2} ms"
++            )),
++            _ => None,
++        };
++        self.seen.clear();
++        line
++    }
++}
++
++impl Default for FrameTrace {
++    fn default() -> Self {
++        FrameTrace::new()
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn six_hundred_presents_with_one_stall_report_the_median_and_the_stall() {
++        let mut trace = FrameTrace::new();
++        for _ in 0..599 {
++            assert_eq!(trace.present(Duration::from_secs_f64(0.01678)), None);
++        }
++        assert_eq!(
++            trace.present(Duration::from_millis(40)).as_deref(),
++            Some("slot: frametime: 600 presents, p50 16.78 p99 16.78 max 40.00 ms")
++        );
++    }
++
++    #[test]
++    fn the_next_window_starts_empty() {
++        let mut trace = FrameTrace::new();
++        for _ in 0..600 {
++            trace.present(Duration::from_millis(40));
++        }
++        for _ in 0..599 {
++            assert_eq!(trace.present(Duration::from_millis(17)), None);
++        }
++        assert!(trace
++            .present(Duration::from_millis(17))
++            .is_some_and(|l| l.ends_with("p50 17.00 p99 17.00 max 17.00 ms")));
++    }
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index f248b18..ba9def8 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -15,6 +15,7 @@ pub mod crash;
+ pub mod drc;
+ pub mod emu;
+ pub mod face_builder;
++pub mod frame_trace;
+ pub mod frames;
+ pub mod frontend;
+ pub mod input;
