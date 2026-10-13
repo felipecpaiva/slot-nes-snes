@@ -68,6 +68,31 @@ Words: `nes`, `famicom`, `snes`, `sfc`, `auto` (the region pick), plus the Game 
 
 Keep NES and SNES overrides in `Config/cart_shell.txt`. The cart studio at studio.slot-cfw.fyi writes `Labels/cart_shell.txt`, and whether it keeps the new words when it rewrites that file has not been checked.
 
+## Fetching real cart labels
+
+`tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES and SNES. It never uses box art or a screenshot, and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
+
+```sh
+# the SD card stays in the device, ROM library on this machine (nes/ snes/ gba/ gb/ gbc/ folders, loose or zipped)
+task labels:fetch -- --device --library ~/ROMS --limit 5 --dry-run     # look first
+task labels:fetch -- --device --library ~/ROMS --limit 5               # smoke test: 5 per system
+task labels:fetch -- --device --library ~/ROMS                          # the lot
+task labels:fetch -- --card /Volumes/SLOT                               # a mounted card instead of adb
+```
+
+Flags: `--only <GBA|GB|GBC|NES|SNES or one ROM stem>`, `--dry-run`, `--force`, `--limit N` (per system), `--sd` (default `/mnt/sdcard`). It ends with a summary of matched, written, skipped (label already there), missing (no art found), unknown CRC and errors. Restart slot after the push so it reads the new labels.
+
+How it works:
+- Each ROM is found by CRC32, never by name. NES is hashed whole and then without the 16 byte iNES header, SNES without a 512 byte copier header. A zipped ROM is named for the ROM inside the zip, the same rule `scripts/push-roms.py` uses. The libretro-database dats map the CRC to the No-Intro name, for the report and for the region.
+- With `--device` the device's `Games/<SYSTEM>/` is listed with a shell glob (its `ls` adds colour codes), and only labels that are not already on the device are pushed. An existing PNG or `Labels/cart_shell.txt` line is never replaced without `--force`. New lines are merged into the device's own `cart_shell.txt`.
+- Label sources, in order: (1) Brandon Kowalski's art set at art.slot-cfw.fyi (GBA, GB, GBC), looked up by CRC32 in its `index.json`, one request at a time with a pause and a User-Agent naming this project; (2) ScreenScraper `support-texture`, when `SS_DEVID` and `SS_DEVPASSWORD` (and your own `SS_SSID`, `SS_SSPASSWORD`) are set in the environment. Credentials are never printed. It reads your account's quota, stops cleanly when it is spent, and the next run resumes where it stopped. The art set has no NES or SNES art, so those two shelves need ScreenScraper. A ROM no source has is listed as missing. A libretro logo fallback is not implemented, since it would need image code beyond the standard library.
+- The PNG is written as fetched. slot cover-fits any PNG into the label box and caches it itself, so no resizing is needed here.
+- For NES and SNES the dat's region adds a `Labels/cart_shell.txt` line only where slot would not pick the outline itself: `famicom` for a NES game the dat marks Japan only, `sfc` for a SNES game the dat marks Japan or a PAL region. A line sets the plastic colour too (slot's default grey), which replaces slot's per-title plastic for that cart. To pick a different outline by hand, edit `Config/cart_shell.txt` (see above), which wins over `Labels/cart_shell.txt`.
+
+Terms of what it fetches. The libretro-database dats are CC BY-SA 4.0. ScreenScraper's art is CC BY-NC-SA: non-commercial use, with attribution to ScreenScraper and its contributors. The art set at art.slot-cfw.fyi is harvested from ScreenScraper under the same licence. The cart art itself is the property of its rights holders. Use it for your own device and do not redistribute it.
+
+Second option for GBA, GB and GBC: [Cart Studio](https://studio.slot-cfw.fyi) (Brandon's browser tool) can write `Labels/` for those three shelves. Point it at a local mirror folder of your card (copy `Games/` and `Labels/` from the device with `adb pull`, run the studio on it, then `adb push` the resulting `Labels/` back). It does not do NES or SNES yet.
+
 ## Install on a device
 
 Build the zip with `task zip` (it runs `task dist:device` and `task src-tarball` itself). It lands in `build/` as

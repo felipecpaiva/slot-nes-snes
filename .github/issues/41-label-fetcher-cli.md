@@ -26,6 +26,15 @@ Carts must show the real physical cartridge label, never a screenshot (maintaine
 |---|---|---|
 | T49 | `tools/tests/test_fetch_labels.py` | Offline, with fixture mini-dats and a fake HTTP layer: headered NES CRC match, SNES with a 512-byte copier header, unknown CRC, 404, rate limit, a libretro symlink stub body; output PNGs have exactly the variant's label size; every cart_shell.txt line parses under slot's grammar |
 
+## Delivered as (issue 49)
+Deviations from the scope above, all deliberate:
+- **No pre-crop.** The PNG is written as fetched. slot cover-fits any PNG into the label box (`art.rs`) and caches the result, rebuilding when the file's mtime or size changes (`label_cache.rs`), so pushing new PNGs and restarting slot is enough. A pure python resizer would add code and no visible gain. The "output PNGs have exactly the variant's label size" assertion of T49 therefore does not apply.
+- **All five systems**, not only NES and SNES: GBA, GB and GBC labels come first from the art set at art.slot-cfw.fyi (CRC32 in `index.json`), then ScreenScraper. NES and SNES have only ScreenScraper.
+- **No libretro `Named_Logos` fallback.** Compositing a logo on a generated ground needs image code beyond the standard library. Those carts are reported missing. Never box art or a screenshot.
+- **`--device`** (adb) next to `--card`: the card stays in the device, CRCs come from a ROM library on the host.
+- **cart_shell lines only where slot would not pick the outline itself** (a Japan only NES dump with no tag in the stem gets `famicom`, a Japan or PAL SNES dump gets `sfc`), because a line also overrides slot's per-title plastic colour. Never written for GB, GBC or GBA.
+- The libretro symlink stub case of T49 does not apply, since no libretro thumbnails are fetched.
+
 ## Edge cases
 | Case | Expected handling |
 |---|---|
