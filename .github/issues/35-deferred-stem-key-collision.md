@@ -24,7 +24,7 @@ depends_on: [32-phase-6-deferred]
 | (none) | |
 
 ## Acceptance
-- [ ] A decision recorded in docs/DECISIONS.md.
+- [ ] A decision recorded as an ADR in docs/adr/.
 
 ## Device check (RG34XXSP)
 None, deferred.
