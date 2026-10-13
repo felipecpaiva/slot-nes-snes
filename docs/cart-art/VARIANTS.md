@@ -166,3 +166,16 @@ Geometry measured from the photos (trace of the shell edge, fractions of the she
 | `snes` label and outline | No front view of a Super NES shell exists in `refs/` (`snes.jpg` is an oblique stack). The label window reuses the `sfc` measurement and the outline follows the iFixit and Wikipedia words in section 2 plus the oblique photo: ridged sides, connector notch, corner screws. This is the weakest row of the set. | `refs/sfc.jpg`, `refs/snes.jpg` |
 
 Seated boxes used (width 240, the body spans 6.5 to 233.5 like the GB and GBA shells, so the height is the body width divided by the cited aspect): `nes` 240 x 252 (0.902), `snes` and `sfc` 240 x 150 (1.545 and 1.512, one shared platform box). The suggestions in section 2 treated the whole box as the shell and gave 266, 155 and 159. `famicom` is drawn at the width of the `nes` box, bottom aligned, because `seated_box` and `cart_box` take a platform, not a cart, so every variant of a platform shares one box.
+
+## 8. Shipped rules (issue 27, patch 0013)
+
+Where the rules above landed, and the three calls left open in section 3.
+
+- SNES region byte, the offsets in section 3: file offset 0x7FD9 (LoROM), 0xFFD9 (HiROM), 0x40FFD9 (ExHiROM), each plus 0x200 behind a copier header. The byte is read from the same header that gives the title, after the map-mode and checksum checks pass (`crates/slot-store/src/snes.rs`). The probe order is LoROM, HiROM, then ExHiROM.
+- Code map as built: `$00` and `$02` to `$14` give `sfc`, `$01` gives `snes`, any other byte gives `snes`. A ROM with no valid header gives no region and is drawn as `snes`.
+- Canada (`$0F`), South Korea (`$0D`) and Brazil (`$10`): kept as `sfc`, the table row in section 3, because no source was found that settles the shell and the project takes no value from memory. The only evidence in hand (snes9x runs all three as NTSC) says nothing about the shell. A Canadian cart is probably a `snes` body, so a Canadian game can be set to `snes` with a `Config/cart_shell.txt` line. If a source appears, the change is one arm of `region_outline`.
+- NES tags (`crates/slot-store/src/nes.rs`): every bracket group in the stem is split on commas. `Japan` with no `USA`, `Europe` or `World` tag gives `famicom`; any western tag, no tag, or an unknown tag gives `nes`. `(Japan, USA)` therefore gives `nes`.
+- Choosing: a `cart_shell.txt` word for the cart's own platform wins; a word for another platform, `auto` or no line gives the region pick.
+- Uncatalogued Famicom carts keep the NES grey (section 7), because no cited Famicom default exists.
+
+Cart Studio round-trip (PLAN open question 2): unverified. Cart Studio is an external tool that could not be run here, so it is not known whether it keeps `nes`, `famicom`, `snes` and `sfc` lines when it rewrites `Labels/cart_shell.txt`. Overrides belong in `Config/cart_shell.txt`, which the README says.
