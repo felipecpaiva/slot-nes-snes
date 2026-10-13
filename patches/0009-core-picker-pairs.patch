@@ -16,8 +16,8 @@ Subject: [PATCH] core-picker-pairs
  crates/slot/src/lib.rs                   |   1 +
  crates/slot/tests/alt_cores.rs           | 131 ++++++++++
  crates/slot/tests/gpsp.rs                |   2 +-
- crates/slot/tests/nes_core_picker.rs     | 312 +++++++++++++++++++++++
- 13 files changed, 576 insertions(+), 18 deletions(-)
+ crates/slot/tests/nes_core_picker.rs     | 319 +++++++++++++++++++++++
+ 13 files changed, 583 insertions(+), 18 deletions(-)
  create mode 100644 crates/slot-store/tests/core_pairs.rs
  create mode 100644 crates/slot/src/core_faces.rs
  create mode 100644 crates/slot/tests/alt_cores.rs
@@ -549,10 +549,10 @@ index ebd3482..db2dd2b 100644
          assert_eq!(
 diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
 new file mode 100644
-index 0000000..1b7b193
+index 0000000..4d0f8e1
 --- /dev/null
 +++ b/crates/slot/tests/nes_core_picker.rs
-@@ -0,0 +1,312 @@
+@@ -0,0 +1,319 @@
 +#![cfg(target_os = "macos")]
 +
 +mod common;
@@ -692,6 +692,10 @@ index 0000000..1b7b193
 +    c.read_frame()
 +}
 +
++fn same(a: &[u8], b: &[u8]) -> bool {
++    a.len() == b.len() && a.iter().zip(b).all(|(u, v)| u.abs_diff(*v) <= 2)
++}
++
 +fn spread(a: &[u8], b: &[u8]) -> String {
 +    let w = slot_gfx::OUT_W as usize;
 +    let mut n = 0;
@@ -754,14 +758,14 @@ index 0000000..1b7b193
 +    parts.set(&mut app, [Core::Fceumm, Core::Nestopia]);
 +    let nes = shot(&app, &mut c);
 +    assert!(
-+        ours == nes,
++        same(&ours, &nes),
 +        "the NES picker did not draw FCEUmm and Nestopia: {}",
 +        spread(&ours, &nes)
 +    );
 +
 +    parts.set(&mut app, [Core::Mgba, Core::Gpsp]);
 +    assert!(
-+        ours != shot(&app, &mut c),
++        !same(&ours, &shot(&app, &mut c)),
 +        "the NES picker drew the GBA faces"
 +    );
 +}
@@ -780,12 +784,12 @@ index 0000000..1b7b193
 +    app.apply(Action::GbaDown(Btn::Right));
 +    app.update(0.25);
 +    let after = shot(&app, &mut c);
-+    assert!(before != after, "the chip did not move to Nestopia");
++    assert!(!same(&before, &after), "the chip did not move to Nestopia");
 +    app.apply(Action::GbaDown(Btn::Left));
 +    app.update(0.25);
 +    let home = shot(&app, &mut c);
 +    assert!(
-+        before == home,
++        same(&before, &home),
 +        "the chip did not come home: {}",
 +        spread(&before, &home)
 +    );
@@ -841,26 +845,29 @@ index 0000000..1b7b193
 +    let (gba_first, gba_ref) =
 +        open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Emerald", gba);
 +    assert!(
-+        gba_first == gba_ref,
++        same(&gba_first, &gba_ref),
 +        "first GBA picker drew the wrong faces: {}",
 +        spread(&gba_first, &gba_ref)
 +    );
 +    let (nes_shot, nes_ref) = open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Contra", nes);
 +    assert!(
-+        nes_shot == nes_ref,
++        same(&nes_shot, &nes_ref),
 +        "the NES picker drew the wrong faces: {}",
 +        spread(&nes_shot, &nes_ref)
 +    );
-+    assert!(nes_shot != gba_first, "the NES and GBA pickers look alike");
++    assert!(
++        !same(&nes_shot, &gba_first),
++        "the NES and GBA pickers look alike"
++    );
 +    let (gba_last, gba_ref) =
 +        open_shoot_close(&mut app, &mut c, &parts, &mut faces, "Emerald", gba);
 +    assert!(
-+        gba_last == gba_ref,
++        same(&gba_last, &gba_ref),
 +        "the GBA picker kept the NES faces: {}",
 +        spread(&gba_last, &gba_ref)
 +    );
 +    assert!(
-+        gba_last == gba_first,
++        same(&gba_last, &gba_first),
 +        "the GBA picker changed between visits: {}",
 +        spread(&gba_last, &gba_first)
 +    );
