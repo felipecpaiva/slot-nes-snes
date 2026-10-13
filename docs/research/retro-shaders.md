@@ -92,7 +92,7 @@ The enums are matched exhaustively, so each new variant hits all of these:
 
 - NES canvas is 256x240. Overscan crop is forced to 0 for fceumm and nestopia (`slot/src/core_options_policy.rs:11-30`, patches 0003/0010). SNES is 256x224, or 512x224 hires, or 448/478 lines interlaced.
 - Panel and logical output: 720x480 (`slot-gfx/src/surface.rs:4-5`).
-- NES/SNES default to **Stretch** (`docs/DECISIONS.md:28`, `slot/src/platform_video.rs:10`). Actual is integer 2x: 512x480 and 512x448 (`DECISIONS.md:27`).
+- NES/SNES default to **Stretch** (`docs/adr/0022-nes-snes-default-stretch.md`, `slot/src/platform_video.rs:10`). Actual is integer 2x: 512x480 and 512x448 (`docs/adr/0021-reference-device-rg34xxsp.md`).
 
 | Case | Vertical scale | Horizontal scale |
 |---|---|---|

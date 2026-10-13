@@ -8,10 +8,10 @@ depends_on: [26-cart-art, 27-cart-shell-grammar-region]
 ---
 
 ## Why
-Carts must show the real physical cartridge label, never a screenshot, so the shelf feels like the classic consoles (maintainer goal, 2026-10-12). slot's Cart Studio (https://studio.slot-cfw.fyi/, source github.com/BrandonKowalski/slot-cart-studio, GPL-3.0-or-later) does this for GB, GBC and GBA only. The owner was asked on slot discussion #64 (2026-10-12) whether NES and SNES should arrive as a PR to slot-cart-studio or as a credited fork. This issue starts only after his answer.
+Carts must show the real physical cartridge label, never a screenshot, so the shelf feels like the classic consoles (maintainer goal, 2026-10-12). slot's Cart Studio (https://studio.slot-cfw.fyi/, source github.com/BrandonKowalski/slot-cart-studio, GPL-3.0-or-later) does this for GB, GBC and GBA only. The owner was asked on slot discussion #64 (2026-10-12) whether NES and SNES should arrive as a PR to slot-cart-studio or as a credited fork; he answered "Fork away" (ADR 0032).
 
 ## Scope
-- [x] Record the owner's answer here and in docs/DECISIONS.md.
+- [x] Record the owner's answer here and as an ADR in docs/adr/ (0032).
 - [ ] If PR: open an issue on slot-cart-studio first (the owner asks for an issue before a PR), then a PR adding NES and SNES as an optional mode built against slot-nes-snes's patched slot-ui (Studio compiles slot's own cart code, pinned by `slot.ref`).
 - [ ] If fork: a GPL-3.0 fork credited to the owner in its README and page footer, built against slot-nes-snes, hosted on this repo's GitHub Pages.
 - [x] Platform tables in either case: `card.js` PLATFORMS and EXTENSIONS, `libretro.js` NAMES, `tools/harvest.py` SS_SYSTEM gain NES and SNES.
