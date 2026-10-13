@@ -183,3 +183,17 @@ program loaded by `dlopen` across the libretro C ABI, and the zip is an aggregat
 This is our reading, not legal advice. The core is plain C, so no libstdc++ is linked. **The zip must
 never be sold, or bundled with anything that is sold**, and the notice under snes9x covers this core
 too. The README "Licences" paragraph names both.
+
+## NES and SNES screen shaders
+
+Patch `0020-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
+collection into `crates/slot-gfx/src/pipeline/retro.rs`. Their attributions ship as
+`licenses/retro-shaders.txt`, next to upstream's `licenses/shaders.txt`, which is left as it is:
+
+- Sharp: sharp-bilinear-simple (rsn8887, after TheMaister). Public domain.
+- Scanlines: scanlines-sine-abs (RiskyJumps). Public domain.
+- crt-pi (davej, 2015-2016). GPL-2.0-or-later. Its copyright notice is kept in the licence file
+  and as a comment in the GLSL source.
+- crt-1tap v1.4 (fishku, GLSL port by DariusG). CC0.
+
+Each licence permits combining with slot under GPL-3.0-or-later.

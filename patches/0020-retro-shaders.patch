@@ -1,0 +1,957 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 17:37:22 +0400
+Subject: [PATCH] retro-shaders
+
+---
+ crates/slot-gfx/src/lcd3x.rs                  |  10 +-
+ crates/slot-gfx/src/pipeline.rs               |   7 +
+ crates/slot-gfx/src/pipeline/retro.rs         | 209 ++++++++++++++++++
+ crates/slot-gfx/tests/retro_pipeline.rs       |  85 +++++++
+ crates/slot-store/src/lib.rs                  |   2 +
+ crates/slot-store/src/retro_shader.rs         |  65 ++++++
+ crates/slot-store/src/slot_state.rs           |   4 +-
+ crates/slot-store/tests/retro_shader_state.rs | 121 ++++++++++
+ crates/slot-ui/src/quick_menu.rs              |   7 +-
+ crates/slot-ui/src/quick_retro.rs             |  23 +-
+ crates/slot-ui/src/toast.rs                   |   3 +
+ crates/slot-ui/tests/retro_faces.rs           |  46 ++++
+ crates/slot/src/app.rs                        |   2 +
+ crates/slot/src/frontend.rs                   |   5 +-
+ crates/slot/tests/nes_snes_shader.rs          |  26 ++-
+ crates/slot/tests/quick_retro_shader.rs       |  26 ++-
+ 16 files changed, 625 insertions(+), 16 deletions(-)
+ create mode 100644 crates/slot-gfx/src/pipeline/retro.rs
+ create mode 100644 crates/slot-gfx/tests/retro_pipeline.rs
+ create mode 100644 crates/slot-store/src/retro_shader.rs
+ create mode 100644 crates/slot-store/tests/retro_shader_state.rs
+ create mode 100644 crates/slot-ui/tests/retro_faces.rs
+
+diff --git a/crates/slot-gfx/src/lcd3x.rs b/crates/slot-gfx/src/lcd3x.rs
+index 2b5d1ea..ef2e898 100644
+--- a/crates/slot-gfx/src/lcd3x.rs
++++ b/crates/slot-gfx/src/lcd3x.rs
+@@ -16,11 +16,19 @@ pub enum ScreenEffect {
+     Grid,
+     Dot,
+     Simpletex,
++    Retro(u8),
+ }
+ 
+ impl ScreenEffect {
+     pub fn mode(self) -> f32 {
+-        self as u8 as f32
++        match self {
++            ScreenEffect::None => 0.0,
++            ScreenEffect::Lcd3x => 1.0,
++            ScreenEffect::Grid => 2.0,
++            ScreenEffect::Dot => 3.0,
++            ScreenEffect::Simpletex => 4.0,
++            ScreenEffect::Retro(_) => 0.0,
++        }
+     }
+ }
+ 
+diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
+index 9c79495..47ab7b3 100644
+--- a/crates/slot-gfx/src/pipeline.rs
++++ b/crates/slot-gfx/src/pipeline.rs
+@@ -4,6 +4,8 @@ use crate::quad::Quad;
+ use crate::shaders::{GAME_FRAG, RECT_VERT};
+ use crate::surface::{GfxError, OUT_H, OUT_W};
+ 
++mod retro;
++
+ pub const SCALE: u32 = 3;
+ pub const SRC_W: u32 = OUT_W / SCALE;
+ pub const SRC_H: u32 = OUT_H / SCALE;
+@@ -30,6 +32,7 @@ pub struct GamePass {
+     effect: ScreenEffect,
+     power: f32,
+     src: [f32; 4],
++    retro: Option<retro::RetroProgram>,
+ }
+ 
+ impl GamePass {
+@@ -84,6 +87,7 @@ impl GamePass {
+             effect: ScreenEffect::Lcd3x,
+             power: 1.0,
+             src: WHOLE_TEXTURE,
++            retro: retro::RetroProgram::new(),
+         })
+     }
+ 
+@@ -184,6 +188,9 @@ impl GamePass {
+     }
+ 
+     fn draw_source(&self, tex: gl::types::GLuint, quad: &Quad, src: [f32; 4]) {
++        if self.draw_retro(tex, quad, src) {
++            return;
++        }
+         let (x, y, w, h) = screen_rect(self.power);
+         unsafe {
+             gl::UseProgram(self.prog);
+diff --git a/crates/slot-gfx/src/pipeline/retro.rs b/crates/slot-gfx/src/pipeline/retro.rs
+new file mode 100644
+index 0000000..87c2391
+--- /dev/null
++++ b/crates/slot-gfx/src/pipeline/retro.rs
+@@ -0,0 +1,209 @@
++use super::GamePass;
++use crate::lcd3x::ScreenEffect;
++use crate::power::{screen_brightness, screen_rect};
++use crate::quad::Quad;
++use crate::shaders::RECT_VERT;
++use crate::surface::{OUT_H, OUT_W};
++
++pub struct RetroProgram {
++    prog: gl::types::GLuint,
++    u_src: gl::types::GLint,
++    u_uv: gl::types::GLint,
++    u_rect: gl::types::GLint,
++    u_fbo: gl::types::GLint,
++    u_pic: gl::types::GLint,
++    u_bright: gl::types::GLint,
++    u_mode: gl::types::GLint,
++}
++
++impl RetroProgram {
++    pub fn new() -> Option<Self> {
++        let prog = match crate::shaders::program(RECT_VERT, RETRO_FRAG) {
++            Ok(prog) => prog,
++            Err(e) => {
++                eprintln!(
++                    "slot: gfx: the nes and snes shaders did not build, they draw plain: {e}"
++                );
++                return None;
++            }
++        };
++        let at = |name| crate::gl::uniform_location(prog, name);
++        // SAFETY: the GL context is current while the compositor is built, and prog was just linked.
++        unsafe {
++            gl::UseProgram(prog);
++            gl::Uniform1i(at("u_game"), 0);
++            gl::Uniform2f(at("u_target"), OUT_W as f32, OUT_H as f32);
++        }
++        Some(RetroProgram {
++            prog,
++            u_src: at("u_src"),
++            u_uv: at("u_uv"),
++            u_rect: at("u_rect"),
++            u_fbo: at("u_fbo"),
++            u_pic: at("u_pic"),
++            u_bright: at("u_bright"),
++            u_mode: at("u_mode"),
++        })
++    }
++}
++
++impl Drop for RetroProgram {
++    fn drop(&mut self) {
++        // SAFETY: prog is this program's own, deleted once, with the compositor's context current.
++        unsafe { gl::DeleteProgram(self.prog) };
++    }
++}
++
++impl GamePass {
++    pub(super) fn draw_retro(&self, tex: gl::types::GLuint, quad: &Quad, src: [f32; 4]) -> bool {
++        let (ScreenEffect::Retro(n), Some(r)) = (self.effect, &self.retro) else {
++            return false;
++        };
++        let (x, y, w, h) = screen_rect(self.power);
++        let pic = self.pic;
++        // SAFETY: the GL context is current while drawing, r.prog and its uniform locations are this pass's own.
++        unsafe {
++            gl::UseProgram(r.prog);
++            gl::Uniform2f(r.u_src, self.canvas.0 as f32, self.canvas.1 as f32);
++            gl::Uniform4f(r.u_rect, x, y, w, h);
++            gl::Uniform4f(r.u_uv, src[0], src[1], src[2], src[3]);
++            gl::Uniform2f(r.u_fbo, self.fbo_scale[0], self.fbo_scale[1]);
++            gl::Uniform4f(r.u_pic, pic[0], pic[1], pic[2], pic[3]);
++            gl::Uniform1f(r.u_bright, screen_brightness(self.power));
++            gl::Uniform1f(r.u_mode, n as f32);
++            gl::ActiveTexture(gl::TEXTURE0);
++            gl::BindTexture(gl::TEXTURE_2D, tex);
++        }
++        quad.draw();
++        true
++    }
++}
++
++const RETRO_FRAG: &str = r#"
++#ifdef GL_FRAGMENT_PRECISION_HIGH
++precision highp float;
++#else
++precision mediump float;
++#endif
++uniform sampler2D u_game;
++uniform vec2 u_src;
++uniform vec4 u_uv;
++uniform vec4 u_rect;
++uniform vec2 u_fbo;
++uniform vec4 u_pic;
++uniform float u_bright;
++uniform float u_mode;
++varying vec2 v_uv;
++
++vec3 tap(vec2 texel) {
++    return texture2D(u_game, texel / u_src).rgb;
++}
++
++vec3 bilinear(vec2 uv) {
++    vec2 p = uv * u_src - 0.5;
++    vec2 i = floor(p);
++    vec2 t = p - i;
++    vec3 top = mix(tap(i + vec2(0.5, 0.5)), tap(i + vec2(1.5, 0.5)), t.x);
++    vec3 bottom = mix(tap(i + vec2(0.5, 1.5)), tap(i + vec2(1.5, 1.5)), t.x);
++    return mix(top, bottom, t.y);
++}
++
++/*
++    sharp-bilinear-simple by rsn8887, based on TheMaister. Public domain.
++*/
++vec3 sharp(vec2 uv, vec2 out_per_texel) {
++    vec2 texel = uv * u_src;
++    vec2 scale = max(floor(out_per_texel), vec2(1.0));
++    vec2 region_range = 0.5 - 0.5 / scale;
++    vec2 center_dist = fract(texel) - 0.5;
++    vec2 f = (center_dist - clamp(center_dist, -region_range, region_range)) * scale + 0.5;
++    return bilinear((floor(texel) + f) / u_src);
++}
++
++/*
++    Scanlines Sine Absolute Value by RiskyJumps. Public domain.
++*/
++vec3 scanlines(vec2 uv, vec3 c) {
++    float angle = uv.y * 3.141592654 * u_src.y + 0.5;
++    return c * abs(sin(angle) * 1.25);
++}
++
++/*
++    crt-pi - A Raspberry Pi friendly CRT shader.
++
++    Copyright (C) 2015-2016 davej
++
++    This program is free software; you can redistribute it and/or modify it
++    under the terms of the GNU General Public License as published by the Free
++    Software Foundation; either version 2 of the License, or (at your option)
++    any later version.
++*/
++float crt_pi_weight(float dist) {
++    return max(1.0 - dist * dist * 6.0, 0.12);
++}
++
++vec3 crt_pi(vec2 uv, vec2 texel_per_px) {
++    float filter_width = texel_per_px.y / 3.0;
++    vec2 texel = uv * u_src;
++    float temp_y = floor(texel.y) + 0.5;
++    float dy = texel.y - temp_y;
++    float weight = (crt_pi_weight(dy) + crt_pi_weight(dy - filter_width)
++        + crt_pi_weight(dy + filter_width)) * 0.3333333;
++    float sign_y = sign(dy);
++    dy = dy * dy;
++    dy = dy * dy;
++    dy *= 8.0;
++    dy /= u_src.y;
++    dy *= sign_y;
++    vec3 colour = bilinear(vec2(uv.x, temp_y / u_src.y + dy));
++    colour = pow(colour, vec3(2.4));
++    colour *= weight * 1.5;
++    colour = pow(colour, vec3(1.0 / 2.2));
++    vec3 mask = vec3(1.0, 0.7, 1.0);
++    if (fract(gl_FragCoord.x * 0.5) < 0.5) {
++        mask = vec3(0.7, 1.0, 0.7);
++    }
++    return colour * mask;
++}
++
++/*
++    crt-1tap v1.4 by fishku, ported to GLSL by DariusG. Public domain (CC0).
++*/
++vec3 crt_1tap_prefix(float y, vec3 width) {
++    float cell = floor(y);
++    float phase = y - cell;
++    return cell * width + clamp(vec3(phase - 0.5) + 0.5 * width, vec3(0.0), width);
++}
++
++vec3 crt_1tap(vec2 uv, vec2 texel_per_px) {
++    vec2 src = uv * u_src - vec2(0.5, 0.31);
++    float x_int = floor(src.x);
++    float x = 2.0 * (src.x - x_int) - 1.0;
++    float slope = mix(6.0, 1.0, 0.8);
++    float shift = 0.5 + 0.5 * slope * x * inversesqrt(1.0 + (slope * slope - 1.0) * x * x);
++    float row = floor(src.y) + 0.5;
++    vec3 signal = bilinear(vec2((x_int + shift + 0.5) / u_src.x, row / u_src.y));
++    vec3 width = min(mix(vec3(0.1), vec3(0.95), pow(clamp(signal, 0.0, 1.0), vec3(0.45))), vec3(1.0));
++    float h = texel_per_px.y;
++    vec3 area = crt_1tap_prefix(src.y + 0.5 * h, width) - crt_1tap_prefix(src.y - 0.5 * h, width);
++    return sqrt(signal * signal * area / h);
++}
++
++void main() {
++    vec2 uv = u_uv.xy + v_uv * u_uv.zw;
++    vec3 c = texture2D(u_game, uv).rgb;
++    bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
++    vec2 texel_per_px = u_uv.zw * u_src / (u_rect.zw * u_fbo);
++    if (!inside) {
++    } else if (u_mode > 2.5) {
++        c = crt_1tap(uv, texel_per_px);
++    } else if (u_mode > 1.5) {
++        c = crt_pi(uv, texel_per_px);
++    } else if (u_mode > 0.5) {
++        c = scanlines(uv, c);
++    } else {
++        c = sharp(uv, 1.0 / texel_per_px);
++    }
++    FRAG_COLOR = vec4(c * u_bright, 1.0);
++}
++"#;
+diff --git a/crates/slot-gfx/tests/retro_pipeline.rs b/crates/slot-gfx/tests/retro_pipeline.rs
+new file mode 100644
+index 0000000..2f3387f
+--- /dev/null
++++ b/crates/slot-gfx/tests/retro_pipeline.rs
+@@ -0,0 +1,85 @@
++#![cfg(target_os = "macos")]
++
++use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect};
++use std::sync::{Mutex, MutexGuard, PoisonError};
++
++static GL: Mutex<()> = Mutex::new(());
++
++const RETRO: [ScreenEffect; 4] = [
++    ScreenEffect::Retro(0),
++    ScreenEffect::Retro(1),
++    ScreenEffect::Retro(2),
++    ScreenEffect::Retro(3),
++];
++
++fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
++    let guard = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let surface = HeadlessSurface::new().ok()?;
++    let compositor = Compositor::new(&surface).expect("the compositor and its shaders build");
++    Some((guard, surface, compositor))
++}
++
++fn source(w: usize, h: usize) -> Vec<u8> {
++    let mut buf = Vec::with_capacity(w * h * 4);
++    for y in 0..h {
++        for x in 0..w {
++            buf.extend_from_slice(&[(x * 7 + y * 13) as u8, (y * 5) as u8, (x * 3) as u8, 0]);
++        }
++    }
++    buf
++}
++
++fn drawn(c: &mut Compositor, effect: ScreenEffect, w: u32, h: u32) -> Vec<u8> {
++    c.set_game_canvas(w, h);
++    c.set_screen_effect(effect);
++    c.set_screen_power(1.0);
++    c.begin_frame();
++    c.upload_game(&source(w as usize, h as usize));
++    c.draw_game();
++    c.read_frame()
++}
++
++#[test]
++fn every_retro_shader_changes_a_stretched_nes_frame_and_draws_it_the_same_twice() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let off = drawn(&mut c, ScreenEffect::None, 256, 240);
++    let mut frames = vec![off];
++    for effect in RETRO {
++        let once = drawn(&mut c, effect, 256, 240);
++        let twice = drawn(&mut c, effect, 256, 240);
++        assert_eq!(once, twice, "{effect:?} is not deterministic");
++        assert!(
++            frames.iter().all(|f| *f != once),
++            "{effect:?} draws the same frame as Off or an earlier shader"
++        );
++        frames.push(once);
++    }
++}
++
++#[test]
++fn sharp_leaves_a_whole_2x_frame_exactly_as_off_draws_it() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let off = drawn(&mut c, ScreenEffect::None, 360, 240);
++    let sharp = drawn(&mut c, ScreenEffect::Retro(0), 360, 240);
++    assert_eq!(off, sharp);
++}
++
++#[test]
++fn the_upstream_effects_keep_their_shader_modes() {
++    assert_eq!(
++        [
++            ScreenEffect::None,
++            ScreenEffect::Lcd3x,
++            ScreenEffect::Grid,
++            ScreenEffect::Dot,
++            ScreenEffect::Simpletex,
++        ]
++        .map(ScreenEffect::mode),
++        [0.0, 1.0, 2.0, 3.0, 4.0]
++    );
++    assert!(RETRO.iter().all(|e| e.mode() == 0.0));
++}
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 460daa1..e13b525 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -10,6 +10,7 @@ pub mod ini;
+ pub mod nes;
+ mod platform;
+ mod platform_policy;
++mod retro_shader;
+ mod ring;
+ mod scan;
+ mod slot_state;
+@@ -26,6 +27,7 @@ pub use core::{
+ pub use gb_palette::GbPalette;
+ pub use gba::{header_clean, header_code, header_title, header_title_code};
+ pub use platform::Platform;
++pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/retro_shader.rs b/crates/slot-store/src/retro_shader.rs
+new file mode 100644
+index 0000000..33db154
+--- /dev/null
++++ b/crates/slot-store/src/retro_shader.rs
+@@ -0,0 +1,65 @@
++use crate::slot_state::Shader;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum RetroShader {
++    Sharp,
++    Scanlines,
++    CrtPi,
++    Crt1Tap,
++}
++
++impl RetroShader {
++    pub const ALL: [RetroShader; 4] = [
++        RetroShader::Sharp,
++        RetroShader::Scanlines,
++        RetroShader::CrtPi,
++        RetroShader::Crt1Tap,
++    ];
++
++    pub fn index(self) -> usize {
++        self as usize
++    }
++
++    pub fn name(self) -> &'static str {
++        match self {
++            RetroShader::Sharp => "sharp",
++            RetroShader::Scanlines => "scanlines",
++            RetroShader::CrtPi => "crt-pi",
++            RetroShader::Crt1Tap => "crt-1tap",
++        }
++    }
++
++    pub fn label(self) -> &'static str {
++        match self {
++            RetroShader::Sharp => "Sharp",
++            RetroShader::Scanlines => "Scanlines",
++            RetroShader::CrtPi => "crt-pi",
++            RetroShader::Crt1Tap => "crt-1tap",
++        }
++    }
++
++    pub fn toast(self) -> &'static str {
++        match self {
++            RetroShader::Sharp => "Shader: Sharp",
++            RetroShader::Scanlines => "Shader: Scanlines",
++            RetroShader::CrtPi => "Shader: crt-pi",
++            RetroShader::Crt1Tap => "Shader: crt-1tap",
++        }
++    }
++
++    pub fn parse(name: &str) -> Option<RetroShader> {
++        RetroShader::ALL.into_iter().find(|s| s.name() == name)
++    }
++}
++
++impl Shader {
++    pub const RETRO: [Shader; 7] = [
++        Shader::Off,
++        Shader::Grid,
++        Shader::Dot,
++        Shader::Retro(RetroShader::Sharp),
++        Shader::Retro(RetroShader::Scanlines),
++        Shader::Retro(RetroShader::CrtPi),
++        Shader::Retro(RetroShader::Crt1Tap),
++    ];
++}
+diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
+index f417303..f44b1ec 100644
+--- a/crates/slot-store/src/slot_state.rs
++++ b/crates/slot-store/src/slot_state.rs
+@@ -49,12 +49,12 @@ pub enum Shader {
+     Grid,
+     Dot,
+     Simpletex,
++    Retro(crate::RetroShader),
+ }
+ 
+ impl Shader {
+     pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
+     pub const GB: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Simpletex];
+-    pub const RETRO: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Dot];
+ 
+     pub fn name(self) -> &'static str {
+         match self {
+@@ -63,6 +63,7 @@ impl Shader {
+             Shader::Grid => "grid",
+             Shader::Dot => "dot",
+             Shader::Simpletex => "simpletex",
++            Shader::Retro(s) => s.name(),
+         }
+     }
+ 
+@@ -76,6 +77,7 @@ impl Shader {
+         ]
+         .into_iter()
+         .find(|s| s.name() == name)
++        .or_else(|| crate::RetroShader::parse(name).map(Shader::Retro))
+     }
+ 
+     pub fn step(self, choices: &[Shader], right: bool) -> Shader {
+diff --git a/crates/slot-store/tests/retro_shader_state.rs b/crates/slot-store/tests/retro_shader_state.rs
+new file mode 100644
+index 0000000..3000082
+--- /dev/null
++++ b/crates/slot-store/tests/retro_shader_state.rs
+@@ -0,0 +1,121 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{read_slot_state, write_slot_state, Platform, RetroShader, Shader, SlotState};
++
++fn state_file(root: &std::path::Path) -> std::path::PathBuf {
++    root.join("Config/slot.state")
++}
++
++fn written(s: &SlotState) -> (tempfile::TempDir, String) {
++    let d = tmp_root();
++    write_slot_state(d.path(), s).unwrap();
++    let text = std::fs::read_to_string(state_file(d.path())).unwrap();
++    (d, text)
++}
++
++fn base() -> SlotState {
++    SlotState {
++        cart: Some("Zzz".into()),
++        clock_set: true,
++        ..SlotState::default()
++    }
++}
++
++#[test]
++fn the_retro_list_keeps_off_grid_dot_first_and_appends_the_four_new_shaders() {
++    assert_eq!(
++        Shader::RETRO.map(Shader::name),
++        [
++            "off",
++            "grid",
++            "dot",
++            "sharp",
++            "scanlines",
++            "crt-pi",
++            "crt-1tap"
++        ]
++    );
++    assert_eq!(
++        RetroShader::ALL.map(RetroShader::label),
++        ["Sharp", "Scanlines", "crt-pi", "crt-1tap"]
++    );
++    for (i, s) in RetroShader::ALL.into_iter().enumerate() {
++        assert_eq!(s.index(), i, "{s:?}");
++    }
++}
++
++#[test]
++fn every_retro_shader_round_trips_through_slot_state_for_nes_and_snes() {
++    for shader in Shader::RETRO {
++        let s = SlotState {
++            shader_nes: shader,
++            shader_snes: shader,
++            ..base()
++        };
++        let (d, text) = written(&s);
++        assert!(
++            text.ends_with(&format!("shader_nes={0}\nshader_snes={0}\n", shader.name())),
++            "{text:?}"
++        );
++        assert_eq!(read_slot_state(d.path()), s, "{shader:?}");
++    }
++}
++
++#[test]
++fn a_slot_state_from_before_the_new_shaders_still_loads_its_retro_values() {
++    let s = SlotState {
++        shader_nes: Shader::Grid,
++        shader_snes: Shader::Dot,
++        ..base()
++    };
++    let (d, text) = written(&s);
++    assert!(
++        text.ends_with("shader_nes=grid\nshader_snes=dot\n"),
++        "{text:?}"
++    );
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn gba_gb_and_gbc_cannot_hold_a_retro_shader() {
++    for platform in [Platform::Gba, Platform::Gb, Platform::Gbc] {
++        assert!(
++            platform
++                .shader_choices()
++                .iter()
++                .all(|s| !matches!(s, Shader::Retro(_))),
++            "{platform:?}"
++        );
++    }
++    for retro in RetroShader::ALL {
++        let (d, text) = written(&base());
++        let text = text
++            .replace("shader_gba=grid", &format!("shader_gba={}", retro.name()))
++            .replace(
++                "shader_gb=simpletex",
++                &format!("shader_gb={}", retro.name()),
++            );
++        std::fs::write(state_file(d.path()), text).unwrap();
++        let back = read_slot_state(d.path());
++        assert_eq!(
++            back.shader_gba,
++            SlotState::default().shader_gba,
++            "{retro:?}"
++        );
++        assert_eq!(back.shader_gb, SlotState::default().shader_gb, "{retro:?}");
++        assert_eq!(back.cart.as_deref(), Some("Zzz"));
++    }
++}
++
++#[test]
++fn an_unknown_retro_name_falls_back_to_off() {
++    let (d, text) = written(&base());
++    let text = text
++        .replace("shader_nes=off", "shader_nes=crt-royale")
++        .replace("shader_snes=off", "shader_snes=Sharp");
++    std::fs::write(state_file(d.path()), text).unwrap();
++    let back = read_slot_state(d.path());
++    assert_eq!(back.shader_nes, Shader::Off);
++    assert_eq!(back.shader_snes, Shader::Off);
++}
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 6da9678..b6aed3f 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -162,6 +162,7 @@ pub enum QuickValue {
+     Grid,
+     Dot,
+     Simpletex,
++    Retro(slot_store::RetroShader),
+ }
+ 
+ impl QuickValue {
+@@ -179,7 +180,10 @@ impl QuickValue {
+     ];
+ 
+     pub fn index(self) -> usize {
+-        self as usize
++        match self {
++            QuickValue::Retro(s) => Self::ALL.len() + s.index(),
++            fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
++        }
+     }
+ 
+     pub fn text(self) -> &'static str {
+@@ -194,6 +198,7 @@ impl QuickValue {
+             QuickValue::Grid => "Grid",
+             QuickValue::Dot => "Dot",
+             QuickValue::Simpletex => "Simpletex",
++            QuickValue::Retro(s) => s.label(),
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 89c612f..0881338 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -1,5 +1,6 @@
+-use crate::quick_menu::QuickRow;
+-use slot_store::Platform;
++use crate::quick_menu::{QuickRow, QuickValue};
++use crate::toast::Toast;
++use slot_store::{Platform, RetroShader};
+ 
+ impl QuickRow {
+     pub const NES_SCREEN: [QuickRow; 1] = [QuickRow::NesShader];
+@@ -16,3 +17,21 @@ impl QuickRow {
+         }
+     }
+ }
++
++impl QuickValue {
++    pub fn every() -> Vec<QuickValue> {
++        QuickValue::ALL
++            .into_iter()
++            .chain(RetroShader::ALL.map(QuickValue::Retro))
++            .collect()
++    }
++}
++
++impl Toast {
++    pub fn every() -> Vec<Toast> {
++        Toast::all()
++            .into_iter()
++            .chain(RetroShader::ALL.map(Toast::Retro))
++            .collect()
++    }
++}
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index a78f1f4..ccb9cf8 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -24,6 +24,7 @@ pub enum Toast {
+     ShaderSimpletex,
+     CardUnwritable,
+     Palette(GbPalette),
++    Retro(slot_store::RetroShader),
+ }
+ 
+ impl Toast {
+@@ -55,6 +56,7 @@ impl Toast {
+     pub fn index(self) -> usize {
+         match self {
+             Toast::Palette(p) => Self::FIXED.len() + p.index(),
++            Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -88,6 +90,7 @@ impl Toast {
+             Toast::ShaderSimpletex => "Shader: Simpletex",
+             Toast::CardUnwritable => "Can't write to SD card",
+             Toast::Palette(p) => p.label(),
++            Toast::Retro(s) => s.toast(),
+         }
+     }
+ }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+new file mode 100644
+index 0000000..43ac034
+--- /dev/null
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -0,0 +1,46 @@
++use slot_store::RetroShader;
++use slot_ui::{toast_face, QuickValue, Toast};
++
++#[test]
++fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
++    let every = QuickValue::every();
++    assert_eq!(every[..QuickValue::ALL.len()], QuickValue::ALL);
++    assert_eq!(
++        every[QuickValue::ALL.len()..],
++        RetroShader::ALL.map(QuickValue::Retro)
++    );
++    for (i, v) in every.iter().enumerate() {
++        assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
++    }
++    assert_eq!(
++        RetroShader::ALL.map(|s| QuickValue::Retro(s).text()),
++        ["Sharp", "Scanlines", "crt-pi", "crt-1tap"]
++    );
++}
++
++#[test]
++fn the_toasts_upload_upstream_banners_then_one_per_retro_shader() {
++    let every = Toast::every();
++    let all = Toast::all();
++    assert_eq!(every[..all.len()], all[..]);
++    assert_eq!(every[all.len()..], RetroShader::ALL.map(Toast::Retro));
++    for (i, t) in every.iter().enumerate() {
++        assert_eq!(t.index(), i, "{t:?} does not answer to its own place");
++    }
++    assert_eq!(
++        RetroShader::ALL.map(|s| Toast::Retro(s).text()),
++        [
++            "Shader: Sharp",
++            "Shader: Scanlines",
++            "Shader: crt-pi",
++            "Shader: crt-1tap"
++        ]
++    );
++    for s in RetroShader::ALL {
++        let f = toast_face(Toast::Retro(s));
++        assert!(
++            f.rgba.chunks(4).any(|p| p[3] > 0),
++            "{s:?} rastered to a blank banner"
++        );
++    }
++}
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index c09433a..46a8fc6 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1430,6 +1430,7 @@ impl App {
+             Shader::Grid => Toast::ShaderGrid,
+             Shader::Dot => Toast::ShaderDot,
+             Shader::Simpletex => Toast::ShaderSimpletex,
++            Shader::Retro(s) => Toast::Retro(s),
+         };
+         self.persist();
+         self.hud.toast(said, self.now());
+@@ -3411,6 +3412,7 @@ fn shader_value(shader: Shader) -> QuickValue {
+         Shader::Grid => QuickValue::Grid,
+         Shader::Dot => QuickValue::Dot,
+         Shader::Simpletex => QuickValue::Simpletex,
++        Shader::Retro(s) => QuickValue::Retro(s),
+     }
+ }
+ 
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index 02635b8..59be0d2 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -347,6 +347,7 @@ impl Frontend {
+             slot_store::Shader::Grid => ScreenEffect::Grid,
+             slot_store::Shader::Dot => ScreenEffect::Dot,
+             slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
++            slot_store::Shader::Retro(s) => ScreenEffect::Retro(s.index() as u8),
+         });
+         compositor.set_shake(self.session.app().screen_shake());
+         compositor.set_screen_power(self.session.app().screen_power());
+@@ -611,7 +612,7 @@ impl UiFaces {
+                 .map(|c| menu_face(c.text()))
+                 .collect(),
+             quick_labels: QuickRow::ALL.iter().map(|r| quick_label_face(*r)).collect(),
+-            quick_values: QuickValue::ALL
++            quick_values: QuickValue::every()
+                 .iter()
+                 .map(|v| [false, true].map(|lit| quick_value_face(v.text(), lit)))
+                 .collect(),
+@@ -648,7 +649,7 @@ impl UiFaces {
+                 .iter()
+                 .map(|f| menu_face(f.line()))
+                 .collect(),
+-            toasts: Toast::all().into_iter().map(toast_face).collect(),
++            toasts: Toast::every().into_iter().map(toast_face).collect(),
+         }
+     }
+ }
+diff --git a/crates/slot/tests/nes_snes_shader.rs b/crates/slot/tests/nes_snes_shader.rs
+index af31e57..fcb3715 100644
+--- a/crates/slot/tests/nes_snes_shader.rs
++++ b/crates/slot/tests/nes_snes_shader.rs
+@@ -4,7 +4,8 @@ mod input_common;
+ use input_common::playing;
+ use slot_input::{Btn, Millis, RawEvent};
+ use slot_retro::ButtonMask;
+-use slot_store::{read_slot_state, Platform, Shader, SlotState};
++use slot_store::{read_slot_state, Platform, RetroShader, Shader, SlotState};
++use slot_ui::Toast;
+ 
+ fn chord(session: &mut slot::session::Session, now: &mut Millis, b: Btn) -> u16 {
+     let mut ever = 0;
+@@ -26,19 +27,36 @@ fn cycle(platform: Platform, pick: fn(&SlotState) -> Shader) {
+     let mut now = 100;
+     assert_eq!(session.app().screen_shader(), Shader::Off);
+     let (mut seen, mut ever) = (vec![], 0);
+-    for _ in 0..3 {
++    for _ in 0..Shader::RETRO.len() {
+         ever |= chord(&mut session, &mut now, Btn::A);
+         session.app().flush_state();
+         let st = read_slot_state(root.path());
+         assert_eq!(st.shader_gb, SlotState::default().shader_gb);
+         assert_eq!(st.shader_gba, SlotState::default().shader_gba);
+         assert_eq!(session.app().screen_shader(), pick(&st));
++        if let Shader::Retro(s) = pick(&st) {
++            assert_eq!(session.app().toast(), Some(Toast::Retro(s)));
++        }
+         seen.push(pick(&st));
+     }
+-    assert_eq!(seen, [Shader::Grid, Shader::Dot, Shader::Off]);
++    assert_eq!(
++        seen,
++        [
++            Shader::Grid,
++            Shader::Dot,
++            Shader::Retro(RetroShader::Sharp),
++            Shader::Retro(RetroShader::Scanlines),
++            Shader::Retro(RetroShader::CrtPi),
++            Shader::Retro(RetroShader::Crt1Tap),
++            Shader::Off,
++        ]
++    );
+     ever |= chord(&mut session, &mut now, Btn::B);
+     session.app().flush_state();
+-    assert_eq!(pick(&read_slot_state(root.path())), Shader::Dot);
++    assert_eq!(
++        pick(&read_slot_state(root.path())),
++        Shader::Retro(RetroShader::Crt1Tap)
++    );
+     assert_eq!(
+         ever & (ButtonMask::A | ButtonMask::B),
+         0,
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index 401b256..1184aa8 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -3,7 +3,7 @@ mod common;
+ use common::{boot, tmp_root_with_real_carts, write_gb_cart};
+ use slot::app::{App, Phase};
+ use slot_input::{Action, Btn};
+-use slot_store::{read_slot_state, Platform, Shader, SlotState};
++use slot_store::{read_slot_state, Platform, RetroShader, Shader, SlotState};
+ use slot_ui::{QuickRow, QuickValue};
+ use tempfile::TempDir;
+ 
+@@ -75,21 +75,37 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+         let (root, mut app) = on_shelf(platform);
+         open_screen(&mut app);
+         let mut seen = vec![];
+-        for _ in 0..3 {
++        for _ in 0..Shader::RETRO.len() {
+             press(&mut app, Btn::Right);
+             app.flush_state();
+             seen.push(pick(&read_slot_state(root.path())));
+         }
+         assert_eq!(
+             seen,
+-            [Shader::Grid, Shader::Dot, Shader::Off],
++            [
++                Shader::Grid,
++                Shader::Dot,
++                Shader::Retro(RetroShader::Sharp),
++                Shader::Retro(RetroShader::Scanlines),
++                Shader::Retro(RetroShader::CrtPi),
++                Shader::Retro(RetroShader::Crt1Tap),
++                Shader::Off,
++            ],
+             "{platform:?}"
+         );
+         press(&mut app, Btn::Left);
+         app.flush_state();
+         let st = read_slot_state(root.path());
+-        assert_eq!(pick(&st), Shader::Dot, "{platform:?}");
+-        assert_eq!(app.quick_value(row), Some(QuickValue::Dot), "{platform:?}");
++        assert_eq!(
++            pick(&st),
++            Shader::Retro(RetroShader::Crt1Tap),
++            "{platform:?}"
++        );
++        assert_eq!(
++            app.quick_value(row),
++            Some(QuickValue::Retro(RetroShader::Crt1Tap)),
++            "{platform:?}"
++        );
+         assert_eq!(st.shader_gba, SlotState::default().shader_gba);
+         assert_eq!(st.shader_gb, SlotState::default().shader_gb);
+         let other = if platform == Platform::Nes {
