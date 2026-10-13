@@ -30,6 +30,20 @@ def nes_rom(out, battery=False):
         f.write(rom)
 
 
+def snes_rom(out):
+    rom = bytearray(0x8000)
+    rom[0:10] = bytes([0x78, 0x18, 0xFB, 0xA9, 0x0F, 0x8D, 0x00, 0x21, 0x80, 0xFE])
+    rom[0x7FC0:0x7FD5] = b"SLOT COST TEST".ljust(21)
+    rom[0x7FD5:0x7FDC] = bytes([0x20, 0x00, 0x05, 0x00, 0x01, 0x33, 0x00])
+    for vector in range(0x7FE0, 0x8000, 2):
+        rom[vector : vector + 2] = b"\x00\x80"
+    rom[0x7FDC:0x7FE0] = bytes([0xFF, 0xFF, 0x00, 0x00])
+    total = sum(rom) & 0xFFFF
+    rom[0x7FDC:0x7FE0] = struct.pack("<HH", total ^ 0xFFFF, total)
+    with open(out, "wb") as f:
+        f.write(rom)
+
+
 def chunk(kind, data):
     body = kind + data
     return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
@@ -74,6 +88,8 @@ if sys.argv[1:2] == ["dmg"] and len(sys.argv) == 4:
     dmg_rom(sys.argv[2], sys.argv[3])
 elif sys.argv[1:2] == ["nes"] and len(sys.argv) in (3, 4):
     nes_rom(sys.argv[2], sys.argv[3:] == ["battery"])
+elif sys.argv[1:2] == ["snes"] and len(sys.argv) == 3:
+    snes_rom(sys.argv[2])
 elif sys.argv[1:2] == ["png"] and len(sys.argv) == 4:
     big_png(sys.argv[2], sys.argv[3])
 elif sys.argv[1:2] == ["bezel"] and len(sys.argv) == 5:
