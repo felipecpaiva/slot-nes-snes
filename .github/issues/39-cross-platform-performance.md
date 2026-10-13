@@ -26,6 +26,12 @@ The goal of the project is one platform experience: a NES or SNES cart must feel
 - [ ] `docs/PERFORMANCE.md`: one table per metric, every platform and core side by side with the GBA baseline, the device and governor recorded, and raw logs kept under `docs/perf/<date>/`.
 - [ ] Every metric where a platform is worse than the GBA baseline beyond its threshold gets its own follow-up issue with the numbers attached.
 
+## Status (2026-10-13)
+- Device gate run (10 titles, 3 minutes each, docs/DEVICE-GATE.md): after start-up 0 presents above 1.5x the period on every title; p99 within 1.1x the median on all but Super Mario RPG (SA-1), 19.24 ms against 18.46 ms.
+- Audio loss at every ALSA release and reopen found and fixed (47-audio-reopen, PR #91): 0 dropped, 0 starved on Battletoads, Super Mario RPG, Kirby's Adventure and Golden Sun.
+- Retro shaders add no measurable per-frame cost (46-retro-shaders).
+- Still open: Super Mario RPG p99, the full 3-run tables in docs/PERFORMANCE.md, and the 10-minute gate runs.
+
 ## Tests
 | ID | File | Asserts |
 |---|---|---|
