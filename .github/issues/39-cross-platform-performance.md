@@ -15,7 +15,7 @@ The goal of the project is one platform experience: a NES or SNES cart must feel
 - [ ] Baseline: unpatched slot v1.6.0 playing GBA on mGBA on the same device, same firmware, same CPU governor, same battery state (on charger), measured in the same session.
 - [ ] Metrics per platform and core, each with median and worst case over at least 3 runs:
   - boot to first shelf frame, and cart insert to first game frame (`slot: boot:` log lines, `SLOT_TRACE`)
-  - frame time median and p99 in game, and dropped or late presents (`SLOT_TRACE_LATENCY`)
+  - frame time median and p99 in game, and dropped or late presents (`SLOT_TRACE_LATENCY`; `slot: frametime:` lines from the `frame-trace` patch)
   - audio underruns per 10 minutes
   - fast-forward speed reached (x times real time) and frame time while fast-forwarding
   - rewind: serialize cost per frame and emu thread stalls
@@ -42,7 +42,7 @@ The goal of the project is one platform experience: a NES or SNES cart must feel
 
 ## Acceptance
 - [ ] `task perf:eval` runs end to end on the RG34XXSP for all 8 pairs.
-- [ ] Thresholds against the GBA baseline: frame time median within 5%, p99 within 10%, zero audio underruns, insert to first frame within 10%, save and load state within 20%, fast-forward reaches at least the GBA multiple.
+- [ ] Thresholds against the GBA baseline: frame time median within 5%, p99 present interval within 1.1x the median present interval with 0 presents above 1.5x the period (59.6 Hz panel, period 16.78 ms, so an absolute 16.7 ms p99 cannot pass), zero audio underruns, insert to first frame within 10%, save and load state within 20%, fast-forward reaches at least the GBA multiple.
 - [ ] `docs/PERFORMANCE.md` published with every table, and a follow-up issue for every miss.
 
 ## Device check (RG34XXSP)

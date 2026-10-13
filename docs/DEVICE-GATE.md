@@ -9,9 +9,14 @@ This is a manual gate run by the maintainer. This file is the only place device 
 - ROMs are the maintainer's own dumps. They are never committed, never pushed to a branch and
   never attached to an issue. `task bench:device` pushes one to a temp dir on the SD card and
   removes it afterwards.
-- Thresholds, per title: 0 audio underruns in 10 minutes of play, and p99 frame time under
-  16.7 ms. Until slot has a frame-time trace (#45) the p99 column is n/a and only the
-  starved count decides pass or fail.
+- Thresholds, per title: 0 audio underruns in 10 minutes of play, 0 dropped frames, and a steady
+  present interval. Dropped frames means 0 presents above 1.5x the panel period in the run.
+  Steady means p99 present interval is at most 1.1x the median present interval. Both come from
+  the `slot: frametime:` and `slot: pace:` trace lines.
+- Why not "p99 frame time under 16.7 ms": the RG34XXSP panel refreshes at about 59.6 Hz, a period of
+  16.78 ms (the median present period in every `docs/perf/2026-10-13/play/` log). A present can
+  never be shorter than the period, so the p50 is already above 16.7 ms and that gate cannot
+  pass on healthy hardware. The two rules above compare against the real period instead.
 - Do not change the CPU governor (or add a governor line to `launch_frontend.sh`) without a
   before and after row in the table below. Measure on the default governor first. If an SA-1
   title (Super Mario RPG, Seiken Densetsu 3) underruns, add a second row for the same title
@@ -43,14 +48,12 @@ Read from `work/slot` (crates `slot/src/emu.rs`, `latency.rs`) and `card/System/
 - Latency lines (`slot: latency: ... total X ms`) appear when `System/trace-latency.on` exists
   on the SD card (or `SLOT_TRACE_LATENCY` is set). They time one input from read to screen swap.
   That is input latency, not frame time. Do not enter it as p99 frame ms.
-- Nothing in slot logs a per-frame wall time, so p99 frame time cannot be read from the device
-  today. The nearest figure is `task bench:device`, which reports the core's mean ms/frame per
-  repeat (median, min, max over repeats). It times the core and slot's copy and audio callbacks, not
-  the GL upload. Record the bench median and max in the Notes column and leave p99 as `n/a` until
-  a frame-time trace exists.
-- p99 frame time cannot be measured yet because slot has no frame-time trace. Adding one belongs
-  to issue #45 (performance evaluation across platforms). The gate's p99 column stays `n/a` until
-  then.
+- With the latency trace on, the `frame-trace` patch logs `slot: frametime: 600 presents, p50 X p99 Y max Z ms`
+  (present to present, per 600 presents). Enter the worst p99 and the longest max of the run, and
+  count presents above 1.5x the period from the `missed a latch` figures of the `pace:` lines.
+  `scripts/auto-play.sh` reports them as `ft_p99_worst` and `ft_max`. The last window of a session
+  is the eject and is dropped. `task bench:device` still gives the core's ms/frame (core and copy
+  only, not the GL upload) for the Notes column.
 
 ## Known now
 
@@ -68,7 +71,7 @@ start-up starve also seen on GBA is tracked in #45. No title has passed the 0-un
    the shelf. Do not power off.
 5. `task readout:device`. Read the audio summary line (starved must be 0, or the line absent with `SLOT_TRACE` off) and the trace
    maximum.
-6. Fill one row below. Fail the title if starved is above 0 (p99 is n/a until #45 adds a frame-time trace).
+6. Fill one row below. Fail the title if starved is above 0 (also fail it on a dropped frame or a p99 present interval above 1.1x the median).
 7. Bench: `task bench:device CORE=<core> ROM=<path to your dump>`. Record ms/frame and fps.
 
 ## Results

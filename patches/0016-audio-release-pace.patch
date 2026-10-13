@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 14:14:20 +0400
+Subject: [PATCH] audio-release-pace
+
+---
+ crates/slot/src/audio/alsa.rs          |  7 ++-
+ crates/slot/src/audio/mod.rs           |  1 +
+ crates/slot/src/audio/released_pace.rs | 86 ++++++++++++++++++++++++++
+ 3 files changed, 92 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/src/audio/released_pace.rs
+
+diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
+index b9d1a71..f6abbf5 100644
+--- a/crates/slot/src/audio/alsa.rs
++++ b/crates/slot/src/audio/alsa.rs
+@@ -2,10 +2,11 @@ use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{mpsc, Arc};
+ use std::thread::JoinHandle;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ use libloading::Library;
+ 
++use super::released_pace::ReleasedPace;
+ use super::ring::Ring;
+ use super::silence::Silence;
+ use super::sink::{AudioError, AudioSink};
+@@ -221,12 +222,14 @@ impl Playback {
+         let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
+         let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
+         let mut silence = Silence::new(RELEASE_AFTER);
++        let mut pace = ReleasedPace::new(span, Instant::now());
+         while !stop.load(Ordering::Relaxed) {
+             ring.fill(&mut buf);
+             let hold = silence.hear(&buf, span);
+             match (self.pcm, hold) {
+                 (Some(_), false) => {
+                     self.release();
++                    pace.restart(Instant::now());
+                     eprintln!("slot: audio released after silence");
+                 }
+                 (None, true) => match self.alsa.open_pcm(self.rate) {
+@@ -250,7 +253,7 @@ impl Playback {
+                         return;
+                     }
+                 }
+-                None => std::thread::sleep(span),
++                None => std::thread::sleep(pace.wait(Instant::now())),
+             }
+         }
+     }
+diff --git a/crates/slot/src/audio/mod.rs b/crates/slot/src/audio/mod.rs
+index b841d5f..0d6f843 100644
+--- a/crates/slot/src/audio/mod.rs
++++ b/crates/slot/src/audio/mod.rs
+@@ -1,6 +1,7 @@
+ mod alsa;
+ #[cfg(feature = "host")]
+ mod host;
++mod released_pace;
+ mod ring;
+ mod sfx;
+ mod silence;
+diff --git a/crates/slot/src/audio/released_pace.rs b/crates/slot/src/audio/released_pace.rs
+new file mode 100644
+index 0000000..283fdee
+--- /dev/null
++++ b/crates/slot/src/audio/released_pace.rs
+@@ -0,0 +1,86 @@
++use std::time::{Duration, Instant};
++
++pub struct ReleasedPace {
++    next: Instant,
++    span: Duration,
++}
++
++impl ReleasedPace {
++    pub fn new(span: Duration, now: Instant) -> Self {
++        ReleasedPace { next: now, span }
++    }
++
++    pub fn restart(&mut self, now: Instant) {
++        self.next = now;
++    }
++
++    pub fn wait(&mut self, now: Instant) -> Duration {
++        let due = self.next + self.span;
++        match due > now {
++            true => {
++                self.next = due;
++                due - now
++            }
++            false => {
++                self.next = now;
++                Duration::ZERO
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const RATE: f64 = 32_768.0;
++    const FRAMES: usize = 512;
++    const ITERATIONS: usize = 2_000;
++
++    fn span() -> Duration {
++        Duration::from_secs_f64(FRAMES as f64 / RATE)
++    }
++
++    fn consumed_over(
++        overhead: Duration,
++        wait: impl Fn(&mut ReleasedPace, Instant) -> Duration,
++    ) -> f64 {
++        let start = Instant::now();
++        let mut now = start;
++        let mut pace = ReleasedPace::new(span(), now);
++        for _ in 0..ITERATIONS {
++            now += wait(&mut pace, now);
++            now += overhead;
++        }
++        let consumed = (ITERATIONS * FRAMES) as f64 / RATE;
++        consumed / (now - start).as_secs_f64()
++    }
++
++    #[test]
++    fn a_released_consumer_drains_at_real_time_rate_despite_per_iteration_overhead() {
++        let rate = consumed_over(Duration::from_micros(300), |pace, now| pace.wait(now));
++        assert!((rate - 1.0).abs() < 0.01, "drained at {rate} of real time");
++    }
++
++    #[test]
++    fn a_relative_sleep_falls_behind_real_time_with_the_same_overhead() {
++        let rate = consumed_over(Duration::from_micros(300), |_, _| span());
++        assert!(rate < 0.99, "drained at {rate} of real time");
++    }
++
++    #[test]
++    fn a_late_wake_resyncs_instead_of_bursting() {
++        let start = Instant::now();
++        let mut pace = ReleasedPace::new(span(), start);
++        assert_eq!(pace.wait(start + span() * 10), Duration::ZERO);
++        assert_eq!(pace.wait(start + span() * 10), span());
++    }
++
++    #[test]
++    fn a_restart_drops_the_deadline_of_the_previous_release() {
++        let start = Instant::now();
++        let mut pace = ReleasedPace::new(span(), start);
++        pace.restart(start + Duration::from_secs(5));
++        assert_eq!(pace.wait(start + Duration::from_secs(5)), span());
++    }
++}
