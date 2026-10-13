@@ -59,7 +59,7 @@ breaking it causes a conflict on most releases.
 | `Host` stays | New state in `HostExtra` (issue 09) | Add a field to `Host` in `libretro.rs` (its in-source test lists every field) |
 | `slot_state.rs` settings line stays | New keys written by a separate `push_str` after the upstream `format!`, parsed with `unwrap_or` | Edit the `format!` line, or parse new keys with `?` |
 | Match arms stay exhaustive | Add an explicit `Platform::Nes =>` arm | Add or keep a `_ =>` wildcard over `Platform`, `Core`, `Outline` or `Shape` |
-| `app.rs` stays small | 25 changed lines or fewer in total (`task diffsurface` arrives with issue 31; until then count by hand in the PR) | Put logic in `app.rs` |
+| `app.rs` stays small | `task diffsurface` reports 25 or fewer. The count is the net diff of `crates/slot/src/app.rs` between the pinned upstream release and the patched tree (added plus removed lines, so a later patch that re-edits an earlier line counts once, not twice); a rebase conflicts on that diff, not on the sum of per-patch edits | Put logic in `app.rs`, or judge by summing `git apply --numstat` per patch |
 
 ## 4. Rust style (match upstream exactly)
 
@@ -159,7 +159,7 @@ Match upstream's history:
   - [ ] `sh scripts/check-upstream-tests.sh` green
   - [ ] `task harness:compare` 0 differing frames (when the change touches a shared path)
   - [ ] `task bench:compare` within 2% (when the change touches a hot path)
-  - [ ] `app.rs` within budget (`task diffsurface` arrives with issue 31; until then the changed-line count is done by hand in the PR)
+  - [ ] `app.rs` within budget (`task diffsurface` exits 0)
   - [ ] every test ID from the issue present and passing
   - [ ] every acceptance box in the issue ticked or explained
   - [ ] device check done, or marked "needs device" for the maintainer
