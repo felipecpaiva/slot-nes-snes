@@ -5,6 +5,10 @@ vars:
     sh: . ./SLOT_PIN && echo "$fceumm_commit"
   SNES9X_COMMIT:
     sh: . ./SLOT_PIN && echo "$snes9x_commit"
+  NESTOPIA_COMMIT:
+    sh: . ./SLOT_PIN && echo "$nestopia_commit"
+  SNES9X2005_PLUS_COMMIT:
+    sh: . ./SLOT_PIN && echo "$snes9x2005_plus_commit"
 
 tasks:
   default:
@@ -86,9 +90,29 @@ tasks:
       - sh cores/snes9x/build.sh fetch {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz
       - echo "{{.SNES9X_COMMIT}}" > vendor/snes9x-src.sha
 
+  core:nestopia:src:
+    desc: Fetch the pinned nestopia source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/nestopia-src.tar.gz
+      - test "$(cat vendor/nestopia-src.sha 2>/dev/null)" = "{{.NESTOPIA_COMMIT}}"
+    cmds:
+      - rm -f vendor/nestopia-src.tar.gz vendor/nestopia-src.sha
+      - sh cores/nestopia/build.sh fetch {{.NESTOPIA_COMMIT}} vendor/nestopia-src.tar.gz
+      - echo "{{.NESTOPIA_COMMIT}}" > vendor/nestopia-src.sha
+
+  core:snes9x2005_plus:src:
+    desc: Fetch the pinned snes9x2005 (USE_BLARGG_APU) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/snes9x2005_plus-src.tar.gz
+      - test "$(cat vendor/snes9x2005_plus-src.sha 2>/dev/null)" = "{{.SNES9X2005_PLUS_COMMIT}}"
+    cmds:
+      - rm -f vendor/snes9x2005_plus-src.tar.gz vendor/snes9x2005_plus-src.sha
+      - sh cores/snes9x2005_plus/build.sh fetch {{.SNES9X2005_PLUS_COMMIT}} vendor/snes9x2005_plus-src.tar.gz
+      - echo "{{.SNES9X2005_PLUS_COMMIT}}" > vendor/snes9x2005_plus-src.sha
+
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm and snes9x from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia and snes9x2005_plus from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -101,12 +125,22 @@ tasks:
         test -f vendor/snes9x_libretro.dylib &&
           test "$(cat vendor/snes9x_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/snes9x/build.sh stamp {{.SNES9X_COMMIT}} host)" ||
           sh cores/snes9x/build.sh build {{.SNES9X_COMMIT}} vendor/snes9x-src.tar.gz build/snes9x-host vendor/snes9x_libretro.dylib
+      - |
+        test -f vendor/nestopia_libretro.dylib &&
+          test "$(cat vendor/nestopia_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/nestopia/build.sh stamp {{.NESTOPIA_COMMIT}} host)" ||
+          sh cores/nestopia/build.sh build {{.NESTOPIA_COMMIT}} vendor/nestopia-src.tar.gz build/nestopia-host vendor/nestopia_libretro.dylib
+      - |
+        test -f vendor/snes9x2005_plus_libretro.dylib &&
+          test "$(cat vendor/snes9x2005_plus_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/snes9x2005_plus/build.sh stamp {{.SNES9X2005_PLUS_COMMIT}} host)" ||
+          sh cores/snes9x2005_plus/build.sh build {{.SNES9X2005_PLUS_COMMIT}} vendor/snes9x2005_plus-src.tar.gz build/snes9x2005_plus-host vendor/snes9x2005_plus_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm and snes9x cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia and snes9x2005_plus cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
+      - task: core:device:nestopia
+      - task: core:device:snes9x2005_plus
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -138,6 +172,36 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/snes9x_libretro.so'
       - 'echo "built vendor/snes9x_libretro.so from vendor/snes9x-src.tar.gz @ {{.SNES9X_COMMIT}}"'
 
+  core:device:nestopia:
+    desc: Build the aarch64 linux nestopia core into vendor/nestopia_libretro.so, in rust:1-bullseye via scripts/device-sh.sh
+    deps: [core:nestopia:src]
+    status:
+      - test -f vendor/nestopia_libretro.so
+      - test "$(cat vendor/nestopia-src.meta 2>/dev/null)" = "$(sh cores/nestopia/build.sh srcmeta {{.NESTOPIA_COMMIT}} vendor/nestopia-src.tar.gz)"
+      - test "$(cat vendor/nestopia_libretro.so.meta 2>/dev/null)" = "$(sh cores/nestopia/build.sh stamp {{.NESTOPIA_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/nestopia/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/nestopia/build.sh build {{.NESTOPIA_COMMIT}} vendor/nestopia-src.tar.gz
+        build/nestopia-device vendor/nestopia_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/nestopia_libretro.so'
+      - 'echo "built vendor/nestopia_libretro.so from vendor/nestopia-src.tar.gz @ {{.NESTOPIA_COMMIT}}"'
+
+  core:device:snes9x2005_plus:
+    desc: Build the aarch64 linux snes9x2005_plus core into vendor/snes9x2005_plus_libretro.so, in rust:1-bullseye via scripts/device-sh.sh
+    deps: [core:snes9x2005_plus:src]
+    status:
+      - test -f vendor/snes9x2005_plus_libretro.so
+      - test "$(cat vendor/snes9x2005_plus-src.meta 2>/dev/null)" = "$(sh cores/snes9x2005_plus/build.sh srcmeta {{.SNES9X2005_PLUS_COMMIT}} vendor/snes9x2005_plus-src.tar.gz)"
+      - test "$(cat vendor/snes9x2005_plus_libretro.so.meta 2>/dev/null)" = "$(sh cores/snes9x2005_plus/build.sh stamp {{.SNES9X2005_PLUS_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/snes9x2005_plus/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/snes9x2005_plus/build.sh build {{.SNES9X2005_PLUS_COMMIT}} vendor/snes9x2005_plus-src.tar.gz
+        build/snes9x2005_plus-device vendor/snes9x2005_plus_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/snes9x2005_plus_libretro.so'
+      - 'echo "built vendor/snes9x2005_plus_libretro.so from vendor/snes9x2005_plus-src.tar.gz @ {{.SNES9X2005_PLUS_COMMIT}}"'
+
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     env:
@@ -155,6 +219,8 @@ tasks:
       - test -f vendor/gpsp_libretro.dylib
       - test -f vendor/fceumm_libretro.dylib
       - test -f vendor/snes9x_libretro.dylib
+      - test -f vendor/nestopia_libretro.dylib
+      - test -f vendor/snes9x2005_plus_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
@@ -209,7 +275,7 @@ tasks:
       - sh scripts/bench-compare.sh
 
   bench:device:
-    desc: Run core_bench on a connected device over adb. CORE=mgba|gpsp|fceumm|snes9x (default mgba), ROM=local path (default harness/roms/240pee_mb.gba), ARGS and SD optional. Run task deploy:device first, the core under test is the one already in System/
+    desc: Run core_bench on a connected device over adb. CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus (default mgba), ROM=local path (default harness/roms/240pee_mb.gba), ARGS and SD optional. Run task deploy:device first, the core under test is the one already in System/
     deps: [build]
     env:
       CORE: '{{.CORE}}'
@@ -231,7 +297,7 @@ tasks:
       - sh evals/eval-frontend-cost.sh
 
   dist:device:
-    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm core, its .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia and snes9x2005_plus cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
     deps: [build, core:device]
     vars:
       NAME:
@@ -247,6 +313,10 @@ tasks:
       - vendor/fceumm-src.*
       - vendor/snes9x_libretro.so*
       - vendor/snes9x-src.*
+      - vendor/nestopia_libretro.so*
+      - vendor/nestopia-src.*
+      - vendor/snes9x2005_plus_libretro.so*
+      - vendor/snes9x2005_plus-src.*
       - scripts/dist-device.sh
       - scripts/device-sh.sh
       - scripts/fetch-task.sh
@@ -295,7 +365,7 @@ tasks:
         for f in "$sys"/licenses/*; do
           case "$f" in */slot-nes-snes-src-*) ;; *) adb push "$f" '{{.SD}}/System/licenses/' ;; esac
         done
-      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so && sync'
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so {{.SD}}/System/nestopia_libretro.so {{.SD}}/System/snes9x2005_plus_libretro.so && sync'
       - adb reboot
       - adb wait-for-device
       - 'echo "deployed to {{.SD}}, device rebooting"'

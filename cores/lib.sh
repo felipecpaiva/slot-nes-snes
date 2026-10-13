@@ -3,6 +3,7 @@
 #   repo      upstream repository name under github.com/libretro                (libretro-fceumm)
 #   makefile  makefile to pass with -f, empty for the default                   (Makefile.libretro)
 #   subdir    directory of the makefile inside the source, empty for the root   (libretro)
+#   make_args optional, extra make variables for both builds                        (USE_BLARGG_APU=1)
 #   device_ldflags  optional, extra LDFLAGS for the device build only. A C++ core sets
 #             "-static-libstdc++ -static-libgcc" because the handheld's OS may lack libstdc++.so.6
 # then calls core_main "$@". SLOT_PIN holds <core>_commit and <core>_tarball_sha256. The tarball is
@@ -63,7 +64,7 @@ builder() {
 }
 
 recipe() {
-	echo "make${subdir:+ -C $subdir}${makefile:+ -f $makefile} platform=$1"
+	echo "make${subdir:+ -C $subdir}${makefile:+ -f $makefile} platform=$1${make_args:+ $make_args}"
 }
 
 stamp() {
@@ -130,7 +131,7 @@ build() {
 		export CFLAGS="$device_cflags" CXXFLAGS="$device_cflags"
 		[ -z "$device_ldflags" ] || export LDFLAGS="$device_ldflags"
 	fi
-	make -C "$mdir" ${makefile:+-f "$makefile"} platform=$platform \
+	make -C "$mdir" ${makefile:+-f "$makefile"} platform=$platform ${make_args:-} \
 		GIT_VERSION="-$(printf %s "$rev" | cut -c1-7)" \
 		-j"$(getconf _NPROCESSORS_ONLN)"
 

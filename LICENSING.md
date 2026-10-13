@@ -12,12 +12,14 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 
 - `slot-nes-snes-src-<release>.tar.gz`: the patched slot source (`slot/`, `work/slot` at the
   exported commit) plus this repository (`slot-nes-snes/`, with `patches/`). It does not hold
-  the gpSP or fceumm sources; those sit next to it in the same folder (below). It also does not
+  the gpSP, fceumm, snes9x, nestopia or snes9x2005_plus sources; those sit next to it in the same folder (below). It also does not
   hold slot's Rust crates: Cargo fetches them by `slot/Cargo.lock`, exactly as upstream does.
   A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
   Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 - `fceumm-src.tar.gz` and `fceumm-src.meta`: the exact fceumm source and its sha256.
 - `snes9x-src.tar.gz` and `snes9x-src.meta`: the same for snes9x.
+- `nestopia-src.tar.gz` and `nestopia-src.meta`: the same for nestopia.
+- `snes9x2005_plus-src.tar.gz` and `snes9x2005_plus-src.meta`: the same for snes9x2005_plus.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 
@@ -119,10 +121,65 @@ What follows for users:
 
 Notice text (README "Licences" and the release notes carry it):
 
-> snes9x is licensed for non-commercial use only and is not GPL. This release includes it, with
-> its licence in System/licenses/snes9x-LICENSE.txt. Do not sell this zip or bundle it with
-> anything that is sold.
+> snes9x and snes9x2005_plus are licensed for non-commercial use only and are not GPL. This release
+> includes them, with their licences in System/licenses/snes9x-LICENSE.txt and
+> System/licenses/snes9x2005-LICENSE.txt. Do not sell this zip or bundle it with anything that is
+> sold.
 
 ## nestopia
 
-To be verified in issues 13 and 19.
+Checked at commit `135dfa6dfda5e7603d61e751b9ddd0cc42546bc3`, the commit `SLOT_PIN` pins, in the unpacked `nestopia-src.tar.gz`
+(634 `.c`, `.h`, `.cpp` and `.hpp` files under `source/` and `libretro/`, not counting
+`libretro/libretro-common`).
+
+**The nestopia core we ship is GPL-2.0-or-later**, and combined with slot (GPL-3.0-or-later) the
+zip is an aggregate of separate programs: slot loads the core at run time across the libretro C
+ABI, as for fceumm.
+
+- `COPYING` is the GNU GPL version 2 text, copied verbatim to `licenses/nestopia-GPL-2.0.txt`.
+  `README` says "Nestopia JG (GPL-2.0-or-later)", Copyright 2003-2008 Martin Freij, 2008-2018
+  Nestopia UE Contributors, 2020-2026 Rupert Carmichael.
+- 623 of the 634 files carry the GPL text and every one of them says "any later version", so
+  GPL-2.0-or-later. No file says version 2 only and none says version 3. Command, run in the
+  unpacked source root: `grep -rl 'any later version' source libretro --include='*.[ch]' --include='*.[ch]pp'
+  | grep -v libretro-common | wc -l`.
+- The other 11 have no licence text in their first 60 lines: the six `libretro/` glue files
+  (`libretro.cpp`, `nesfont.h`, `nstdatabase.hpp`, `palettes.hpp`, `libretro_core_options.h`,
+  `libretro_core_options_intl.h`) and five `source/nes_ntsc/` files. We treat the glue as covered by
+  the README's GPL-2.0-or-later, a judgement, not a quote.
+- Files with their own terms: `source/nes_ntsc/*` is LGPL-2.1-or-later, Shay Green (`source/nes_ntsc/license.txt`,
+  README), and `libretro/libretro-common/*` is the RetroArch team's MIT text.
+- The core links the C++ runtime statically on the device (`-static-libstdc++ -static-libgcc`,
+  `device_ldflags=` in its `.meta`), as for snes9x.
+
+Conclusion: the nestopia core is GPL-2.0-or-later with its full corresponding source shipped as
+`nestopia-src.tar.gz`. Unlike fceumm, no GPL-3-only file was found.
+
+## snes9x2005_plus
+
+Checked at commit `a79dfe9047e7fec58808aefe48ad2bf499c7af11` of libretro/snes9x2005, the commit `SLOT_PIN` pins as
+`snes9x2005_plus_commit`. It is built with `USE_BLARGG_APU=1`, which makes the makefile name the
+output `snes9x2005_plus_libretro.so`. The licence is the `copyright` file at the root of that
+source (it has no `LICENSE`), copied verbatim to `licenses/snes9x2005-LICENSE.txt`. The exact source
+ships with the core as `snes9x2005_plus-src.tar.gz`, with `snes9x2005_plus-src.meta` recording its
+sha256.
+
+**snes9x2005_plus is not free software and is not GPL-compatible**, for the same reason as snes9x:
+it is derived from Snes9x 1.43 and carries the Snes9x terms. The file says, quoted:
+
+- "Permission to use, copy, modify and/or distribute Snes9x in both binary and source form, for
+  non-commercial purposes, is hereby granted without fee, providing that this license information
+  and copyright notice appear with all copies and any derived work."
+- "Snes9x is freeware for PERSONAL USE only." Commercial use includes "charging money for Snes9x or
+  software derived from Snes9x, including Snes9x or derivatives in commercial game bundles".
+- The 2014-2016 RetroArch team notice adds "UNDER NO CIRCUMSTANCE WILL COMMERCIAL RIGHTS EVER BE
+  APPROPRIATED TO ANY PARTY".
+- Parts have other terms, all in the same file: the RetroArch team's MIT text, and ndssfc and ZSNES
+  code under GPL-2.0-or-later. Those do not lift the non-commercial restriction on the whole.
+  `libretro-common/` is the RetroArch MIT code.
+
+The plugin boundary stance is the one for snes9x above: `snes9x2005_plus_libretro.so` is a separate
+program loaded by `dlopen` across the libretro C ABI, and the zip is an aggregate of separate works.
+This is our reading, not legal advice. The core is plain C, so no libstdc++ is linked. **The zip must
+never be sold, or bundled with anything that is sold**, and the notice under snes9x covers this core
+too. The README "Licences" paragraph names both.
