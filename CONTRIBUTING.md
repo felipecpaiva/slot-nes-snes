@@ -95,7 +95,7 @@ breaking it causes a conflict on most releases.
   must read GL output or a core symbol that slot does not expose (`nes_window.rs`,
   `nes_fceumm.rs`). Each block has a single-line `// SAFETY:` comment.
 - **Dependencies:** none added. Not to `Cargo.toml`, not to the workspace. A real need
-  goes to a new row in `docs/DECISIONS.md` first.
+  goes to a new ADR in `docs/adr/` first.
 - **No silent fallbacks.** An unknown platform, core, outline word or region gives an
   explicit result (`None`, the platform default, the stem as title) and a `slot:` log
   line when it is surprising. Never a plausible value that hides a failure.

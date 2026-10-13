@@ -33,7 +33,7 @@ Items the plan explicitly defers past v1 (docs/PLAN.md "Phase 6+: deferred (non-
 None, nothing ships from this phase.
 
 ## Review notes
-- Do not start a deferred item without first updating docs/PLAN.md and docs/DECISIONS.md.
+- Do not start a deferred item without first updating docs/PLAN.md and adding an ADR in docs/adr/.
 
 ## References
 - docs/PLAN.md: Phase 6+ (deferred), Spec (Out of scope)
