@@ -105,8 +105,13 @@ def rastate_to_core(p):
 def device_names(path):
     if dry:
         return set()
-    r = adb("shell", "ls", "-1", path, capture_output=True, text=True)
-    return set(r.stdout.splitlines())
+    # a shell glob, not ls: the device's ls colours names even through adb, so they never match
+    q = "'" + path.replace("'", "'\\''") + "'"
+    r = adb("shell", f'for f in {q}/*; do [ -e "$f" ] && echo "${{f##*/}}"; done; true',
+            capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"could not list {path} on the device, refusing to push saves blind")
+    return {l.rstrip("\r") for l in r.stdout.splitlines() if l.strip()}
 
 
 def stage_roms(folder, exts, stage):
