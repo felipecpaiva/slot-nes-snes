@@ -48,3 +48,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [43](43-nes-snes-default-stretch.md) | Make Stretch the default picture mode for NES and SNES carts | 2 | video | feature | S | 09-canvas, 12-platform-snes |
 | [44](44-quick-menu-retro-shaders.md) | Offer the NES and SNES shaders in the quick menu | 3 | video | feature | S | 21-shaders |
 | [45](45-shelf-memory.md) | Remember the last shelf and each shelf's cart across restarts | 3 | platform | feature | S | 12-platform-snes |
+| [47](47-audio-reopen.md) | Stop losing audio when slot reopens the ALSA device | 5 | device | fix | S | 39-cross-platform-performance |

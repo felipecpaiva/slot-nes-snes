@@ -1,0 +1,278 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 17:37:55 +0400
+Subject: [PATCH] audio-reopen
+
+---
+ crates/slot/src/audio/alsa.rs |  10 +-
+ crates/slot/src/audio/hold.rs | 182 ++++++++++++++++++++++++++++++++++
+ crates/slot/src/audio/mod.rs  |   2 +
+ crates/slot/src/emu.rs        |   3 +
+ crates/slot/src/session.rs    |   1 +
+ 5 files changed, 194 insertions(+), 4 deletions(-)
+ create mode 100644 crates/slot/src/audio/hold.rs
+
+diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
+index f6abbf5..b593eb5 100644
+--- a/crates/slot/src/audio/alsa.rs
++++ b/crates/slot/src/audio/alsa.rs
+@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
+ 
+ use libloading::Library;
+ 
++use super::hold::{take_wake, Hold};
+ use super::released_pace::ReleasedPace;
+ use super::ring::Ring;
+-use super::silence::Silence;
+ use super::sink::{AudioError, AudioSink};
+ 
+ const SND_PCM_STREAM_PLAYBACK: c_int = 0;
+@@ -221,11 +221,13 @@ impl Playback {
+     fn run(&mut self, ring: &Ring, stop: &AtomicBool) {
+         let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
+         let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
+-        let mut silence = Silence::new(RELEASE_AFTER);
++        let mut silence = Hold::new(RELEASE_AFTER);
+         let mut pace = ReleasedPace::new(span, Instant::now());
+         while !stop.load(Ordering::Relaxed) {
+-            ring.fill(&mut buf);
+-            let hold = silence.hear(&buf, span);
++            if take_wake() {
++                silence.wake();
++            }
++            let hold = silence.listen(ring, &mut buf, span);
+             match (self.pcm, hold) {
+                 (Some(_), false) => {
+                     self.release();
+diff --git a/crates/slot/src/audio/hold.rs b/crates/slot/src/audio/hold.rs
+new file mode 100644
+index 0000000..693181b
+--- /dev/null
++++ b/crates/slot/src/audio/hold.rs
+@@ -0,0 +1,182 @@
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::time::Duration;
++
++use super::ring::Ring;
++use super::silence::Silence;
++
++static WAKE: AtomicBool = AtomicBool::new(false);
++
++pub fn wake_device() {
++    WAKE.store(true, Ordering::Relaxed);
++}
++
++pub fn take_wake() -> bool {
++    WAKE.swap(false, Ordering::Relaxed)
++}
++
++pub fn prefill_silence(ring: &Ring) {
++    let short = ring
++        .capacity_frames()
++        .div_ceil(2)
++        .saturating_sub(ring.queued_frames());
++    if short > 0 {
++        ring.push(&vec![0; short * 2]);
++    }
++}
++
++pub struct Hold {
++    silence: Silence,
++    after: Duration,
++    left: usize,
++}
++
++impl Hold {
++    pub fn new(after: Duration) -> Self {
++        Hold {
++            silence: Silence::new(after),
++            after,
++            left: 0,
++        }
++    }
++
++    pub fn wake(&mut self) {
++        self.silence = Silence::new(self.after);
++    }
++
++    pub fn listen(&mut self, ring: &Ring, out: &mut [i16], span: Duration) -> bool {
++        let fed = ring.queued_frames() > self.left;
++        ring.fill(out);
++        self.left = ring.queued_frames();
++        if fed {
++            self.wake();
++            return true;
++        }
++        self.silence.hear(out, span)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const RATE: u32 = 32_768;
++    const PERIOD: usize = 512;
++    const AFTER: Duration = Duration::from_secs(3);
++
++    fn span() -> Duration {
++        Duration::from_secs_f64(PERIOD as f64 / f64::from(RATE))
++    }
++
++    fn opened() -> Ring {
++        let ring = Ring::new(0);
++        ring.reopen(RATE);
++        ring.fill(&mut vec![0i16; ring.queued_frames() * 2]);
++        ring
++    }
++
++    fn periods_until_release(
++        ring: &Ring,
++        hold: &mut Hold,
++        limit: usize,
++        each: impl Fn(&Ring),
++    ) -> Option<usize> {
++        let mut out = vec![0i16; PERIOD * 2];
++        (1..=limit).find(|_| {
++            each(ring);
++            !hold.listen(ring, &mut out, span())
++        })
++    }
++
++    fn three_seconds_of_periods() -> usize {
++        (AFTER.as_secs_f64() / span().as_secs_f64()).ceil() as usize
++    }
++
++    #[test]
++    fn a_game_feeding_silence_keeps_the_device_open() {
++        let ring = opened();
++        let mut hold = Hold::new(AFTER);
++        let released =
++            periods_until_release(&ring, &mut hold, 4 * three_seconds_of_periods(), |r| {
++                r.push(&[0; PERIOD * 2])
++            });
++        assert_eq!(
++            released, None,
++            "silence a game was feeding released the device"
++        );
++    }
++
++    #[test]
++    fn nothing_feeding_releases_after_three_seconds() {
++        let ring = opened();
++        let mut hold = Hold::new(AFTER);
++        let released =
++            periods_until_release(&ring, &mut hold, 4 * three_seconds_of_periods(), |_| {});
++        assert_eq!(released, Some(three_seconds_of_periods()));
++    }
++
++    #[test]
++    fn a_queue_parked_by_the_priming_hold_still_releases() {
++        let ring = opened();
++        let mut out = vec![0i16; ring.queued_frames() * 2 + 2];
++        ring.fill(&mut out);
++        assert!(ring.underruns() > 0, "the ring never primed");
++        ring.push(&[0; 200]);
++        let mut hold = Hold::new(AFTER);
++        let released =
++            periods_until_release(&ring, &mut hold, 4 * three_seconds_of_periods(), |_| {});
++        assert_eq!(
++            ring.queued_frames(),
++            100,
++            "the priming hold drained the queue"
++        );
++        assert!(
++            released.is_some(),
++            "a queue nobody feeds kept the device open"
++        );
++    }
++
++    #[test]
++    fn a_wake_restarts_the_three_seconds() {
++        let ring = opened();
++        let mut hold = Hold::new(AFTER);
++        let almost = three_seconds_of_periods() - 2;
++        assert_eq!(
++            periods_until_release(&ring, &mut hold, almost, |_| {}),
++            None
++        );
++        hold.wake();
++        let released =
++            periods_until_release(&ring, &mut hold, 4 * three_seconds_of_periods(), |_| {});
++        assert_eq!(released, Some(three_seconds_of_periods()));
++    }
++
++    #[test]
++    fn play_resumes_without_a_starve_after_the_ring_ran_dry() {
++        let ring = opened();
++        let mut out = vec![0i16; PERIOD * 2];
++        for _ in 0..20 {
++            ring.fill(&mut out);
++        }
++        prefill_silence(&ring);
++        ring.clear_faults();
++        ring.fill(&mut out);
++        assert_eq!(ring.underruns(), 0);
++    }
++
++    #[test]
++    fn prefill_never_adds_to_a_queue_already_at_half() {
++        let ring = opened();
++        ring.push(&vec![0; ring.capacity_frames() * 2]);
++        let queued = ring.queued_frames();
++        prefill_silence(&ring);
++        assert_eq!(ring.queued_frames(), queued);
++        assert_eq!(ring.overruns(), 0);
++    }
++
++    #[test]
++    fn a_wake_is_taken_once() {
++        wake_device();
++        assert!(take_wake());
++        assert!(!take_wake());
++    }
++}
+diff --git a/crates/slot/src/audio/mod.rs b/crates/slot/src/audio/mod.rs
+index 0d6f843..84dca45 100644
+--- a/crates/slot/src/audio/mod.rs
++++ b/crates/slot/src/audio/mod.rs
+@@ -1,4 +1,5 @@
+ mod alsa;
++mod hold;
+ #[cfg(feature = "host")]
+ mod host;
+ mod released_pace;
+@@ -10,6 +11,7 @@ mod stub;
+ pub mod volume;
+ 
+ pub use alsa::AlsaSink;
++pub use hold::{prefill_silence, wake_device};
+ #[cfg(feature = "host")]
+ pub use host::HostAudio;
+ pub use ring::{ring_capacity, Ring};
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index f3f3b71..b0f68ae 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -615,6 +615,9 @@ impl Worker {
+                 speed == Speed::Paused || rewinding,
+             );
+             if gate != gated {
++                if speed == Speed::Normal && !gate.1 {
++                    crate::audio::prefill_silence(&ring);
++                }
+                 ring.set_muted(gate.0);
+                 ring.set_idle(gate.1);
+                 gated = gate;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index c98e7d5..4557823 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -435,6 +435,7 @@ impl Session {
+         else {
+             return;
+         };
++        crate::audio::wake_device();
+         let core = slot_store::core_for_platform(&self.root, stem, platform);
+         launch(&format!("opening {stem} on {}", core.as_str()));
+         self.app.set_core(core);
