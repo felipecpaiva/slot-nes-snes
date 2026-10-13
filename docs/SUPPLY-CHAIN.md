@@ -14,6 +14,11 @@
 | Rust crates | Cargo, from `Cargo.lock` | the checksums in `Cargo.lock`, same as upstream |
 | `rust:1-bullseye` image | `scripts/device-sh.sh`, upstream's device builds | none: a floating tag. Known, accepted gap, also upstream's |
 | `cmake` by `apt-get` in the container | upstream `cores/mgba/build.sh` | none: Debian's signed apt index only. Known, accepted gap, also upstream's |
+| `task` linux arm64 binary in the CI `device` job | `scripts/fetch-task.sh` (no mise in the container) | same sha256 as above |
+| GitHub Actions in `.github/workflows/test.yml` | `uses:` lines | full commit SHA, tag in a comment: `actions/checkout` v7.0.1 `3d3c42e5aac5ba805825da76410c181273ba90b1`, `jdx/mise-action` v5.1.2 `08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8`, `actions/cache` v6.1.0 `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`, `actions/upload-artifact` v7.0.2 `cf430e030ddbb5b0abf93d22962f4752f3646cd9`. Bump by `git ls-remote --tags` and edit both SHA and comment |
+| `rust:1-bullseye` as the CI `device` container | `container:` in `test.yml` | none: the same floating tag as local, accepted gap |
+| Rust, Task, cmake on the CI `host` job | `jdx/mise-action` from `mise.toml` | versions pinned in `mise.toml` (rust, task, cmake), the same as a developer. adb is not installed in CI |
+| `zip`, `unzip`, `file`, `binutils` by `apt-get` in the CI `device` container | `test.yml` | none: Debian's signed apt index only, same gap as cmake |
 
 `zip-check.sh` then checks the zip itself: each core is the core its name says (library name in
 `strings`, sha256 in `System/licenses/cores.sha256`), the licences folder holds exactly the
