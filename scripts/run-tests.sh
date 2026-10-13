@@ -25,10 +25,11 @@ fi
 # Shared CI runners (GitHub sets CI=true) fail upstream's real-time tests on the unpatched upstream
 # tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
 # say nothing about the patches. Upstream's slot-gfx pipeline.rs pixel tests fail on the runner's GPU
-# on the unpatched tree too (run 38348725485). Our own real-time budget tests (snes_ff.rs,
+# on the unpatched tree too (run 38348725485), and render_shelf.rs compares two renders pixel for
+# pixel the same way (run 38351152364). Our own real-time budget tests (snes_ff.rs,
 # snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
 # own afterwards as information only. Locally they still gate.
-ci_timing="slot:emu slot:audio slot:snes_ff slot:snes_rewind slot-gfx:pipeline"
+ci_timing="slot:emu slot:audio slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot:render_shelf"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do
@@ -90,7 +91,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, snes_ff, snes_rewind and slot-gfx tests pipeline (runner-sensitive, run apart as information on CI only)"
+[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, snes_ff, snes_rewind, render_shelf and slot-gfx tests pipeline (runner-sensitive, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
