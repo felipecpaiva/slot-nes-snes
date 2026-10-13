@@ -15,6 +15,7 @@ Items the plan explicitly defers past v1 (docs/PLAN.md "Phase 6+: deferred (non-
 - [ ] 34-deferred-pal-pacing
 - [ ] 35-deferred-stem-key-collision
 - [ ] 36-deferred-option-b-video
+- [ ] 48-deferred-n64
 
 ## Tests
 | ID | File | Asserts |
