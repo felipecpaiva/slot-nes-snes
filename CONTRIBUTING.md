@@ -16,12 +16,13 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   five, and the guard checks each one exactly:
+   six, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
    - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`.
    - (c) `label_top` in `crates/slot/tests/render_shelves.rs`: its Game Boy arm gains `| CartPlatform::Nes` and then optionally `| CartPlatform::Snes`. For (b) and (c) the file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails.
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
    - (e) `both_cores_are_told_about_colour_correction_in_their_own_words` in `crates/slot/tests/gpsp.rs`: the colour-correction match gains `| Core::Fceumm` on its `Core::Mgba` arm, then optionally `| Core::Nestopia`, `| Core::Snes9x` and `| Core::Snes9x2005Plus`, in that order, and nothing else.
+   - (f) `a_card_from_before_the_settings_keeps_all_its_values` in `crates/slot-store/tests/durability.rs`: its full `SlotState` literal gains exactly `shader_nes: Shader::Off,` and `shader_snes: Shader::Off,`, in that order, directly after `shader_gb: Shader::Simpletex,`, because that literal has no `..Default::default()` and the new fields are required. Approved by the maintainer on 2026-10-13 (issue 21). Any other line of that file changing still fails.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must
@@ -59,7 +60,7 @@ breaking it causes a conflict on most releases.
 | `Host` stays | New state in `HostExtra` (issue 09) | Add a field to `Host` in `libretro.rs` (its in-source test lists every field) |
 | `slot_state.rs` settings line stays | New keys written by a separate `push_str` after the upstream `format!`, parsed with `unwrap_or` | Edit the `format!` line, or parse new keys with `?` |
 | Match arms stay exhaustive | Add an explicit `Platform::Nes =>` arm | Add or keep a `_ =>` wildcard over `Platform`, `Core`, `Outline` or `Shape` |
-| `app.rs` stays small | 25 changed lines or fewer in total (`task diffsurface` arrives with issue 31; until then count by hand in the PR) | Put logic in `app.rs` |
+| `app.rs` stays small | `task diffsurface` reports 25 or fewer. The count is the net diff of `crates/slot/src/app.rs` between the pinned upstream release and the patched tree (added plus removed lines, so a later patch that re-edits an earlier line counts once, not twice); a rebase conflicts on that diff, not on the sum of per-patch edits | Put logic in `app.rs`, or judge by summing `git apply --numstat` per patch |
 
 ## 4. Rust style (match upstream exactly)
 
@@ -159,7 +160,7 @@ Match upstream's history:
   - [ ] `sh scripts/check-upstream-tests.sh` green
   - [ ] `task harness:compare` 0 differing frames (when the change touches a shared path)
   - [ ] `task bench:compare` within 2% (when the change touches a hot path)
-  - [ ] `app.rs` within budget (`task diffsurface` arrives with issue 31; until then the changed-line count is done by hand in the PR)
+  - [ ] `app.rs` within budget (`task diffsurface` exits 0)
   - [ ] every test ID from the issue present and passing
   - [ ] every acceptance box in the issue ticked or explained
   - [ ] device check done, or marked "needs device" for the maintainer

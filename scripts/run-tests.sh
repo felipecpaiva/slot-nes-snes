@@ -22,16 +22,26 @@ if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
 	done
 fi
 
-# Shared CI runners (GitHub sets CI=true) fail these upstream emu timing tests on the unpatched
-# upstream tree too (test.yml run 38313541162, 2026-10-13), so they say nothing about the patches
-# there. They still run and gate locally.
+# Shared CI runners (GitHub sets CI=true) fail upstream's real-time tests on the unpatched upstream
+# tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
+# say nothing about the patches. Upstream's slot-gfx pipeline.rs pixel tests fail on the runner's GPU
+# on the unpatched tree too (run 38348725485), and render_shelf.rs compares two renders pixel for
+# pixel the same way (run 38351152364). Our own real-time budget tests (snes_ff.rs,
+# snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
+# own afterwards as information only. Locally they still gate.
+ci_timing="slot:emu slot:audio slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot:render_shelf"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
-	for t in a_driven_worker_paces_itself_in_fast_forward a_driven_worker_runs_one_frame_per_tick \
-		a_stalled_display_does_not_stall_the_worker fast_forward_records_no_rewind_history \
-		fast_forward_runs_fast_steps_core_frames_per_present; do
-		ci_skips="$ci_skips --skip $t"
+	for pt in $ci_timing; do
+		names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
+			sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
+		[ -n "$names" ] || {
+			echo "slot-nes-snes: could not list the $pt tests to run them apart on CI" >&2
+			exit 1
+		}
+		ci_skips="$ci_skips $names"
 	done
+	ci_skips="--exact $ci_skips"
 fi
 
 rc=0
@@ -43,6 +53,20 @@ if [ "$rc" -ne 0 ]; then
 	tail -n 60 "$log" >&2
 	echo "slot-nes-snes: cargo test failed" >&2
 	exit "$rc"
+fi
+
+if [ "${CI:-}" = true ]; then
+	for pt in $ci_timing; do
+		t="${pt#*:}"
+		echo "$pt runner-sensitive tests (information only on CI, they gate locally):"
+		if (cd "$1" && cargo test -q -p "${pt%%:*}" --test "$t") >"$log.$t" 2>&1; then
+			grep '^test result' "$log.$t"
+		else
+			grep -E '^test result|^test .* FAILED' "$log.$t"
+			echo "::warning::$pt runner-sensitive tests failed on this runner (information only)"
+		fi
+		rm -f "$log.$t"
+	done
 fi
 
 echo "skip report (tests that printed a skip message, with the reason):"
@@ -67,9 +91,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-for t in $ci_skips; do
-	[ "$t" = --skip ] || echo "  [runner] $t (upstream emu timing test, skipped on CI only)"
-done
+[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, snes_ff, snes_rewind, render_shelf and slot-gfx tests pipeline (runner-sensitive, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
