@@ -33,6 +33,6 @@ These will not match GBA in the first version:
 - SNES uses L and R as game buttons, so it loses slot's L/R picture-mode toggle.
 - SNES hi-res frames (512 wide, a few titles) are blended down 2:1 and lose detail.
 - Colour correction does nothing on NES and SNES.
-- Carts are GBA-shaped until real NES and SNES cart art exists.
+- Carts are NES and SNES shaped (issue 26). Famicom and Super Famicom variants, and the choice of region, wait for issue 27, so every NES cart wears the NES shell and every SNES cart the SNES shell. The embossed lettering masks are blank, so no moulded text appears on any cart face.
 - PAL (50 Hz) games run about 20% fast.
 - Settings keyed only by file name collide if the same name exists on two systems.

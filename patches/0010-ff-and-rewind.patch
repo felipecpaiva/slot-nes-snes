@@ -8,10 +8,10 @@ Subject: [PATCH] ff-and-rewind
  crates/slot-store/tests/nes_core.rs    |   8 +-
  crates/slot/src/core_options_policy.rs |  20 +-
  crates/slot/tests/alt_cores.rs         |  24 ++-
- crates/slot/tests/core_option_keys.rs  | 148 +++++++++++++
- crates/slot/tests/snes_ff.rs           | 205 ++++++++++++++++++
- crates/slot/tests/snes_rewind.rs       | 278 +++++++++++++++++++++++++
- 7 files changed, 675 insertions(+), 10 deletions(-)
+ crates/slot/tests/core_option_keys.rs  | 148 ++++++++++++++
+ crates/slot/tests/snes_ff.rs           | 205 +++++++++++++++++++
+ crates/slot/tests/snes_rewind.rs       | 270 +++++++++++++++++++++++++
+ 7 files changed, 667 insertions(+), 10 deletions(-)
  create mode 100644 crates/slot/tests/core_option_keys.rs
  create mode 100644 crates/slot/tests/snes_ff.rs
  create mode 100644 crates/slot/tests/snes_rewind.rs
@@ -497,10 +497,10 @@ index 0000000..31ce4fe
 +}
 diff --git a/crates/slot/tests/snes_rewind.rs b/crates/slot/tests/snes_rewind.rs
 new file mode 100644
-index 0000000..db47325
+index 0000000..e39de00
 --- /dev/null
 +++ b/crates/slot/tests/snes_rewind.rs
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,270 @@
 +mod common;
 +mod core_common;
 +mod nes_common;
@@ -681,7 +681,6 @@ index 0000000..db47325
 +        return;
 +    };
 +    let (emu, log) = played(Core::Snes9x, dylib, FRAMES);
-+    let pushed = log.pushed.lock().expect("pushed").clone();
 +    emu.set_rewinding(true);
 +    let deadline = Instant::now() + Duration::from_secs(5);
 +    while log.loaded.lock().expect("loaded").len() < 5 {
@@ -690,23 +689,16 @@ index 0000000..db47325
 +    }
 +    emu.set_rewinding(false);
 +    let loaded = log.loaded.lock().expect("loaded").clone();
-+    let at: Vec<usize> = loaded
-+        .iter()
-+        .map(|h| {
-+            pushed
-+                .iter()
-+                .rposition(|p| p == h)
-+                .expect("a state snes9x never serialized")
-+        })
-+        .collect();
-+    assert!(
-+        at[0] < pushed.len(),
-+        "the first restored state is newer than every serialized one"
-+    );
-+    assert!(
-+        at.windows(2).all(|w| w[1] < w[0]),
-+        "L2 did not walk back through older states: {at:?}"
-+    );
++    let pushed = log.pushed.lock().expect("pushed").clone();
++    let mut before = pushed.len();
++    for h in &loaded {
++        before = pushed[..before]
++            .iter()
++            .rposition(|p| p == h)
++            .unwrap_or_else(|| {
++                panic!("L2 restored a state snes9x had not serialized before the last one: {h:x}")
++            });
++    }
 +}
 +
 +#[test]

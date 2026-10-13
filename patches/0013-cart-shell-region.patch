@@ -1,0 +1,879 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 13 Oct 2026 04:11:18 +0400
+Subject: [PATCH] cart-shell-region
+
+---
+ crates/slot-store/src/cart_shell.rs       |  12 ++
+ crates/slot-store/src/lib.rs              |   1 +
+ crates/slot-store/src/nes.rs              |  50 ++++++++
+ crates/slot-store/src/snes.rs             |  36 +++++-
+ crates/slot-store/tests/nes_cart_shell.rs |  51 ++++++++
+ crates/slot-store/tests/nes_region.rs     |  33 +++++
+ crates/slot-store/tests/snes_region.rs    |  90 ++++++++++++++
+ crates/slot-ui/src/cart.rs                |   5 +-
+ crates/slot-ui/src/retro_cart.rs          |  37 +++++-
+ crates/slot-ui/tests/nes_gb_outline.rs    |  50 ++++++++
+ crates/slot-ui/tests/nes_region_shell.rs  | 127 +++++++++++++++++++
+ crates/slot-ui/tests/render_nes_region.rs | 142 ++++++++++++++++++++++
+ crates/slot/tests/nes_label_cache.rs      |  68 +++++++++++
+ 13 files changed, 692 insertions(+), 10 deletions(-)
+ create mode 100644 crates/slot-store/src/nes.rs
+ create mode 100644 crates/slot-store/tests/nes_cart_shell.rs
+ create mode 100644 crates/slot-store/tests/nes_region.rs
+ create mode 100644 crates/slot-store/tests/snes_region.rs
+ create mode 100644 crates/slot-ui/tests/nes_gb_outline.rs
+ create mode 100644 crates/slot-ui/tests/nes_region_shell.rs
+ create mode 100644 crates/slot-ui/tests/render_nes_region.rs
+ create mode 100644 crates/slot/tests/nes_label_cache.rs
+
+diff --git a/crates/slot-store/src/cart_shell.rs b/crates/slot-store/src/cart_shell.rs
+index d270c44..6228029 100644
+--- a/crates/slot-store/src/cart_shell.rs
++++ b/crates/slot-store/src/cart_shell.rs
+@@ -10,6 +10,10 @@ pub enum Outline {
+     Auto,
+     Notched,
+     Rounded,
++    Nes,
++    Famicom,
++    Snes,
++    Sfc,
+ }
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+@@ -33,6 +37,10 @@ impl ShellChoice {
+             "auto" => Outline::Auto,
+             "notched" => Outline::Notched,
+             "rounded" => Outline::Rounded,
++            "nes" => Outline::Nes,
++            "famicom" => Outline::Famicom,
++            "snes" => Outline::Snes,
++            "sfc" => Outline::Sfc,
+             _ => return None,
+         };
+         let hex = words.next()?;
+@@ -58,6 +66,10 @@ impl ShellChoice {
+             Outline::Auto => "auto",
+             Outline::Notched => "notched",
+             Outline::Rounded => "rounded",
++            Outline::Nes => "nes",
++            Outline::Famicom => "famicom",
++            Outline::Snes => "snes",
++            Outline::Sfc => "sfc",
+         };
+         let finish = match self.finish {
+             ShellFinish::Solid => "solid",
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 1a6bf7a..460daa1 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -7,6 +7,7 @@ pub mod gb;
+ mod gb_palette;
+ mod gba;
+ pub mod ini;
++pub mod nes;
+ mod platform;
+ mod platform_policy;
+ mod ring;
+diff --git a/crates/slot-store/src/nes.rs b/crates/slot-store/src/nes.rs
+new file mode 100644
+index 0000000..909caac
+--- /dev/null
++++ b/crates/slot-store/src/nes.rs
+@@ -0,0 +1,50 @@
++use crate::Outline;
++
++const WESTERN: [&str; 3] = ["USA", "Europe", "World"];
++
++pub fn outline(stem: &str) -> Outline {
++    let mut japan = false;
++    for tag in tags(stem) {
++        if tag == "Japan" {
++            japan = true;
++        } else if WESTERN.contains(&tag) {
++            return Outline::Nes;
++        }
++    }
++    if japan {
++        Outline::Famicom
++    } else {
++        Outline::Nes
++    }
++}
++
++fn tags(stem: &str) -> impl Iterator<Item = &str> {
++    stem.split('(')
++        .skip(1)
++        .filter_map(|part| part.split(')').next())
++        .flat_map(|group| group.split(','))
++        .map(str::trim)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn tags_are_read_from_every_bracket_group() {
++        assert_eq!(
++            tags("Game (Japan, USA) (Rev 1)").collect::<Vec<_>>(),
++            ["Japan", "USA", "Rev 1"]
++        );
++    }
++
++    #[test]
++    fn an_unclosed_bracket_still_yields_its_text() {
++        assert_eq!(tags("Game (Japan").collect::<Vec<_>>(), ["Japan"]);
++    }
++
++    #[test]
++    fn a_stem_with_no_brackets_has_no_tags() {
++        assert_eq!(tags("Game").count(), 0);
++    }
++}
+diff --git a/crates/slot-store/src/snes.rs b/crates/slot-store/src/snes.rs
+index ef98e8e..93d989b 100644
+--- a/crates/slot-store/src/snes.rs
++++ b/crates/slot-store/src/snes.rs
+@@ -2,14 +2,27 @@ use std::fs::File;
+ use std::io::{Read, Seek, SeekFrom};
+ use std::path::Path;
+ 
++use crate::Outline;
++
+ const COPIER_LEN: u64 = 512;
+-const PROBES: [(u64, &[u8]); 2] = [(0x7fc0, &[0, 2, 3]), (0xffc0, &[1, 5])];
++const PROBES: [(u64, &[u8]); 3] = [(0x7fc0, &[0, 2, 3]), (0xffc0, &[1, 5]), (0x40ffc0, &[5])];
+ const HEADER_LEN: usize = 0x20;
+ const TITLE_LEN: usize = 21;
+ const MAP_OFF: usize = 0x15;
++const REGION_OFF: usize = 0x19;
+ const COMPLEMENT_OFF: usize = 0x1c;
+ 
+ pub fn title(rom: &Path) -> Option<String> {
++    find(rom, title_of).flatten()
++}
++
++pub fn outline(rom: &Path) -> Option<Outline> {
++    find(rom, |head, modes| {
++        valid(head, modes).then(|| region_outline(head[REGION_OFF]))
++    })
++}
++
++fn find<T>(rom: &Path, read: impl Fn(&[u8; HEADER_LEN], &[u8]) -> Option<T>) -> Option<T> {
+     let mut f = File::open(rom).ok()?;
+     let len = f.metadata().ok()?.len();
+     let skip = if len % 1024 == COPIER_LEN {
+@@ -20,21 +33,32 @@ pub fn title(rom: &Path) -> Option<String> {
+     for (off, modes) in PROBES {
+         let mut head = [0u8; HEADER_LEN];
+         if f.seek(SeekFrom::Start(skip + off)).is_ok() && f.read_exact(&mut head).is_ok() {
+-            if let Some(found) = title_of(&head, modes) {
+-                return found;
++            if let Some(found) = read(&head, modes) {
++                return Some(found);
+             }
+         }
+     }
+     None
+ }
+ 
+-fn title_of(head: &[u8; HEADER_LEN], modes: &[u8]) -> Option<Option<String>> {
++fn region_outline(code: u8) -> Outline {
++    match code {
++        0x00 | 0x02..=0x14 => Outline::Sfc,
++        0x01 | 0x15..=0xff => Outline::Snes,
++    }
++}
++
++fn valid(head: &[u8; HEADER_LEN], modes: &[u8]) -> bool {
+     if head[MAP_OFF] & 0xe0 != 0x20 || !modes.contains(&(head[MAP_OFF] & 0x0f)) {
+-        return None;
++        return false;
+     }
+     let complement = u16::from_le_bytes([head[COMPLEMENT_OFF], head[COMPLEMENT_OFF + 1]]);
+     let checksum = u16::from_le_bytes([head[COMPLEMENT_OFF + 2], head[COMPLEMENT_OFF + 3]]);
+-    if complement ^ checksum != 0xffff || checksum == 0 || checksum == 0xffff {
++    complement ^ checksum == 0xffff && checksum != 0 && checksum != 0xffff
++}
++
++fn title_of(head: &[u8; HEADER_LEN], modes: &[u8]) -> Option<Option<String>> {
++    if !valid(head, modes) {
+         return None;
+     }
+     let raw = &head[..TITLE_LEN];
+diff --git a/crates/slot-store/tests/nes_cart_shell.rs b/crates/slot-store/tests/nes_cart_shell.rs
+new file mode 100644
+index 0000000..020ba7f
+--- /dev/null
++++ b/crates/slot-store/tests/nes_cart_shell.rs
+@@ -0,0 +1,51 @@
++use slot_store::{Outline, ShellChoice, ShellFinish};
++
++const NEW_WORDS: [(&str, Outline); 4] = [
++    ("nes", Outline::Nes),
++    ("famicom", Outline::Famicom),
++    ("snes", Outline::Snes),
++    ("sfc", Outline::Sfc),
++];
++
++#[test]
++fn the_new_outline_words_parse_to_their_outlines() {
++    for (word, outline) in NEW_WORDS {
++        let choice = ShellChoice::parse(&format!("{word} ff00aa glitter")).expect(word);
++        assert_eq!(choice.outline, outline, "{word}");
++        assert_eq!(choice.colour, [0xff, 0x00, 0xaa], "{word}");
++        assert_eq!(choice.finish, ShellFinish::Glitter, "{word}");
++    }
++}
++
++#[test]
++fn the_new_outlines_write_back_as_their_words() {
++    for (word, outline) in NEW_WORDS {
++        let choice = ShellChoice {
++            outline,
++            colour: [1, 2, 3],
++            finish: ShellFinish::Solid,
++        };
++        assert_eq!(choice.to_value(), format!("{word} 010203 solid"));
++        assert_eq!(ShellChoice::parse(&choice.to_value()), Some(choice));
++    }
++}
++
++#[test]
++fn an_unknown_outline_word_is_not_a_choice() {
++    assert_eq!(ShellChoice::parse("n64 ffffff solid"), None);
++    assert_eq!(ShellChoice::parse("NES ffffff solid"), None);
++    assert_eq!(ShellChoice::parse("nes ffffff"), None);
++}
++
++#[test]
++fn the_game_boy_words_are_unchanged() {
++    for (word, outline) in [
++        ("auto", Outline::Auto),
++        ("notched", Outline::Notched),
++        ("rounded", Outline::Rounded),
++    ] {
++        let choice = ShellChoice::parse(&format!("{word} 123456 clear")).expect(word);
++        assert_eq!(choice.outline, outline, "{word}");
++        assert_eq!(choice.to_value(), format!("{word} 123456 clear"));
++    }
++}
+diff --git a/crates/slot-store/tests/nes_region.rs b/crates/slot-store/tests/nes_region.rs
+new file mode 100644
+index 0000000..f380802
+--- /dev/null
++++ b/crates/slot-store/tests/nes_region.rs
+@@ -0,0 +1,33 @@
++use slot_store::{nes, Outline};
++
++#[test]
++fn a_japan_tag_gives_the_famicom() {
++    assert_eq!(nes::outline("Super Mario Bros. (Japan)"), Outline::Famicom);
++}
++
++#[test]
++fn a_usa_tag_gives_the_nes() {
++    assert_eq!(nes::outline("Super Mario Bros. (USA)"), Outline::Nes);
++}
++
++#[test]
++fn a_europe_tag_gives_the_nes() {
++    assert_eq!(nes::outline("Super Mario Bros. (Europe)"), Outline::Nes);
++}
++
++#[test]
++fn no_tag_gives_the_nes() {
++    assert_eq!(nes::outline("Super Mario Bros."), Outline::Nes);
++}
++
++#[test]
++fn a_game_released_in_japan_and_the_west_gives_the_nes() {
++    assert_eq!(nes::outline("Game (Japan, USA)"), Outline::Nes);
++    assert_eq!(nes::outline("Game (World)"), Outline::Nes);
++}
++
++#[test]
++fn a_japan_tag_still_counts_next_to_a_revision_tag() {
++    assert_eq!(nes::outline("Game (Japan) (Rev 1)"), Outline::Famicom);
++    assert_eq!(nes::outline("Game (Japan) (En,Ja)"), Outline::Famicom);
++}
+diff --git a/crates/slot-store/tests/snes_region.rs b/crates/slot-store/tests/snes_region.rs
+new file mode 100644
+index 0000000..412198d
+--- /dev/null
++++ b/crates/slot-store/tests/snes_region.rs
+@@ -0,0 +1,90 @@
++use std::path::PathBuf;
++
++use slot_store::{snes, Outline};
++
++const LO: usize = 0x7fc0;
++const HI: usize = 0xffc0;
++const EX: usize = 0x40ffc0;
++
++fn rom_file(header_at: usize, map: u8, region: u8, copier: bool) -> (tempfile::TempDir, PathBuf) {
++    let mut rom = vec![0u8; header_at + 0x40];
++    rom[header_at + 0x15] = map;
++    rom[header_at + 0x19] = region;
++    rom[header_at + 0x1c..header_at + 0x1e].copy_from_slice(&0xa5a5u16.to_le_bytes());
++    rom[header_at + 0x1e..header_at + 0x20].copy_from_slice(&0x5a5au16.to_le_bytes());
++    if copier {
++        rom.splice(0..0, [0xffu8; 512]);
++    }
++    let d = tempfile::tempdir().expect("tempdir");
++    let path = d.path().join("Some Game.sfc");
++    std::fs::write(&path, rom).expect("write rom");
++    (d, path)
++}
++
++fn region(header_at: usize, map: u8, code: u8, copier: bool) -> Option<Outline> {
++    let (_d, path) = rom_file(header_at, map, code, copier);
++    snes::outline(&path)
++}
++
++#[test]
++fn a_japan_lorom_gives_the_sfc() {
++    assert_eq!(region(LO, 0x20, 0x00, false), Some(Outline::Sfc));
++}
++
++#[test]
++fn a_usa_lorom_gives_the_snes() {
++    assert_eq!(region(LO, 0x20, 0x01, false), Some(Outline::Snes));
++}
++
++#[test]
++fn a_europe_lorom_gives_the_sfc() {
++    assert_eq!(region(LO, 0x20, 0x02, false), Some(Outline::Sfc));
++}
++
++#[test]
++fn the_hirom_region_is_read_from_its_own_header() {
++    assert_eq!(region(HI, 0x21, 0x00, false), Some(Outline::Sfc));
++    assert_eq!(region(HI, 0x21, 0x01, false), Some(Outline::Snes));
++    assert_eq!(region(HI, 0x21, 0x02, false), Some(Outline::Sfc));
++}
++
++#[test]
++fn the_exhirom_region_is_read_from_its_own_header() {
++    assert_eq!(region(EX, 0x25, 0x00, false), Some(Outline::Sfc));
++    assert_eq!(region(EX, 0x25, 0x01, false), Some(Outline::Snes));
++}
++
++#[test]
++fn the_region_is_read_past_a_copier_header() {
++    assert_eq!(region(LO, 0x20, 0x00, true), Some(Outline::Sfc));
++    assert_eq!(region(LO, 0x20, 0x01, true), Some(Outline::Snes));
++    assert_eq!(region(HI, 0x21, 0x02, true), Some(Outline::Sfc));
++    assert_eq!(region(HI, 0x21, 0x01, true), Some(Outline::Snes));
++}
++
++#[test]
++fn the_other_pal_and_asian_codes_give_the_sfc() {
++    for code in [0x03, 0x06, 0x09, 0x0b, 0x0d, 0x0f, 0x10, 0x11, 0x14] {
++        assert_eq!(
++            region(LO, 0x20, code, false),
++            Some(Outline::Sfc),
++            "{code:#x}"
++        );
++    }
++}
++
++#[test]
++fn a_code_past_the_table_gives_the_snes() {
++    assert_eq!(region(LO, 0x20, 0x15, false), Some(Outline::Snes));
++    assert_eq!(region(LO, 0x20, 0xff, false), Some(Outline::Snes));
++}
++
++#[test]
++fn a_rom_with_no_valid_header_has_no_region() {
++    let (_d, path) = rom_file(LO, 0x20, 0x00, false);
++    let mut bytes = std::fs::read(&path).expect("read rom");
++    bytes[LO + 0x1c] ^= 1;
++    std::fs::write(&path, bytes).expect("write rom");
++    assert_eq!(snes::outline(&path), None);
++    assert_eq!(snes::outline(&path.with_file_name("missing.sfc")), None);
++}
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 4194aaf..6a0c573 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -99,7 +99,10 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+-            Some(Outline::Auto) | None => match slot_store::gb::class(&cart.rom) {
++            Some(
++                Outline::Auto | Outline::Nes | Outline::Famicom | Outline::Snes | Outline::Sfc,
++            )
++            | None => match slot_store::gb::class(&cart.rom) {
+                 Class::ColourOnly => GbShell::Rounded,
+                 Class::Original | Class::DualMode => GbShell::Notched,
+             },
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 551079c..aeaf482 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -1,6 +1,6 @@
+ use std::sync::OnceLock;
+ 
+-use slot_store::{Cart, Platform};
++use slot_store::{Cart, Outline, Platform};
+ 
+ use crate::silhouette::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
+ 
+@@ -50,9 +50,40 @@ impl RetroShell {
+ }
+ 
+ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
++    let word = cart.shell.map(|c| c.outline);
+     match cart.platform {
+-        Platform::Nes => Some(RetroShell::Nes(NesShell::Nes)),
+-        Platform::Snes => Some(RetroShell::Snes(SnesShell::Snes)),
++        Platform::Nes => Some(RetroShell::Nes(match word {
++            Some(Outline::Nes) => NesShell::Nes,
++            Some(Outline::Famicom) => NesShell::Famicom,
++            Some(
++                Outline::Auto | Outline::Notched | Outline::Rounded | Outline::Snes | Outline::Sfc,
++            )
++            | None => {
++                if slot_store::nes::outline(&cart.stem) == Outline::Famicom {
++                    NesShell::Famicom
++                } else {
++                    NesShell::Nes
++                }
++            }
++        })),
++        Platform::Snes => Some(RetroShell::Snes(match word {
++            Some(Outline::Snes) => SnesShell::Snes,
++            Some(Outline::Sfc) => SnesShell::Sfc,
++            Some(
++                Outline::Auto
++                | Outline::Notched
++                | Outline::Rounded
++                | Outline::Nes
++                | Outline::Famicom,
++            )
++            | None => {
++                if slot_store::snes::outline(&cart.rom) == Some(Outline::Sfc) {
++                    SnesShell::Sfc
++                } else {
++                    SnesShell::Snes
++                }
++            }
++        })),
+         Platform::Gba | Platform::Gb | Platform::Gbc => None,
+     }
+ }
+diff --git a/crates/slot-ui/tests/nes_gb_outline.rs b/crates/slot-ui/tests/nes_gb_outline.rs
+new file mode 100644
+index 0000000..ee7a4e2
+--- /dev/null
++++ b/crates/slot-ui/tests/nes_gb_outline.rs
+@@ -0,0 +1,50 @@
++use std::path::PathBuf;
++
++use slot_store::{Cart, Outline, Platform, ShellChoice, ShellFinish};
++use slot_ui::{gb_shell_of, GbShell};
++
++fn gb_cart(dir: &tempfile::TempDir, cgb: u8, word: Option<Outline>) -> Cart {
++    let mut rom = vec![0u8; 0x150];
++    rom[0x143] = cgb;
++    let path: PathBuf = dir.path().join(format!("Game {cgb}.gb"));
++    std::fs::write(&path, rom).expect("write rom");
++    Cart {
++        platform: Platform::Gb,
++        stem: format!("Game {cgb}"),
++        rom: path,
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: word.map(|outline| ShellChoice {
++            outline,
++            colour: [1, 2, 3],
++            finish: ShellFinish::Solid,
++        }),
++    }
++}
++
++#[test]
++fn a_console_outline_word_on_a_game_boy_stem_is_treated_as_auto() {
++    let d = tempfile::tempdir().expect("tempdir");
++    for word in [Outline::Nes, Outline::Famicom, Outline::Snes, Outline::Sfc] {
++        assert_eq!(
++            gb_shell_of(&gb_cart(&d, 0x00, Some(word))),
++            Some(GbShell::Notched),
++            "{word:?} on an original"
++        );
++        assert_eq!(
++            gb_shell_of(&gb_cart(&d, 0xc0, Some(word))),
++            Some(GbShell::Rounded),
++            "{word:?} on a colour-only cart"
++        );
++    }
++}
++
++#[test]
++fn a_game_boy_outline_word_still_wins_over_the_header() {
++    let d = tempfile::tempdir().expect("tempdir");
++    assert_eq!(
++        gb_shell_of(&gb_cart(&d, 0x00, Some(Outline::Rounded))),
++        Some(GbShell::Rounded)
++    );
++}
+diff --git a/crates/slot-ui/tests/nes_region_shell.rs b/crates/slot-ui/tests/nes_region_shell.rs
+new file mode 100644
+index 0000000..07afebc
+--- /dev/null
++++ b/crates/slot-ui/tests/nes_region_shell.rs
+@@ -0,0 +1,127 @@
++use std::path::PathBuf;
++
++use slot_store::{Cart, Outline, Platform, ShellChoice, ShellFinish};
++use slot_ui::{
++    retro_shell_of, shell_for, NesShell, RetroShell, SnesShell, FAMICOM_YELLOW, NES_GREY,
++    RETRO_BLACK,
++};
++
++fn choice(outline: Outline) -> ShellChoice {
++    ShellChoice {
++        outline,
++        colour: [1, 2, 3],
++        finish: ShellFinish::Solid,
++    }
++}
++
++fn nes(stem: &str, word: Option<Outline>) -> Cart {
++    Cart {
++        platform: Platform::Nes,
++        stem: stem.into(),
++        rom: PathBuf::from(format!("{stem}.nes")),
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: word.map(choice),
++    }
++}
++
++fn snes(dir: &tempfile::TempDir, stem: &str, region: u8, word: Option<Outline>) -> Cart {
++    let mut rom = vec![0u8; 0x8000];
++    rom[0x7fd5] = 0x20;
++    rom[0x7fd9] = region;
++    rom[0x7fdc..0x7fde].copy_from_slice(&0xa5a5u16.to_le_bytes());
++    rom[0x7fde..0x7fe0].copy_from_slice(&0x5a5au16.to_le_bytes());
++    let path = dir.path().join(format!("{stem}.sfc"));
++    std::fs::write(&path, rom).expect("write rom");
++    Cart {
++        platform: Platform::Snes,
++        stem: stem.into(),
++        rom: path,
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: word.map(choice),
++    }
++}
++
++const FAMICOM: Option<RetroShell> = Some(RetroShell::Nes(NesShell::Famicom));
++const NES: Option<RetroShell> = Some(RetroShell::Nes(NesShell::Nes));
++const SNES: Option<RetroShell> = Some(RetroShell::Snes(SnesShell::Snes));
++const SFC: Option<RetroShell> = Some(RetroShell::Snes(SnesShell::Sfc));
++
++#[test]
++fn a_japan_nes_stem_picks_the_famicom_and_a_usa_stem_the_nes() {
++    assert_eq!(retro_shell_of(&nes("Game (Japan)", None)), FAMICOM);
++    assert_eq!(retro_shell_of(&nes("Game (USA)", None)), NES);
++    assert_eq!(retro_shell_of(&nes("Game", Some(Outline::Auto))), NES);
++}
++
++#[test]
++fn a_usa_snes_rom_picks_the_snes_and_a_japan_one_the_sfc() {
++    let d = tempfile::tempdir().expect("tempdir");
++    assert_eq!(retro_shell_of(&snes(&d, "Game (USA)", 0x01, None)), SNES);
++    assert_eq!(retro_shell_of(&snes(&d, "Game (Japan)", 0x00, None)), SFC);
++    assert_eq!(retro_shell_of(&snes(&d, "Game (Europe)", 0x02, None)), SFC);
++}
++
++#[test]
++fn a_snes_rom_with_no_header_picks_the_snes() {
++    let cart = Cart {
++        platform: Platform::Snes,
++        stem: "Game (Japan)".into(),
++        rom: PathBuf::from("missing.sfc"),
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    };
++    assert_eq!(retro_shell_of(&cart), SNES);
++}
++
++#[test]
++fn a_word_for_the_carts_platform_beats_the_region() {
++    let d = tempfile::tempdir().expect("tempdir");
++    assert_eq!(
++        retro_shell_of(&nes("Game (Japan)", Some(Outline::Nes))),
++        NES
++    );
++    assert_eq!(
++        retro_shell_of(&nes("Game (USA)", Some(Outline::Famicom))),
++        FAMICOM
++    );
++    assert_eq!(
++        retro_shell_of(&snes(&d, "Game (Japan)", 0x00, Some(Outline::Snes))),
++        SNES
++    );
++    assert_eq!(
++        retro_shell_of(&snes(&d, "Game (USA)", 0x01, Some(Outline::Sfc))),
++        SFC
++    );
++}
++
++#[test]
++fn a_word_for_the_wrong_platform_is_ignored() {
++    let d = tempfile::tempdir().expect("tempdir");
++    assert_eq!(
++        retro_shell_of(&nes("Game (Japan)", Some(Outline::Sfc))),
++        FAMICOM
++    );
++    assert_eq!(retro_shell_of(&nes("Game (USA)", Some(Outline::Snes))), NES);
++    assert_eq!(
++        retro_shell_of(&snes(&d, "Game (USA)", 0x01, Some(Outline::Famicom))),
++        SNES
++    );
++    assert_eq!(
++        retro_shell_of(&snes(&d, "Game (Japan)", 0x00, Some(Outline::Nes))),
++        SFC
++    );
++}
++
++#[test]
++fn the_famicom_title_rows_colour_a_japan_nes_stem() {
++    let smb = nes("Super Mario Bros. (Japan)", None);
++    assert_eq!(shell_for(&smb), FAMICOM_YELLOW);
++    assert_eq!(shell_for(&nes("Bomberman (Japan)", None)), RETRO_BLACK);
++    assert_eq!(shell_for(&nes("Super Mario Bros. (USA)", None)), NES_GREY);
++}
+diff --git a/crates/slot-ui/tests/render_nes_region.rs b/crates/slot-ui/tests/render_nes_region.rs
+new file mode 100644
+index 0000000..376896b
+--- /dev/null
++++ b/crates/slot-ui/tests/render_nes_region.rs
+@@ -0,0 +1,142 @@
++#![cfg(target_os = "macos")]
++
++use std::path::PathBuf;
++use std::sync::{Mutex, MutexGuard, PoisonError};
++
++use slot_gfx::{Compositor, HeadlessSurface};
++use slot_store::{Cart, Platform};
++use slot_ui::{
++    cart_face, retro_cart_face, retro_cart_shadow, Draw, NesShell, RetroShell, Shelf, SnesShell,
++};
++
++static GL: Mutex<()> = Mutex::new(());
++
++fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
++    let guard = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let surface = HeadlessSurface::new().ok()?;
++    let compositor = Compositor::new(&surface).ok()?;
++    Some((guard, surface, compositor))
++}
++
++fn snes_rom(dir: &tempfile::TempDir, name: &str, region: u8) -> PathBuf {
++    let mut rom = vec![0u8; 0x8000];
++    rom[0x7fd5] = 0x20;
++    rom[0x7fd9] = region;
++    rom[0x7fdc..0x7fde].copy_from_slice(&0xa5a5u16.to_le_bytes());
++    rom[0x7fde..0x7fe0].copy_from_slice(&0x5a5au16.to_le_bytes());
++    let path = dir.path().join(name);
++    std::fs::write(&path, rom).expect("write rom");
++    path
++}
++
++fn cart(platform: Platform, stem: &str, rom: PathBuf) -> Cart {
++    Cart {
++        platform,
++        stem: stem.into(),
++        rom,
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++fn region_carts(dir: &tempfile::TempDir) -> Vec<(Cart, RetroShell)> {
++    vec![
++        (
++            cart(Platform::Nes, "Mega Man (Japan)", PathBuf::from("a.nes")),
++            RetroShell::Nes(NesShell::Famicom),
++        ),
++        (
++            cart(Platform::Nes, "Mega Man (USA)", PathBuf::from("b.nes")),
++            RetroShell::Nes(NesShell::Nes),
++        ),
++        (
++            cart(Platform::Snes, "F-Zero (USA)", snes_rom(dir, "us.sfc", 1)),
++            RetroShell::Snes(SnesShell::Snes),
++        ),
++        (
++            cart(Platform::Snes, "F-Zero (Japan)", snes_rom(dir, "jp.sfc", 0)),
++            RetroShell::Snes(SnesShell::Sfc),
++        ),
++    ]
++}
++
++#[test]
++fn a_cart_face_carries_the_outline_its_region_picks() {
++    let d = tempfile::tempdir().expect("tempdir");
++    for (cart, kind) in region_carts(&d) {
++        let face = cart_face(&cart);
++        let want = retro_cart_face(&cart, kind);
++        assert_eq!(
++            (face.w, face.h, face.rgba),
++            (want.w, want.h, want.rgba),
++            "{} is not drawn as {}",
++            cart.stem,
++            kind.name()
++        );
++    }
++}
++
++#[test]
++fn a_faded_neighbour_is_backed_by_the_shadow_of_its_region_outline() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let d = tempfile::tempdir().expect("tempdir");
++    let gba = slot_ui::cart_shadow();
++    let gba_tex = c.create_texture(gba.w, gba.h, &gba.rgba);
++    let shadows: Vec<_> = RetroShell::ALL
++        .iter()
++        .map(|k| {
++            let s = retro_cart_shadow(*k);
++            (*k, c.create_texture(s.w, s.h, &s.rgba))
++        })
++        .collect();
++    for (cart, kind) in region_carts(&d) {
++        let others: Vec<Cart> = (0..2)
++            .map(|i| Cart {
++                stem: format!("{} {i}", cart.stem),
++                ..cart.clone()
++            })
++            .collect();
++        let mut shelf = Shelf::new(vec![cart.clone(), others[0].clone(), others[1].clone()]);
++        shelf.set_shadow(gba_tex);
++        let faces: Vec<_> = shelf
++            .carts
++            .iter()
++            .map(|cart| {
++                let f = cart_face(cart);
++                c.create_texture(f.w, f.h, &f.rgba)
++            })
++            .collect();
++        shelf.set_faces(faces);
++        shelf.set_retro(&shadows);
++        let own = shadows.iter().find(|(k, _)| *k == kind).map(|(_, t)| *t);
++        let mut list = Vec::new();
++        shelf.draw_row(None, 0.0, 0.0, 1.0, &mut list);
++        let used: Vec<_> = list
++            .iter()
++            .filter_map(|d| match d {
++                Draw::Tex { tex, .. } => Some(*tex),
++                _ => None,
++            })
++            .collect();
++        assert!(
++            used.contains(&own.expect("own shadow")),
++            "{} is not backed by the {} shadow",
++            cart.stem,
++            kind.name()
++        );
++        for (other, tex) in &shadows {
++            if *other != kind {
++                assert!(
++                    !used.contains(tex),
++                    "{} is backed by the {} shadow",
++                    cart.stem,
++                    other.name()
++                );
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/nes_label_cache.rs b/crates/slot/tests/nes_label_cache.rs
+new file mode 100644
+index 0000000..ebfca44
+--- /dev/null
++++ b/crates/slot/tests/nes_label_cache.rs
+@@ -0,0 +1,68 @@
++use std::path::Path;
++
++use slot::label_cache::{fresh, label_art};
++use slot_store::{Cart, Platform};
++use slot_ui::label_size;
++
++fn label_png(path: &Path, w: u32, h: u32) {
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    let file = std::fs::File::create(path).unwrap();
++    let mut enc = png::Encoder::new(file, w, h);
++    enc.set_color(png::ColorType::Rgb);
++    let mut writer = enc.write_header().unwrap();
++    let px: Vec<u8> = (0..w * h).flat_map(|_| [200, 10, 10]).collect();
++    writer.write_image_data(&px).unwrap();
++}
++
++fn nes_cart(root: &Path, stem: &str) -> Cart {
++    let label = root.join(format!("Labels/NES/{stem}.png"));
++    label_png(&label, 400, 400);
++    Cart {
++        platform: Platform::Nes,
++        stem: stem.into(),
++        rom: root.join(format!("Games/NES/{stem}.nes")),
++        label: Some(label),
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++#[test]
++fn a_famicom_cart_label_is_cached_at_the_famicom_label_size() {
++    let d = tempfile::tempdir().unwrap();
++    let famicom = nes_cart(d.path(), "Game (Japan)");
++    let nes = nes_cart(d.path(), "Game (USA)");
++    let (fw, fh) = label_size(&famicom);
++    assert_ne!(
++        (fw, fh),
++        label_size(&nes),
++        "the two shells share a label box"
++    );
++    let art = label_art(d.path(), &famicom).expect("no art from a good label");
++    assert_eq!(art.len(), (fw * fh * 4) as usize);
++    assert!(fresh(d.path(), &famicom));
++}
++
++#[test]
++fn a_cache_written_at_the_nes_size_is_rebuilt_once_the_stem_says_japan() {
++    let d = tempfile::tempdir().unwrap();
++    let nes = nes_cart(d.path(), "Game (USA)");
++    label_art(d.path(), &nes).expect("art");
++    let cached = slot::label_cache::cache_path(d.path(), &nes);
++    let famicom = Cart {
++        stem: "Game (USA)".into(),
++        shell: Some(slot_store::ShellChoice {
++            outline: slot_store::Outline::Famicom,
++            colour: [1, 2, 3],
++            finish: slot_store::ShellFinish::Solid,
++        }),
++        ..nes.clone()
++    };
++    assert!(!fresh(d.path(), &famicom), "an old cache passed as fresh");
++    let art = label_art(d.path(), &famicom).expect("art");
++    let (w, h) = label_size(&famicom);
++    assert_eq!(art.len(), (w * h * 4) as usize);
++    assert!(cached.is_file());
++    assert!(fresh(d.path(), &famicom));
++}

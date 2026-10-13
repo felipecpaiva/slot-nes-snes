@@ -11,7 +11,7 @@ depends_on: [17-device-gate-log, 22-ff-and-rewind, 26-cart-art, 30-release-workf
 The goal of the project is one platform experience: a NES or SNES cart must feel exactly like a GBA cart in slot. Correctness is covered by the harness and the parity tests; this issue measures speed and smoothness for every platform and core against the same baseline, once all implementation is done (maintainer request, 2026-10-12).
 
 ## Scope
-- [ ] `scripts/perf-eval.sh` and `task perf:eval`: one run per platform and core on the RG34XXSP with the release zip: GBA (mGBA, gpSP), GB and GBC (mGBA), NES (fceumm, nestopia), SNES (snes9x, snes9x2005_plus).
+- [x] `scripts/perf-eval.sh` and `task perf:eval`: one run per platform and core on the RG34XXSP with the release zip: GBA (mGBA, gpSP), GB and GBC (mGBA), NES (fceumm, nestopia), SNES (snes9x, snes9x2005_plus). Done 2026-10-13: all 8 platform and core pairs that have workloads ran (GB and GBC card pairs have no cart on the card, so the free harness carts were used); results in docs/PERFORMANCE.md and docs/perf/2026-10-13/. Remaining scope items stay open: the manual metrics (boot and insert times, p99, underruns, input latency, shelf and state UI time) and the follow-up issues for misses are pending.
 - [ ] Baseline: unpatched slot v1.6.0 playing GBA on mGBA on the same device, same firmware, same CPU governor, same battery state (on charger), measured in the same session.
 - [ ] Metrics per platform and core, each with median and worst case over at least 3 runs:
   - boot to first shelf frame, and cart insert to first game frame (`slot: boot:` log lines, `SLOT_TRACE`)
