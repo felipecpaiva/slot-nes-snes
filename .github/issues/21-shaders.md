@@ -30,7 +30,7 @@ Upstream tests stay unmodified, in particular every `SlotState {` literal under 
 | `slot.state` written by unpatched slot (no `shader_nes`) | Parsed with `unwrap_or`; T25 asserts Off defaults with the other fields intact |
 
 ## Acceptance
-- [x] T25 green. [ ] `task check` green (maintainer runs it).
+- [x] T25 green. `task check` green (2026-10-13, exit 0).
 - [x] GBA harness compare 0 diffs (H1, H2): `task check` 2026-10-13 exit 0, compare 0 diffs (H1, H1G, H2, B1, H3). `slot.state` bytes for a GBA-only session match upstream up to the appended lines: verified by `a_gba_only_slot_state_matches_upstream_up_to_the_appended_lines` and `select_x_gba`.
 - [x] `slot: crates/slot-store/src/slot_state.rs:130` `format!` line untouched.
 
