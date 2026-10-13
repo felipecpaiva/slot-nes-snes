@@ -19,7 +19,12 @@ Goal: one session per upstream release, conflicts only in `app.rs` and `frontend
    (`work/slot` stays rebased; `git -C work/slot reflog` has its previous tip).
 3. **Full suite.** `task check` must be green: upstream plus ours under
    `SLOT_REQUIRE_CORES=1`, `check-upstream-tests.sh`, fmt, both clippy passes.
-   Also `task patches:check` and `task diffsurface` (`app.rs` at 25 or fewer).
+   Also `task patches:check`.
+   **Touch points:** run `task diffsurface`. It rewrites `docs/UPSTREAM-TOUCHPOINTS.md` for the new
+   upstream and keeps each reason whose hunk still exists. Review every row against the new
+   upstream code (did upstream change the code around it? is the reason still true?), give new
+   rows a reason, delete nothing by hand, and commit the map. `task check` fails until it is
+   current and complete.
 4. **Harness against the new upstream.** `task harness:control`, then `task harness:compare`
    (0 differing frames; `task check` runs both on an idle machine). `task bench:compare`
    within 2%.
