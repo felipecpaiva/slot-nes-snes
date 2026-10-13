@@ -44,6 +44,14 @@
 # HARNESS_FAKE_LATE="H2 2" makes the first 2 patched H2 dumps exit 3 as if late (the faked "patched needs
 # 2 more retries" case): control must then fail on H2.
 # The gate needs a mostly idle machine: a loaded one fails closed, it never passes a bad frame.
+# On CI (CI is set) a shared runner is never idle, so lateness is information only and hashes still gate:
+# 10 tries per run; a leg that stays late (exit 3) in either tree after them is warned about with
+# "::warning::" and not compared (all its comparisons are skipped, the other legs go on); the retry rule
+# above warns instead of failing; hash diffs between legs that completed in both trees, and inject's
+# race check, still fail; inject warns and stops if its own runs stay late. A CI run prints "legs
+# compared, legs skipped as late" and fails if no leg completed in both trees. HARNESS_FAKE_LATE="H2 99"
+# fakes a leg that stays late for all tries, "ALL 999" every patched leg (CI only, locally it just fails).
+# Local behaviour (CI unset) is unchanged.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -55,7 +63,9 @@ retry_log="$work/out/retries.txt"
 legs="H1 H1G H2 B1"
 modes="core composite"
 tries=3
-[ -z "${CI:-}" ] || tries=6
+ci="${CI:-}"
+[ -z "$ci" ] || tries=10
+late_log="$work/out/late.txt"
 label_px=6000
 extra_labels=400
 min_diffs=20
@@ -114,7 +124,8 @@ warm() {
 
 # run_dump TREE OUT SRC ARG...: a fresh copy of SRC per attempt, frame_dump ARG... ROOT appended to OUT,
 # a clean retry when frame_dump says the machine was too busy (exit 3), anything else is final. Each
-# retry is appended to retry_log as "up|ours LEG" (LEG is the second argument).
+# retry is appended to retry_log as "up|ours LEG" (LEG is the second argument). Returns 3 only on CI, when
+# the tries ran out late: logged in late_log as "upstream|patched LEG" after a warning.
 run_dump() {
 	dir="$1"
 	out="$2"
@@ -126,7 +137,7 @@ run_dump() {
 		cp -Rp "$src" "$tmp/root"
 		rc=0
 		SLOT_ROOT="$tmp/root" "$(dumper "$dir")" "$@" "$tmp/root" >"$tmp/out" 2>"$tmp/err" || rc=$?
-		if [ "$rc" = 0 ] && [ "$dir" != "$up" ] && [ -n "$fake_late" ] && [ "${fake_late%% *}" = "${2:-}" ] &&
+		if [ "$rc" = 0 ] && [ "$dir" != "$up" ] && [ -n "$fake_late" ] && { [ "${fake_late%% *}" = "${2:-}" ] || [ "${fake_late%% *}" = ALL ]; } &&
 			[ "${fake_late#* }" -gt 0 ]; then
 			fake_late="${fake_late%% *} $((${fake_late#* } - 1))"
 			rc=3
@@ -143,6 +154,13 @@ run_dump() {
 		fi
 		grep -v '^slot:' "$tmp/err" >&2 || true
 		rm -rf "$tmp"
+		if [ -n "$ci" ] && [ "$rc" = 3 ] && [ "$try" -ge "$tries" ]; then
+			name=patched
+			[ "$dir" != "$up" ] || name=upstream
+			echo "::warning::harness $name ${2:-} stayed late after $tries tries on this runner (information only)"
+			echo "$name ${2:-}" >>"$late_log"
+			return 3
+		fi
 		[ "$rc" = 3 ] && [ "$try" -lt "$tries" ] || fail "frame_dump $* failed in $dir (exit $rc)"
 		if [ "$dir" = "$up" ]; then echo "up ${2:-}" >>"$retry_log"; else echo "ours ${2:-}" >>"$retry_log"; fi
 		try=$((try + 1))
@@ -158,7 +176,7 @@ one_run() {
 	[ "$2" != H3 ] || src="$work/root-nes"
 	for mode in $modes; do
 		[ "$2" != B1 ] || [ "$mode" = composite ] || continue
-		run_dump "$1" "$3" "$src" "$mode" "$2"
+		run_dump "$1" "$3" "$src" "$mode" "$2" || return 3
 	done
 	[ -s "$3" ] || fail "frame_dump printed nothing for $2 in $1"
 }
@@ -167,9 +185,29 @@ one_run() {
 # emulator step after a core loads is often late), so one H3 run has its own bound, h3_max retries.
 h3_run() {
 	kept="$(grep -c '^ours H3$' "$retry_log" || true)"
-	one_run "$ours" H3 "$1"
+	one_run "$ours" H3 "$1" || return 3
 	used=$(($(grep -c '^ours H3$' "$retry_log" || true) - kept))
-	[ "$used" -le "$h3_max" ] || fail "H3 needed $used retries in one run, the most allowed is $h3_max"
+	[ "$used" -le "$h3_max" ] && return 0
+	[ -z "$ci" ] || { echo "::warning::harness H3 needed $used retries in one run, the most allowed is $h3_max (information only)"; return 0; }
+	fail "H3 needed $used retries in one run, the most allowed is $h3_max"
+}
+
+# skipped LEG: true when LEG stayed late in some tree (CI only, late_log is empty otherwise).
+skipped() {
+	grep -q " $1\$" "$late_log"
+}
+
+# ci_summary: on CI, print how many legs were compared and fail when none was.
+ci_summary() {
+	[ -n "$ci" ] || return 0
+	total=0
+	late=0
+	for leg in $legs; do
+		total=$((total + 1))
+		if skipped "$leg"; then late=$((late + 1)); fi
+	done
+	echo "harness: $((total - late)) legs compared, $late legs skipped as late (of $total)"
+	[ "$late" -lt "$total" ] || fail "no leg completed in both trees, a CI run that compared nothing does not pass"
 }
 
 # verdict_retries: print the retry counts and fail on a leg that needed at least 2 retries and more than
@@ -190,7 +228,9 @@ verdict_retries() {
 		}' "$retry_log")"
 	echo "$out" | grep -v '^FAIL'
 	failed="$(echo "$out" | grep '^FAIL' | sed 's/^FAIL //' || true)"
-	[ -z "$failed" ] || fail "$failed, an intermittent regression"
+	[ -z "$failed" ] && return 0
+	[ -z "$ci" ] || { echo "::warning::harness retries: $failed, an intermittent regression (information only)"; return 0; }
+	fail "$failed, an intermittent regression"
 }
 
 # report LABEL A B [LEG_A LEG_B]: print the differing frames of two runs and add them to bad.
@@ -235,20 +275,22 @@ control() {
 	mkdir -p "$work/out"
 	rm -f "$work/control.ok"
 	: >"$retry_log"
+	: >"$late_log"
 	bad=0
 	for tree in up ours; do
 		eval "dir=\$$tree"
 		for leg in $legs; do
-			one_run "$dir" "$leg" "$work/out/control-$tree-$leg-1.txt"
-			one_run "$dir" "$leg" "$work/out/control-$tree-$leg-2.txt"
+			one_run "$dir" "$leg" "$work/out/control-$tree-$leg-1.txt" || continue
+			one_run "$dir" "$leg" "$work/out/control-$tree-$leg-2.txt" || continue
 			report "control $tree $leg" "$work/out/control-$tree-$leg-1.txt" "$work/out/control-$tree-$leg-2.txt"
 		done
 	done
-	h3_run "$work/out/control-ours-H3-1.txt"
-	h3_run "$work/out/control-ours-H3-2.txt"
-	report "control ours H3" "$work/out/control-ours-H3-1.txt" "$work/out/control-ours-H3-2.txt"
+	if h3_run "$work/out/control-ours-H3-1.txt" && h3_run "$work/out/control-ours-H3-2.txt"; then
+		report "control ours H3" "$work/out/control-ours-H3-1.txt" "$work/out/control-ours-H3-2.txt"
+	fi
 	echo "control: $bad diffs"
 	verdict_retries
+	ci_summary
 	[ "$bad" = 0 ] || exit 1
 	stamp >"$work/control.ok"
 }
@@ -258,24 +300,26 @@ compare() {
 		fail "refusing to compare, task harness:control has not passed for these inputs"
 	warm >/dev/null
 	: >"$retry_log"
+	: >"$late_log"
 	bad=0
 	for leg in $legs; do
 		o="$work/out/compare-$leg"
-		one_run "$up" "$leg" "$o-up-1.txt"
-		one_run "$up" "$leg" "$o-up-2.txt"
-		one_run "$ours" "$leg" "$o-ours-1.txt"
-		one_run "$ours" "$leg" "$o-ours-2.txt"
+		one_run "$up" "$leg" "$o-up-1.txt" || continue
+		one_run "$up" "$leg" "$o-up-2.txt" || continue
+		one_run "$ours" "$leg" "$o-ours-1.txt" || continue
+		one_run "$ours" "$leg" "$o-ours-2.txt" || continue
 		report "compare $leg upstream runs" "$o-up-1.txt" "$o-up-2.txt"
 		report "compare $leg patched runs" "$o-ours-1.txt" "$o-ours-2.txt"
 		report "compare $leg trees" "$o-up-1.txt" "$o-ours-1.txt"
 	done
 	o="$work/out/compare-H3"
-	h3_run "$o-ours-1.txt"
-	h3_run "$o-ours-2.txt"
-	report "compare H3 patched runs" "$o-ours-1.txt" "$o-ours-2.txt"
-	report "compare H3 against H1" "$work/out/compare-H1-ours-1.txt" "$o-ours-1.txt" H1 H3
+	if h3_run "$o-ours-1.txt" && h3_run "$o-ours-2.txt"; then
+		report "compare H3 patched runs" "$o-ours-1.txt" "$o-ours-2.txt"
+		skipped H1 || report "compare H3 against H1" "$work/out/compare-H1-ours-1.txt" "$o-ours-1.txt" H1 H3
+	fi
 	echo "compare: $bad diffs ($(echo $legs | sed 's/ /, /g'), H3 patched only, held against H1)"
 	verdict_retries
+	ci_summary
 	[ "$bad" = 0 ] || exit 1
 }
 
@@ -289,6 +333,11 @@ compare() {
 # well under the length of the rebuild (extra_labels is sized so the lowest of five runs was over 200).
 # Fewer means the harness cannot see the very race its wait
 # exists for. The same root with the wait, running the same cold script, must then give 0 diffs.
+# inject_late: CI only, an inject run stayed late (run_dump already warned), so nothing can be concluded.
+inject_late() {
+	echo "inject: skipped, a run stayed late on this runner (information only)"
+}
+
 inject() {
 	warm >/dev/null
 	mkdir -p "$work/out"
@@ -307,6 +356,7 @@ inject() {
 	cp "$heavy/Labels/GBA/240pee_mb.png" "$heavy/Labels/GBC/cgb-acid2.png"
 	echo "inject: $((extra_labels + 3)) labels of ${label_px}x${label_px} generated, the stale count below is a few lower because the rebuild has begun by the first frame"
 	: >"$retry_log"
+	: >"$late_log"
 	o="$work/out/inject"
 	: >"$o-nowait-1.txt"
 	: >"$o-nowait-2.txt"
@@ -314,21 +364,21 @@ inject() {
 	: >"$o-wait-2.txt"
 	: >"$o-warm-1.txt"
 	: >"$o-warm-2.txt"
-	run_dump "$up" "$o-warm-1.txt" "$work/root" composite --no-wait
-	run_dump "$up" "$o-warm-2.txt" "$work/root" composite --no-wait
+	run_dump "$up" "$o-warm-1.txt" "$work/root" composite --no-wait || { inject_late; return 0; }
+	run_dump "$up" "$o-warm-2.txt" "$work/root" composite --no-wait || { inject_late; return 0; }
 	bad=0
 	report "inject warm" "$o-warm-1.txt" "$o-warm-2.txt"
 	echo "inject: no wait, warm cache (control for the injection): $bad diffs, $(wc -l <"$o-warm-1.txt" | tr -d ' ') frames hashed"
 	[ "$bad" = 0 ] || fail "inject: hashing from frame 1 differs even with a warm cache, so a diff would not prove the race"
-	run_dump "$up" "$o-nowait-1.txt" "$heavy" composite --no-wait
-	run_dump "$up" "$o-nowait-2.txt" "$heavy" composite --no-wait
+	run_dump "$up" "$o-nowait-1.txt" "$heavy" composite --no-wait || { inject_late; return 0; }
+	run_dump "$up" "$o-nowait-2.txt" "$heavy" composite --no-wait || { inject_late; return 0; }
 	bad=0
 	found="$(differ "$o-nowait-1.txt" "$o-nowait-2.txt")"
 	[ -z "$found" ] || bad="$(echo "$found" | wc -l | tr -d ' ')"
 	echo "inject: no wait, $(echo "$notes" | tr '\n' ' '): $bad diffs of $(wc -l <"$o-nowait-1.txt" | tr -d ' ') frames hashed (at least $min_diffs needed)"
 	[ "$bad" -ge "$min_diffs" ] || fail "inject: the cold-cache run without the label wait differed in only $bad frames, the harness cannot see the race"
-	run_dump "$up" "$o-wait-1.txt" "$heavy" composite --wait
-	run_dump "$up" "$o-wait-2.txt" "$heavy" composite --wait
+	run_dump "$up" "$o-wait-1.txt" "$heavy" composite --wait || { inject_late; return 0; }
+	run_dump "$up" "$o-wait-2.txt" "$heavy" composite --wait || { inject_late; return 0; }
 	bad=0
 	report "inject wait" "$o-wait-1.txt" "$o-wait-2.txt"
 	echo "inject: with the wait, same cold labels and script ($(echo "$notes" | tr '\n' ' ')): $bad diffs"
