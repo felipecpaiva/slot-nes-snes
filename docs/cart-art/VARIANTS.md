@@ -135,3 +135,34 @@ Uncertain or not found (dropped, not guessed):
 - Build `nes`, `famicom`, `snes`, `sfc` outlines first; add Tengen black and Killer Instinct black only as `cart_shell.txt` colour entries (same outlines) plus, for Tengen, a rounded outline if time allows.
 - Colour table rows must reference a row above. The sourced colours today are Zelda gold, Zelda II gold, Killer Instinct black, Tengen matte black, Bomberman black, all by name only; numeric values still need sampling.
 - Carts show real label art, never screenshots (docs/DECISIONS.md, 2026-10-12). The photos in `refs/` are for likeness comparison only and ship in no asset.
+
+## 7. Values measured and sampled for issue 26
+
+Method: each photo in `refs/` was converted to BMP with `sips` and the mean RGB of the pixel rectangle below was taken (stdlib Python). Rectangles are x, y, width, height in pixels of the committed file (800 px on the long side, `nes.jpg` is 724 x 800). Photo colour depends on the camera and the light, so these are the colours of the photos, not a colorimetric standard. `evals/eval-colour-sources.sh` fails if a plastic colour in `retro_shell.rs` has no row here.
+
+| Plastic | Sampled from | Pixel area (x, y, w, h) | Mean RGB | Used for |
+|---|---|---|---|---|
+| NES grey | `refs/nes.jpg` | 40, 200, 70, 300 | #7a7a7a | Platform default for `nes` and uncatalogued Famicom carts |
+| SNES grey | `refs/snes.jpg` | 300, 45, 310, 35 | #9f9ca2 | Platform default for `snes` (top cart, flat label face) |
+| Super Famicom grey | `refs/sfc.jpg` | 200, 400, 400, 80 | #949696 | Default for `sfc` (lower panel below the label) |
+| Gold | `refs/nes_gold_zelda.jpg` | 250, 160, 100, 25 | #aa9451 | The Legend of Zelda and Zelda II |
+| Famicom yellow-orange | `refs/famicom.jpg` | 150, 395, 500, 35 | #ac8642 | Super Mario Bros. (Famicom) |
+
+Colours with no sampleable photo (stated, not guessed):
+- Black (Killer Instinct, Bomberman, Tengen): `refs/` has no free photo of a black cart (see `refs/SOURCES.md`, link-only). The numeric value reuses slot's own black Game Boy plastic, `DUAL_MODE_SHELL` #333031 in `shell.rs`. The sources give only the word "black"; the value is slot's existing black, not a measurement of these carts.
+- Zelda II gold: no photo of that cart in `refs/`. It reuses the Zelda gold sample, because the source says the shell is gold like the first game.
+- Famicom uncatalogued default: no cited value, so uncatalogued Famicom carts use NES grey. Flagged for the PR.
+- Mario Bros. and Devil World (Famicom): Commons category words only, no photo downloaded. No table row.
+- Tengen: no game title is cited in section 5, so no title row. Section 5 allows Tengen only as an outline plus colour, which needs a title list from a new source.
+
+Geometry measured from the photos (trace of the shell edge, fractions of the shell bounding box unless noted):
+
+| Item | Measured | From |
+|---|---|---|
+| `nes` label field | x 0.41 to 0.85, y 0.00 to 0.67 of the shell, portrait (about 53 x 86 mm at the cited 120 x 133). Section 2's 0.81 x 0.41 reads the cited 55 x 97 mm label with width and height swapped: the photo shows the label taller than wide and open at the top (the fold-over). | `refs/nes.jpg` |
+| `nes` body | Full width down to 0.80 of the height, then a stepped lower part 0.09 to 0.92 of the width (left step larger than right, drawn 0.09 and 0.078). Ribbed grip band x 0.18 to 0.38 with 20 grooves, a recessed pocket with 5 ridges at its top (y 0.03 to 0.15), a plain rounded tab at its bottom, a triangle mark and a round dot inside the label recess (hidden by the label art). No moulded text on the face. | `refs/nes.jpg` |
+| `famicom` outline | Wider than tall, aspect about 1.8 (781 x 435 px). Near-rectangular front with only slightly rounded top shoulders (the apparent taper in the photo is the top face seen obliquely), a stepped lower section about 5 percent narrower each side starting at 0.83 of the height, no side marks. Label x 0.07 to 0.92, y 0.05 to 0.68, drawn at x 0.06 to 0.94 with a thin rim. | `refs/famicom.jpg` |
+| `sfc` label | x 0.12 to 0.89, y 0.02 to 0.42, wide and short. Top corners only slightly rounded (small radius, no chamfer), side ribs on the shoulders, two screws in the lower corners, a finger recess centred at about 0.60 of the height spanning x 0.22 to 0.78, and two grooves that start under the label edge (about 0.43) and run to about 0.95. | `refs/sfc.jpg` |
+| `snes` label and outline | No front view of a Super NES shell exists in `refs/` (`snes.jpg` is an oblique stack). The label window reuses the `sfc` measurement and the outline follows the iFixit and Wikipedia words in section 2 plus the oblique photo: ridged sides, connector notch, corner screws. This is the weakest row of the set. | `refs/sfc.jpg`, `refs/snes.jpg` |
+
+Seated boxes used (width 240, the body spans 6.5 to 233.5 like the GB and GBA shells, so the height is the body width divided by the cited aspect): `nes` 240 x 252 (0.902), `snes` and `sfc` 240 x 150 (1.545 and 1.512, one shared platform box). The suggestions in section 2 treated the whole box as the shell and gave 266, 155 and 159. `famicom` is drawn at the width of the `nes` box, bottom aligned, because `seated_box` and `cart_box` take a platform, not a cart, so every variant of a platform shares one box.
