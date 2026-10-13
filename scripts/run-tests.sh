@@ -22,18 +22,22 @@ if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
 	done
 fi
 
-# Shared CI runners (GitHub sets CI=true) fail upstream's emu timing tests (crates/slot/tests/emu.rs)
-# on the unpatched upstream tree too (test.yml run 38313541162, 2026-10-13), so there they say
-# nothing about the patches. On CI the whole emu binary is left out of the gating run and runs on its
-# own afterwards as information only. Locally it still gates.
+# Shared CI runners (GitHub sets CI=true) fail upstream's real-time tests on the unpatched upstream
+# tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
+# say nothing about the patches. On CI these binaries are left out of the gating run and run on their
+# own afterwards as information only. Locally they still gate.
+ci_timing="emu audio"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
-	ci_skips="$(cd "$1" && cargo test -q -p slot --test emu -- --list --format terse 2>/dev/null |
-		sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
-	[ -n "$ci_skips" ] || {
-		echo "slot-nes-snes: could not list the emu tests to run them apart on CI" >&2
-		exit 1
-	}
+	for t in $ci_timing; do
+		names="$(cd "$1" && cargo test -q -p slot --test "$t" -- --list --format terse 2>/dev/null |
+			sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
+		[ -n "$names" ] || {
+			echo "slot-nes-snes: could not list the $t tests to run them apart on CI" >&2
+			exit 1
+		}
+		ci_skips="$ci_skips $names"
+	done
 	ci_skips="--exact $ci_skips"
 fi
 
@@ -49,14 +53,16 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 if [ "${CI:-}" = true ]; then
-	echo "emu timing tests (information only on CI, they gate locally):"
-	if (cd "$1" && cargo test -q -p slot --test emu) >"$log.emu" 2>&1; then
-		grep '^test result' "$log.emu"
-	else
-		grep -E '^test result|^test .* FAILED' "$log.emu"
-		echo "::warning::upstream emu timing tests failed on this runner (information only, see run 38313541162)"
-	fi
-	rm -f "$log.emu"
+	for t in $ci_timing; do
+		echo "$t real-time tests (information only on CI, they gate locally):"
+		if (cd "$1" && cargo test -q -p slot --test "$t") >"$log.$t" 2>&1; then
+			grep '^test result' "$log.$t"
+		else
+			grep -E '^test result|^test .* FAILED' "$log.$t"
+			echo "::warning::upstream $t real-time tests failed on this runner (information only)"
+		fi
+		rm -f "$log.$t"
+	done
 fi
 
 echo "skip report (tests that printed a skip message, with the reason):"
@@ -81,7 +87,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-[ -z "$ci_skips" ] || echo "  [runner] crates/slot/tests/emu.rs (upstream emu timing tests, run apart as information on CI only)"
+[ -z "$ci_skips" ] || echo "  [runner] crates/slot/tests/{emu,audio}.rs (upstream real-time tests, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
