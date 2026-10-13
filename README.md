@@ -24,7 +24,19 @@ set adds two more shelves the same way:
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
 byte-identical to upstream. That is the goal. The quick menu keeps its rows on every shelf. The Turbo
-Buttons row does nothing on SNES, where X and Y are real buttons and always reach the game. The first version has known gaps, listed in [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md#known-gaps-not-hidden).
+Buttons row does nothing on SNES, where X and Y are real buttons and always reach the game. The first version has known gaps, listed under [Known gaps](#known-gaps).
+
+## Known gaps
+
+- **SNES picture mode is SELECT+X.** L and R are game buttons on SNES, so slot's L/R picture toggle does not apply. NES keeps L1 for Stretch and R1 for Actual. NES and SNES default to Stretch.
+- SNES hi-res frames (512 wide, a few titles) are blended 2:1 and lose detail.
+- No colour correction on NES and SNES. SELECT+Y on the shelf after a NES or SNES game is ignored until a GBA game has run; the quick menu still toggles it.
+- The Turbo quick-menu row does nothing on SNES.
+- PAL (50 Hz) titles run about 20% fast.
+- Settings keyed only by file name collide if the same name exists on two systems.
+- Zip ROMs are not supported.
+
+More in [docs/QUALITY-BAR.md](docs/QUALITY-BAR.md#known-gaps-not-hidden).
 
 ## How it works
 
