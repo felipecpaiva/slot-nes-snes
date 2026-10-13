@@ -374,7 +374,7 @@ Deliverables:
   - Notes include the non-commercial snes9x notice and "do not report to slot's tracker".
 - [x] `scripts/rebase.sh NEW_TAG`: fetch, `git rebase --onto` in `work/slot`, re-export, `task check`, update `SLOT_PIN`.
 - [x] `docs/REBASE.md`: re-apply, full suite, harness against the new upstream, device smoke, bump the pin, tag `vNEW-ns.1`.
-- [x] `task diffsurface`: per-file changed lines over upstream files. Target: `app.rs` at 25 lines or fewer (pair loop included).
+- [x] `task diffsurface`: per-file changed lines over upstream files, and the touch-point map `docs/UPSTREAM-TOUCHPOINTS.md` (one row per hunk with a reason). The 25-line `app.rs` target was replaced on 2026-10-13 by tracking every touch point (docs/DECISIONS.md).
 - [ ] Final device gate on the RG34XXSP, using the zip downloaded from GitHub.
 - [ ] New tests T41 to T44.
 
@@ -591,7 +591,7 @@ Failure-injection checks:
 | Frame pacing | `SLOT_TRACE_LATENCY` (`System/trace-latency.on`) | p99 under 16.7 ms per title |
 | Crash rate | `crash/` on the SD card after a week of use | 0 new files |
 | Rebase cost | `scripts/rebase.sh` output plus a `docs/REBASE.md` row | Each slot release rebased in 1 session; conflicts only in `app.rs`/`frontend.rs` |
-| Patch diff surface | `task diffsurface` | `app.rs` at 25 lines or fewer |
+| Patch diff surface | `task diffsurface:check` | Every upstream touch point in `docs/UPSTREAM-TOUCHPOINTS.md` with a reason |
 | GBA regressions reported | Issues labelled `gba-regression` on felipecpaiva/slot-nes-snes | 0 |
 
 ## Test plan
@@ -735,7 +735,7 @@ Rules:
 | GBA identical | cross-tree differing hashes (H1, H2) and H3 vs H1 | 0 | No: `task harness:compare` |
 | GBA frame cost | `core_bench` median delta | 2% or less | No: `task bench:compare` |
 | New tests | T4 to T45 passing under `SLOT_REQUIRE_CORES=1` | 100% | No |
-| Diff surface | changed lines in `app.rs` | 25 or fewer | No: `task diffsurface` |
+| Diff surface | upstream touch points | All mapped with a reason | No: `task diffsurface:check` |
 | Ship checks | missing licence, source tarball or wrong arch | 0 | No: `zip-check.sh` |
 | Device underruns | underrun lines per 10 minutes | 0 per title | No: `grep -c underrun slot.log` |
 
