@@ -269,6 +269,15 @@ rm -rf $(shq "$SD/States/$1/$2/$3")
 true"
 }
 
+# BAK LIVE: LIVE with the keys set_config writes (cart, cart_platform, eject_save) put back as in BAK,
+# or dropped where BAK has none.
+own_keys() {
+	awk -F= '
+	NR == FNR { if ($1 == "cart" || $1 == "cart_platform" || $1 == "eject_save") b[$1] = $0; next }
+	$1 == "cart" || $1 == "cart_platform" || $1 == "eject_save" { if ($1 in b) print b[$1]; next }
+	{ print }' "$1" "$2"
+}
+
 # Put the device back. Runs on every exit once the backup exists.
 cleanup() {
 	rc=$?
@@ -278,12 +287,22 @@ cleanup() {
 		echo "restoring the device from $bk" >&2
 		dx "
 cd $(shq "$bk") || exit 1
-[ -f slot.state ] && cp -p slot.state $(shq "$cfg/slot.state")
 if [ -f selected_core.txt ]; then cp -p selected_core.txt $(shq "$cfg/selected_core.txt"); else rm -f $(shq "$cfg/selected_core.txt"); fi
 [ -f launch_frontend.sh ] && cp -p launch_frontend.sh $(shq "$tf")
 [ -f had-latency-flag ] || rm -f $(shq "$flag")
 true" || echo "slot-nes-snes: RESTORE FAILED, copy the files in $bk back by hand" >&2
 		dx "sh $(shq "$bk/inj/slotctl.sh") stop"
+		# Only the keys this script wrote go back to the backup's values; the rest (volume, brightness...)
+		# stays as the player left it during the runs.
+		if $ADB pull "$cfg/slot.state" "$tmp/slot.state.live" </dev/null >/dev/null 2>&1 &&
+			$ADB pull "$bk/slot.state" "$tmp/slot.state.bak" </dev/null >/dev/null 2>&1; then
+			own_keys "$tmp/slot.state.bak" "$tmp/slot.state.live" >"$tmp/slot.state.back" &&
+				$ADB push "$tmp/slot.state.back" "$cfg/slot.state" </dev/null >/dev/null ||
+				echo "slot-nes-snes: RESTORE FAILED for slot.state, copy $bk/slot.state back by hand" >&2
+		else
+			dx "cp -p $(shq "$bk/slot.state") $(shq "$cfg/slot.state")" ||
+				echo "slot-nes-snes: RESTORE FAILED for slot.state, copy $bk/slot.state back by hand" >&2
+		fi
 		while IFS='|' read -r pd co st; do restore_one "$pd" "$co" "$st"; done <"$tmp/backed"
 		restart_slot || echo "slot-nes-snes: slot did not come back, power-cycle the device" >&2
 		dx "rm -rf $(shq "$bk/inj")"
@@ -422,7 +441,6 @@ seen() {
 }
 
 # Originals as pulled once, edited fresh for every run.
-$ADB pull "$cfg/slot.state" "$tmp/slot.state.orig" </dev/null >/dev/null || die "cannot read slot.state"
 $ADB pull "$cfg/selected_core.txt" "$tmp/sel.orig" </dev/null >/dev/null 2>&1 || : >"$tmp/sel.orig"
 $ADB pull "$tf" "$tmp/launch.orig" </dev/null >/dev/null || die "cannot read launch_frontend.sh"
 if grep -q 'SLOT_TRACE=' "$tmp/launch.orig"; then
@@ -432,12 +450,14 @@ else
 fi
 
 set_config() { # stem platform core
+	# The live state, so a volume or brightness change the player made during the last run carries over.
+	$ADB pull "$cfg/slot.state" "$tmp/slot.state.cur" </dev/null >/dev/null || die "cannot read slot.state"
 	CART="$1" CP="$2" awk '
 	/^cart=/ { print "cart=" ENVIRON["CART"]; a = 1; next }
 	/^cart_platform=/ { print "cart_platform=" ENVIRON["CP"]; b = 1; next }
 	/^eject_save=/ { print "eject_save=0"; e = 1; next }
 	{ print }
-	END { if (!a) print "cart=" ENVIRON["CART"]; if (!b) print "cart_platform=" ENVIRON["CP"]; if (!e) print "eject_save=0" }' "$tmp/slot.state.orig" >"$tmp/slot.state.new"
+	END { if (!a) print "cart=" ENVIRON["CART"]; if (!b) print "cart_platform=" ENVIRON["CP"]; if (!e) print "eject_save=0" }' "$tmp/slot.state.cur" >"$tmp/slot.state.new"
 	$ADB push "$tmp/slot.state.new" "$cfg/slot.state" </dev/null >/dev/null || die "cannot write slot.state"
 	S="$1" C="$3" awk '
 	{ i = index($0, "="); k = substr($0, 1, i - 1); gsub(/^[ \t]+|[ \t]+$/, "", k); if (i > 0 && k == ENVIRON["S"]) next; print }

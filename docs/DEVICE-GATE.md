@@ -81,21 +81,31 @@ Underruns/10 min is the starved sample count from `slot.log`. Date is YYYY-MM-DD
 
 | Title | Platform | Mapper/chip | Core | fps | Underruns/10 min | CPU governor | p99 frame ms | Date | Zip version |
 |---|---|---|---|---|---|---|---|---|---|
-| Star Fox | SNES | Super FX (GSU) | snes9x | | | | | | |
-| Yoshi's Island | SNES | Super FX 2 (GSU-2) | snes9x | | | | | | |
-| Kirby Super Star | SNES | no coprocessor | snes9x | | | | | | |
-| Super Mario RPG | SNES | SA-1 | snes9x | | | | | | |
+| Star Fox | SNES | Super FX (GSU) | snes9x | | 4096 in 3 min | performance | 18.14 | 2026-10-13 | ns.0 (patches to 0018) |
+| Yoshi's Island | SNES | Super FX 2 (GSU-2) | snes9x | | 5120 in 3 min | performance | 18.44 | 2026-10-13 | ns.0 (patches to 0018) |
+| Kirby Super Star | SNES | no coprocessor | snes9x | | 4096 in 3 min | performance | 17.99 | 2026-10-13 | ns.0 (patches to 0018) |
+| Super Mario RPG | SNES | SA-1 | snes9x | | 4096 in 3 min | performance | 19.24 (fail) | 2026-10-13 | ns.0 (patches to 0018) |
 | Seiken Densetsu 3 | SNES | SA-1 | snes9x | | | | | | |
-| Super Mario Bros. 3 | NES | MMC3 | fceumm | | | | | | |
-| Kirby's Adventure | NES | MMC3 (heavy scenes) | fceumm | | | | | | |
-| Castlevania III | NES | MMC5 | fceumm | | | | | | |
+| Super Mario Bros. 3 | NES | MMC3 | fceumm | | 2048 in 3 min | performance | 17.35 | 2026-10-13 | ns.0 (patches to 0018) |
+| Kirby's Adventure | NES | MMC3 (heavy scenes) | fceumm | | 2048 in 3 min | performance | 17.41 | 2026-10-13 | ns.0 (patches to 0018) |
+| Castlevania III | NES | MMC5 | fceumm | | 3072 in 3 min | performance | 17.35 | 2026-10-13 | ns.0 (patches to 0018) |
 | Akumajou Densetsu | NES | VRC6 (expansion audio) | fceumm | | | | | | |
-| Mega Man 2 | NES | MMC1 | fceumm | | | | | | |
-| Battletoads | NES | AxROM (timing sensitive) | fceumm | | | | | | |
-| GBA reference (any title, same session) | GBA | n/a | mgba | | | | | | |
+| Mega Man 2 | NES | MMC1 | fceumm | | 5120 (Rockman 2 (J)) in 3 min | performance | 17.36 | 2026-10-13 | ns.0 (patches to 0018) |
+| Battletoads | NES | AxROM (timing sensitive) | fceumm | | 3072 in 3 min | performance | 17.34 | 2026-10-13 | ns.0 (patches to 0018) |
+| GBA reference (any title, same session) | GBA | n/a | mgba | | 4096 (Golden Sun) in 3 min | performance | 18.28 | 2026-10-13 | ns.0 (patches to 0018) |
 
-No device results recorded yet. The GBA row is the comparison point: measure it in the same
+The GBA row is the comparison point: measure it in the same
 session as the others, on the same governor.
+
+2026-10-13 run (`task perf:play`, 3 minutes per title, 1 run, logs in `docs/perf/2026-10-13-gate/`):
+- Every title, the GBA reference included, fails the 0-underrun rule. All starved samples, and most
+  dropped ones, come from slot releasing the ALSA device after 3 s of silence and reopening it:
+  once at game start, and again mid-game in Battletoads and Super Mario RPG after a silent stretch.
+  This is upstream behaviour (GBA shows it too) and is the next fix.
+- After the first 600-present window, every title has 0 presents above 1.5x the period (longest
+  23.7 ms against 25.2 ms) and p99 within 1.1x the median, except Super Mario RPG (SA-1) at 19.24 ms
+  against 18.46 ms. The governor was already `performance`, so the SA-1 governor retry does not apply.
+- Seiken Densetsu 3 and Akumajou Densetsu are not on the test card and were not run.
 
 ## Core bench on the device (test carts)
 
