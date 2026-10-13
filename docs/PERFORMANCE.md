@@ -255,3 +255,20 @@ starve is fixed.
 - Unpatched v1.6.0 slot as a separate baseline binary (the GBA row of the same session stands in).
 - Battery state other than on charger, and any governor other than the default.
 - Shader, video mode and rewind-on-play cost on top of the core.
+
+## Play results, automated (2026-10-13)
+
+`task perf:play` (`scripts/auto-play.sh`) boots each game through `slot.state` resume, injects the same input on every core (START x3, then hold Right, tap A every 700 ms and B every 2.3 s), ejects with a held MENU, and parses `slot.log` with `SLOT_TRACE=1` and `trace-latency.on`. One run per pair, 3 minutes each, same session, governor `performance`. A heavy and a light game per platform. Full tables: `docs/perf/2026-10-13/play-eval.md`; logs: `docs/perf/2026-10-13/play/` (game names redacted).
+
+| Pair | Work per frame, median / worst window (ms) | Input latency, median / p99 (ms) | Starved samples | Missed latches |
+|---|---|---|---|---|
+| GBA mGBA heavy (baseline) | 7.6 / 26.8 | 17.4 / 27.5 | 5120 | 2 |
+| GBA mGBA light (baseline) | 9.5 / 24.8 | 18.9 / 27.4 | 6144 | 2 |
+| GBA gpSP heavy / light | 5.8 / 20.6, 5.5 / 19.7 | 15.4 / 23.9, 15.5 / 26.3 | 4096, 5120 | 2, 2 |
+| GBC mGBA | 5.3 / 20.2 | 15.9 / 23.9 | 4096 | 3 |
+| NES fceumm heavy / light | 6.4 / 29.0, 12.6 / 22.9 | 15.7 / 24.1, 20.5 / 48.5 | 6202, 1024 | 1, 2 |
+| NES nestopia heavy / light | 8.9 / 27.6, 8.9 / 18.9 | 17.9 / 27.2, 20.3 / 47.8 | 4096, 4096 | 1, 2 |
+| SNES snes9x heavy / light | **12.8 / 37.0**, 10.2 / 28.8 | **23.1 / 345.3**, 18.8 / 30.3 | 5120, 3072 | 1, 2 |
+| SNES snes9x2005_plus heavy / light | 10.5 / 13.2, 8.6 / 22.7 | 18.8 / 29.6, 17.7 / 26.9 | 5120, 3072 | 0, 2 |
+
+Every session ran at the full 60 Hz present period (16.78 ms), ended cleanly and logged no crash. Starved samples appear on every platform including the GBA baseline (the known start-up starve), so they are not a NES/SNES regression; they still fail the 0-underrun gate for everyone. The one clear outlier is snes9x on the heavy Super FX game: a worst 600-frame window of 37 ms of work per 16.7 ms frame and an input latency p99 of 345 ms. snes9x2005_plus stays smooth on the same game (13.2 ms worst window). NES light p99 latency (about 48 ms) is also above the GBA baseline (27 ms). One 3-minute run per pair is noisy; treat single-run deltas as leads, not verdicts.
