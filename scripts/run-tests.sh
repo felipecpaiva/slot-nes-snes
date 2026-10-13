@@ -24,17 +24,18 @@ fi
 
 # Shared CI runners (GitHub sets CI=true) fail upstream's real-time tests on the unpatched upstream
 # tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
-# say nothing about the patches. Our own real-time budget tests (snes_ff.rs, snes_rewind.rs: run
-# 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
+# say nothing about the patches. Upstream's slot-gfx pipeline.rs pixel tests fail on the runner's GPU
+# on the unpatched tree too (run 38348725485). Our own real-time budget tests (snes_ff.rs,
+# snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
 # own afterwards as information only. Locally they still gate.
-ci_timing="emu audio snes_ff snes_rewind"
+ci_timing="slot:emu slot:audio slot:snes_ff slot:snes_rewind slot-gfx:pipeline"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
-	for t in $ci_timing; do
-		names="$(cd "$1" && cargo test -q -p slot --test "$t" -- --list --format terse 2>/dev/null |
+	for pt in $ci_timing; do
+		names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
 			sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
 		[ -n "$names" ] || {
-			echo "slot-nes-snes: could not list the $t tests to run them apart on CI" >&2
+			echo "slot-nes-snes: could not list the $pt tests to run them apart on CI" >&2
 			exit 1
 		}
 		ci_skips="$ci_skips $names"
@@ -54,13 +55,14 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 if [ "${CI:-}" = true ]; then
-	for t in $ci_timing; do
-		echo "$t real-time tests (information only on CI, they gate locally):"
-		if (cd "$1" && cargo test -q -p slot --test "$t") >"$log.$t" 2>&1; then
+	for pt in $ci_timing; do
+		t="${pt#*:}"
+		echo "$pt runner-sensitive tests (information only on CI, they gate locally):"
+		if (cd "$1" && cargo test -q -p "${pt%%:*}" --test "$t") >"$log.$t" 2>&1; then
 			grep '^test result' "$log.$t"
 		else
 			grep -E '^test result|^test .* FAILED' "$log.$t"
-			echo "::warning::$t real-time tests failed on this runner (information only)"
+			echo "::warning::$pt runner-sensitive tests failed on this runner (information only)"
 		fi
 		rm -f "$log.$t"
 	done
@@ -88,7 +90,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-[ -z "$ci_skips" ] || echo "  [runner] crates/slot/tests/{emu,audio,snes_ff,snes_rewind}.rs (real-time tests, run apart as information on CI only)"
+[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, snes_ff, snes_rewind and slot-gfx tests pipeline (runner-sensitive, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
