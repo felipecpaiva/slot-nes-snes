@@ -196,4 +196,11 @@ collection into `crates/slot-gfx/src/pipeline/retro.rs`. Their attributions ship
   and as a comment in the GLSL source.
 - crt-1tap v1.4 (fishku, GLSL port by DariusG). CC0.
 
+Patch `0022-retro-line-pixel` adds two more in the same file:
+
+- Pixel: pixellate (Fes, 2011-2012). ISC style permissive licence. Its full notice is kept in the
+  licence file and as a comment in the GLSL source.
+- Line: this project's own code. It reimplements the idea of MinUI's Line screen effect; no MinUI
+  or NextUI code or images are used (MinUI has no licence, NextUI is PolyForm Noncommercial 1.0.0).
+
 Each licence permits combining with slot under GPL-3.0-or-later.
