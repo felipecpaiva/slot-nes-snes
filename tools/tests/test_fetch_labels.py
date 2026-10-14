@@ -134,12 +134,12 @@ class NesSnes(Base):
         h.prefix = {}
         return h
 
-    def run_ss(self, system, dat_routes, ss_user, jeu, args, media=(200, PNG, None)):
+    def run_ss(self, system, dat_routes, ss_user, jeu, args, media=(200, PNG, None), env=SS_ENV):
         h = self.ss_http(dat_routes)
         h.prefix = {fl.SS_API + "ssuserInfos.php": (200, json.dumps(ss_user).encode(), None),
                     fl.SS_API + "jeuInfos.php": jeu,
                     "https://x.test/": media}
-        ctx = fl.Ctx(http=h, env=dict(SS_ENV, SLOT_LABELS_CACHE=os.path.join(self.tmp, "cache")), sleep=lambda s: None)
+        ctx = fl.Ctx(http=h, env=dict(env, SLOT_LABELS_CACHE=os.path.join(self.tmp, "cache")), sleep=lambda s: None)
         with contextlib.redirect_stdout(io.StringIO()) as out:
             stats = fl.main(args, ctx)
         self.out, self.http = out.getvalue(), h
@@ -153,6 +153,16 @@ class NesSnes(Base):
         self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
         self.assertEqual(self.label("NES", "My Game"), PNG)
         self.assertIn("renamed?", self.out)
+
+    def test_a_developer_only_login_never_asks_for_member_limits(self):
+        body = b"d" * 64
+        self.rom("NES", "D.nes", body)
+        r = self.dat("NES", ("D (USA)", crc(body)))
+        dev_only = {"SS_DEVID": "d", "SS_DEVPASSWORD": "p"}
+        stats = self.run_ss("NES", r, {}, (200, json.dumps(JEU).encode(), None),
+                            ["--card", self.card, "--only", "NES"], env=dev_only)
+        self.assertEqual((stats["written"], stats["errors"]), (1, 0))
+        self.assertFalse(any("ssuserInfos" in c for c in self.http.calls))
 
     def test_nes_whole_file_crc_wins_when_the_dat_has_the_header(self):
         data = INES + b"x" * 64

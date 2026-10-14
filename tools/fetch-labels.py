@@ -220,6 +220,8 @@ class ScreenScraper:
     def begin(self):
         """Read the account's own limits once, as the API's documentation asks of a client."""
         self.started = True
+        if "ssid" not in self.auth:
+            return  # ssuserInfos.php needs a member login; a developer-only login keeps the default pace
         user = ((self.call("ssuserInfos.php") or {}).get("response", {}).get("ssuser") or {})
         num = lambda *ks: next((int(str(user[k]).strip()) for k in ks if str(user.get(k, "")).strip().isdigit()), None)
         per_day, per_min = num("maxrequestsperday"), num("maxrequestspermin")
