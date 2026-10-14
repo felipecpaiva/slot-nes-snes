@@ -48,8 +48,9 @@ the patch set looks the way it does.
 | [0029](0029-manual-bilinear-sampling.md) | Sample bilinearly by hand in the shaders that expect linear filtering | Accepted | 2026-10-13 |
 | [0030](0030-keep-alsa-open-while-fed.md) | Keep the ALSA device open while a game feeds the ring | Accepted | 2026-10-13 |
 | [0031](0031-warm-retro-shaders-at-boot.md) | Build and warm the retro shader program at start-up | Accepted | 2026-10-13 |
-| [0032](0032-cart-studio-credited-fork.md) | Bring NES and SNES labels to Cart Studio as a credited fork, published once ScreenScraper art is available | Accepted | 2026-10-13 |
+| [0032](0032-cart-studio-credited-fork.md) | Bring NES and SNES labels to Cart Studio as a credited fork, published once ScreenScraper art is available | Amended by 0037 | 2026-10-13 |
 | [0033](0033-keep-upstream-lid-timeout.md) | Keep upstream's lid behaviour: doze, then power off after 3 minutes | Accepted | 2026-10-13 |
 | [0034](0034-durability-shader-lines.md) | Allow the two shader lines in durability.rs's SlotState literal (named test site f) | Accepted | 2026-10-13 |
 | [0035](0035-runner-sensitive-tests-info-on-ci.md) | Run runner-sensitive test binaries as information only on CI | Accepted | 2026-10-13 |
 | [0036](0036-line-pixel-sharp-scanlines.md) | Add Line and Pixel and make Scanlines sharp | Accepted | 2026-10-14 |
+| [0037](0037-public-nes-snes-art-set.md) | Host the NES and SNES label art in a public art repo of our own | Accepted | 2026-10-14 |

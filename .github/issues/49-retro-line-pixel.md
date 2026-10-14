@@ -38,6 +38,6 @@ Each new test was seen red with its line broken: Scanlines back to nearest, Line
 - [x] On the RG34XXSP Line and Pixel build and add no measurable per-frame cost (`task perf:play`, one run per new mode against Off).
 
 ## Device check (RG34XXSP)
-- [ ] In an NES and an SNES game, Quick menu, Screen, shader row: cycle Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel.
-- [ ] Line: dark rows even and evenly spaced at Stretch and Actual, one dark row on top of each NES line at 2x.
-- [ ] Scanlines no longer shimmers when the picture scrolls sideways at Stretch.
+- [x] In an NES and an SNES game, Quick menu, Screen, shader row: cycle Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel.
+- [x] Line: dark rows even and evenly spaced at Stretch and Actual, one dark row on top of each NES line at 2x.
+- [x] Scanlines no longer shimmers when the picture scrolls sideways at Stretch.

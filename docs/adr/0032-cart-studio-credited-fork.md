@@ -1,6 +1,6 @@
 # 0032. Bring NES and SNES labels to Cart Studio as a credited fork, published once ScreenScraper art is available
 
-- Status: Accepted
+- Status: Accepted (amended by [0037](0037-public-nes-snes-art-set.md))
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 40](../../.github/issues/40-cart-studio-nes-snes.md), [issue 41](../../.github/issues/41-label-fetcher-cli.md), [ADR 0014](0014-real-label-art.md)

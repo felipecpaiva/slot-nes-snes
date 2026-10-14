@@ -42,3 +42,4 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-13 | [0034](adr/0034-durability-shader-lines.md) | Named upstream test site (f): the two shader lines in durability.rs's SlotState literal |
 | 2026-10-13 | [0035](adr/0035-runner-sensitive-tests-info-on-ci.md) | Runner-sensitive test binaries run as information only on CI, gate locally |
 | 2026-10-14 | [0036](adr/0036-line-pixel-sharp-scanlines.md) | NES and SNES get Line (panel-locked scanline) and Pixel (pixellate) after crt-1tap; Scanlines samples Sharp |
+| 2026-10-14 | [0037](adr/0037-public-nes-snes-art-set.md) | NES/SNES label art hosted in its own public repo (CC BY-NC-SA 4.0), code repos stay art-free |
