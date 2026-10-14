@@ -35,7 +35,7 @@ Each new test was seen red with its line broken: Scanlines back to nearest, Line
 ## Acceptance
 - [x] task check green, harness compare 0 diffs (GBA, GB, GBC byte-identical).
 - [x] Zero new upstream touch points (`task diffsurface` unchanged).
-- [ ] On the RG34XXSP Line and Pixel build and add no measurable per-frame cost (`task perf:play`, one run per new mode against Off).
+- [x] On the RG34XXSP Line and Pixel build and add no measurable per-frame cost (`task perf:play`, one run per new mode against Off).
 
 ## Device check (RG34XXSP)
 - [ ] In an NES and an SNES game, Quick menu, Screen, shader row: cycle Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel.

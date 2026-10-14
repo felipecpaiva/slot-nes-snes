@@ -158,3 +158,13 @@ with Off and crt-pi.
 - Boot cost: building the retro program at start-up made `boot: compositor` take about 306 ms
   against 172 ms before patch 0020 (every play log since), and the warm-up adds about 15-25 ms
   more. Kept at boot by maintainer choice over building it at the first NES/SNES insert.
+
+2026-10-14 Line, Pixel and sharp Scanlines run (patches to 0022, 2 minutes per mode, logs in
+`docs/perf/2026-10-14-line-pixel/`): Super Mario RPG with Line, Pixel and Scanlines, Battletoads
+with Line and Pixel.
+- All modes build on the Mali-G31. `boot: compositor` stays about 310 ms with six retro modes warmed.
+- Every run reads 0 dropped samples; 0 starved except the first Line run, whose start overlapped
+  slot caching 1564 new labels at boot (insert 28 s), which also explains its slow early windows.
+- After the first window, p99 matches the Off runs of 2026-10-13 for every mode (Super Mario RPG
+  17.3-19.3 ms, Battletoads 17.2-17.4 ms). Battletoads with Pixel shows one 92 ms present in its
+  first window, one run only.
