@@ -51,3 +51,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [46](46-retro-shaders.md) | Add Sharp, Scanlines, crt-pi and crt-1tap shaders for NES and SNES | 3 | video | feature | M | 21-shaders, 44-quick-menu-retro-shaders |
 | [47](47-audio-reopen.md) | Stop losing audio when slot reopens the ALSA device | 5 | device | fix | S | 39-cross-platform-performance |
 | [48](48-deferred-n64.md) | DEFERRED: Add N64 as a platform, after a device spike proves it | 6 | cores | chore | L | 32-phase-6-deferred |
+| [49](49-retro-line-pixel.md) | Add Line and Pixel shaders for NES and SNES and make Scanlines sharp | 3 | video | feature | S | 46-retro-shaders |

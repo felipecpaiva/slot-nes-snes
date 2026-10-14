@@ -1,0 +1,417 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 14 Oct 2026 14:11:27 +0400
+Subject: [PATCH] retro-line-pixel
+
+---
+ crates/slot-gfx/src/pipeline/retro.rs         | 54 +++++++++++-
+ crates/slot-gfx/tests/retro_pipeline.rs       | 83 ++++++++++++++++++-
+ crates/slot-store/src/retro_shader.rs         | 16 +++-
+ crates/slot-store/tests/retro_shader_state.rs |  8 +-
+ crates/slot-ui/tests/retro_faces.rs           |  6 +-
+ crates/slot/tests/nes_snes_shader.rs          |  4 +-
+ crates/slot/tests/quick_retro_shader.rs       | 10 +--
+ 7 files changed, 161 insertions(+), 20 deletions(-)
+
+diff --git a/crates/slot-gfx/src/pipeline/retro.rs b/crates/slot-gfx/src/pipeline/retro.rs
+index 27220e4..4178c4f 100644
+--- a/crates/slot-gfx/src/pipeline/retro.rs
++++ b/crates/slot-gfx/src/pipeline/retro.rs
+@@ -33,6 +33,7 @@ impl RetroProgram {
+             gl::UseProgram(prog);
+             gl::Uniform1i(at("u_game"), 0);
+             gl::Uniform2f(at("u_target"), OUT_W as f32, OUT_H as f32);
++            gl::Uniform1f(at("u_out_h"), OUT_H as f32);
+         }
+         warm(prog, at("u_rect"), at("u_src"));
+         Some(RetroProgram {
+@@ -80,8 +81,7 @@ fn warm(prog: gl::types::GLuint, u_rect: gl::types::GLint, u_src: gl::types::GLi
+             gl::ActiveTexture(gl::TEXTURE0);
+             gl::BindTexture(gl::TEXTURE_2D, tex);
+             let u_mode = crate::gl::uniform_location(prog, "u_mode");
+-            // the four branches of RETRO_FRAG
+-            for n in 0..4u8 {
++            for n in 0..RETRO_MODES {
+                 gl::Uniform1f(u_mode, n as f32);
+                 quad.draw();
+             }
+@@ -127,6 +127,9 @@ impl GamePass {
+     }
+ }
+ 
++// one mode per branch of main() in RETRO_FRAG, the place of each RetroShader in RetroShader::ALL
++const RETRO_MODES: u8 = 6;
++
+ const RETRO_FRAG: &str = r#"
+ #ifdef GL_FRAGMENT_PRECISION_HIGH
+ precision highp float;
+@@ -141,6 +144,7 @@ uniform vec2 u_fbo;
+ uniform vec4 u_pic;
+ uniform float u_bright;
+ uniform float u_mode;
++uniform float u_out_h;
+ varying vec2 v_uv;
+ 
+ vec3 tap(vec2 texel) {
+@@ -176,6 +180,46 @@ vec3 scanlines(vec2 uv, vec3 c) {
+     return c * abs(sin(angle) * 1.25);
+ }
+ 
++vec3 line(vec2 texel_per_px, vec3 c) {
++    float repeat = max(floor(1.0 / texel_per_px.y), 2.0);
++    float top = u_rect.y + (u_pic.y - u_uv.y) / u_uv.w * u_rect.w;
++    float row = floor((u_out_h - top) * u_fbo.y - gl_FragCoord.y);
++    return mod(row, repeat) < 0.5 ? c * 0.5 : c;
++}
++
++/*
++    Pixellate Shader
++    Copyright (c) 2011, 2012 Fes
++    Permission to use, copy, modify, and/or distribute this software for any
++    purpose with or without fee is hereby granted, provided that the above
++    copyright notice and this permission notice appear in all copies.
++    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
++    SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
++    IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++    (Fes gave their permission to have this shader distributed under this
++    licence in this forum post:
++        http://board.byuu.org/viewtopic.php?p=57295#p57295
++*/
++vec3 pixel(vec2 uv, vec2 texel_per_px) {
++    vec2 texel = uv * u_src;
++    vec2 range = texel_per_px * 0.5 * 0.999;
++    vec2 lo = texel - range;
++    vec2 hi = texel + range;
++    vec2 border = clamp(floor(texel + 0.5), lo, hi);
++    vec2 a = border - lo;
++    vec2 b = hi - border;
++    vec3 ll = tap(floor(lo) + 0.5);
++    vec3 hl = tap(vec2(floor(hi.x), floor(lo.y)) + 0.5);
++    vec3 lh = tap(vec2(floor(lo.x), floor(hi.y)) + 0.5);
++    vec3 hh = tap(floor(hi) + 0.5);
++    vec3 sum = a.x * a.y * ll * ll + b.x * a.y * hl * hl + a.x * b.y * lh * lh + b.x * b.y * hh * hh;
++    return sqrt(sum / ((a.x + b.x) * (a.y + b.y)));
++}
++
+ /*
+     crt-pi - A Raspberry Pi friendly CRT shader.
+ 
+@@ -243,12 +287,16 @@ void main() {
+     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
+     vec2 texel_per_px = u_uv.zw * u_src / (u_rect.zw * u_fbo);
+     if (!inside) {
++    } else if (u_mode > 4.5) {
++        c = pixel(uv, texel_per_px);
++    } else if (u_mode > 3.5) {
++        c = line(texel_per_px, sharp(uv, 1.0 / texel_per_px));
+     } else if (u_mode > 2.5) {
+         c = crt_1tap(uv, texel_per_px);
+     } else if (u_mode > 1.5) {
+         c = crt_pi(uv, texel_per_px);
+     } else if (u_mode > 0.5) {
+-        c = scanlines(uv, c);
++        c = scanlines(uv, sharp(uv, 1.0 / texel_per_px));
+     } else {
+         c = sharp(uv, 1.0 / texel_per_px);
+     }
+diff --git a/crates/slot-gfx/tests/retro_pipeline.rs b/crates/slot-gfx/tests/retro_pipeline.rs
+index 2f3387f..d4a0af9 100644
+--- a/crates/slot-gfx/tests/retro_pipeline.rs
++++ b/crates/slot-gfx/tests/retro_pipeline.rs
+@@ -5,11 +5,18 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
+ 
+ static GL: Mutex<()> = Mutex::new(());
+ 
+-const RETRO: [ScreenEffect; 4] = [
++const SHARP: ScreenEffect = ScreenEffect::Retro(0);
++const SCANLINES: ScreenEffect = ScreenEffect::Retro(1);
++const LINE: ScreenEffect = ScreenEffect::Retro(4);
++const PIXEL: ScreenEffect = ScreenEffect::Retro(5);
++
++const RETRO: [ScreenEffect; 6] = [
+     ScreenEffect::Retro(0),
+     ScreenEffect::Retro(1),
+     ScreenEffect::Retro(2),
+     ScreenEffect::Retro(3),
++    ScreenEffect::Retro(4),
++    ScreenEffect::Retro(5),
+ ];
+ 
+ fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
+@@ -30,15 +37,38 @@ fn source(w: usize, h: usize) -> Vec<u8> {
+ }
+ 
+ fn drawn(c: &mut Compositor, effect: ScreenEffect, w: u32, h: u32) -> Vec<u8> {
++    drawn_from(c, effect, w, h, &source(w as usize, h as usize))
++}
++
++fn drawn_from(c: &mut Compositor, effect: ScreenEffect, w: u32, h: u32, src: &[u8]) -> Vec<u8> {
+     c.set_game_canvas(w, h);
+     c.set_screen_effect(effect);
+     c.set_screen_power(1.0);
+     c.begin_frame();
+-    c.upload_game(&source(w as usize, h as usize));
++    c.upload_game(src);
+     c.draw_game();
+     c.read_frame()
+ }
+ 
++fn grey(w: u32, h: u32) -> Vec<u8> {
++    vec![200; w as usize * h as usize * 4]
++}
++
++fn bars(w: u32, h: u32) -> Vec<u8> {
++    let mut buf = Vec::with_capacity(w as usize * h as usize * 4);
++    for _ in 0..h {
++        for x in 0..w {
++            let v = if x % 2 == 0 { 0 } else { 200 };
++            buf.extend_from_slice(&[v, v, v, 0]);
++        }
++    }
++    buf
++}
++
++fn column(frame: &[u8], x: usize) -> Vec<u8> {
++    frame.chunks_exact(720 * 4).map(|row| row[x * 4]).collect()
++}
++
+ #[test]
+ fn every_retro_shader_changes_a_stretched_nes_frame_and_draws_it_the_same_twice() {
+     let Some((_g, _s, mut c)) = compositor() else {
+@@ -64,10 +94,57 @@ fn sharp_leaves_a_whole_2x_frame_exactly_as_off_draws_it() {
+         return;
+     };
+     let off = drawn(&mut c, ScreenEffect::None, 360, 240);
+-    let sharp = drawn(&mut c, ScreenEffect::Retro(0), 360, 240);
++    let sharp = drawn(&mut c, SHARP, 360, 240);
+     assert_eq!(off, sharp);
+ }
+ 
++#[test]
++fn pixel_leaves_a_whole_2x_frame_exactly_as_off_draws_it() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let off = drawn(&mut c, ScreenEffect::None, 360, 240);
++    let pixel = drawn(&mut c, PIXEL, 360, 240);
++    assert_eq!(off, pixel);
++}
++
++#[test]
++fn line_halves_the_top_panel_row_of_every_repeat() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    for (w, h, repeat) in [(360, 240, 2), (256, 224, 2), (240, 160, 3)] {
++        let frame = drawn_from(&mut c, LINE, w, h, &grey(w, h));
++        let want: Vec<u8> = (0..480)
++            .map(|y| if y % repeat == 0 { 100 } else { 200 })
++            .collect();
++        assert_eq!(column(&frame, 360), want, "{w}x{h}");
++    }
++}
++
++#[test]
++fn scanlines_samples_the_sharp_picture_at_nes_stretch() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let bright = |frame: &[u8], y: usize| {
++        let mut seen: Vec<u8> = frame[y * 720 * 4..(y + 1) * 720 * 4]
++            .chunks_exact(4)
++            .map(|p| p[0])
++            .collect();
++        seen.sort_unstable();
++        seen.dedup();
++        seen
++    };
++    let off = drawn_from(&mut c, ScreenEffect::None, 256, 240, &bars(256, 240));
++    let scan = drawn_from(&mut c, SCANLINES, 256, 240, &bars(256, 240));
++    let y = (0..480)
++        .max_by_key(|&y| bright(&scan, y).last().copied())
++        .unwrap();
++    assert_eq!(bright(&off, y), [0, 200]);
++    assert!(bright(&scan, y).len() > 2, "{:?}", bright(&scan, y));
++}
++
+ #[test]
+ fn the_upstream_effects_keep_their_shader_modes() {
+     assert_eq!(
+diff --git a/crates/slot-store/src/retro_shader.rs b/crates/slot-store/src/retro_shader.rs
+index 33db154..87acdc4 100644
+--- a/crates/slot-store/src/retro_shader.rs
++++ b/crates/slot-store/src/retro_shader.rs
+@@ -6,14 +6,18 @@ pub enum RetroShader {
+     Scanlines,
+     CrtPi,
+     Crt1Tap,
++    Line,
++    Pixel,
+ }
+ 
+ impl RetroShader {
+-    pub const ALL: [RetroShader; 4] = [
++    pub const ALL: [RetroShader; 6] = [
+         RetroShader::Sharp,
+         RetroShader::Scanlines,
+         RetroShader::CrtPi,
+         RetroShader::Crt1Tap,
++        RetroShader::Line,
++        RetroShader::Pixel,
+     ];
+ 
+     pub fn index(self) -> usize {
+@@ -26,6 +30,8 @@ impl RetroShader {
+             RetroShader::Scanlines => "scanlines",
+             RetroShader::CrtPi => "crt-pi",
+             RetroShader::Crt1Tap => "crt-1tap",
++            RetroShader::Line => "line",
++            RetroShader::Pixel => "pixel",
+         }
+     }
+ 
+@@ -35,6 +41,8 @@ impl RetroShader {
+             RetroShader::Scanlines => "Scanlines",
+             RetroShader::CrtPi => "crt-pi",
+             RetroShader::Crt1Tap => "crt-1tap",
++            RetroShader::Line => "Line",
++            RetroShader::Pixel => "Pixel",
+         }
+     }
+ 
+@@ -44,6 +52,8 @@ impl RetroShader {
+             RetroShader::Scanlines => "Shader: Scanlines",
+             RetroShader::CrtPi => "Shader: crt-pi",
+             RetroShader::Crt1Tap => "Shader: crt-1tap",
++            RetroShader::Line => "Shader: Line",
++            RetroShader::Pixel => "Shader: Pixel",
+         }
+     }
+ 
+@@ -53,7 +63,7 @@ impl RetroShader {
+ }
+ 
+ impl Shader {
+-    pub const RETRO: [Shader; 7] = [
++    pub const RETRO: [Shader; 9] = [
+         Shader::Off,
+         Shader::Grid,
+         Shader::Dot,
+@@ -61,5 +71,7 @@ impl Shader {
+         Shader::Retro(RetroShader::Scanlines),
+         Shader::Retro(RetroShader::CrtPi),
+         Shader::Retro(RetroShader::Crt1Tap),
++        Shader::Retro(RetroShader::Line),
++        Shader::Retro(RetroShader::Pixel),
+     ];
+ }
+diff --git a/crates/slot-store/tests/retro_shader_state.rs b/crates/slot-store/tests/retro_shader_state.rs
+index 3000082..767c276 100644
+--- a/crates/slot-store/tests/retro_shader_state.rs
++++ b/crates/slot-store/tests/retro_shader_state.rs
+@@ -23,7 +23,7 @@ fn base() -> SlotState {
+ }
+ 
+ #[test]
+-fn the_retro_list_keeps_off_grid_dot_first_and_appends_the_four_new_shaders() {
++fn the_retro_list_keeps_off_grid_dot_first_and_appends_the_six_new_shaders() {
+     assert_eq!(
+         Shader::RETRO.map(Shader::name),
+         [
+@@ -33,12 +33,14 @@ fn the_retro_list_keeps_off_grid_dot_first_and_appends_the_four_new_shaders() {
+             "sharp",
+             "scanlines",
+             "crt-pi",
+-            "crt-1tap"
++            "crt-1tap",
++            "line",
++            "pixel"
+         ]
+     );
+     assert_eq!(
+         RetroShader::ALL.map(RetroShader::label),
+-        ["Sharp", "Scanlines", "crt-pi", "crt-1tap"]
++        ["Sharp", "Scanlines", "crt-pi", "crt-1tap", "Line", "Pixel"]
+     );
+     for (i, s) in RetroShader::ALL.into_iter().enumerate() {
+         assert_eq!(s.index(), i, "{s:?}");
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index 43ac034..edf4a4d 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -14,7 +14,7 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+     }
+     assert_eq!(
+         RetroShader::ALL.map(|s| QuickValue::Retro(s).text()),
+-        ["Sharp", "Scanlines", "crt-pi", "crt-1tap"]
++        ["Sharp", "Scanlines", "crt-pi", "crt-1tap", "Line", "Pixel"]
+     );
+ }
+ 
+@@ -33,7 +33,9 @@ fn the_toasts_upload_upstream_banners_then_one_per_retro_shader() {
+             "Shader: Sharp",
+             "Shader: Scanlines",
+             "Shader: crt-pi",
+-            "Shader: crt-1tap"
++            "Shader: crt-1tap",
++            "Shader: Line",
++            "Shader: Pixel"
+         ]
+     );
+     for s in RetroShader::ALL {
+diff --git a/crates/slot/tests/nes_snes_shader.rs b/crates/slot/tests/nes_snes_shader.rs
+index fcb3715..a2b7629 100644
+--- a/crates/slot/tests/nes_snes_shader.rs
++++ b/crates/slot/tests/nes_snes_shader.rs
+@@ -48,6 +48,8 @@ fn cycle(platform: Platform, pick: fn(&SlotState) -> Shader) {
+             Shader::Retro(RetroShader::Scanlines),
+             Shader::Retro(RetroShader::CrtPi),
+             Shader::Retro(RetroShader::Crt1Tap),
++            Shader::Retro(RetroShader::Line),
++            Shader::Retro(RetroShader::Pixel),
+             Shader::Off,
+         ]
+     );
+@@ -55,7 +57,7 @@ fn cycle(platform: Platform, pick: fn(&SlotState) -> Shader) {
+     session.app().flush_state();
+     assert_eq!(
+         pick(&read_slot_state(root.path())),
+-        Shader::Retro(RetroShader::Crt1Tap)
++        Shader::Retro(RetroShader::Pixel)
+     );
+     assert_eq!(
+         ever & (ButtonMask::A | ButtonMask::B),
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index 1184aa8..b10c1a0 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -89,6 +89,8 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+                 Shader::Retro(RetroShader::Scanlines),
+                 Shader::Retro(RetroShader::CrtPi),
+                 Shader::Retro(RetroShader::Crt1Tap),
++                Shader::Retro(RetroShader::Line),
++                Shader::Retro(RetroShader::Pixel),
+                 Shader::Off,
+             ],
+             "{platform:?}"
+@@ -96,14 +98,10 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+         press(&mut app, Btn::Left);
+         app.flush_state();
+         let st = read_slot_state(root.path());
+-        assert_eq!(
+-            pick(&st),
+-            Shader::Retro(RetroShader::Crt1Tap),
+-            "{platform:?}"
+-        );
++        assert_eq!(pick(&st), Shader::Retro(RetroShader::Pixel), "{platform:?}");
+         assert_eq!(
+             app.quick_value(row),
+-            Some(QuickValue::Retro(RetroShader::Crt1Tap)),
++            Some(QuickValue::Retro(RetroShader::Pixel)),
+             "{platform:?}"
+         );
+         assert_eq!(st.shader_gba, SlotState::default().shader_gba);

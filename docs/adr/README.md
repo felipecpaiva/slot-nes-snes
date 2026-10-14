@@ -52,3 +52,4 @@ the patch set looks the way it does.
 | [0033](0033-keep-upstream-lid-timeout.md) | Keep upstream's lid behaviour: doze, then power off after 3 minutes | Accepted | 2026-10-13 |
 | [0034](0034-durability-shader-lines.md) | Allow the two shader lines in durability.rs's SlotState literal (named test site f) | Accepted | 2026-10-13 |
 | [0035](0035-runner-sensitive-tests-info-on-ci.md) | Run runner-sensitive test binaries as information only on CI | Accepted | 2026-10-13 |
+| [0036](0036-line-pixel-sharp-scanlines.md) | Add Line and Pixel and make Scanlines sharp | Accepted | 2026-10-14 |

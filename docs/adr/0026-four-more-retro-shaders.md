@@ -1,6 +1,6 @@
 # 0026. Add Sharp, Scanlines, crt-pi and crt-1tap for NES and SNES
 
-- Status: Accepted
+- Status: Accepted, amended by [0036](0036-line-pixel-sharp-scanlines.md)
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
 - Related: [retro-shaders.md](../research/retro-shaders.md), [patch 0020](../../patches/0020-retro-shaders.patch)
