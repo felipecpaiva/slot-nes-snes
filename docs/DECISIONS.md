@@ -59,3 +59,4 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-15 | [0051](adr/0051-sega-shaders-outside-slot-state.md) | GG, SMS and MD shaders live in their own Config/ file; SlotState and test site (f) unchanged |
 | 2026-10-15 | [0052](adr/0052-md-stretch-follows-frame-width.md) | MD Stretch uses the last frame width (320 or 256); MD defaults to Stretch |
 | 2026-10-15 | [0053](adr/0053-genesis-plus-gx-for-sega.md) | Genesis Plus GX is the single core for GG, SMS and MD, one platform each, no picker yet; MD go is provisional on the heavy-title device gate |
+| 2026-10-16 | [0054](adr/0054-bitmap-retro-carts.md) | NES, Famicom, SNES and SFC carts are generated 50% grey bitmaps (lighting measured from gba_neutral.png) coloured with upstream's Overlay |

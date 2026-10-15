@@ -1,6 +1,6 @@
 # 0042. Draw NES and SNES carts with our own procedural renderer on v1.7.0
 
-- Status: Accepted. Amends [0006](0006-real-cart-art-with-variants.md)
+- Status: Accepted. Amends [0006](0006-real-cart-art-with-variants.md). Amended by [0054](0054-bitmap-retro-carts.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0038](0038-rebase-to-slot-v1-7-0.md), [patch 0012](../../patches/0012-cart-art.patch), [patch 0020](../../patches/0020-label-top.patch)

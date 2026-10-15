@@ -22,7 +22,6 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/src/scan.rs` | 3 | 10 (+8/-2) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes |
 | `crates/slot-store/src/slot_state.rs` | 13 | 28 (+24/-4) | 0002-platform-nes, 0014-shaders, 0017-retro-shaders, 0021-shelf-cart-memory |
 | `crates/slot-store/tests/durability.rs` | 2 | 4 (+3/-1) | 0002-platform-nes, 0014-shaders |
-| `crates/slot-ui/examples/lettering.rs` | 1 | 8 (+8/-0) | 0012-cart-art |
 | `crates/slot-ui/src/art.rs` | 1 | 2 (+1/-1) | 0020-label-top |
 | `crates/slot-ui/src/board.rs` | 3 | 8 (+6/-2) | 0012-cart-art |
 | `crates/slot-ui/src/cart.rs` | 11 | 40 (+37/-3) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0020-label-top |
@@ -145,7 +144,6 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/src/slot_state.rs` | crates/slot-store/src/slot_state.rs#fn platform_value(value: &str) -> Option<Platform> {#1 | 605 | +1/-1 | fn platform_value(value: &str) -> Option<Platform> { | Parses the platform from the shelves list that includes NES and SNES |
 | `crates/slot-store/tests/durability.rs` | crates/slot-store/tests/durability.rs#fn a_card_from_before_the_settings_keeps_all_its_values() {#1 | 208 | +2/-0 | fn a_card_from_before_the_settings_keeps_all_its_values() { | Updates the slot state fixture with the new NES and SNES shader fields |
 | `crates/slot-store/tests/durability.rs` | crates/slot-store/tests/durability.rs#fn an_unreadable_platform_reads_as_a_card_that_never_said() {#1 | 429 | +1/-1 | fn an_unreadable_platform_reads_as_a_card_that_never_said() { | Uses pce as the unreadable platform since nes is now valid |
-| `crates/slot-ui/examples/lettering.rs` | crates/slot-ui/examples/lettering.rs#fn main() {#1 | 247 | +8/-0 | fn main() { | Writes lettering art for the NES and SNES cart boxes |
 | `crates/slot-ui/src/art.rs` | crates/slot-ui/src/art.rs#pub fn cover_bytes(bytes: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {#1 | 13 | +1/-1 | pub fn cover_bytes(bytes: &[u8], w: u32, h: u32) -> Option<Vec<u8>> { | Lets retro_cart::label_cover reuse upstream's box filter on the top rows of a NES or SNES scan (issue 41); upstream callers still go through cover and cover_bytes |
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#use crate::cart::{clean_label, CartFace, CART_H, CART_W};#1 | 5 | +1/-0 | use crate::cart::{clean_label, CartFace, CART_H, CART_W}; | Imports the lid fit helper for platform-sized lids |
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#const CHIP_INK: [u8; 3] = [0xf2, 0xf2, 0xf2];#1 | 169 | +1/-1 | const CHIP_INK: [u8; 3] = [0xf2, 0xf2, 0xf2]; | Makes lid_rest crate-visible so lid_fit can fit the resting lid to a NES or SNES cart's aspect |

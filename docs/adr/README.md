@@ -58,7 +58,7 @@ the patch set looks the way it does.
 | [0039](0039-upstream-shelf-memory.md) | Use upstream's shelf memory and drop Config/shelf.state | Accepted. Supersedes 0025. Amended by 0049 | 2026-10-15 |
 | [0040](0040-drop-lazy-shelf.md) | Drop lazy-shelf: upstream looks up shells lazily | Accepted | 2026-10-15 |
 | [0041](0041-drop-audio-release-pace.md) | Drop audio-release-pace: upstream paces the released device | Accepted | 2026-10-15 |
-| [0042](0042-retro-carts-own-renderer.md) | Draw NES and SNES carts with our own procedural renderer on v1.7.0 | Accepted. Amends 0006 | 2026-10-15 |
+| [0042](0042-retro-carts-own-renderer.md) | Draw NES and SNES carts with our own procedural renderer on v1.7.0 | Accepted. Amends 0006. Amended by 0054 | 2026-10-15 |
 | [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) | Fit the NES and SNES shader rows into v1.7.0's per-platform menus | Accepted. Amends 0023. Amended by 0048 | 2026-10-15 |
 | [0044](0044-test-site-c-gone.md) | Retire named test site (c): upstream deleted label_top | Accepted. Amends 0013 | 2026-10-15 |
 | [0045](0045-layout-hash-tests-in-both-trees.md) | Run upstream's layout frame-hash tests in both trees | Accepted. Amends 0035 | 2026-10-15 |
@@ -70,3 +70,4 @@ the patch set looks the way it does.
 | [0051](0051-sega-shaders-outside-slot-state.md) | Store the Sega shader settings in their own file, outside slot.state | Accepted | 2026-10-15 |
 | [0052](0052-md-stretch-follows-frame-width.md) | Make Mega Drive Stretch follow the live frame width | Accepted. Amends 0046 | 2026-10-15 |
 | [0053](0053-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |
+| [0054](0054-bitmap-retro-carts.md) | Draw NES and SNES carts from generated neutral bitmaps with upstream's Overlay | Accepted. Amends 0042 | 2026-10-16 |
