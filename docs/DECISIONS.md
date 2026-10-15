@@ -43,3 +43,12 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-13 | [0035](adr/0035-runner-sensitive-tests-info-on-ci.md) | Runner-sensitive test binaries run as information only on CI, gate locally |
 | 2026-10-14 | [0036](adr/0036-line-pixel-sharp-scanlines.md) | NES and SNES get Line (panel-locked scanline) and Pixel (pixellate) after crt-1tap; Scanlines samples Sharp |
 | 2026-10-14 | [0037](adr/0037-public-nes-snes-art-set.md) | NES/SNES label art hosted in its own public repo (CC BY-NC-SA 4.0), code repos stay art-free |
+| 2026-10-15 | [0038](adr/0038-rebase-to-slot-v1-7-0.md) | Patch set rebased onto slot v1.7.0: 23 patches become 20 (3 dropped, 3 reshaped) |
+| 2026-10-15 | [0039](adr/0039-upstream-shelf-memory.md) | Shelf memory comes from upstream #53 (slot.state shelf and shelf_cart); Config/shelf.state is gone (supersedes 0025) |
+| 2026-10-15 | [0040](adr/0040-drop-lazy-shelf.md) | lazy-shelf dropped: v1.7.0 Shelf::new is lazy and gb_shell_of reads a cached header |
+| 2026-10-15 | [0041](adr/0041-drop-audio-release-pace.md) | audio-release-pace dropped: v1.7.0 Pacer sleeps to absolute deadlines while released |
+| 2026-10-15 | [0042](adr/0042-retro-carts-own-renderer.md) | NES and SNES carts keep their procedural look in retro_face.rs and retro_mould.rs; no GBA interior or board behind them |
+| 2026-10-15 | [0043](adr/0043-retro-shader-rows-on-v1-7-0-menus.md) | In game, Shader follows the NES or SNES cart; on the NES or SNES shelf, Screen opens that shader page; Color Correction and Palette hidden |
+| 2026-10-15 | [0044](adr/0044-test-site-c-gone.md) | Named upstream test site (c) retired: render_shelves.rs lost label_top upstream |
+| 2026-10-15 | [0045](adr/0045-layout-hash-tests-in-both-trees.md) | slot-gfx layout.rs runs in both trees and gates on no new failure (two hash tests fail on upstream here) |
+| 2026-10-15 | [0046](adr/0046-retro-stretch-crops-height.md) | Stretch: GBA, GB, GBC take upstream's widen-only rect; NES and SNES crop both axes |

@@ -13,6 +13,8 @@ slot's own releases.
 
 ## What it does
 
+The pinned base is slot v1.7.0 (`SLOT_PIN`, rebased from v1.6.0 on 2026-10-15, ADR 0038).
+
 slot keeps GBA, GB and GBC on their own shelves, each with its own cores and settings. This patch
 set adds two more shelves the same way:
 
@@ -30,7 +32,10 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
 
 - **SNES picture mode is SELECT+X.** L and R are game buttons on SNES, so slot's L/R picture toggle does not apply. NES keeps L1 for Stretch and R1 for Actual. NES and SNES default to Stretch.
 - SNES hi-res frames (512 wide, a few titles) are blended 2:1 and lose detail.
-- No colour correction on NES and SNES. SELECT+Y on the shelf after a NES or SNES game is ignored until a GBA game has run; the quick menu still toggles it.
+- No colour correction on NES and SNES: SELECT+Y does nothing there and the in-game Screen page hides the Color Correction and Palette rows.
+- NES and SNES carts keep their own procedural look (ns.0 style), not slot v1.7.0's bitmap carts; the light and dark themes change only the chrome around them.
+- The NES and SNES shaders live on the NES or SNES shelf's Screen page and the in-game Screen page, not in the platform list the other shelves open.
+- slot remembers the shelf and its cart at power off and restart (upstream's memory); the other shelves do not keep their own cart.
 - The Turbo quick-menu row does nothing on SNES.
 - PAL (50 Hz) titles run about 20% fast.
 - Settings keyed only by file name collide if the same name exists on two systems.

@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [issue 47](../../.github/issues/47-audio-reopen.md), [patch 0021](../../patches/0021-audio-reopen.patch), [DEVICE-GATE.md](../DEVICE-GATE.md)
+- Related: [issue 47](../../.github/issues/47-audio-reopen.md), [patch 0018](../../patches/0018-audio-reopen.patch), [DEVICE-GATE.md](../DEVICE-GATE.md)
 
 ## Context
 

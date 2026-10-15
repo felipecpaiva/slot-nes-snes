@@ -5,15 +5,15 @@ Subject: [PATCH] quick-menu-retro-shaders
 
 ---
  crates/slot-ui/src/lib.rs               |   1 +
- crates/slot-ui/src/quick_menu.rs        |  14 ++-
- crates/slot-ui/src/quick_retro.rs       |  18 ++++
- crates/slot-ui/tests/quick_retro.rs     |  34 +++++++
- crates/slot/src/app.rs                  |   7 +-
+ crates/slot-ui/src/quick_menu.rs        |  11 +-
+ crates/slot-ui/src/quick_retro.rs       |  18 +++
+ crates/slot-ui/tests/quick_retro.rs     |  36 ++++++
+ crates/slot/src/app.rs                  |  26 ++++-
  crates/slot/src/lib.rs                  |   1 +
- crates/slot/src/retro_quick.rs          |  11 ++
- crates/slot/tests/quick_retro_shader.rs | 127 ++++++++++++++++++++++++
- crates/slot/tests/render_quick_retro.rs |  95 ++++++++++++++++++
- 9 files changed, 305 insertions(+), 3 deletions(-)
+ crates/slot/src/retro_quick.rs          |  40 +++++++
+ crates/slot/tests/quick_retro_shader.rs | 145 ++++++++++++++++++++++++
+ crates/slot/tests/render_quick_retro.rs | 103 +++++++++++++++++
+ 9 files changed, 374 insertions(+), 7 deletions(-)
  create mode 100644 crates/slot-ui/src/quick_retro.rs
  create mode 100644 crates/slot-ui/tests/quick_retro.rs
  create mode 100644 crates/slot/src/retro_quick.rs
@@ -21,10 +21,10 @@ Subject: [PATCH] quick-menu-retro-shaders
  create mode 100644 crates/slot/tests/render_quick_retro.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 3e69316..72f307e 100644
+index f0cd6dc..55f3824 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -16,6 +16,7 @@ mod plate;
+@@ -21,6 +21,7 @@ mod plate;
  mod polaroids;
  mod power_menu;
  mod quick_menu;
@@ -33,56 +33,53 @@ index 3e69316..72f307e 100644
  mod refusal;
  mod retro_cart;
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index aa05e80..6da9678 100644
+index 9b9ef7d..30dab9c 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -20,10 +20,12 @@ pub enum QuickRow {
-     Turbo,
-     Rewind,
-     GbPalettes,
+@@ -46,10 +46,12 @@ pub enum QuickRow {
+     GbaBezel,
+     ScreenGbc,
+     ScreenGb,
 +    NesShader,
 +    SnesShader,
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 14] = [
-+    pub const ALL: [QuickRow; 16] = [
+-    pub const ALL: [QuickRow; 40] = [
++    pub const ALL: [QuickRow; 42] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -38,6 +40,8 @@ impl QuickRow {
-         QuickRow::Turbo,
-         QuickRow::Rewind,
-         QuickRow::GbPalettes,
+@@ -90,6 +92,8 @@ impl QuickRow {
+         QuickRow::GbaBezel,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
 +        QuickRow::NesShader,
 +        QuickRow::SnesShader,
      ];
  
      pub const MAIN: [QuickRow; 4] = [
-@@ -73,6 +77,8 @@ impl QuickRow {
-             | QuickRow::GbShader
-             | QuickRow::ColourCorrection
-             | QuickRow::GbPalettes => &QuickRow::SCREEN,
+@@ -193,6 +197,8 @@ impl QuickRow {
+             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
+                 &QuickRow::PLAY_SCREEN
+             }
 +            QuickRow::NesShader => &QuickRow::NES_SCREEN,
 +            QuickRow::SnesShader => &QuickRow::SNES_SCREEN,
-             QuickRow::FastForward
-             | QuickRow::FastForwardSound
-             | QuickRow::Rewind
-@@ -85,7 +91,9 @@ impl QuickRow {
- 
-     pub fn parent(self) -> Option<QuickRow> {
-         match self.page()[0] {
--            QuickRow::GbaShader => Some(QuickRow::Screen),
-+            QuickRow::GbaShader | QuickRow::NesShader | QuickRow::SnesShader => {
-+                Some(QuickRow::Screen)
-+            }
-             QuickRow::FastForward => Some(QuickRow::Game),
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -207,6 +213,7 @@ impl QuickRow {
+             QuickRow::Wallpaper => Some(QuickRow::General),
+             QuickRow::PlayScreen => Some(QuickRow::Settings),
+             QuickRow::Shader => Some(QuickRow::PlayScreen),
++            QuickRow::NesShader | QuickRow::SnesShader => Some(QuickRow::Screen),
              _ => None,
          }
-@@ -119,6 +127,8 @@ impl QuickRow {
-             QuickRow::Turbo => "Turbo Buttons",
-             QuickRow::Rewind => "Rewind",
-             QuickRow::GbPalettes => "GB Palettes",
+     }
+@@ -300,6 +307,8 @@ impl QuickRow {
+             QuickRow::GbcBezel => "Bezel",
+             QuickRow::GbaBezel => "Bezel",
+             QuickRow::Bezel => "Bezel",
 +            QuickRow::NesShader => "NES Shader",
 +            QuickRow::SnesShader => "SNES Shader",
          }
@@ -90,7 +87,7 @@ index aa05e80..6da9678 100644
  
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 new file mode 100644
-index 0000000..89c612f
+index 0000000..a8efab0
 --- /dev/null
 +++ b/crates/slot-ui/src/quick_retro.rs
 @@ -0,0 +1,18 @@
@@ -101,23 +98,23 @@ index 0000000..89c612f
 +    pub const NES_SCREEN: [QuickRow; 1] = [QuickRow::NesShader];
 +    pub const SNES_SCREEN: [QuickRow; 1] = [QuickRow::SnesShader];
 +
-+    pub fn child_for(self, platform: Platform) -> Option<QuickRow> {
++    pub fn child_for(self, shelf: Option<Platform>) -> Option<QuickRow> {
 +        if self != QuickRow::Screen {
 +            return self.child();
 +        }
-+        match platform {
-+            Platform::Gba | Platform::Gb | Platform::Gbc => self.child(),
-+            Platform::Nes => Some(QuickRow::NES_SCREEN[0]),
-+            Platform::Snes => Some(QuickRow::SNES_SCREEN[0]),
++        match shelf {
++            Some(Platform::Gba | Platform::Gb | Platform::Gbc) | None => self.child(),
++            Some(Platform::Nes) => Some(QuickRow::NES_SCREEN[0]),
++            Some(Platform::Snes) => Some(QuickRow::SNES_SCREEN[0]),
 +        }
 +    }
 +}
 diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
 new file mode 100644
-index 0000000..670f23b
+index 0000000..4f5fd2e
 --- /dev/null
 +++ b/crates/slot-ui/tests/quick_retro.rs
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,36 @@
 +use slot_store::Platform;
 +use slot_ui::QuickRow;
 +
@@ -133,69 +130,114 @@ index 0000000..670f23b
 +
 +#[test]
 +fn the_screen_row_opens_the_page_of_the_shelf_it_is_opened_on() {
-+    for platform in [Platform::Gba, Platform::Gb, Platform::Gbc] {
-+        assert_eq!(
-+            QuickRow::Screen.child_for(platform),
-+            Some(QuickRow::GbaShader)
-+        );
++    for shelf in [
++        Some(Platform::Gba),
++        Some(Platform::Gb),
++        Some(Platform::Gbc),
++        None,
++    ] {
++        assert_eq!(QuickRow::Screen.child_for(shelf), Some(QuickRow::ScreenGba));
 +    }
 +    assert_eq!(
-+        QuickRow::Screen.child_for(Platform::Nes),
++        QuickRow::Screen.child_for(Some(Platform::Nes)),
 +        Some(QuickRow::NesShader)
 +    );
 +    assert_eq!(
-+        QuickRow::Screen.child_for(Platform::Snes),
++        QuickRow::Screen.child_for(Some(Platform::Snes)),
 +        Some(QuickRow::SnesShader)
 +    );
 +    assert_eq!(
-+        QuickRow::Game.child_for(Platform::Nes),
++        QuickRow::Game.child_for(Some(Platform::Nes)),
 +        Some(QuickRow::FastForward)
 +    );
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index eb2a364..b8e4f8d 100644
+index 62f17e0..f4e624f 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -660,6 +660,8 @@ impl App {
-             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
-             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
-             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
+@@ -821,6 +821,13 @@ impl App {
+     }
+ 
+     pub fn in_game_hidden(&self) -> &'static [QuickRow] {
++        if let Some(hidden) = crate::retro_quick::hidden_in_game(
++            self.playing_platform(),
++            self.framed_panel(),
++            self.single_cart(),
++        ) {
++            return hidden;
++        }
+         let no_bezel = self.playing_platform() == Platform::Gba && !self.framed_panel();
+         match (self.palette_live, no_bezel, self.single_cart()) {
+             (true, false, false) => &[],
+@@ -847,10 +854,12 @@ impl App {
+             (QuickRow::Shader, Platform::Gba) => QuickRow::GbaShader,
+             (QuickRow::Shader, Platform::Gb) => QuickRow::GbShader,
+             (QuickRow::Shader, Platform::Gbc) => QuickRow::GbcShader,
++            (QuickRow::Shader, Platform::Nes) => QuickRow::NesShader,
++            (QuickRow::Shader, Platform::Snes) => QuickRow::SnesShader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+-            (QuickRow::Bezel, Platform::Gba) => QuickRow::GbaBezel,
++            (QuickRow::Bezel, Platform::Gba | Platform::Nes | Platform::Snes) => QuickRow::GbaBezel,
+             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
+             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
+             (row, _) => row,
+@@ -859,9 +868,9 @@ impl App {
+ 
+     pub fn quick_value(&self, row: QuickRow) -> Option<QuickValue> {
+         match row {
+-            QuickRow::Shader | QuickRow::ColourCorrection => {
+-                self.quick_value(self.playing_row(row))
+-            }
++            QuickRow::Shader | QuickRow::ColourCorrection => Some(self.playing_row(row))
++                .filter(|own| *own != row)
++                .and_then(|own| self.quick_value(own)),
+             QuickRow::FastForward => QuickValue::speed(self.state.ff_speed),
+             QuickRow::FastForwardSound => Some(QuickValue::flag(self.state.ff_sound)),
+             QuickRow::GbaColourCorrection => {
+@@ -875,6 +884,8 @@ impl App {
+             QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
+             QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
+             QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
 +            QuickRow::NesShader => Some(shader_value(self.state.shader_nes)),
 +            QuickRow::SnesShader => Some(shader_value(self.state.shader_snes)),
-             QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
-         }
-     }
-@@ -1342,7 +1344,7 @@ impl App {
-             }
-             QuickRow::About => self.phase = Phase::About,
-             QuickRow::Screen | QuickRow::Game => {
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -2014,7 +2025,7 @@ impl App {
+             | QuickRow::ScreenGba
+             | QuickRow::ScreenGbc
+             | QuickRow::ScreenGb => {
 -                if let Some(row) = row.child() {
-+                if let Some(row) = row.child_for(self.shelves[self.shelf_at].0) {
++                if let Some(row) = row.child_for(self.shelves[self.shelf_at].0.platform()) {
+                     let row = row.shown(self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
                  }
-             }
-@@ -1355,6 +1357,8 @@ impl App {
-             | QuickRow::GbaShader
-             | QuickRow::GbShader
-             | QuickRow::GbPalettes
+@@ -2050,7 +2061,9 @@ impl App {
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+-            | QuickRow::Bezel => {}
++            | QuickRow::Bezel
 +            | QuickRow::NesShader
-+            | QuickRow::SnesShader
-             | QuickRow::Rumble => {}
++            | QuickRow::SnesShader => {}
          }
      }
-@@ -1393,6 +1397,7 @@ impl App {
-             QuickRow::Turbo => s.turbo = !s.turbo,
-             QuickRow::Rewind => s.rewind = !s.rewind,
-             QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
+ 
+@@ -2145,6 +2158,7 @@ impl App {
+                 s.runahead = (s.runahead + if right { 1 } else { n - 1 }) % n;
+             }
+             QuickRow::Theme => s.appearance = s.appearance.toggle(),
 +            QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
-             QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => return,
-         }
-         self.persist();
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index ba9def8..c97bb81 100644
+index 899c813..3418862 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -32,6 +32,7 @@ pub mod persist;
+@@ -39,6 +39,7 @@ pub mod persist;
  pub mod platform_video;
  pub mod prefetch;
  pub mod resample;
@@ -205,11 +247,11 @@ index ba9def8..c97bb81 100644
  pub mod session;
 diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
 new file mode 100644
-index 0000000..87a6603
+index 0000000..845d964
 --- /dev/null
 +++ b/crates/slot/src/retro_quick.rs
-@@ -0,0 +1,11 @@
-+use slot_store::{Shader, SlotState};
+@@ -0,0 +1,40 @@
++use slot_store::{Platform, Shader, SlotState};
 +use slot_ui::QuickRow;
 +
 +pub fn step(state: &mut SlotState, row: QuickRow, right: bool) {
@@ -220,12 +262,41 @@ index 0000000..87a6603
 +    };
 +    *shader = shader.step(&Shader::RETRO, right);
 +}
++
++pub fn hidden_in_game(
++    platform: Platform,
++    framed: bool,
++    single: bool,
++) -> Option<&'static [QuickRow]> {
++    match platform {
++        Platform::Gba | Platform::Gb | Platform::Gbc => None,
++        Platform::Nes | Platform::Snes => Some(match (framed, single) {
++            (true, false) => &[QuickRow::ColourCorrection, QuickRow::Palette],
++            (true, true) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::ExitGame,
++            ],
++            (false, false) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::Bezel,
++            ],
++            (false, true) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::Bezel,
++                QuickRow::ExitGame,
++            ],
++        }),
++    }
++}
 diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
 new file mode 100644
-index 0000000..401b256
+index 0000000..9afc80c
 --- /dev/null
 +++ b/crates/slot/tests/quick_retro_shader.rs
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,145 @@
 +mod common;
 +
 +use common::{boot, tmp_root_with_real_carts, write_gb_cart};
@@ -269,6 +340,9 @@ index 0000000..401b256
 +
 +fn open_screen(app: &mut App) {
 +    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
 +    assert_eq!(app.quick_menu(), Some(QuickRow::Screen));
 +    press(app, Btn::A);
 +}
@@ -334,17 +408,12 @@ index 0000000..401b256
 +}
 +
 +#[test]
-+fn the_gba_and_gb_shelves_keep_the_four_upstream_screen_rows() {
++fn the_gba_and_gb_shelves_keep_the_upstream_platform_list() {
 +    for platform in [Platform::Gba, Platform::Gb] {
 +        let (_root, mut app) = on_shelf(platform);
 +        open_screen(&mut app);
-+        assert_eq!(app.quick_menu(), Some(QuickRow::GbaShader), "{platform:?}");
-+        for want in [
-+            QuickRow::GbShader,
-+            QuickRow::ColourCorrection,
-+            QuickRow::GbPalettes,
-+            QuickRow::GbaShader,
-+        ] {
++        assert_eq!(app.quick_menu(), Some(QuickRow::ScreenGba), "{platform:?}");
++        for want in [QuickRow::ScreenGbc, QuickRow::ScreenGb, QuickRow::ScreenGba] {
 +            press(&mut app, Btn::Down);
 +            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
 +        }
@@ -353,12 +422,32 @@ index 0000000..401b256
 +        assert!(matches!(app.phase(), Phase::Shelf), "{platform:?}");
 +    }
 +}
++
++#[test]
++fn the_in_game_screen_page_hides_colour_correction_and_palette_on_nes_and_snes() {
++    use slot::retro_quick::hidden_in_game;
++    for platform in [Platform::Gba, Platform::Gb, Platform::Gbc] {
++        assert_eq!(hidden_in_game(platform, true, false), None, "{platform:?}");
++    }
++    for platform in [Platform::Nes, Platform::Snes] {
++        for framed in [true, false] {
++            for single in [true, false] {
++                let hidden = hidden_in_game(platform, framed, single).expect("no hidden rows");
++                assert!(hidden.contains(&QuickRow::ColourCorrection));
++                assert!(hidden.contains(&QuickRow::Palette));
++                assert!(!hidden.contains(&QuickRow::Shader));
++                assert_eq!(hidden.contains(&QuickRow::Bezel), !framed);
++                assert_eq!(hidden.contains(&QuickRow::ExitGame), single);
++            }
++        }
++    }
++}
 diff --git a/crates/slot/tests/render_quick_retro.rs b/crates/slot/tests/render_quick_retro.rs
 new file mode 100644
-index 0000000..848fc57
+index 0000000..93ec378
 --- /dev/null
 +++ b/crates/slot/tests/render_quick_retro.rs
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,103 @@
 +#![cfg(target_os = "macos")]
 +
 +mod common;
@@ -371,7 +460,7 @@ index 0000000..848fc57
 +use slot_input::{Btn, InputSource, Millis, RawEvent};
 +use slot_power::SimPlatform;
 +use slot_store::Platform;
-+use slot_ui::QUICK_PITCH;
++use slot_ui::{QUICK_LABEL_X, QUICK_PITCH};
 +
 +struct Script(VecDeque<Vec<RawEvent>>);
 +
@@ -386,11 +475,6 @@ index 0000000..848fc57
 +    f.advance(input);
 +    input.0.push_back(vec![RawEvent::Up(btn)]);
 +    f.advance(input);
-+}
-+
-+fn lit(px: &[u8], xs: std::ops::Range<usize>, top: usize) -> Vec<usize> {
-+    xs.filter(|&x| (top + 8..top + 44).any(|y| px[(y * OUT_W as usize + x) * 4] > 0x80))
-+        .collect()
 +}
 +
 +fn save(px: &[u8], name: &str) {
@@ -433,24 +517,37 @@ index 0000000..848fc57
 +        f.advance(&mut input);
 +    }
 +    tap(&mut f, &mut input, Btn::Menu);
++    tap(&mut f, &mut input, Btn::Down);
 +    tap(&mut f, &mut input, Btn::A);
 +    f.compose(&mut c);
 +    let px = c.read_frame();
 +    save(&px, "nes-shader");
 +
-+    let top = (OUT_H as f32 - QUICK_PITCH) as usize / 2;
-+    let label = lit(&px, 0..360, top);
-+    let first = *label.first().expect("the NES shader row has no label");
-+    assert!((32..=36).contains(&first), "label starts at x {first}");
++    let x0 = QUICK_LABEL_X as usize;
++    let white = |x: usize, y: usize| {
++        let i = (y * OUT_W as usize + x) * 4;
++        px[i..i + 3].iter().all(|c| *c > 0xc0)
++    };
++    let rows: Vec<usize> = (0..400)
++        .filter(|y| (x0..360).any(|x| white(x, *y)))
++        .collect();
++    let (first_row, last_row) = (rows[0], rows[rows.len() - 1]);
++    assert!(
++        last_row - first_row < QUICK_PITCH as usize,
++        "more than one row is drawn, ink from y {first_row} to {last_row}"
++    );
++    let label: Vec<usize> = (x0..360)
++        .filter(|x| rows.iter().any(|y| white(*x, *y)))
++        .collect();
++    let first = label[0];
++    assert!((x0..=x0 + 4).contains(&first), "label starts at x {first}");
 +    assert!(
 +        label.len() > 60,
 +        "label is only {} columns wide",
 +        label.len()
 +    );
-+    let value = lit(&px, 360..OUT_W as usize, top);
-+    assert!(!value.is_empty(), "the NES shader row has no value");
 +    assert!(
-+        lit(&px, 0..OUT_W as usize, top - QUICK_PITCH as usize).is_empty(),
-+        "a second row is drawn above the NES shader row"
++        (360..OUT_W as usize).any(|x| rows.iter().any(|y| white(x, *y))),
++        "the NES shader row has no value"
 +    );
 +}

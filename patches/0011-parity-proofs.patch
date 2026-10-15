@@ -4,20 +4,96 @@ Date: Tue, 13 Oct 2026 01:47:29 +0400
 Subject: [PATCH] parity-proofs
 
 ---
- crates/slot/tests/nes_eject_save.rs  | 112 +++++++++++
- crates/slot/tests/nes_quick_menu.rs  | 276 +++++++++++++++++++++++++++
- crates/slot/tests/nes_resume.rs      |  66 +++++++
- crates/slot/tests/nes_states.rs      | 150 +++++++++++++++
- crates/slot/tests/real_seat/mod.rs   |  52 +++++
- crates/slot/tests/snes_common/mod.rs |  25 ++-
- crates/slot/tests/snes_emu.rs        |  16 +-
- 7 files changed, 678 insertions(+), 19 deletions(-)
+ crates/slot/tests/alt_cores.rs        |  12 +-
+ crates/slot/tests/core_option_keys.rs |  12 +-
+ crates/slot/tests/nes_core_picker.rs  |   2 +-
+ crates/slot/tests/nes_eject_save.rs   | 112 +++++++++++
+ crates/slot/tests/nes_quick_menu.rs   | 279 ++++++++++++++++++++++++++
+ crates/slot/tests/nes_resume.rs       |  66 ++++++
+ crates/slot/tests/nes_states.rs       | 150 ++++++++++++++
+ crates/slot/tests/real_seat/mod.rs    |  52 +++++
+ crates/slot/tests/snes_common/mod.rs  |  25 ++-
+ crates/slot/tests/snes_emu.rs         |  16 +-
+ 10 files changed, 702 insertions(+), 24 deletions(-)
  create mode 100644 crates/slot/tests/nes_eject_save.rs
  create mode 100644 crates/slot/tests/nes_quick_menu.rs
  create mode 100644 crates/slot/tests/nes_resume.rs
  create mode 100644 crates/slot/tests/nes_states.rs
  create mode 100644 crates/slot/tests/real_seat/mod.rs
 
+diff --git a/crates/slot/tests/alt_cores.rs b/crates/slot/tests/alt_cores.rs
+index 8bf792f..bf2ebcf 100644
+--- a/crates/slot/tests/alt_cores.rs
++++ b/crates/slot/tests/alt_cores.rs
+@@ -10,7 +10,7 @@ use core_common::require_core;
+ use nes_common::{fceumm, nes_rom};
+ use slot::core::{apply_core_options, open_core_for};
+ use slot_retro::{ButtonMask, LibretroCore, MockCore, RetroCore};
+-use slot_store::Core;
++use slot_store::{Core, Platform};
+ use snes_common::{snes_rom, Map, SNES_TITLE};
+ 
+ const PICTURE_X: usize = 52;
+@@ -94,7 +94,15 @@ fn nestopia_is_told_to_crop_no_overscan() {
+         return;
+     };
+     let mut core = LibretroCore::open(&dylib).expect("open nestopia");
+-    apply_core_options(&mut core, Core::Nestopia, "auto", false, false, None);
++    apply_core_options(
++        &mut core,
++        Core::Nestopia,
++        Platform::Nes,
++        "auto",
++        false,
++        false,
++        None,
++    );
+     core.load(&nes_rom("alt_nestopia_overscan.nes", false))
+         .expect("nestopia refused the generated cart");
+     for key in [
+diff --git a/crates/slot/tests/core_option_keys.rs b/crates/slot/tests/core_option_keys.rs
+index 60aa68b..2bc56b1 100644
+--- a/crates/slot/tests/core_option_keys.rs
++++ b/crates/slot/tests/core_option_keys.rs
+@@ -7,7 +7,7 @@ use core_common::require_core;
+ use nes_common::{fceumm, nes_rom};
+ use slot::core::apply_core_options;
+ use slot_retro::{LibretroCore, RetroCore};
+-use slot_store::Core;
++use slot_store::{Core, Platform};
+ 
+ const NO_KEYS: [&str; 0] = [];
+ const FCEUMM_OVERSCAN: [&str; 4] = [
+@@ -140,7 +140,15 @@ fn snes9x_2005_plus_gets_its_frameskip_set_under_its_own_prefix() {
+         return;
+     };
+     let mut core = LibretroCore::open(&dylib).expect("open snes9x2005_plus");
+-    apply_core_options(&mut core, Core::Snes9x2005Plus, "auto", false, false, None);
++    apply_core_options(
++        &mut core,
++        Core::Snes9x2005Plus,
++        Platform::Snes,
++        "auto",
++        false,
++        false,
++        None,
++    );
+     assert_eq!(
+         core.option("snes9x_2005_frameskip").as_deref(),
+         Some("auto")
+diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
+index 4d0f8e1..ffadd3b 100644
+--- a/crates/slot/tests/nes_core_picker.rs
++++ b/crates/slot/tests/nes_core_picker.rs
+@@ -132,7 +132,7 @@ fn picker_over_nes(d: &TempDir, c: &mut Compositor) -> App {
+ fn shot(app: &App, c: &mut Compositor) -> Vec<u8> {
+     let mut out = Vec::new();
+     app.draw(&mut out);
+-    c.begin_frame();
++    c.begin_frame(slot_gfx::Layout::Framed);
+     c.draw_list(&out);
+     c.read_frame()
+ }
 diff --git a/crates/slot/tests/nes_eject_save.rs b/crates/slot/tests/nes_eject_save.rs
 new file mode 100644
 index 0000000..aff4a58
@@ -138,10 +214,10 @@ index 0000000..aff4a58
 +}
 diff --git a/crates/slot/tests/nes_quick_menu.rs b/crates/slot/tests/nes_quick_menu.rs
 new file mode 100644
-index 0000000..667dda2
+index 0000000..9278b6b
 --- /dev/null
 +++ b/crates/slot/tests/nes_quick_menu.rs
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,279 @@
 +mod common;
 +mod core_common;
 +mod nes_common;
@@ -256,12 +332,13 @@ index 0000000..667dda2
 +fn open_at(app: &mut App, row: QuickRow) {
 +    app.apply(Action::QuickMenu);
 +    let parent = row.parent();
-+    for _ in 0..parent.unwrap_or(row).position() {
++    let hidden = app.hidden_rows();
++    for _ in 0..parent.unwrap_or(row).position(hidden) {
 +        press(app, Btn::Down);
 +    }
 +    if parent.is_some() {
 +        press(app, Btn::A);
-+        for _ in 0..row.position() {
++        for _ in 0..row.position(hidden) {
 +            press(app, Btn::Down);
 +        }
 +    }
@@ -277,7 +354,9 @@ index 0000000..667dda2
 +            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
 +            press(&mut app, Btn::Down);
 +        }
-+        press(&mut app, Btn::Down);
++        for _ in 0..QuickRow::Game.position(app.hidden_rows()) {
++            press(&mut app, Btn::Down);
++        }
 +        press(&mut app, Btn::A);
 +        for want in QuickRow::GAME {
 +            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");

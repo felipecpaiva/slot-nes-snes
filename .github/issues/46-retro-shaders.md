@@ -11,7 +11,7 @@ depends_on: [21-shaders, 44-quick-menu-retro-shaders]
 NES and SNES had only Off, Grid and Dot (upstream's effects). The maintainer asked for the best and most used retro shaders. Research (docs/research/retro-shaders.md) ranked the light ones the H700 firmwares ship by default and that fit slot's single-pass GLSL ES 1.00 pipeline on the Mali-G31.
 
 ## Scope
-`patches/0020-retro-shaders.patch`:
+`patches/0017-retro-shaders.patch`:
 - [x] Four modes after Off, Grid, Dot in `Shader::RETRO`: Sharp (sharp-bilinear-simple, public domain), Scanlines (scanlines-sine-abs, public domain), crt-pi (GPL-2+), crt-1tap (CC0). NES and SNES only; GBA, GB and GBC lists unchanged.
 - [x] "Pay once" hook: one payload variant per enum (`Shader::Retro`, `Toast::Retro`, `QuickValue::Retro`, `ScreenEffect::Retro(u8)`). The list, names and GLSL live in our files (`slot-store/src/retro_shader.rs`, `slot-gfx/src/pipeline/retro.rs`), so the next shader touches no upstream file.
 - [x] Own GL program, so upstream's `GAME_FRAG` stays byte-identical; if it fails to build, NES/SNES draw plain.

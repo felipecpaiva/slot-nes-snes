@@ -16,10 +16,10 @@ Subject: [PATCH] libretro-env
  crates/slot/tests/nes_av.rs                 |  39 ++++
  crates/slot/tests/nes_common/mod.rs         |  21 +-
  crates/slot/tests/nes_emu.rs                |   1 +
- crates/slot/tests/nes_fceumm.rs             |   1 +
+ crates/slot/tests/nes_fceumm.rs             |  21 +-
  crates/slot/tests/nes_window.rs             |   1 +
  crates/slot/tests/snes_emu.rs               | 122 ++++++++++
- 15 files changed, 688 insertions(+), 42 deletions(-)
+ 15 files changed, 706 insertions(+), 44 deletions(-)
  create mode 100644 crates/slot-retro/src/libretro/env_tests.rs
  create mode 100644 crates/slot/src/av_rate.rs
  create mode 100644 crates/slot/tests/core_common/mod.rs
@@ -579,11 +579,11 @@ index 0000000..e89a74f
 +    }
 +}
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 8bdbfb3..a0a5358 100644
+index f766095..fa55d4c 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -9,11 +9,11 @@ use crate::cable::{self, Cable};
- use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
+@@ -12,11 +12,11 @@ use slot_retro::{
+ use slot_store::RUN_AHEAD_MAX;
  
  use crate::audio::Ring;
 +use crate::av_rate;
@@ -595,7 +595,7 @@ index 8bdbfb3..a0a5358 100644
  use crate::rewind::{RewindThread, REWIND_BYTES};
  
  const PRESENT: Duration = Duration::from_nanos(16_666_667);
-@@ -523,11 +523,7 @@ impl Worker {
+@@ -543,11 +543,7 @@ impl Worker {
              0 => av.sample_rate,
              hz => hz as f64,
          };
@@ -608,18 +608,18 @@ index 8bdbfb3..a0a5358 100644
          ring.clear_faults();
          self.shared
              .state
-@@ -777,6 +773,9 @@ impl Worker {
+@@ -823,6 +819,9 @@ impl Worker {
                      }
                  }
  
 +                if let Some(av) = core.take_av_change() {
 +                    resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
 +                }
-                 let audio = core.take_audio();
-                 if speed == Speed::Normal || ff_sound {
-                     let target = drc_target(ring.capacity_frames());
+                 let audio = if shown {
+                     std::mem::take(&mut runahead.audio)
+                 } else {
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index fd22e10..348f1fa 100644
+index 9ad8026..bfabc3a 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
 @@ -1,5 +1,6 @@
@@ -841,7 +841,7 @@ index 4393f80..76ba970 100644
  
  use common::core_lock;
 diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
-index 5ba478e..703def4 100644
+index 79dde0a..c6d51cc 100644
 --- a/crates/slot/tests/nes_fceumm.rs
 +++ b/crates/slot/tests/nes_fceumm.rs
 @@ -1,4 +1,5 @@
@@ -850,8 +850,42 @@ index 5ba478e..703def4 100644
  mod nes_common;
  
  use std::path::Path;
+@@ -44,7 +45,15 @@ fn base_geometry(dylib: &Path) -> (u32, u32) {
+ 
+ fn loaded_geometry(dylib: &Path, rom: &str, tweak: impl FnOnce(&mut LibretroCore)) -> (u32, u32) {
+     let mut core = LibretroCore::open(dylib).expect("open fceumm");
+-    apply_core_options(&mut core, Core::Fceumm, Platform::Nes, "auto", false, false, None);
++    apply_core_options(
++        &mut core,
++        Core::Fceumm,
++        Platform::Nes,
++        "auto",
++        false,
++        false,
++        None,
++    );
+     tweak(&mut core);
+     core.load(&nes_rom(rom, false))
+         .expect("fceumm refused the generated cart");
+@@ -83,7 +92,15 @@ fn fceumm_is_told_to_show_the_whole_picture() {
+         return;
+     };
+     let mut core = LibretroCore::open(&dylib).expect("open fceumm");
+-    apply_core_options(&mut core, Core::Fceumm, Platform::Nes, "auto", false, false, None);
++    apply_core_options(
++        &mut core,
++        Core::Fceumm,
++        Platform::Nes,
++        "auto",
++        false,
++        false,
++        None,
++    );
+     core.load(&nes_rom("fceumm_overscan.nes", false))
+         .expect("fceumm refused the generated cart");
+     for _ in 0..3 {
 diff --git a/crates/slot/tests/nes_window.rs b/crates/slot/tests/nes_window.rs
-index 0fa10e3..9317b6a 100644
+index b33761c..8d402b5 100644
 --- a/crates/slot/tests/nes_window.rs
 +++ b/crates/slot/tests/nes_window.rs
 @@ -1,6 +1,7 @@

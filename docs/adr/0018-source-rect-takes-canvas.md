@@ -1,6 +1,6 @@
 # 0018. Pass the canvas to video_mode::source_rect
 
-- Status: Accepted
+- Status: Accepted. Amended by [0046](0046-retro-stretch-crops-height.md)
 - Date: 2026-10-12
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 09](../../.github/issues/09-canvas.md), [patch 0004](../../patches/0004-canvas.patch)

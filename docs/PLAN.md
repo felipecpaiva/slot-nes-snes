@@ -1,4 +1,7 @@
-# slot NES/SNES: patch set over pinned slot v1.6.0, phased build plan (RG34XXSP reference)
+# slot NES/SNES: patch set over pinned slot v1.7.0, phased build plan (RG34XXSP reference)
+
+> Built against slot v1.6.0 (`9d7c795`) and rebased onto v1.7.0 (`34ac380`) on 2026-10-15, ADR 0038.
+> Version numbers below follow `SLOT_PIN`; the phase history is unchanged.
 
 ## Plan changelog
 
@@ -38,7 +41,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 
 ## Spec
 
-- **What it does:** adds `Platform::Nes` and `Platform::Snes` to slot v1.6.0 as first-class shelves:
+- **What it does:** adds `Platform::Nes` and `Platform::Snes` to slot v1.7.0 as first-class shelves:
   - `Games/NES`, `Games/SNES` and the matching `Labels/`, `Saves/` and `States/` folders;
   - a per-platform core pair in the picker: fceumm/nestopia for NES, snes9x/snes9x2005_plus for SNES;
   - per-platform shaders;
@@ -52,7 +55,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
   - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
-  1. **GBA, GB and GBC are byte-identical to unpatched slot v1.6.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
+  1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
   2. **Every parity row works on NES and SNES:** carousel, letter jump, cart art and labels, core picker, insert and eject, resume on boot, saves and autosave, save states and polaroids, rewind, fast-forward, turbo, shaders, video mode, quick menu, settings, volume, sleep and lid-close save.
   3. **Frontend cost stays inside the GBA budget.** Pixel conversion, publish and upload per frame on NES/SNES stay within the GBA budget measured on the same host.
   4. **Manual device gate on the RG34XXSP:** full speed and zero audio underruns, read from `SLOT_TRACE`/`slot.log` over 10 minutes of play each. The ROMs are dumps the user owns and are never committed.
@@ -72,7 +75,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 ## Quality bar
 
 - **Goal type:** code (emulator frontend patch set), with a visual half for cart art.
-- **Bar:** unpatched slot v1.6.0 at `9d7c795` (github.com/BrandonKowalski/slot), built from the same tarball the patch set uses, with the same shared `vendor/` cores. For cart art, the depth bar is slot's own GB/GBC/GBA cart system in `crates/slot-ui`.
+- **Bar:** unpatched slot v1.7.0 at `34ac380` (v1.6.0 at `9d7c795` until 2026-10-15) (github.com/BrandonKowalski/slot), built from the same tarball the patch set uses, with the same shared `vendor/` cores. For cart art, the depth bar is slot's own GB/GBC/GBA cart system in `crates/slot-ui`.
 - **Measurable half:**
   - frame-hash equality on GBA/GB/GBC (`harness/frame_dump`, control run first);
   - the upstream suite passes with upstream test code unmodified (`scripts/check-upstream-tests.sh`);
@@ -151,7 +154,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 | 25. Colour tables | Content | Only research-verified entries, with a cited source per row | none |
 | 26. Harness | Determinism | Fresh temp copy of a pre-warmed root per run, driven emu (`set_driven`), settle-point hashing, mandatory control run | none |
 | 27. Licensing | GPL-3 source | `slot-nes-snes-src-<tag>.tar.gz` (git archive of patched `build/slot` + this repo) attached to the release and copied into `System/licenses/`; `LICENSING.md` | none |
-| 28. Release | Name | Tag `v1.6.0-ns.N`, zip `slot-nes-snes-v1.6.0-ns.N-h700.zip` with a top folder of the same name | none |
+| 28. Release | Name | Tag `v1.7.0-ns.N`, zip `slot-nes-snes-v1.7.0-ns.N-h700.zip` with a top folder of the same name | none |
 | 29. CI | Split | `macos-14` job (tests, harness, benches) is required; Linux arm job (device build, zip, ship checks); `release.yml` needs both | none |
 
 ## Working process
@@ -543,15 +546,15 @@ All host steps run on macOS.
 
    Expect `test result: ok` for every crate, `upstream test code: 0 blocks changed`, `control: 0 diffs`, `compare: 0 diffs (H1, H2), H3 == H1`, and a skip report listing only ROM-dependent upstream tests.
 3. `task bench:compare`. Expect patched medians within 2% of upstream for mgba and gpsp on `harness/roms/`.
-4. `task zip && sh scripts/zip-check.sh slot-nes-snes-v1.6.0-ns.0-h700.zip`. Expected tree:
+4. `task zip && sh scripts/zip-check.sh slot-nes-snes-v1.7.0-ns.1-h700.zip`. Expected tree:
 
 ```
-slot-nes-snes-v1.6.0-ns.0/
+slot-nes-snes-v1.7.0-ns.1/
   System/ slot  launch_frontend.sh  coresave.sh  led.sh  slotlink.sh  bootlogo.bmp  bezels/
           mgba_libretro.so  gpsp_libretro.so  fceumm_libretro.so  nestopia_libretro.so
           snes9x_libretro.so  snes9x2005_plus_libretro.so
           licenses/ (slot's files, core licences, .meta, core source tarballs, patches,
-                     slot-nes-snes-src-v1.6.0-ns.0.tar.gz)
+                     slot-nes-snes-src-v1.7.0-ns.1.tar.gz)
   BIOS/ Config/ Games/{GBA,GB,GBC,NES,SNES}/ Labels/{...}/ Saves/{...}/ States/{...}/ Wallpapers/ ...
 ```
 

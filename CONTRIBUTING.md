@@ -16,10 +16,9 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   six, and the guard checks each one exactly:
+   five, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
-   - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`.
-   - (c) `label_top` in `crates/slot/tests/render_shelves.rs`: its Game Boy arm gains `| CartPlatform::Nes` and then optionally `| CartPlatform::Snes`. For (b) and (c) the file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails.
+   - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`. The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
    - (e) `both_cores_are_told_about_colour_correction_in_their_own_words` in `crates/slot/tests/gpsp.rs`: the colour-correction match gains `| Core::Fceumm` on its `Core::Mgba` arm, then optionally `| Core::Nestopia`, `| Core::Snes9x` and `| Core::Snes9x2005Plus`, in that order, and nothing else.
    - (f) `a_card_from_before_the_settings_keeps_all_its_values` in `crates/slot-store/tests/durability.rs`: its full `SlotState` literal gains exactly `shader_nes: Shader::Off,` and `shader_snes: Shader::Off,`, in that order, directly after `shader_gb: Shader::Simpletex,`, because that literal has no `..Default::default()` and the new fields are required. Approved by the maintainer on 2026-10-13 (issue 21). Any other line of that file changing still fails.
@@ -29,6 +28,11 @@ code as possible, and prove GBA did not change.**
    be named in `scripts/check-upstream-tests.sh` and checked byte for byte, and it is added
    to the list above. Any other kind of upstream test change, a value swap like (d)
    included, stops and asks the maintainer.
+
+   An upstream test that already fails on the unpatched tree on the test machine is never
+   edited or skipped silently: `scripts/run-tests.sh` runs its binary in both trees and fails
+   if the patched tree fails a test the upstream tree passes. Today that is
+   `slot-gfx/tests/layout.rs` (two frame-hash tests, ADR 0045).
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
 
@@ -56,7 +60,7 @@ breaking it causes a conflict on most releases.
 | New code goes in new files | `platform_policy.rs`, `core_policy.rs`, `canvas.rs`, `nes_*.rs` tests | Grow an upstream file with a new function block |
 | Upstream files get one-token hunks | `&& self.platform.owns_shoulders()` replacing `&& self.platform != Platform::Gba` | Reformat, reorder or "tidy" surrounding upstream lines |
 | Enums are append-only | `Nes` after `Gbc`, `Fceumm` after `Gpsp` | Insert in the middle, reorder, rename |
-| Pinned shapes stay | Add `Platform::SHELVES`, `Core::EVERY`, `CorePicker::open_pair` | Change `Platform::ALL` (3), `Core::ALL` (2), `QuickRow::SCREEN` (4), `CorePicker::open` |
+| Pinned shapes stay | Add `Platform::SHELVES`, `Core::EVERY`, `CorePicker::open_pair` | Change `Platform::ALL` (3), `Core::ALL` (2), `QuickRow::SCREEN` (3), `CorePicker::open` |
 | `Host` stays | New state in `HostExtra` (issue 09) | Add a field to `Host` in `libretro.rs` (its in-source test lists every field) |
 | `slot_state.rs` settings line stays | New keys written by a separate `push_str` after the upstream `format!`, parsed with `unwrap_or` | Edit the `format!` line, or parse new keys with `?` |
 | Match arms stay exhaustive | Add an explicit `Platform::Nes =>` arm | Add or keep a `_ =>` wildcard over `Platform`, `Core`, `Outline` or `Shape` |

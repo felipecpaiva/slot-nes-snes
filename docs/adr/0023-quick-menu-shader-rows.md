@@ -1,9 +1,9 @@
 # 0023. Show a NES and an SNES shader row on the quick menu Screen page
 
-- Status: Accepted. Supersedes [0008](0008-no-new-quick-menu-rows.md)
+- Status: Accepted. Supersedes [0008](0008-no-new-quick-menu-rows.md). Amended by [0043](0043-retro-shader-rows-on-v1-7-0-menus.md)
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [issue 44](../../.github/issues/44-quick-menu-retro-shaders.md), [patch 0018](../../patches/0018-quick-menu-retro-shaders.patch)
+- Related: [issue 44](../../.github/issues/44-quick-menu-retro-shaders.md), [patch 0016](../../patches/0016-quick-menu-retro-shaders.patch)
 
 ## Context
 

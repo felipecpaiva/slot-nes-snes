@@ -7,6 +7,10 @@ size: S
 depends_on: [12-platform-snes]
 ---
 
+> **Superseded on 2026-10-15.** slot v1.7.0 remembers the shelf and its cart at power off (#53)
+> and adds Favorites and Recents. Patch 0019-shelf-memory and `Config/shelf.state` were dropped in
+> the v1.7.0 rebase; NES and SNES use upstream's memory (ADR 0039, `nes_shelf_memory.rs`).
+
 ## Why
 With five shelves (GBA, GB, GBC, NES, SNES) users switch platforms often. Each shelf already keeps its own cart position in memory, but after a restart slot opens on the first non-empty shelf at index 0. slot has no favorites or recents, so the last shelf and its last cart are how a user jumps back in.
 

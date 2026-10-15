@@ -23,7 +23,7 @@ else
 		echo "slot-nes-snes: no adb device in state device ($ADB get-state), connect the RG34XXSP" >&2
 		exit 1
 	}
-	$ADB pull "$SD/slot.log" "$log" >/dev/null
+	$ADB pull "$SD/Logs/slot.log" "$log" >/dev/null
 fi
 [ -f "$log" ] || {
 	echo "slot-nes-snes: no log at $log" >&2

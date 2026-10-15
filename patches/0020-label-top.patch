@@ -4,82 +4,57 @@ Date: Thu, 15 Oct 2026 17:02:56 +0400
 Subject: [PATCH] label-top
 
 ---
- crates/slot-ui/src/art.rs        |  9 +++-
- crates/slot-ui/src/cart.rs       | 14 +++--
+ crates/slot-ui/src/art.rs        |  2 +-
+ crates/slot-ui/src/cart.rs       |  5 +-
  crates/slot-ui/src/lib.rs        |  4 +-
- crates/slot-ui/src/retro_cart.rs | 10 ++++
+ crates/slot-ui/src/retro_cart.rs | 13 +++++
+ crates/slot-ui/src/retro_face.rs |  8 +--
  crates/slot/src/label_cache.rs   |  4 +-
  crates/slot/tests/label_top.rs   | 90 ++++++++++++++++++++++++++++++++
- 6 files changed, 123 insertions(+), 8 deletions(-)
+ 7 files changed, 118 insertions(+), 8 deletions(-)
  create mode 100644 crates/slot/tests/label_top.rs
 
 diff --git a/crates/slot-ui/src/art.rs b/crates/slot-ui/src/art.rs
-index 0800087..32c1cf0 100644
+index b3463f1..6590e9e 100644
 --- a/crates/slot-ui/src/art.rs
 +++ b/crates/slot-ui/src/art.rs
-@@ -1,10 +1,17 @@
- use std::path::Path;
+@@ -10,7 +10,7 @@ pub fn cover_bytes(bytes: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+     cover_rgba(&src, sw, sh, w, h)
+ }
  
- pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
--    let (src, sw, sh) = decode(path)?;
-+    cover_rows(path, w, h, false)
-+}
-+
-+pub fn cover_rows(path: &Path, w: u32, h: u32, top: bool) -> Option<Vec<u8>> {
-+    let (src, sw, mut sh) = decode(path)?;
+-fn cover_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8>> {
++pub(crate) fn cover_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8>> {
      if sw == 0 || sh == 0 {
          return None;
      }
-+    if top {
-+        sh = sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w as u64).max(1) as u32);
-+    }
- 
-     let scale = (w as f32 / sw as f32).max(h as f32 / sh as f32);
-     let ox = (sw as f32 - w as f32 / scale) / 2.0;
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 6a0c573..df95f57 100644
+index 2b65381..ecadfa0 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -3,8 +3,8 @@ use slot_store::{Cart, Outline, Platform};
- 
- use crate::art;
- use crate::retro_cart::{
--    look, retro_depth, retro_detail, retro_mask, retro_shell_of, NesShell, RetroShell, SnesShell,
--    NES_SEATED_H, SNES_SEATED_H,
-+    label_cover, look, retro_depth, retro_detail, retro_mask, retro_shell_of, NesShell, RetroShell,
-+    SnesShell, NES_SEATED_H, SNES_SEATED_H,
+@@ -8,7 +8,7 @@ use crate::retro_cart::{
+     look, retro_box, retro_mask, retro_shell_of, NesShell, RetroShell, SnesShell, NES_SEATED_H,
+     SNES_SEATED_H,
  };
- use crate::retro_shell::plastic_in;
+-use crate::retro_face::retro_face;
++use crate::retro_face::{retro_cart_face, retro_face};
  use crate::shell::{shell_for, Finish, Shell};
-@@ -242,7 +242,10 @@ fn shadow(w: u32, h: u32, mask: &[u8]) -> CartFace {
+ use crate::silhouette::{cart_mask, gb_cart_mask, GbShell};
+ use crate::text;
+@@ -197,6 +197,9 @@ fn shadow(w: u32, h: u32, mask: &[u8]) -> CartFace {
+ }
  
  pub fn cart_face(cart: &Cart) -> CartFace {
++    if let Some(kind) = retro_shell_of(cart) {
++        return retro_cart_face(cart, kind);
++    }
      let (lw, lh) = label_size(cart);
--    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
-+    let art = cart
-+        .label
-+        .as_deref()
-+        .and_then(|p| label_cover(cart, p, lw, lh));
+     let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
      cart_face_with(cart, art)
- }
- 
-@@ -265,7 +268,10 @@ pub fn retro_cart_face(cart: &Cart, kind: RetroShell) -> CartFace {
-         None => plastic_in(cart, kind),
-     };
-     let (_, _, lw, lh) = look(kind).label;
--    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
-+    let art = cart
-+        .label
-+        .as_deref()
-+        .and_then(|p| art::cover_rows(p, lw, lh, true));
-     face_of(shape, shell, cart, art)
- }
- 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 72f307e..887473f 100644
+index 55f3824..4899a45 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -73,7 +73,9 @@ pub use quick_menu::{
+@@ -86,7 +86,9 @@ pub use quick_menu::{
  };
  pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
  pub use refusal::Refusal;
@@ -87,35 +62,63 @@ index 72f307e..887473f 100644
 +pub use retro_cart::{
 +    label_cover, retro_shell_of, retro_silhouette, NesShell, RetroShell, SnesShell,
 +};
+ pub use retro_face::{retro_cart_face, retro_label_rect};
  pub use retro_shadows::publish_retro_shadows;
  pub use retro_shell::{
-     plastic_in, retro_presets, NesRow, SnesRow, FAMICOM_YELLOW, NES_GOLD, NES_GREY, NES_TITLES,
 diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
-index aeaf482..31e893c 100644
+index 521efc1..0cf2452 100644
 --- a/crates/slot-ui/src/retro_cart.rs
 +++ b/crates/slot-ui/src/retro_cart.rs
-@@ -1,7 +1,9 @@
-+use std::path::Path;
- use std::sync::OnceLock;
+@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
  
  use slot_store::{Cart, Outline, Platform};
  
-+use crate::art::cover_rows;
- use crate::silhouette::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
++use crate::art::{cover_rgba, decode_png_bytes};
+ use crate::retro_mould::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
  
  #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-@@ -206,3 +208,11 @@ pub(crate) fn retro_detail(kind: RetroShell) -> &'static Detail {
+@@ -223,3 +224,15 @@ pub(crate) fn retro_detail(kind: RetroShell) -> &'static Detail {
          detail
      })
  }
 +
 +pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
-+    let top = match cart.platform {
-+        Platform::Nes | Platform::Snes => true,
-+        Platform::Gba | Platform::Gb | Platform::Gbc => false,
++    let (src, sw, sh) = decode_png_bytes(&std::fs::read(path).ok()?)?;
++    let rows = match cart.platform {
++        Platform::Nes | Platform::Snes => {
++            sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
++        }
++        Platform::Gba | Platform::Gb | Platform::Gbc => sh,
 +    };
-+    cover_rows(path, w, h, top)
++    let top = src.get(..(sw as usize * rows as usize * 4))?;
++    cover_rgba(top, sw, rows, w, h)
 +}
+diff --git a/crates/slot-ui/src/retro_face.rs b/crates/slot-ui/src/retro_face.rs
+index 4d93924..98d75a4 100644
+--- a/crates/slot-ui/src/retro_face.rs
++++ b/crates/slot-ui/src/retro_face.rs
+@@ -1,8 +1,7 @@
+ use slot_store::Cart;
+ 
+-use crate::art;
+ use crate::cart::{label_colour, label_text, CartFace, SEATED_W};
+-use crate::retro_cart::{look, retro_depth, retro_detail, retro_mask, RetroShell};
++use crate::retro_cart::{label_cover, look, retro_depth, retro_detail, retro_mask, RetroShell};
+ use crate::retro_mould::Detail;
+ use crate::retro_shell::plastic_in;
+ use crate::shell::{shell_for, Finish, Shell};
+@@ -62,7 +61,10 @@ pub fn retro_cart_face(cart: &Cart, kind: RetroShell) -> CartFace {
+         None => plastic_in(cart, kind),
+     };
+     let (_, _, lw, lh) = look(kind).label;
+-    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
++    let art = cart
++        .label
++        .as_deref()
++        .and_then(|p| label_cover(cart, p, lw, lh));
+     retro_face(kind, &shell, cart, art)
+ }
+ 
 diff --git a/crates/slot/src/label_cache.rs b/crates/slot/src/label_cache.rs
 index b0765b2..8cbf989 100644
 --- a/crates/slot/src/label_cache.rs

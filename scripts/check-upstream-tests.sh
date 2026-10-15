@@ -90,7 +90,6 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	cmp -s "$up/$f" "$ours/$f" && continue
 	case "$f" in
 	crates/slot-ui/tests/chrome.rs) prefix=Platform ;;
-	crates/slot/tests/render_shelves.rs) prefix=CartPlatform ;;
 	crates/slot-store/tests/durability.rs)
 		pce='^[[:space:]]*\("cart_platform=pce\\n", None\),$'
 		shaders='^[[:space:]]+shader_(nes|snes): Shader::Off,$'

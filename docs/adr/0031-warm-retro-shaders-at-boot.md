@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [patch 0020](../../patches/0020-retro-shaders.patch), [DEVICE-GATE.md](../DEVICE-GATE.md) (2026-10-13)
+- Related: [patch 0017](../../patches/0017-retro-shaders.patch), [DEVICE-GATE.md](../DEVICE-GATE.md) (2026-10-13)
 
 ## Context
 

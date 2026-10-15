@@ -16,7 +16,7 @@ The 2026-10-13 device gate failed every title, the GBA reference included, on th
 - The starved count (2048 to 4096) is a different cause: the shelf drains the ring dry while the cart is inserted (the emu is paused until the insert ends), so the first fills after play starts are short and the priming hold then holds silence until the ring is half full. All of it is counted as starved.
 
 ## Scope
-`patches/0021-audio-reopen.patch`:
+`patches/0018-audio-reopen.patch`:
 - [x] New `crates/slot/src/audio/hold.rs`: `Hold` decides whether the device stays open. A ring that grew since the last fill means a game is feeding it, so the device is held, even while the game is silent. With no feed, upstream's 3 s silence rule still releases it (shelf, pause, quick menu, muted fast-forward). Fed means "queue grew", not "queue non-empty", so a queue parked by the priming hold cannot keep the device open.
 - [x] `wake_device()`, called when a cart starts loading (`Session::spawn_core`), reopens a released device at once, so the 251 ms open runs during the insert and core load, before the emu is unpaused.
 - [x] `prefill_silence(ring)`, called by the emu when it returns to normal speed from pause, rewind or fast-forward (only at normal speed, so upstream's fast-forward audio tests keep their exact counts), tops the ring up with silence to half its capacity, the same cushion upstream's `Ring::reopen` lays down. Half is rounded up, because `fill` holds while the queue is below `buf.len() / 2` samples and `drc_target` is one sample short of that at 32768 Hz.

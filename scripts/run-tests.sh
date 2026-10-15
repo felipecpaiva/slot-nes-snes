@@ -44,6 +44,27 @@ if [ "${CI:-}" = true ]; then
 	ci_skips="--exact $ci_skips"
 fi
 
+# Upstream's own frame-hash tests in slot-gfx layout.rs fail on the unpatched v1.7.0 tree on this
+# Mac too (two tests, the GPU renders a different hash than the one Brandon pinned). They are left
+# out of the gating run and run in both trees afterwards: the patched tree must fail no test the
+# upstream tree passes.
+both_trees="slot-gfx:layout"
+up="$(dirname "$1")/slot-upstream"
+[ -d "$up/crates" ] || {
+	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2
+	exit 1
+}
+for pt in $both_trees; do
+	names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
+		sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
+	[ -n "$names" ] || {
+		echo "slot-nes-snes: could not list the $pt tests to run them in both trees" >&2
+		exit 1
+	}
+	[ -n "$ci_skips" ] || ci_skips="--exact"
+	ci_skips="$ci_skips $names"
+done
+
 rc=0
 # shellcheck disable=SC2086
 (cd "$1" && cargo test --workspace -- --nocapture $ci_skips) >"$log" 2>&1 || rc=$?
@@ -54,6 +75,22 @@ if [ "$rc" -ne 0 ]; then
 	echo "slot-nes-snes: cargo test failed" >&2
 	exit "$rc"
 fi
+
+failed() {
+	(cd "$1" && cargo test -q -p "${2%%:*}" --test "${2#*:}" 2>&1 || true) |
+		sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p; s/^    \([a-z0-9_]*\)$/\1/p' | sort -u
+}
+for pt in $both_trees; do
+	failed "$up" "$pt" >"$log.up"
+	failed "$1" "$pt" >"$log.ours"
+	extra="$(comm -13 "$log.up" "$log.ours")"
+	echo "$pt in both trees: upstream fails $(wc -l <"$log.up" | tr -d ' '), patched fails $(wc -l <"$log.ours" | tr -d ' ')"
+	rm -f "$log.up" "$log.ours"
+	[ -z "$extra" ] || {
+		echo "slot-nes-snes: $pt fails in the patched tree but passes upstream: $extra" >&2
+		exit 1
+	}
+done
 
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do

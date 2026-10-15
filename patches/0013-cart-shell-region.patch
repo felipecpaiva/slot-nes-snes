@@ -12,12 +12,12 @@ Subject: [PATCH] cart-shell-region
  crates/slot-store/tests/nes_region.rs     |  66 ++++++++++
  crates/slot-store/tests/snes_region.rs    |  90 ++++++++++++++
  crates/slot-ui/src/cart.rs                |   5 +-
- crates/slot-ui/src/retro_cart.rs          |  37 +++++-
+ crates/slot-ui/src/retro_cart.rs          |  51 +++++++-
  crates/slot-ui/tests/nes_gb_outline.rs    |  50 ++++++++
  crates/slot-ui/tests/nes_region_shell.rs  | 127 +++++++++++++++++++
  crates/slot-ui/tests/render_nes_region.rs | 142 ++++++++++++++++++++++
  crates/slot/tests/nes_label_cache.rs      |  68 +++++++++++
- 13 files changed, 750 insertions(+), 10 deletions(-)
+ 13 files changed, 763 insertions(+), 11 deletions(-)
  create mode 100644 crates/slot-store/src/nes.rs
  create mode 100644 crates/slot-store/tests/nes_cart_shell.rs
  create mode 100644 crates/slot-store/tests/nes_region.rs
@@ -65,7 +65,7 @@ index d270c44..6228029 100644
          let finish = match self.finish {
              ShellFinish::Solid => "solid",
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 1a6bf7a..460daa1 100644
+index 5a5e4ad..eee1b19 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
 @@ -7,6 +7,7 @@ pub mod gb;
@@ -454,36 +454,50 @@ index 0000000..412198d
 +    assert_eq!(snes::outline(&path.with_file_name("missing.sfc")), None);
 +}
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 4194aaf..6a0c573 100644
+index 77753c2..2b65381 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -99,7 +99,10 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -90,7 +90,10 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
              Some(Outline::Notched) => GbShell::Notched,
              Some(Outline::Rounded) => GbShell::Rounded,
--            Some(Outline::Auto) | None => match slot_store::gb::class(&cart.rom) {
+-            Some(Outline::Auto) | None => match slot_store::gb::cached_class(&cart.rom) {
 +            Some(
 +                Outline::Auto | Outline::Nes | Outline::Famicom | Outline::Snes | Outline::Sfc,
 +            )
-+            | None => match slot_store::gb::class(&cart.rom) {
++            | None => match slot_store::gb::cached_class(&cart.rom) {
                  Class::ColourOnly => GbShell::Rounded,
                  Class::Original | Class::DualMode => GbShell::Notched,
              },
 diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
-index 551079c..aeaf482 100644
+index fc243ec..521efc1 100644
 --- a/crates/slot-ui/src/retro_cart.rs
 +++ b/crates/slot-ui/src/retro_cart.rs
-@@ -1,6 +1,6 @@
- use std::sync::OnceLock;
+@@ -1,6 +1,8 @@
+-use std::sync::OnceLock;
++use std::collections::HashMap;
++use std::path::{Path, PathBuf};
++use std::sync::{Mutex, OnceLock};
  
 -use slot_store::{Cart, Platform};
 +use slot_store::{Cart, Outline, Platform};
  
- use crate::silhouette::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
+ use crate::retro_mould::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
  
-@@ -50,9 +50,40 @@ impl RetroShell {
+@@ -49,10 +51,51 @@ impl RetroShell {
+     }
  }
  
++fn cached_snes_outline(rom: &Path) -> Option<Outline> {
++    static OUTLINES: OnceLock<Mutex<HashMap<PathBuf, Option<Outline>>>> = OnceLock::new();
++    *OUTLINES
++        .get_or_init(Mutex::default)
++        .lock()
++        .unwrap_or_else(|e| e.into_inner())
++        .entry(rom.to_path_buf())
++        .or_insert_with(|| slot_store::snes::outline(rom))
++}
++
  pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
 +    let word = cart.shell.map(|c| c.outline);
      match cart.platform {
@@ -514,7 +528,7 @@ index 551079c..aeaf482 100644
 +                | Outline::Famicom,
 +            )
 +            | None => {
-+                if slot_store::snes::outline(&cart.rom) == Some(Outline::Sfc) {
++                if cached_snes_outline(&cart.rom) == Some(Outline::Sfc) {
 +                    SnesShell::Sfc
 +                } else {
 +                    SnesShell::Snes
@@ -715,7 +729,7 @@ index 0000000..07afebc
 +}
 diff --git a/crates/slot-ui/tests/render_nes_region.rs b/crates/slot-ui/tests/render_nes_region.rs
 new file mode 100644
-index 0000000..376896b
+index 0000000..00073ac
 --- /dev/null
 +++ b/crates/slot-ui/tests/render_nes_region.rs
 @@ -0,0 +1,142 @@
@@ -832,10 +846,10 @@ index 0000000..376896b
 +            })
 +            .collect();
 +        shelf.set_faces(faces);
-+        shelf.set_retro(&shadows);
++        slot_ui::publish_retro_shadows(&shadows);
 +        let own = shadows.iter().find(|(k, _)| *k == kind).map(|(_, t)| *t);
 +        let mut list = Vec::new();
-+        shelf.draw_row(None, 0.0, 0.0, 1.0, &mut list);
++        shelf.draw_row(slot_gfx::Canvas::FRAMED, None, 0.0, 0.5, 1.0, &mut list);
 +        let used: Vec<_> = list
 +            .iter()
 +            .filter_map(|d| match d {

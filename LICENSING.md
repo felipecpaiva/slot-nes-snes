@@ -186,7 +186,7 @@ too. The README "Licences" paragraph names both.
 
 ## NES and SNES screen shaders
 
-Patch `0020-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
+Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
 collection into `crates/slot-gfx/src/pipeline/retro.rs`. Their attributions ship as
 `licenses/retro-shaders.txt`, next to upstream's `licenses/shaders.txt`, which is left as it is:
 
@@ -196,7 +196,7 @@ collection into `crates/slot-gfx/src/pipeline/retro.rs`. Their attributions ship
   and as a comment in the GLSL source.
 - crt-1tap v1.4 (fishku, GLSL port by DariusG). CC0.
 
-Patch `0022-retro-line-pixel` adds two more in the same file:
+Patch `0019-retro-line-pixel` adds two more in the same file:
 
 - Pixel: pixellate (Fes, 2011-2012). ISC style permissive licence. Its full notice is kept in the
   licence file and as a comment in the GLSL source.

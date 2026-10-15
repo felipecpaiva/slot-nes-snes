@@ -1,6 +1,6 @@
 # 0006. Ship real NES, Famicom, SNES and Super Famicom cart art with variants in v1
 
-- Status: Accepted
+- Status: Accepted. Amended by [0042](0042-retro-carts-own-renderer.md)
 - Date: 2026-10-11
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 24](../../.github/issues/24-phase-4-cart-art.md), [issue 25](../../.github/issues/25-cart-variant-research.md), [issue 26](../../.github/issues/26-cart-art.md), [issue 27](../../.github/issues/27-cart-shell-grammar-region.md), [patch 0012](../../patches/0012-cart-art.patch), [patch 0013](../../patches/0013-cart-shell-region.patch), [VARIANTS.md](../cart-art/VARIANTS.md)

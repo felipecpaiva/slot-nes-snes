@@ -115,7 +115,7 @@ cleanup() {
 	set +e
 	if [ "$armed" = 1 ]; then
 		dx "$sc stop"
-		dx "cd $(shq "$bt") && cp -p slot.state $(shq "$cfg/slot.state") && { [ -f slot.log.bak ] && cp -p slot.log.bak $(shq "$SD/slot.log"); [ -f slot.log.1.bak ] && cp -p slot.log.1.bak $(shq "$SD/slot.log.1"); true; }"
+		dx "cd $(shq "$bt") && cp -p slot.state $(shq "$cfg/slot.state") && { [ -f slot.log.bak ] && cp -p slot.log.bak $(shq "$SD/Logs/slot.log"); [ -f slot.log.1.bak ] && cp -p slot.log.1.bak $(shq "$SD/Logs/slot.log.1"); true; }"
 		dx "$sc bg sh $(shq "$tf")"
 		n=0
 		while [ "$n" -lt 10 ] && [ -z "$(dev "$sc pids")" ]; do
@@ -132,7 +132,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-dx "cd $(shq "$bt") && cp -p $(shq "$cfg/slot.state") slot.state && { cp -p $(shq "$SD/slot.log") slot.log.bak 2>/dev/null; cp -p $(shq "$SD/slot.log.1") slot.log.1.bak 2>/dev/null; true; }" ||
+dx "cd $(shq "$bt") && cp -p $(shq "$cfg/slot.state") slot.state && { cp -p $(shq "$SD/Logs/slot.log") slot.log.bak 2>/dev/null; cp -p $(shq "$SD/Logs/slot.log.1") slot.log.1.bak 2>/dev/null; true; }" ||
 	die "the backup failed, nothing was changed"
 armed=1
 

@@ -3,7 +3,7 @@
 - Status: Accepted, amended by [0036](0036-line-pixel-sharp-scanlines.md)
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [retro-shaders.md](../research/retro-shaders.md), [patch 0020](../../patches/0020-retro-shaders.patch)
+- Related: [retro-shaders.md](../research/retro-shaders.md), [patch 0017](../../patches/0017-retro-shaders.patch)
 
 ## Context
 
