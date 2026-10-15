@@ -6,10 +6,10 @@ Subject: [PATCH] cart-shell-region
 ---
  crates/slot-store/src/cart_shell.rs       |  12 ++
  crates/slot-store/src/lib.rs              |   1 +
- crates/slot-store/src/nes.rs              |  50 ++++++++
+ crates/slot-store/src/nes.rs              |  75 ++++++++++++
  crates/slot-store/src/snes.rs             |  36 +++++-
  crates/slot-store/tests/nes_cart_shell.rs |  51 ++++++++
- crates/slot-store/tests/nes_region.rs     |  33 +++++
+ crates/slot-store/tests/nes_region.rs     |  66 ++++++++++
  crates/slot-store/tests/snes_region.rs    |  90 ++++++++++++++
  crates/slot-ui/src/cart.rs                |   5 +-
  crates/slot-ui/src/retro_cart.rs          |  37 +++++-
@@ -17,7 +17,7 @@ Subject: [PATCH] cart-shell-region
  crates/slot-ui/tests/nes_region_shell.rs  | 127 +++++++++++++++++++
  crates/slot-ui/tests/render_nes_region.rs | 142 ++++++++++++++++++++++
  crates/slot/tests/nes_label_cache.rs      |  68 +++++++++++
- 13 files changed, 692 insertions(+), 10 deletions(-)
+ 13 files changed, 750 insertions(+), 10 deletions(-)
  create mode 100644 crates/slot-store/src/nes.rs
  create mode 100644 crates/slot-store/tests/nes_cart_shell.rs
  create mode 100644 crates/slot-store/tests/nes_region.rs
@@ -78,17 +78,18 @@ index 1a6bf7a..460daa1 100644
  mod ring;
 diff --git a/crates/slot-store/src/nes.rs b/crates/slot-store/src/nes.rs
 new file mode 100644
-index 0000000..909caac
+index 0000000..d265ed0
 --- /dev/null
 +++ b/crates/slot-store/src/nes.rs
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,75 @@
 +use crate::Outline;
 +
 +const WESTERN: [&str; 3] = ["USA", "Europe", "World"];
++const GOODTOOLS: [(char, &str); 3] = [('J', "Japan"), ('U', "USA"), ('E', "Europe")];
 +
 +pub fn outline(stem: &str) -> Outline {
 +    let mut japan = false;
-+    for tag in tags(stem) {
++    for tag in tags(stem).flat_map(regions) {
 +        if tag == "Japan" {
 +            japan = true;
 +        } else if WESTERN.contains(&tag) {
@@ -110,6 +111,22 @@ index 0000000..909caac
 +        .map(str::trim)
 +}
 +
++fn regions(tag: &str) -> Vec<&str> {
++    let short: Option<Vec<&str>> = tag
++        .chars()
++        .map(|c| {
++            GOODTOOLS
++                .iter()
++                .find(|(code, _)| *code == c)
++                .map(|(_, name)| *name)
++        })
++        .collect();
++    match short {
++        Some(names) if !names.is_empty() => names,
++        _ => vec![tag],
++    }
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
@@ -125,6 +142,14 @@ index 0000000..909caac
 +    #[test]
 +    fn an_unclosed_bracket_still_yields_its_text() {
 +        assert_eq!(tags("Game (Japan").collect::<Vec<_>>(), ["Japan"]);
++    }
++
++    #[test]
++    fn a_goodtools_code_reads_as_its_regions() {
++        assert_eq!(regions("J"), ["Japan"]);
++        assert_eq!(regions("JU"), ["Japan", "USA"]);
++        assert_eq!(regions("UK"), ["UK"]);
++        assert_eq!(regions(""), [""]);
 +    }
 +
 +    #[test]
@@ -262,10 +287,10 @@ index 0000000..020ba7f
 +}
 diff --git a/crates/slot-store/tests/nes_region.rs b/crates/slot-store/tests/nes_region.rs
 new file mode 100644
-index 0000000..f380802
+index 0000000..5a5e367
 --- /dev/null
 +++ b/crates/slot-store/tests/nes_region.rs
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,66 @@
 +use slot_store::{nes, Outline};
 +
 +#[test]
@@ -298,6 +323,39 @@ index 0000000..f380802
 +fn a_japan_tag_still_counts_next_to_a_revision_tag() {
 +    assert_eq!(nes::outline("Game (Japan) (Rev 1)"), Outline::Famicom);
 +    assert_eq!(nes::outline("Game (Japan) (En,Ja)"), Outline::Famicom);
++}
++
++#[test]
++fn a_goodtools_j_tag_gives_the_famicom() {
++    assert_eq!(nes::outline("Akumajou Dracula (J)"), Outline::Famicom);
++    assert_eq!(nes::outline("Akumajou Dracula (J) [!]"), Outline::Famicom);
++}
++
++#[test]
++fn a_goodtools_western_tag_gives_the_nes() {
++    for stem in ["Game (U)", "Game (E)", "Game (UE)"] {
++        assert_eq!(nes::outline(stem), Outline::Nes, "{stem}");
++    }
++}
++
++#[test]
++fn a_goodtools_tag_for_japan_and_the_west_gives_the_nes() {
++    for stem in ["Game (JU)", "Game (JE)", "Game (JUE)", "Game (J) (U)"] {
++        assert_eq!(nes::outline(stem), Outline::Nes, "{stem}");
++    }
++}
++
++#[test]
++fn a_tag_that_only_starts_with_a_goodtools_letter_is_not_a_region() {
++    for stem in [
++        "Game (Japan) (Unl)",
++        "Game (Japan) (UK)",
++        "Game (Japan) (PRG0)",
++        "Game (Japan) (Hack)",
++        "Game (Japan) (VS)",
++    ] {
++        assert_eq!(nes::outline(stem), Outline::Famicom, "{stem}");
++    }
 +}
 diff --git a/crates/slot-store/tests/snes_region.rs b/crates/slot-store/tests/snes_region.rs
 new file mode 100644

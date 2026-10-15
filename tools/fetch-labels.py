@@ -363,12 +363,24 @@ def tags(name):
     return {t.strip() for t in m.group(1).split(",")} if m else set()
 
 
+GOODTOOLS = {"J": "Japan", "U": "USA", "E": "Europe"}
+
+
+def regions(name):
+    """Every bracket group's tags, a GoodTools code such as J, JU or UE read as its regions, as slot's nes.rs reads a stem."""
+    out = set()
+    for group in re.findall(r"\(([^)]*)", name):
+        for t in (t.strip() for t in group.split(",")):
+            out |= {GOODTOOLS[c] for c in t} if t and all(c in GOODTOOLS for c in t) else {t}
+    return out
+
+
 def shell_word(system, stem, dat_name):
     """'famicom' or 'sfc' when the dat's region says so and slot would not pick it itself, else None.
     slot already reads a NES stem's (Japan) tag and a SNES ROM's header; a line only adds what it misses."""
     t = tags(dat_name or "")
     if system == "NES":
-        japan = lambda s: "Japan" in tags(s) and not tags(s) & {"USA", "Europe", "World"}
+        japan = lambda s: "Japan" in regions(s) and not regions(s) & {"USA", "Europe", "World"}
         return "famicom" if japan(dat_name or "") and not japan(stem) else None
     if system == "SNES":
         return "sfc" if t and not t & {"USA", "Canada", "World"} else None
