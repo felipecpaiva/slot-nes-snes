@@ -35,6 +35,7 @@ Users pick a cart variant per game in `cart_shell.txt`, and `auto` should pick t
 | Case | Expected handling |
 |---|---|
 | `cart_shell.txt` line `nes ...` read by unpatched slot | Upstream `ShellChoice::parse` returns None on an unknown outline word (`slot: crates/slot-store/src/cart_shell.rs:32-36`), so the line is dropped and the cart falls back to auto |
+| GoodTools short tags (`Akumajou Dracula (J)`) | Read as regions letter by letter (`J`, `U`, `E`, cited in `VARIANTS.md` section 8): `(J)` gives Famicom, `(JU)` and `(U)` give NES. Fixed 2026-10-15 in patch 0013, tests in `nes_region.rs`; `tools/fetch-labels.py` mirrors it |
 | Cart Studio may drop `nes`/`snes` lines when rewriting `Labels/cart_shell.txt` | Unverified. Phase 4 round-trip check. Until then, document "keep NES/SNES overrides in `Config/cart_shell.txt`" |
 
 ## Acceptance

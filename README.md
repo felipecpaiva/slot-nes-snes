@@ -55,7 +55,7 @@ colima start
 
 ## Choosing a cart shell by hand
 
-Each cart on the shelf is drawn from one of four outlines: `nes`, `famicom` (NES shelf) and `snes`, `sfc` (SNES shelf). By default slot picks one from the game's region. A NES file with `(Japan)` in its name (and no `(USA)`, `(Europe)` or `(World)` tag) is drawn as a Famicom, any other NES file as a NES. A SNES ROM is read from the region byte in its internal header: Japan and the PAL regions give the Super Famicom, USA gives the Super NES. Korea, Canada and Brazil also give the Super Famicom for now (no source settles their shell yet), and a ROM with no readable header is drawn as a Super NES. The `(Japan)` tag match is case sensitive, as in No-Intro names.
+Each cart on the shelf is drawn from one of four outlines: `nes`, `famicom` (NES shelf) and `snes`, `sfc` (SNES shelf). By default slot picks one from the game's region. A NES file with `(Japan)` or the GoodTools `(J)` in its name (and no `(USA)`, `(Europe)` or `(World)` tag, or `U` or `E` in a GoodTools code like `(JU)`) is drawn as a Famicom, any other NES file as a NES. A SNES ROM is read from the region byte in its internal header: Japan and the PAL regions give the Super Famicom, USA gives the Super NES. Korea, Canada and Brazil also give the Super Famicom for now (no source settles their shell yet), and a ROM with no readable header is drawn as a Super NES. The `(Japan)` tag match is case sensitive, as in No-Intro names.
 
 To override one game, add a line to `Config/cart_shell.txt` on the SD card, one line per game, the file name without its extension, then `=`, then the outline word, a colour and a finish:
 
