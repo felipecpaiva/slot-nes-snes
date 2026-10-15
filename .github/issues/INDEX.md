@@ -52,3 +52,7 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [47](47-audio-reopen.md) | Stop losing audio when slot reopens the ALSA device | 5 | device | fix | S | 39-cross-platform-performance |
 | [48](48-deferred-n64.md) | DEFERRED: Add N64 as a platform, after a device spike proves it | 6 | cores | chore | L | 32-phase-6-deferred |
 | [49](49-retro-line-pixel.md) | Add Line and Pixel shaders for NES and SNES and make Scanlines sharp | 3 | video | feature | S | 46-retro-shaders |
+| [50](50-sega-tracking.md) | Sega: Game Gear, Master System and Mega Drive on Genesis Plus GX | 7 | device | tracking | L | 39-cross-platform-performance |
+| [51](51-platform-gg.md) | Add Platform::Gg, Game Gear on Genesis Plus GX at 3x | 7 | platform | feature | M | 50-sega-tracking |
+| [52](52-platform-sms.md) | Add Platform::Sms, Master System on Genesis Plus GX at 2x | 7 | platform | feature | M | 51-platform-gg |
+| [53](53-platform-md.md) | Add Platform::Md, Mega Drive on Genesis Plus GX with 6-button input and live-width Stretch | 7 | platform | feature | L | 52-platform-sms |

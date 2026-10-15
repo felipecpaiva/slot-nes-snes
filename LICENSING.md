@@ -184,6 +184,42 @@ This is our reading, not legal advice. The core is plain C, so no libstdc++ is l
 never be sold, or bundled with anything that is sold**, and the notice under snes9x covers this core
 too. The README "Licences" paragraph names both.
 
+## Genesis Plus GX (built, not shipped yet)
+
+Checked at commit `393f70cd64c7334564c19a424c383f53986c13f4` of libretro/Genesis-Plus-GX, the commit
+`SLOT_PIN` pins as `genesis_plus_gx_commit` (tarball sha256 `genesis_plus_gx_tarball_sha256`). It
+is built by `cores/genesis_plus_gx/build.sh` for Game Gear, Master System and Mega Drive (ADR 0053).
+**No release carries it yet**: it is not in `dist:device` or `zip-check.sh` until the first Sega
+platform patch lands (issue 50). Its licence, the root `LICENSE.txt` of that source copied verbatim
+and whole, is kept as `cores/genesis_plus_gx/LICENSE.txt` for now, because `scripts/dist-device.sh`
+copies every file in `licenses/` into the release. It moves to `licenses/genesis_plus_gx-LICENSE.txt`
+when the core ships, and the core's source then ships as `genesis_plus_gx-src.tar.gz` with its `.meta`.
+
+**Genesis Plus GX is not free software and is not GPL-compatible**, like snes9x. The file says, quoted:
+
+- "Unless otherwise explicitly stated, all code in Genesis Plus GX is released under the following
+  license", Copyright (c) 1998-2003 Charles MacDonald, (c) 2007-2026 Eke-Eke, "Some portions copyright
+  Nicola Salmoria and the MAME team".
+- "Redistributions may not be sold, nor may they be used in a commercial product or activity."
+- "Redistributions that are modified from the original source must include the complete source code".
+  We build the pinned source unmodified and ship the source tarball anyway.
+- "Redistributions must reproduce the above copyright notice", which is why the whole file ships, not
+  a summary.
+
+Other terms inside the same file, for code compiled into `genesis_plus_gx_libretro.so` (from the link
+line of the pinned `Makefile.libretro` build): the Nuked OPN2 core (`core/sound/ym3438.c`,
+LGPL-2.1-or-later, Alexey Khokholov), the Nuked OPLL core (`core/sound/opll.c`, the same non-commercial
+terms as above), the NTSC filters and Blip Buffer (Shay Green, LGPL-2.1-or-later), Tremor (Xiph, BSD
+style), and libchdr with its LZMA (public domain), zstd (BSD), zlib and dr_flac notices. The
+`libretro-common` files are the RetroArch team's MIT text. The LGPL parts sit in a separate shared
+library with their full source shipped, which LGPL-2.1 allows. None of them lifts the non-commercial
+restriction on the whole.
+
+The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across
+the libretro C ABI, the zip an aggregate of separate works. This is our reading, not legal advice.
+The core is plain C and links only `libc` and `libm` on the device. When it ships, the notice under
+snes9x gains Genesis Plus GX, and the release terms do not change: the zip is already never to be sold.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader

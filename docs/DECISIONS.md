@@ -55,3 +55,7 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-15 | [0047](adr/0047-upstream-first-fixes.md) | A fix that belongs upstream also goes to BrandonKowalski/slot as a PR; our patch is dropped on the rebase after upstream ships it |
 | 2026-10-15 | [0048](adr/0048-nes-snes-in-the-screen-platform-list.md) | Screen lists NES and SNES after the Game Boys (hidden on cards without them); named test sites (g) and (h) in slot-ui quick_menu.rs |
 | 2026-10-15 | [0049](adr/0049-per-shelf-cart-memory.md) | Each shelf remembers its cart in Config/shelf_carts.txt, saved at rest on top of upstream #53; drop when the upstream PR lands |
+| 2026-10-15 | [0050](adr/0050-canvas-per-core-and-platform.md) | Canvas comes from (core, platform): Game Gear 240x160 at 3x like Game Boy, SMS and MD 360x240 at 2x |
+| 2026-10-15 | [0051](adr/0051-sega-shaders-outside-slot-state.md) | GG, SMS and MD shaders live in their own Config/ file; SlotState and test site (f) unchanged |
+| 2026-10-15 | [0052](adr/0052-md-stretch-follows-frame-width.md) | MD Stretch uses the last frame width (320 or 256); MD defaults to Stretch |
+| 2026-10-15 | [0053](adr/0053-genesis-plus-gx-for-sega.md) | Genesis Plus GX is the single core for GG, SMS and MD, one platform each, no picker yet; MD go is provisional on the heavy-title device gate |

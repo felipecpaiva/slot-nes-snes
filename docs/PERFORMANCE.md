@@ -239,6 +239,53 @@ Known before measuring (docs/DEVICE-GATE.md): on 2026-10-12 real sessions showed
 NES and SNES alike, so the zero-underrun threshold is expected to fail everywhere until the start-up
 starve is fixed.
 
+## Sega core: Genesis Plus GX (2026-10-15, issue 50)
+
+First step for Game Gear, Master System and Mega Drive (ADR 0053): the core alone, before any
+frontend code. `core_bench` on the device through `scripts/bench-device.sh` (`CORE=genesis_plus_gx`,
+the core pushed to `System/` by hand for the run and removed after), RG34XXSP, governor
+`performance`, SoC 51 to 57 C, 3 runs of `--frames 3000 --warmup 300 --repeats 3` per pair, then one
+`--serialize --frames 300`. Logs: `docs/perf/2026-10-15-sega/`. The carts are free test homebrew,
+kept out of the repo: 240p Test Suite 1.32 for Mega Drive and 1.10 for SNES (Artemio Urbina, GPL-2.0,
+itch.io), River Strike 0.10 (haroldo-ok, MIT, SMS) and Tunnel 1.0 (liamhays, GPL-3.0, GG). The card has no
+Sega folders, so no owned cart was run.
+
+**Light workload.** `core_bench` presses nothing, so each cart sits on its menu or title screen. Read
+the rows as a floor for each system's cost, not as gameplay. The SNES row is the same suite on
+snes9x2005_plus, measured in the same session, so MD and SNES compare like for like.
+
+| Pair (device) | ms/frame, median of 3 runs (worst run) | x real time at 59.92 Hz (60 Hz) | State size | Serialize run / save / load, median (p95) ms |
+|---|---|---|---|---|
+| MD Genesis Plus GX, 240p Suite | 3.305 (3.305) | 5.05 (5.04) | 1,036,288 | 3.595 / 0.305 (0.467) / 0.421 (0.537) |
+| MD Genesis Plus GX, FM `nuked (ym2612)` | 11.760 (1 run) | 1.42 (1.42) | same | not run |
+| SMS Genesis Plus GX, River Strike | 1.302 (1.307) | 12.82 (12.80) | 1,036,288 | 1.643 / 0.260 (0.461) / 0.351 (0.468) |
+| GG Genesis Plus GX, Tunnel | 1.013 (1.024) | 16.47 (16.45) | 1,036,288 | 1.108 / 0.252 (0.415) / 0.351 (0.479) |
+| SNES snes9x2005_plus, 240p Suite | 2.696 (2.701) | 6.17 at 60.10 Hz (6.18) | 564,544 | 3.045 / 0.630 (0.887) / 0.560 (0.776) |
+
+Host proxy (M5 Max, arm64 dylib, one run of 5 repeats): MD 0.217, SMS 0.072, GG 0.060 and SNES
+snes9x2005_plus 0.134 ms/frame. The device is 15 to 22 times slower, so host numbers rank cores but
+do not predict the device.
+
+Frame hashes match between host and device for every cart, so the device build runs the same code path.
+
+What it shows:
+
+- MD on Genesis Plus GX costs 1.23 times snes9x2005_plus on the same suite (3.305 against 2.696 ms),
+  and less than snes9x2005_plus on the 2026-10-13 SA-1 cart (4.661 ms, a different session and game).
+- SMS and GG are trivial: over 12x real time.
+- The Genesis Plus GX state is a fixed 1,036,288 bytes on every system, 1.8 times snes9x2005_plus.
+  Rewind therefore costs the same per push on GG and SMS as on MD; serialize itself stays under
+  0.5 ms at p95. The XOR and lz4 cost of a 1 MB delta in slot's rewind ring is not measured here.
+- The default FM core, `mame (ym2612)`, is what the table measures. Nuked is 3.6 times slower
+  (11.76 ms, 1.42x): no x4 fast-forward, so it stays off.
+
+**Go/no-go, Genesis Plus GX against PicoDrive for MD: go for Genesis Plus GX, provisionally.** 5x
+headroom on a light cart is in the same class as snes9x2005_plus, which passes every threshold above,
+and Genesis Plus GX is the more accurate core (Batocera uses it as the MD default and calls PicoDrive
+the lighter one for weaker hardware). PicoDrive is not built or measured. It stays the fallback if the
+heavy MD gate on the maintainer's own cards misses full speed or x4 fast-forward: Virtua Racing (SVP),
+Sonic 3D, Street Fighter II SCE, Thunder Force IV, Vectorman (issue 53).
+
 ## Not measured yet
 
 - Everything in the interactive table above (needs a person at the device).
