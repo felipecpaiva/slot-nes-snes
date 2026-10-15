@@ -1,0 +1,236 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 15 Oct 2026 17:02:56 +0400
+Subject: [PATCH] label-top
+
+---
+ crates/slot-ui/src/art.rs        |  9 +++-
+ crates/slot-ui/src/cart.rs       | 14 +++--
+ crates/slot-ui/src/lib.rs        |  4 +-
+ crates/slot-ui/src/retro_cart.rs | 10 ++++
+ crates/slot/src/label_cache.rs   |  4 +-
+ crates/slot/tests/label_top.rs   | 90 ++++++++++++++++++++++++++++++++
+ 6 files changed, 123 insertions(+), 8 deletions(-)
+ create mode 100644 crates/slot/tests/label_top.rs
+
+diff --git a/crates/slot-ui/src/art.rs b/crates/slot-ui/src/art.rs
+index 0800087..32c1cf0 100644
+--- a/crates/slot-ui/src/art.rs
++++ b/crates/slot-ui/src/art.rs
+@@ -1,10 +1,17 @@
+ use std::path::Path;
+ 
+ pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
+-    let (src, sw, sh) = decode(path)?;
++    cover_rows(path, w, h, false)
++}
++
++pub fn cover_rows(path: &Path, w: u32, h: u32, top: bool) -> Option<Vec<u8>> {
++    let (src, sw, mut sh) = decode(path)?;
+     if sw == 0 || sh == 0 {
+         return None;
+     }
++    if top {
++        sh = sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w as u64).max(1) as u32);
++    }
+ 
+     let scale = (w as f32 / sw as f32).max(h as f32 / sh as f32);
+     let ox = (sw as f32 - w as f32 / scale) / 2.0;
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 6a0c573..df95f57 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -3,8 +3,8 @@ use slot_store::{Cart, Outline, Platform};
+ 
+ use crate::art;
+ use crate::retro_cart::{
+-    look, retro_depth, retro_detail, retro_mask, retro_shell_of, NesShell, RetroShell, SnesShell,
+-    NES_SEATED_H, SNES_SEATED_H,
++    label_cover, look, retro_depth, retro_detail, retro_mask, retro_shell_of, NesShell, RetroShell,
++    SnesShell, NES_SEATED_H, SNES_SEATED_H,
+ };
+ use crate::retro_shell::plastic_in;
+ use crate::shell::{shell_for, Finish, Shell};
+@@ -242,7 +242,10 @@ fn shadow(w: u32, h: u32, mask: &[u8]) -> CartFace {
+ 
+ pub fn cart_face(cart: &Cart) -> CartFace {
+     let (lw, lh) = label_size(cart);
+-    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
++    let art = cart
++        .label
++        .as_deref()
++        .and_then(|p| label_cover(cart, p, lw, lh));
+     cart_face_with(cart, art)
+ }
+ 
+@@ -265,7 +268,10 @@ pub fn retro_cart_face(cart: &Cart, kind: RetroShell) -> CartFace {
+         None => plastic_in(cart, kind),
+     };
+     let (_, _, lw, lh) = look(kind).label;
+-    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
++    let art = cart
++        .label
++        .as_deref()
++        .and_then(|p| art::cover_rows(p, lw, lh, true));
+     face_of(shape, shell, cart, art)
+ }
+ 
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 72f307e..887473f 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -73,7 +73,9 @@ pub use quick_menu::{
+ };
+ pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
+ pub use refusal::Refusal;
+-pub use retro_cart::{retro_shell_of, retro_silhouette, NesShell, RetroShell, SnesShell};
++pub use retro_cart::{
++    label_cover, retro_shell_of, retro_silhouette, NesShell, RetroShell, SnesShell,
++};
+ pub use retro_shadows::publish_retro_shadows;
+ pub use retro_shell::{
+     plastic_in, retro_presets, NesRow, SnesRow, FAMICOM_YELLOW, NES_GOLD, NES_GREY, NES_TITLES,
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index aeaf482..31e893c 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -1,7 +1,9 @@
++use std::path::Path;
+ use std::sync::OnceLock;
+ 
+ use slot_store::{Cart, Outline, Platform};
+ 
++use crate::art::cover_rows;
+ use crate::silhouette::{depth_map, emboss, rasterise_detail, rasterise_svg, Detail};
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+@@ -206,3 +208,11 @@ pub(crate) fn retro_detail(kind: RetroShell) -> &'static Detail {
+         detail
+     })
+ }
++
++pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
++    let top = match cart.platform {
++        Platform::Nes | Platform::Snes => true,
++        Platform::Gba | Platform::Gb | Platform::Gbc => false,
++    };
++    cover_rows(path, w, h, top)
++}
+diff --git a/crates/slot/src/label_cache.rs b/crates/slot/src/label_cache.rs
+index b0765b2..8cbf989 100644
+--- a/crates/slot/src/label_cache.rs
++++ b/crates/slot/src/label_cache.rs
+@@ -7,7 +7,7 @@ use std::thread;
+ use std::time::UNIX_EPOCH;
+ 
+ use slot_store::Cart;
+-use slot_ui::{cover, label_size};
++use slot_ui::{label_cover, label_size};
+ 
+ const DIR: &str = "System/Cache/Labels";
+ const HEAD: usize = 24;
+@@ -20,7 +20,7 @@ pub fn label_art(root: &Path, cart: &Cart) -> Option<Vec<u8>> {
+     if let Some(art) = read(&cached, stamp, w, h) {
+         return art;
+     }
+-    let art = cover(src, w, h);
++    let art = label_cover(cart, src, w, h);
+     if let Some(dir) = cached.parent() {
+         let _ = std::fs::create_dir_all(dir);
+     }
+diff --git a/crates/slot/tests/label_top.rs b/crates/slot/tests/label_top.rs
+new file mode 100644
+index 0000000..be86116
+--- /dev/null
++++ b/crates/slot/tests/label_top.rs
+@@ -0,0 +1,90 @@
++use std::path::{Path, PathBuf};
++
++use slot::label_cache::label_art;
++use slot_store::{Cart, Platform};
++use slot_ui::{cover, label_size};
++
++const TOP: [u8; 3] = [250, 0, 0];
++
++fn scan(path: &Path, w: u32, h: u32) {
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    let file = std::fs::File::create(path).unwrap();
++    let mut enc = png::Encoder::new(file, w, h);
++    enc.set_color(png::ColorType::Rgb);
++    let mut writer = enc.write_header().unwrap();
++    let px: Vec<u8> = (0..w * h)
++        .flat_map(|i| {
++            let (x, y) = (i % w, i / w);
++            if y < 10 {
++                TOP
++            } else {
++                [(x * 7 % 256) as u8, (y * 5 % 256) as u8, 90]
++            }
++        })
++        .collect();
++    writer.write_image_data(&px).unwrap();
++}
++
++fn cart(root: &Path, platform: Platform, stem: &str, w: u32, h: u32) -> Cart {
++    let label = root.join(format!("Labels/{}/{stem}.png", platform.dir_name()));
++    scan(&label, w, h);
++    Cart {
++        platform,
++        stem: stem.into(),
++        rom: PathBuf::from(format!("Games/{}/{stem}.rom", platform.dir_name())),
++        label: Some(label),
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++fn top_row(cart: &Cart, art: &[u8]) -> Vec<[u8; 3]> {
++    let (w, _) = label_size(cart);
++    (0..w as usize)
++        .map(|x| [art[x * 4], art[x * 4 + 1], art[x * 4 + 2]])
++        .collect()
++}
++
++#[test]
++fn a_snes_scan_keeps_its_top_rows_in_the_label_box() {
++    let d = tempfile::tempdir().unwrap();
++    let snes = cart(d.path(), Platform::Snes, "Game (USA)", 600, 257);
++    let art = label_art(d.path(), &snes).expect("art");
++    assert!(top_row(&snes, &art).iter().all(|p| *p == TOP));
++    let (w, h) = label_size(&snes);
++    let centred = cover(snes.label.as_deref().unwrap(), w, h).unwrap();
++    assert!(top_row(&snes, &centred).iter().all(|p| *p != TOP));
++}
++
++#[test]
++fn a_famicom_scan_keeps_its_top_rows_in_the_label_box() {
++    let d = tempfile::tempdir().unwrap();
++    let famicom = cart(d.path(), Platform::Nes, "Game (Japan)", 600, 288);
++    let art = label_art(d.path(), &famicom).expect("art");
++    assert!(top_row(&famicom, &art).iter().all(|p| *p == TOP));
++}
++
++#[test]
++fn a_label_already_cut_to_the_box_draws_unchanged() {
++    let d = tempfile::tempdir().unwrap();
++    let snes = cart(d.path(), Platform::Snes, "Game (USA)", 1024, 341);
++    let (w, h) = label_size(&snes);
++    let art = label_art(d.path(), &snes).expect("art");
++    assert_eq!(art, cover(snes.label.as_deref().unwrap(), w, h).unwrap());
++}
++
++#[test]
++fn game_boy_and_gba_labels_keep_the_centred_crop() {
++    let d = tempfile::tempdir().unwrap();
++    for (platform, stem) in [
++        (Platform::Gba, "Tall"),
++        (Platform::Gb, "Tall"),
++        (Platform::Gbc, "Tall"),
++    ] {
++        let tall = cart(d.path(), platform, stem, 300, 600);
++        let (w, h) = label_size(&tall);
++        let art = label_art(d.path(), &tall).expect("art");
++        assert_eq!(art, cover(tall.label.as_deref().unwrap(), w, h).unwrap());
++    }
++}

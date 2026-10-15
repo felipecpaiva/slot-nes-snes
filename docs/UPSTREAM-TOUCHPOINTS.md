@@ -23,9 +23,10 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/src/slot_state.rs` | 10 | 23 (+22/-1) | 0002-platform-nes, 0014-shaders, 0020-retro-shaders |
 | `crates/slot-store/tests/durability.rs` | 2 | 4 (+3/-1) | 0002-platform-nes, 0014-shaders |
 | `crates/slot-ui/examples/lettering.rs` | 1 | 8 (+8/-0) | 0012-cart-art |
+| `crates/slot-ui/src/art.rs` | 2 | 9 (+8/-1) | 0023-label-top |
 | `crates/slot-ui/src/board.rs` | 3 | 7 (+6/-1) | 0012-cart-art |
-| `crates/slot-ui/src/cart.rs` | 14 | 91 (+83/-8) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region |
-| `crates/slot-ui/src/lib.rs` | 6 | 18 (+15/-3) | 0012-cart-art, 0018-quick-menu-retro-shaders |
+| `crates/slot-ui/src/cart.rs` | 15 | 99 (+90/-9) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0023-label-top |
+| `crates/slot-ui/src/lib.rs` | 6 | 20 (+17/-3) | 0012-cart-art, 0018-quick-menu-retro-shaders, 0023-label-top |
 | `crates/slot-ui/src/quick_menu.rs` | 9 | 21 (+18/-3) | 0018-quick-menu-retro-shaders, 0020-retro-shaders |
 | `crates/slot-ui/src/shelf.rs` | 7 | 36 (+32/-4) | 0012-cart-art, 0015-lazy-shelf, 0019-shelf-memory |
 | `crates/slot-ui/src/shell.rs` | 1 | 1 (+1/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art |
@@ -40,6 +41,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/device_app.rs` | 5 | 7 (+7/-0) | 0017-frame-trace |
 | `crates/slot/src/emu.rs` | 12 | 45 (+30/-15) | 0004-canvas, 0006-libretro-env, 0007-input, 0021-audio-reopen |
 | `crates/slot/src/frontend.rs` | 12 | 29 (+24/-5) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0020-retro-shaders |
+| `crates/slot/src/label_cache.rs` | 2 | 4 (+2/-2) | 0023-label-top |
 | `crates/slot/src/lib.rs` | 7 | 9 (+9/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0017-frame-trace, 0018-quick-menu-retro-shaders, 0019-shelf-memory |
 | `crates/slot/src/root.rs` | 5 | 10 (+9/-1) | 0002-platform-nes, 0005-platform-snes |
 | `crates/slot/src/session.rs` | 3 | 8 (+7/-1) | 0007-input, 0008-default-stretch, 0021-audio-reopen |
@@ -140,6 +142,8 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/tests/durability.rs` | crates/slot-store/tests/durability.rs#fn a_card_from_before_the_settings_keeps_all_its_values() {#1 | 198 | +2/-0 | fn a_card_from_before_the_settings_keeps_all_its_values() { | Updates the slot state fixture with the new NES and SNES shader fields |
 | `crates/slot-store/tests/durability.rs` | crates/slot-store/tests/durability.rs#fn an_unreadable_platform_reads_as_a_card_that_never_said() {#1 | 354 | +1/-1 | fn an_unreadable_platform_reads_as_a_card_that_never_said() { | Uses pce as the unreadable platform since nes is now valid |
 | `crates/slot-ui/examples/lettering.rs` | crates/slot-ui/examples/lettering.rs#fn main() {#1 | 247 | +8/-0 | fn main() { | Writes lettering art for the NES and SNES cart boxes |
+| `crates/slot-ui/src/art.rs` | crates/slot-ui/src/art.rs#pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {#1 | 4 | +5/-1 | pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> { | Keeps cover as a wrapper over cover_rows so upstream callers draw byte for byte as before |
+| `crates/slot-ui/src/art.rs` | crates/slot-ui/src/art.rs#pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {#2 | 7 | +3/-0 | pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> { | Lets NES and SNES labels drop rows from the bottom so a scan keeps its printed title (issue 41) |
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#use crate::cart::{clean_label, CartFace, CART_H, CART_W};#1 | 5 | +1/-0 | use crate::cart::{clean_label, CartFace, CART_H, CART_W}; | Imports the lid fit helper for platform-sized lids |
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#const LID_REST: Placed = Placed {#1 | 188 | +4/-0 | const LID_REST: Placed = Placed { | Exposes the default lid rest position to the lid fit module |
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#pub fn lid_from(shelf: Placed, progress: f32) -> (Placed, f32) {#1 | 235 | +1/-1 | pub fn lid_from(shelf: Placed, progress: f32) -> (Placed, f32) { | Rests the lid by cart shape so NES and SNES lids fit |
@@ -155,14 +159,15 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn seated_box(platform: Platform) -> (u32, u32) {#1 | 156 | +2/-0 | pub fn seated_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their seated cart box sizes |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_box(platform: Platform) -> (u32, u32) {#1 | 163 | +2/-0 | pub fn cart_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their cart box shapes |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn gb_cart_shadow(shell: GbShell) -> CartFace {#1 | 176 | +5/-0 | pub fn gb_cart_shadow(shell: GbShell) -> CartFace { | Adds the shadow face for NES and SNES carts |
-| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {#1 | 197-198 | +19/-2 | pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace { | Splits out face building so NES and SNES carts reuse it |
+| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_face(cart: &Cart) -> CartFace {#1 | 187 | +4/-1 | pub fn cart_face(cart: &Cart) -> CartFace { | Draws a NES or SNES label anchored to its top through label_cover; other carts stay centred |
+| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {#1 | 197-198 | +22/-2 | pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace { | Splits out face building so NES and SNES carts reuse it |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#fn recess_label(s: &Spec, face: &mut CartFace, shell: &Shell) {#1 | 411 | +1/-1 | fn recess_label(s: &Spec, face: &mut CartFace, shell: &Shell) { | Uses the per-shape bevel instead of the fixed Game Boy one |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#mod icon;#1 | 12 | +1/-0 | mod icon; | Declares the lid_fit module for platform-sized lids |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#mod quick_menu;#1 | 17 | +1/-0 | mod quick_menu; | Declares the quick_retro module for the NES and SNES shader pages |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#mod refusal;#1 | 19 | +3/-0 | mod refusal; | Declares the retro_cart, retro_shadows and retro_shell modules |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use cart::{#1 | 40-42 | +3/-3 | pub use cart::{ | Re-exports retro_cart_face and retro_cart_shadow so the app can build NES and SNES carts |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use icon::{badge_face, icon_box, icon_face, warm_fonts, Badge, Icon};#1 | 51 | +1/-0 | pub use icon::{badge_face, icon_box, icon_face, warm_fonts, Badge, Icon}; | Re-exports shelf_cart_of so the app can fit lids per shelf |
-| `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use refusal::Refusal;#1 | 69 | +6/-0 | pub use refusal::Refusal; | Re-exports the retro shell types, shadows and colour presets |
+| `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use refusal::Refusal;#1 | 69 | +8/-0 | pub use refusal::Refusal; | Re-exports the retro shell types, shadows and colour presets |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickRow {#1 | 22 | +2/-0 | pub enum QuickRow { | Adds NesShader and SnesShader quick menu rows |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#1 | 26 | +1/-1 | impl QuickRow { | Counts the two new rows in the quick menu row list |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#2 | 40 | +2/-0 | impl QuickRow { | Lists the new shader rows in the row order |
@@ -265,6 +270,8 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#2 | 602 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#3 | 606 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#4 | 633 | +1/-1 | impl UiFaces { | Builds the retro shader banners too (Toast::every) |
+| `crates/slot/src/label_cache.rs` | crates/slot/src/label_cache.rs#use slot_store::Cart;#1 | 10 | +1/-1 | use slot_store::Cart; | Imports label_cover in place of cover for the cached label art |
+| `crates/slot/src/label_cache.rs` | crates/slot/src/label_cache.rs#pub fn label_art(root: &Path, cart: &Cart) -> Option<Vec<u8>> {#1 | 23 | +1/-1 | pub fn label_art(root: &Path, cart: &Cart) -> Option<Vec<u8>> { | Caches NES and SNES label art with its top rows kept; Game Boy and GBA still use the centred cover |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod audio;#1 | 2 | +1/-0 | pub mod audio; | Declares the av_rate module |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod core;#1 | 9 | +2/-0 | pub mod core; | Declares core_faces and core_options_policy |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod face_builder;#1 | 14 | +1/-0 | pub mod face_builder; | Declares the frame_trace module |

@@ -51,6 +51,7 @@ None separate. The mixed-shelf check is in the phase device check in 24-phase-4-
 - Build step 25: only research-verified table entries, each with a cited source.
 - `shell_presets()` order is append-only; upstream entries must stay a prefix.
 - PNG and SVG assets must be exported with `--binary` (the export rule lives in 02-patch-pipeline).
+- 2026-10-15, patch 0023 (label-top): a NES or SNES label scan taller than its label box loses rows from the bottom, not the middle, so the printed title at the top stays (issue 41). Wider scans keep the centred horizontal crop; GBA, GB and GBC labels are unchanged.
 
 ## References
 - docs/PLAN.md: Phase 4 deliverables (assets, 0010), Build steps 22, 23, 25, Evaluation criteria (Qualitative)

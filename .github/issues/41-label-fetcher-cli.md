@@ -24,6 +24,7 @@ Carts must show the real physical cartridge label, never a screenshot (maintaine
 ## Status (2026-10-15)
 - Full run on the RG34XXSP with the ScreenScraper developer ID and the maintainer's member login: 1632 NES and 755 SNES labels on the card. NES: 34 games with no art, 283 not in the No-Intro dats (hacks, pirates, unlicensed, prototypes), 6 network errors (a rerun retries them). SNES: 6 with no art, 9 not in the dats. 752 NES `cart_shell.txt` lines added (NES or Famicom).
 - PR #100: a developer-only login no longer calls ssuserInfos.php (it needs a member login).
+- Patch 0023 (label-top): device labels from the fetcher now keep their top. slot cover-fits a NES or SNES scan by dropping rows from the bottom, not the middle, the same rule as Cart Studio's `Label::full` (slot-cart-studio 042fa38), so a SNES scan (about 2.34:1 into a 3:1 box) keeps a printed title such as Yoshi's Island's "Super Mario World 2". Labels already cut to the box draw unchanged; GBA, GB and GBC keep the centred crop. The label cache keys on the PNG's size and mtime only, so labels cached before this patch keep the old crop until their PNG is pushed again or `System/Cache/Labels/NES` and `System/Cache/Labels/SNES` are cleared. Tests: `slot/tests/label_top.rs`.
 
 ## Tests
 | ID | File | Asserts |
