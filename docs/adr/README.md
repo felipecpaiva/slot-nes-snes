@@ -18,9 +18,9 @@ the patch set looks the way it does.
 | Number | Title | Status | Date |
 |---|---|---|---|
 | [0001](0001-patch-set-over-pinned-slot.md) | Ship NES and SNES as a patch set over pinned slot releases | Accepted | 2026-10-11 |
-| [0002](0002-cores.md) | Use fceumm and nestopia for NES, snes9x and snes9x2005_plus for SNES | Accepted | 2026-10-11 |
+| [0002](0002-cores.md) | Use fceumm and nestopia for NES, snes9x and snes9x2005_plus for SNES | Amended by 0050 | 2026-10-11 |
 | [0003](0003-reference-device-rg35xxsp.md) | Use the Anbernic RG35XXSP as the reference device | Superseded by [0021](0021-reference-device-rg34xxsp.md) | 2026-10-11 |
-| [0004](0004-fixed-2x-canvas.md) | Give NES and SNES cores a fixed 360x240 canvas at 2x | Accepted | 2026-10-11 |
+| [0004](0004-fixed-2x-canvas.md) | Give NES and SNES cores a fixed 360x240 canvas at 2x | Amended by 0047 | 2026-10-11 |
 | [0005](0005-gba-sp-bezel-on-rg35xxsp.md) | Keep the GBA SP bezel for NES and SNES on the RG35XXSP | Accepted | 2026-10-11 |
 | [0006](0006-real-cart-art-with-variants.md) | Ship real NES, Famicom, SNES and Super Famicom cart art with variants in v1 | Amended by 0042 | 2026-10-11 |
 | [0007](0007-snes-select-x-picture-mode.md) | Toggle the SNES picture mode with SELECT+X | Accepted | 2026-10-11 |
@@ -62,4 +62,8 @@ the patch set looks the way it does.
 | [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) | Fit the NES and SNES shader rows into v1.7.0's per-platform menus | Accepted. Amends 0023 | 2026-10-15 |
 | [0044](0044-test-site-c-gone.md) | Retire named test site (c): upstream deleted label_top | Accepted. Amends 0013 | 2026-10-15 |
 | [0045](0045-layout-hash-tests-in-both-trees.md) | Run upstream's layout frame-hash tests in both trees | Accepted. Amends 0035 | 2026-10-15 |
-| [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018 | 2026-10-15 |
+| [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018. Amended by 0049 | 2026-10-15 |
+| [0047](0047-canvas-per-core-and-platform.md) | Choose the canvas per core and platform, so Game Gear runs at 3x like Game Boy | Accepted. Amends 0004 | 2026-10-15 |
+| [0048](0048-sega-shaders-outside-slot-state.md) | Store the Sega shader settings in their own file, outside slot.state | Accepted | 2026-10-15 |
+| [0049](0049-md-stretch-follows-frame-width.md) | Make Mega Drive Stretch follow the live frame width | Accepted. Amends 0046 | 2026-10-15 |
+| [0050](0050-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |

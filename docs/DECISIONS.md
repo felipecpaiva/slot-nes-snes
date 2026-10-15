@@ -52,3 +52,7 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-15 | [0044](adr/0044-test-site-c-gone.md) | Named upstream test site (c) retired: render_shelves.rs lost label_top upstream |
 | 2026-10-15 | [0045](adr/0045-layout-hash-tests-in-both-trees.md) | slot-gfx layout.rs runs in both trees and gates on no new failure (two hash tests fail on upstream here) |
 | 2026-10-15 | [0046](adr/0046-retro-stretch-crops-height.md) | Stretch: GBA, GB, GBC take upstream's widen-only rect; NES and SNES crop both axes |
+| 2026-10-15 | [0047](adr/0047-canvas-per-core-and-platform.md) | Canvas comes from (core, platform): Game Gear 240x160 at 3x like Game Boy, SMS and MD 360x240 at 2x |
+| 2026-10-15 | [0048](adr/0048-sega-shaders-outside-slot-state.md) | GG, SMS and MD shaders live in their own Config/ file; SlotState and test site (f) unchanged |
+| 2026-10-15 | [0049](adr/0049-md-stretch-follows-frame-width.md) | MD Stretch uses the last frame width (320 or 256); MD defaults to Stretch |
+| 2026-10-15 | [0050](adr/0050-genesis-plus-gx-for-sega.md) | Genesis Plus GX is the single core for GG, SMS and MD, one platform each, no picker yet; MD go is provisional on the heavy-title device gate |

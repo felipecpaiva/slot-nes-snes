@@ -1,6 +1,6 @@
 # 0002. Use fceumm and nestopia for NES, snes9x and snes9x2005_plus for SNES
 
-- Status: Accepted
+- Status: Accepted. Amended by [0050](0050-genesis-plus-gx-for-sega.md)
 - Date: 2026-10-11
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 04](../../.github/issues/04-fceumm-core-build.md), [issue 13](../../.github/issues/13-snes9x-core-build.md), [issue 19](../../.github/issues/19-alt-cores-build.md), [issue 20](../../.github/issues/20-core-picker-pairs.md), [patch 0003](../../patches/0003-core-fceumm.patch), [patch 0009](../../patches/0009-core-picker-pairs.patch), [RESEARCH.md](../RESEARCH.md), [LICENSING.md](../../LICENSING.md)
