@@ -12,17 +12,20 @@ Carts must show the real physical cartridge label, never a screenshot, so the sh
 
 ## Scope
 - [x] Record the owner's answer here and as an ADR in docs/adr/ (0032).
-- [ ] If PR: open an issue on slot-cart-studio first (the owner asks for an issue before a PR), then a PR adding NES and SNES as an optional mode built against slot-nes-snes's patched slot-ui (Studio compiles slot's own cart code, pinned by `slot.ref`).
-- [ ] If fork: a GPL-3.0 fork credited to the owner in its README and page footer, built against slot-nes-snes, hosted on this repo's GitHub Pages.
+- [x] Not taken (owner chose a fork). If PR: open an issue on slot-cart-studio first (the owner asks for an issue before a PR), then a PR adding NES and SNES as an optional mode built against slot-nes-snes's patched slot-ui (Studio compiles slot's own cart code, pinned by `slot.ref`).
+- [x] If fork: a GPL-3.0 fork credited to the owner in its README and page footer, built against slot-nes-snes, hosted on GitHub Pages: https://felipecpaiva.github.io/slot-cart-studio/ (repo felipecpaiva/slot-cart-studio, branch nes-snes).
 - [x] Platform tables in either case: `card.js` PLATFORMS and EXTENSIONS, `libretro.js` NAMES, `tools/harvest.py` SS_SYSTEM gain NES and SNES.
 - [x] Identification: libretro-database no-intro dats. NES CRC32 over the whole file including the 16-byte iNES header (dat sizes are 16384+16); SNES CRC32 after stripping a 512-byte copier header when `len % 1024 == 512`.
-- [ ] Art: a NES and SNES harvest (ScreenScraper `support-texture` for Real Label, `wheel` for Logo Only) run with our own ScreenScraper credentials. First probe five known games per system to confirm coverage before building on it.
-- [ ] Output: `Labels/NES/<stem>.png` and `Labels/SNES/<stem>.png` pre-cropped to each variant's label box (NES, Famicom, SNES, Super Famicom sizes from 26-cart-art), and `Labels/cart_shell.txt` lines with the `nes`, `famicom`, `snes`, `sfc` outline words from 27-cart-shell-grammar-region.
+- [x] Art: a NES and SNES harvest (ScreenScraper `support-texture` for Real Label, `wheel` for Logo Only) run with our own ScreenScraper credentials. First probe five known games per system to confirm coverage before building on it.
+- [x] Output: `Labels/NES/<stem>.png` and `Labels/SNES/<stem>.png` pre-cropped to each variant's label box (NES, Famicom, SNES, Super Famicom sizes from 26-cart-art), and `Labels/cart_shell.txt` lines with the `nes`, `famicom`, `snes`, `sfc` outline words from 27-cart-shell-grammar-region.
 
-## Status (2026-10-13)
-- Owner's answer on slot discussion #64: "Fork away". This is a credited GPL-3.0 fork. He asked for the studio's address so he can allowlist it for art.slot-cfw.fyi on Cloudflare.
-- The fork is built locally (`~/contrib/slot-cart-studio`, branch `nes-snes`): NES/SNES platform tables, CRC rules, label sizes per variant, outline words, credit in README and footer. GB/GBC/GBA output is byte-identical to upstream (339 files). Tests: 65 cargo, 52 node, 17 python.
-- Blocked: the NES/SNES art harvest needs a ScreenScraper developer ID (requested on the ScreenScraper forum, topic 24948, 2026-10-13). Publishing waits for it (maintainer's choice): then fork on GitHub, GitHub Pages with a new CNAME and no Cloudflare purge step, CI built against the patched slot, and send Brandon the address.
+## Status (2026-10-15)
+- Owner's answer on slot discussion #64: "Fork away" (ADR 0032).
+- Fork published: https://felipecpaiva.github.io/slot-cart-studio/ (felipecpaiva/slot-cart-studio, default branch nes-snes, Pages from the workflow, the github-pages environment deploys from nes-snes only). CI builds against slot-nes-snes's patched slot (pinned in `slot-nes-snes.ref`). GB/GBC/GBA output byte-identical to upstream (339 files). Tests: 65 cargo, 56 node, 18 python.
+- ScreenScraper developer ID granted 2026-10-14 (forum topic 24948). NES/SNES art set published at https://felipecpaiva.github.io/slot-nes-snes-art/ (felipecpaiva/slot-nes-snes-art, CC BY-NC-SA 4.0, ADR 0037): 2392 CRCs, 1630 NES and 755 SNES label scans plus logos, scans reduced to 256-colour palettes, 354 MB. Covers the maintainer's library, not every No-Intro dump.
+- The device got its labels from the CLI fetcher (issue 41): 1632 NES and 755 SNES on the RG34XXSP.
+- Waiting on the owner: allowlist https://felipecpaiva.github.io on art.slot-cfw.fyi so GB/GBC/GBA carts load his art in our studio (asked on discussion #64, 2026-10-14).
+- Left: write a sample card with the studio and check it on the RG34XXSP (acceptance below).
 
 ## Tests
 | ID | File | Asserts |
@@ -39,7 +42,7 @@ Carts must show the real physical cartridge label, never a screenshot, so the sh
 ## Acceptance
 - [x] Owner's choice recorded.
 - [ ] NES and SNES labels and shells written by Studio (or the fork) for the sample card, and shown correctly on the RG34XXSP.
-- [x] Nothing from Nintendo committed to any of our repos.
+- [x] Nothing from Nintendo committed to the code repos (slot-nes-snes, the studio fork). The art set lives in its own public repo by maintainer choice (ADR 0037).
 
 ## Device check (RG34XXSP)
 Insert the sample card, check every cart on the NES and SNES shelves shows its real label on the right cart shape.

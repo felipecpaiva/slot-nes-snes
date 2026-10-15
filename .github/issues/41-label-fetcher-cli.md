@@ -21,6 +21,10 @@ Carts must show the real physical cartridge label, never a screenshot (maintaine
 - [ ] Flags `--dry-run`, `--only <stem>`, `--force`; a summary of matched, missing and skipped.
 - [ ] README section: credentials, art terms, and why outline overrides belong in `Config/cart_shell.txt`.
 
+## Status (2026-10-15)
+- Full run on the RG34XXSP with the ScreenScraper developer ID and the maintainer's member login: 1632 NES and 755 SNES labels on the card. NES: 34 games with no art, 283 not in the No-Intro dats (hacks, pirates, unlicensed, prototypes), 6 network errors (a rerun retries them). SNES: 6 with no art, 9 not in the dats. 752 NES `cart_shell.txt` lines added (NES or Famicom).
+- PR #100: a developer-only login no longer calls ssuserInfos.php (it needs a member login).
+
 ## Tests
 | ID | File | Asserts |
 |---|---|---|
