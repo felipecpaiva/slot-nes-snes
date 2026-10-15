@@ -4,13 +4,15 @@ Date: Tue, 13 Oct 2026 17:37:55 +0400
 Subject: [PATCH] audio-reopen
 
 ---
- crates/slot/src/audio/alsa.rs |  10 +-
- crates/slot/src/audio/hold.rs | 182 ++++++++++++++++++++++++++++++++++
- crates/slot/src/audio/mod.rs  |   2 +
- crates/slot/src/emu.rs        |   4 +
- crates/slot/src/session.rs    |   1 +
- 5 files changed, 195 insertions(+), 4 deletions(-)
+ crates/slot/src/audio/alsa.rs    |  10 +-
+ crates/slot/src/audio/hold.rs    | 182 +++++++++++++++++++++++++++++++
+ crates/slot/src/audio/mod.rs     |   2 +
+ crates/slot/src/emu.rs           |  12 +-
+ crates/slot/src/session.rs       |   1 +
+ crates/slot/tests/audio_start.rs | 180 ++++++++++++++++++++++++++++++
+ 6 files changed, 382 insertions(+), 5 deletions(-)
  create mode 100644 crates/slot/src/audio/hold.rs
+ create mode 100644 crates/slot/tests/audio_start.rs
 
 diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
 index 7d7af27..02ccb7b 100644
@@ -251,27 +253,50 @@ index 8252fe9..77d9ccb 100644
  pub use host::HostAudio;
  pub use pacer::Pacer;
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 34d518c..25f1872 100644
+index 34d518c..226d19b 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -562,6 +562,7 @@ impl Worker {
+@@ -554,6 +554,7 @@ impl Worker {
+             hz => hz as f64,
+         };
+         let mut resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
++        ring.set_idle(true);
+         ring.clear_faults();
+         self.shared
+             .state
+@@ -562,6 +563,7 @@ impl Worker {
  
          let mut out = Vec::new();
          let mut gated = (false, false);
-+        crate::audio::prefill_silence(&ring);
++        let mut flowing = false;
          let rewind = RewindThread::spawn(REWIND_BYTES);
          let mut since_snapshot = 0;
          let mut cost = FrameCost::seed();
-@@ -636,6 +637,9 @@ impl Worker {
-                 speed == Speed::Paused || rewinding,
+@@ -637,8 +639,9 @@ impl Worker {
              );
              if gate != gated {
-+                if speed == Speed::Normal && !gate.1 {
-+                    crate::audio::prefill_silence(&ring);
-+                }
                  ring.set_muted(gate.0);
-                 ring.set_idle(gate.1);
+-                ring.set_idle(gate.1);
++                ring.set_idle(true);
                  gated = gate;
++                flowing = false;
+             }
+             let lock = self.shared.driven.load(Ordering::Relaxed)
+                 && speed == Speed::Normal
+@@ -856,6 +859,13 @@ impl Worker {
+                         &mut out,
+                         self.shared.volume.load(Ordering::Relaxed),
+                     );
++                    if !flowing {
++                        if speed == Speed::Normal {
++                            crate::audio::prefill_silence(&ring);
++                        }
++                        ring.set_idle(false);
++                        flowing = true;
++                    }
+                     ring.push_blocking(&out);
+                     paced += 1;
+                     if crate::session::trace() && paced.is_multiple_of(TRACE_EVERY) {
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
 index b58f356..9d3b01a 100644
 --- a/crates/slot/src/session.rs
@@ -284,3 +309,189 @@ index b58f356..9d3b01a 100644
          let core = slot_store::core_for_platform(&self.root, stem, platform);
          launch(&format!("opening {stem} on {}", core.as_str()));
          self.app.set_core(core);
+diff --git a/crates/slot/tests/audio_start.rs b/crates/slot/tests/audio_start.rs
+new file mode 100644
+index 0000000..3a6f69d
+--- /dev/null
++++ b/crates/slot/tests/audio_start.rs
+@@ -0,0 +1,180 @@
++use std::path::{Path, PathBuf};
++use std::sync::{Arc, Condvar, Mutex};
++use std::time::{Duration, Instant};
++
++use slot::audio::Ring;
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++
++const RATE: u32 = 32_768;
++const PERIOD: usize = 512;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++enum Step {
++    Load,
++    Option,
++    Frame,
++}
++
++#[derive(Default)]
++struct Park {
++    at: Mutex<(Option<Step>, bool)>,
++    moved: Condvar,
++}
++
++impl Park {
++    fn hold(&self, step: Step) {
++        let mut at = self.at.lock().unwrap();
++        at.0 = Some(step);
++        self.moved.notify_all();
++        while !at.1 {
++            at = self.moved.wait(at).unwrap();
++        }
++        *at = (None, false);
++    }
++
++    fn reached(&self, step: Step) {
++        let deadline = Instant::now() + Duration::from_secs(5);
++        let mut at = self.at.lock().unwrap();
++        while at.0 != Some(step) {
++            let left = deadline
++                .checked_duration_since(Instant::now())
++                .unwrap_or_else(|| panic!("the worker never reached {step:?}"));
++            at = self.moved.wait_timeout(at, left).unwrap().0;
++        }
++    }
++
++    fn go(&self) {
++        self.at.lock().unwrap().1 = true;
++        self.moved.notify_all();
++    }
++}
++
++struct Slow {
++    inner: MockCore,
++    park: Arc<Park>,
++    stops: Vec<Step>,
++}
++
++impl Slow {
++    fn stop(&mut self, step: Step) {
++        if self.stops.first() == Some(&step) {
++            self.stops.remove(0);
++            self.park.hold(step);
++        }
++    }
++}
++
++impl RetroCore for Slow {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.stop(Step::Load);
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.stop(Step::Frame);
++        self.inner.run_frame(input)
++    }
++    fn set_option(&mut self, key: &str, value: &str) {
++        self.stop(Step::Option);
++        self.inner.set_option(key, value)
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        self.inner.av_info()
++    }
++}
++
++fn opened() -> Arc<Ring> {
++    let ring = Arc::new(Ring::new(0));
++    ring.reopen(RATE);
++    ring
++}
++
++fn slow(stops: &[Step]) -> (Box<Slow>, Arc<Park>) {
++    let park = Arc::new(Park::default());
++    let core = Slow {
++        inner: MockCore::new(),
++        park: park.clone(),
++        stops: stops.to_vec(),
++    };
++    (Box::new(core), park)
++}
++
++fn play(ring: &Ring, periods: usize) {
++    let mut out = vec![0i16; PERIOD * 2];
++    for _ in 0..periods {
++        ring.fill(&mut out);
++    }
++}
++
++fn ready(emu: &EmuHandle) {
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while emu.state() == CoreState::Loading {
++        assert!(Instant::now() < deadline, "the core never finished loading");
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    assert_eq!(emu.state(), CoreState::Ready);
++}
++
++fn half_a_ring_of_periods(ring: &Ring) -> usize {
++    ring.capacity_frames() / PERIOD
++}
++
++#[test]
++fn a_worker_held_up_before_its_first_pass_never_starves_the_device() {
++    let ring = opened();
++    let (core, park) = slow(&[Step::Load, Step::Option]);
++    let emu = EmuHandle::spawn(core, PathBuf::from("mock"), ring.clone(), None, None);
++    park.reached(Step::Load);
++    emu.set_option("mock_option", "on");
++    park.go();
++    ready(&emu);
++    park.reached(Step::Option);
++    play(&ring, 2 * half_a_ring_of_periods(&ring));
++    let starved = ring.underruns();
++    park.go();
++    assert_eq!(
++        starved, 0,
++        "the device starved while the worker was held up before it paused"
++    );
++}
++
++#[test]
++fn a_slow_first_frame_never_starves_the_device_and_its_sound_lands_on_half_a_ring() {
++    let ring = opened();
++    let (core, park) = slow(&[Step::Frame]);
++    let emu = EmuHandle::spawn(core, PathBuf::from("mock"), ring.clone(), None, None);
++    ready(&emu);
++    play(&ring, 2 * half_a_ring_of_periods(&ring));
++    emu.set_speed(Speed::Normal);
++    park.reached(Step::Frame);
++    play(&ring, 2 * half_a_ring_of_periods(&ring));
++    let starved = ring.underruns();
++    park.go();
++    assert_eq!(starved, 0, "the device starved while the first frame ran");
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while ring.queued_frames() < ring.capacity_frames() / 2 {
++        assert!(
++            Instant::now() < deadline,
++            "the game's sound never reached the ring"
++        );
++        std::thread::sleep(Duration::from_millis(1));
++    }
++}

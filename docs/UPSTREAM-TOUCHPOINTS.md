@@ -39,7 +39,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/core.rs` | 7 | 12 (+8/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs |
 | `crates/slot/src/core_picker.rs` | 6 | 14 (+10/-4) | 0009-core-picker-pairs |
 | `crates/slot/src/device_app.rs` | 5 | 7 (+7/-0) | 0015-frame-trace |
-| `crates/slot/src/emu.rs` | 13 | 44 (+31/-13) | 0004-canvas, 0006-libretro-env, 0007-input, 0018-audio-reopen |
+| `crates/slot/src/emu.rs` | 15 | 52 (+38/-14) | 0004-canvas, 0006-libretro-env, 0007-input, 0018-audio-reopen |
 | `crates/slot/src/frontend.rs` | 12 | 29 (+24/-5) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0017-retro-shaders |
 | `crates/slot/src/label_cache.rs` | 2 | 4 (+2/-2) | 0020-label-top |
 | `crates/slot/src/lib.rs` | 7 | 8 (+8/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0015-frame-trace, 0016-quick-menu-retro-shaders |
@@ -260,12 +260,14 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl EmuHandle {#1 | 154 | +2/-1 | impl EmuHandle { | Sizes the frame buffer from the core's canvas instead of fixed 240x160 |
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl EmuHandle {#2 | 162 | +1/-0 | impl EmuHandle { | Starts pass-through off |
 | `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl EmuHandle {#3 | 368 | +8/-0 | impl EmuHandle { | Adds the pass-through setter and getter for the emulator thread |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#1 | 545-549 | +1/-5 | impl Worker { | Builds the resampler from the core's real audio and video rate |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#2 | 557 | +1/-0 | impl Worker { | Tops the ring up with silence once when the worker starts, so the first fills after a cart insert do not starve; done before the loop so the amount never depends on when the worker first sees Normal (upstream's runahead.rs sound test compares two runs) |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#3 | 631 | +3/-0 | impl Worker { | Tops the ring up with silence when play resumes from a pause, so the first fills after it do not starve |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#4 | 689-692 | +7/-4 | impl Worker { | Chooses turbo or pass-through from both flags |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#5 | 824 | +3/-0 | impl Worker { | Rebuilds the resampler when the core reports an AV change |
-| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#6 | 946 | +2/-1 | impl Worker { | Sizes the thumbnail from the core's canvas instead of fixed 240x160 |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#1 | 545-549 | +2/-5 | impl Worker { | Builds the resampler from the core's real audio and video rate; marks the ring idle before clearing its faults, so a dry ring is not counted as starved before the game's sound flows |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#2 | 557 | +1/-0 | impl Worker { | Tracks whether the game's sound has started flowing in this stretch of play |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#3 | 633 | +1/-1 | impl Worker { | Marks the ring idle on every speed change until the game's sound flows again, so the wait for the first frame (a display tick, a slow first frame) never drains the cushion or counts as starved |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#4 | 634 | +1/-0 | impl Worker { | Starts a new stretch of play on every speed change |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#5 | 689-692 | +7/-4 | impl Worker { | Chooses turbo or pass-through from both flags |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#6 | 824 | +3/-0 | impl Worker { | Rebuilds the resampler when the core reports an AV change |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#7 | 845 | +7/-0 | impl Worker { | At normal speed tops the ring up with silence to half when a stretch's first sound arrives, then marks the ring live, so the cushion starts with the sound; tied to the first push, so the amount never depends on when the worker first sees Normal (upstream's runahead.rs sound test compares two runs) |
+| `crates/slot/src/emu.rs` | crates/slot/src/emu.rs#impl Worker {#8 | 946 | +2/-1 | impl Worker { | Sizes the thumbnail from the core's canvas instead of fixed 240x160 |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#use crate::cart_faces::CartFaces;#1 | 23 | +1/-0 | use crate::cart_faces::CartFaces; | Imports the per-core cart face set for the core picker |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#pub struct Frontend {#1 | 52 | +1/-0 | pub struct Frontend { | Holds the pair faces the picker shows |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl Frontend {#1 | 174 | +1/-0 | impl Frontend { | Starts without pair faces |

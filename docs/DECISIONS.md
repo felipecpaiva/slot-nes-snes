@@ -35,7 +35,7 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-13 | [0027](adr/0027-retro-shaders-pay-once.md) | Retro shaders are added pay once: one payload variant per enum, list and GLSL in our own files |
 | 2026-10-13 | [0028](adr/0028-retro-shaders-own-gl-program.md) | Retro shaders run in their own GL program, not as new branches in GAME_FRAG |
 | 2026-10-13 | [0029](adr/0029-manual-bilinear-sampling.md) | Sharp, crt-pi and crt-1tap sample bilinearly by hand (4 reads), not via GL_LINEAR |
-| 2026-10-13 | [0030](adr/0030-keep-alsa-open-while-fed.md) | Keep ALSA open while a game feeds the ring, reopen on cart load, prefill silence on resume |
+| 2026-10-13 | [0030](adr/0030-keep-alsa-open-while-fed.md) | Keep ALSA open while a game feeds the ring, reopen on cart load, prefill silence when the game's sound starts (amended 2026-10-15) |
 | 2026-10-13 | [0031](adr/0031-warm-retro-shaders-at-boot.md) | Retro shader program built and warmed at start-up, about 150 ms more boot for every user |
 | 2026-10-13 | [0032](adr/0032-cart-studio-credited-fork.md) | NES/SNES Cart Studio is a credited fork, published once the ScreenScraper developer ID allows the art harvest |
 | 2026-10-13 | [0033](adr/0033-keep-upstream-lid-timeout.md) | Keep upstream's lid doze and power-off after 3 minutes |
