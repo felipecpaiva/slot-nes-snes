@@ -1,6 +1,6 @@
 # 0043. Fit the NES and SNES shader rows into v1.7.0's per-platform menus
 
-- Status: Accepted. Amends [0023](0023-quick-menu-shader-rows.md)
+- Status: Accepted. Amends [0023](0023-quick-menu-shader-rows.md). Amended by [0048](0048-nes-snes-in-the-screen-platform-list.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0038](0038-rebase-to-slot-v1-7-0.md), [patch 0016](../../patches/0016-quick-menu-retro-shaders.patch), slot #83

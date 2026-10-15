@@ -29,7 +29,7 @@ the patch set looks the way it does.
 | [0010](0010-macos-primary-ci.md) | Run tests on macOS; Linux arm only builds device artefacts | Accepted | 2026-10-11 |
 | [0011](0011-one-token-in-two-test-files.md) | Add one token each to two upstream test files | Accepted | 2026-10-12 |
 | [0012](0012-durability-value-pce.md) | Change durability.rs's unknown platform example from nes to pce | Accepted | 2026-10-12 |
-| [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044 | 2026-10-12 |
+| [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044 and 0048 | 2026-10-12 |
 | [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted | 2026-10-12 |
 | [0015](0015-hostextra-canvas-only.md) | Start HostExtra with only the canvas field | Accepted | 2026-10-12 |
 | [0016](0016-set-game-canvas-every-frame.md) | Call set_game_canvas every frame and return early when unchanged | Accepted | 2026-10-12 |
@@ -41,7 +41,7 @@ the patch set looks the way it does.
 | [0022](0022-nes-snes-default-stretch.md) | Default NES and SNES to the Stretch picture mode | Accepted | 2026-10-12 |
 | [0023](0023-quick-menu-shader-rows.md) | Show a NES and an SNES shader row on the quick menu Screen page | Amended by 0043 | 2026-10-13 |
 | [0024](0024-upstream-touch-point-map.md) | Track every upstream touch point instead of an app.rs line limit | Accepted | 2026-10-13 |
-| [0025](0025-shelf-memory.md) | Remember the last shelf and each shelf's cart in Config/shelf.state | Superseded by [0039](0039-upstream-shelf-memory.md) | 2026-10-13 |
+| [0025](0025-shelf-memory.md) | Remember the last shelf and each shelf's cart in Config/shelf.state | Superseded by [0039](0039-upstream-shelf-memory.md); per-shelf carts back in 0049 | 2026-10-13 |
 | [0026](0026-four-more-retro-shaders.md) | Add Sharp, Scanlines, crt-pi and crt-1tap for NES and SNES | Accepted | 2026-10-13 |
 | [0027](0027-retro-shaders-pay-once.md) | Add retro shaders through one payload variant per enum | Accepted | 2026-10-13 |
 | [0028](0028-retro-shaders-own-gl-program.md) | Run the retro shaders in their own GL program | Accepted | 2026-10-13 |
@@ -55,11 +55,14 @@ the patch set looks the way it does.
 | [0036](0036-line-pixel-sharp-scanlines.md) | Add Line and Pixel and make Scanlines sharp | Accepted | 2026-10-14 |
 | [0037](0037-public-nes-snes-art-set.md) | Host the NES and SNES label art in a public art repo of our own | Accepted | 2026-10-14 |
 | [0038](0038-rebase-to-slot-v1-7-0.md) | Rebase the patch set onto slot v1.7.0 | Accepted | 2026-10-15 |
-| [0039](0039-upstream-shelf-memory.md) | Use upstream's shelf memory and drop Config/shelf.state | Accepted. Supersedes 0025 | 2026-10-15 |
+| [0039](0039-upstream-shelf-memory.md) | Use upstream's shelf memory and drop Config/shelf.state | Accepted. Supersedes 0025. Amended by 0049 | 2026-10-15 |
 | [0040](0040-drop-lazy-shelf.md) | Drop lazy-shelf: upstream looks up shells lazily | Accepted | 2026-10-15 |
 | [0041](0041-drop-audio-release-pace.md) | Drop audio-release-pace: upstream paces the released device | Accepted | 2026-10-15 |
 | [0042](0042-retro-carts-own-renderer.md) | Draw NES and SNES carts with our own procedural renderer on v1.7.0 | Accepted. Amends 0006 | 2026-10-15 |
-| [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) | Fit the NES and SNES shader rows into v1.7.0's per-platform menus | Accepted. Amends 0023 | 2026-10-15 |
+| [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) | Fit the NES and SNES shader rows into v1.7.0's per-platform menus | Accepted. Amends 0023. Amended by 0048 | 2026-10-15 |
 | [0044](0044-test-site-c-gone.md) | Retire named test site (c): upstream deleted label_top | Accepted. Amends 0013 | 2026-10-15 |
 | [0045](0045-layout-hash-tests-in-both-trees.md) | Run upstream's layout frame-hash tests in both trees | Accepted. Amends 0035 | 2026-10-15 |
 | [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018 | 2026-10-15 |
+| [0047](0047-upstream-first-fixes.md) | Upstream-first fixes | Accepted | 2026-10-15 |
+| [0048](0048-nes-snes-in-the-screen-platform-list.md) | List NES and SNES on the Screen page after the Game Boys | Accepted. Amends 0043 and 0013 | 2026-10-15 |
+| [0049](0049-per-shelf-cart-memory.md) | Remember each shelf's cart on top of upstream's shelf memory | Accepted. Amends 0039 | 2026-10-15 |

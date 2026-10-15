@@ -1,6 +1,6 @@
 # 0039. Use upstream's shelf memory and drop Config/shelf.state
 
-- Status: Accepted. Supersedes [0025](0025-shelf-memory.md)
+- Status: Accepted. Supersedes [0025](0025-shelf-memory.md). Amended by [0049](0049-per-shelf-cart-memory.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0038](0038-rebase-to-slot-v1-7-0.md), [issue 45](../../.github/issues/45-shelf-memory.md), slot #53, `crates/slot/tests/nes_shelf_memory.rs`

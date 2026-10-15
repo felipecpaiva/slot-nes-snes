@@ -1,0 +1,587 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 15 Oct 2026 22:00:21 +0400
+Subject: [PATCH] shelf-cart-memory
+
+---
+ crates/slot-store/src/lib.rs           |   2 +
+ crates/slot-store/src/shelf_carts.rs   |  32 +++++
+ crates/slot-store/src/slot_state.rs    |   6 +-
+ crates/slot-store/tests/shelf_carts.rs |  56 ++++++++
+ crates/slot-ui/src/shelf.rs            |   4 +
+ crates/slot/src/app.rs                 |  69 +++++++++
+ crates/slot/src/state_writer.rs        |  36 ++++-
+ crates/slot/tests/shelf_cart_memory.rs | 192 +++++++++++++++++++++++++
+ 8 files changed, 388 insertions(+), 9 deletions(-)
+ create mode 100644 crates/slot-store/src/shelf_carts.rs
+ create mode 100644 crates/slot-store/tests/shelf_carts.rs
+ create mode 100644 crates/slot/tests/shelf_cart_memory.rs
+
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 868f0d6..18a6ae9 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -13,6 +13,7 @@ mod platform_policy;
+ mod retro_shader;
+ mod ring;
+ mod scan;
++mod shelf_carts;
+ mod slot_state;
+ pub mod snes;
+ mod stamp;
+@@ -29,6 +30,7 @@ pub use platform::Platform;
+ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
++pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+     read_slot_state, write_slot_state, Appearance, BezelPick, Recent, Shader, SlotState,
+     WallpaperPick, WallpaperTint, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, FF_SPEED_DEFAULT,
+diff --git a/crates/slot-store/src/shelf_carts.rs b/crates/slot-store/src/shelf_carts.rs
+new file mode 100644
+index 0000000..882578d
+--- /dev/null
++++ b/crates/slot-store/src/shelf_carts.rs
+@@ -0,0 +1,32 @@
++use std::path::Path;
++
++use crate::atomic::atomic_write;
++use crate::slot_state::{list_path, platform_key, recent_value, Recent};
++
++pub const SHELF_CARTS_FILE: &str = "shelf_carts.txt";
++
++pub fn read_shelf_carts(root: &Path) -> Vec<(String, Recent)> {
++    let text = std::fs::read_to_string(list_path(root, SHELF_CARTS_FILE)).unwrap_or_default();
++    let mut carts: Vec<(String, Recent)> = Vec::new();
++    for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
++        if key.is_empty() || carts.iter().any(|(k, _)| k == key) {
++            continue;
++        }
++        if let Some(cart) = recent_value(value) {
++            carts.push((key.to_string(), cart));
++        }
++    }
++    carts
++}
++
++pub fn write_shelf_carts(root: &Path, carts: &[(String, Recent)]) -> std::io::Result<()> {
++    let text: String = carts
++        .iter()
++        .map(|(key, r)| format!("{key}={}/{}\n", platform_key(r.platform), r.stem))
++        .collect();
++    let path = list_path(root, SHELF_CARTS_FILE);
++    if std::fs::read(&path).map_or(text.is_empty(), |old| old == text.as_bytes()) {
++        return Ok(());
++    }
++    atomic_write(&path, text.as_bytes())
++}
+diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
+index 9523d20..37d890e 100644
+--- a/crates/slot-store/src/slot_state.rs
++++ b/crates/slot-store/src/slot_state.rs
+@@ -371,7 +371,7 @@ fn state_path(root: &Path) -> PathBuf {
+ const RECENTS_FILE: &str = "recents.txt";
+ const FAVORITES_FILE: &str = "favorites.txt";
+ 
+-fn list_path(root: &Path, name: &str) -> PathBuf {
++pub(crate) fn list_path(root: &Path, name: &str) -> PathBuf {
+     root.join("Config").join(name)
+ }
+ 
+@@ -608,11 +608,11 @@ fn parse(text: &str) -> Option<SlotState> {
+     })
+ }
+ 
+-fn platform_key(platform: Platform) -> String {
++pub(crate) fn platform_key(platform: Platform) -> String {
+     platform.dir_name().to_ascii_lowercase()
+ }
+ 
+-fn recent_value(value: &str) -> Option<Recent> {
++pub(crate) fn recent_value(value: &str) -> Option<Recent> {
+     let (platform, stem) = value.split_once('/')?;
+     Some(Recent {
+         platform: platform_value(platform)?,
+diff --git a/crates/slot-store/tests/shelf_carts.rs b/crates/slot-store/tests/shelf_carts.rs
+new file mode 100644
+index 0000000..f467332
+--- /dev/null
++++ b/crates/slot-store/tests/shelf_carts.rs
+@@ -0,0 +1,56 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{read_shelf_carts, write_shelf_carts, Platform, Recent, SHELF_CARTS_FILE};
++
++fn kept(key: &str, platform: Platform, stem: &str) -> (String, Recent) {
++    (
++        key.into(),
++        Recent {
++            platform,
++            stem: stem.into(),
++        },
++    )
++}
++
++#[test]
++fn each_shelf_keeps_its_cart_across_a_write_and_a_read() {
++    let d = tmp_root();
++    let carts = vec![
++        kept("gba", Platform::Gba, "Drill Dozer"),
++        kept("recents", Platform::Gb, "Tetris"),
++        kept("favorites", Platform::Gbc, "Zelda = DX/Rev 1"),
++    ];
++    write_shelf_carts(d.path(), &carts).unwrap();
++    let text = std::fs::read_to_string(d.path().join("Config").join(SHELF_CARTS_FILE)).unwrap();
++    assert_eq!(
++        text,
++        "gba=gba/Drill Dozer\nrecents=gb/Tetris\nfavorites=gbc/Zelda = DX/Rev 1\n"
++    );
++    assert_eq!(read_shelf_carts(d.path()), carts);
++}
++
++#[test]
++fn a_card_with_no_shelf_carts_file_remembers_nothing() {
++    let d = tmp_root();
++    assert!(read_shelf_carts(d.path()).is_empty());
++    write_shelf_carts(d.path(), &[]).unwrap();
++    assert!(!d.path().join("Config").join(SHELF_CARTS_FILE).exists());
++}
++
++#[test]
++fn damaged_and_repeated_lines_are_skipped() {
++    let d = tmp_root();
++    std::fs::write(
++        d.path().join("Config").join(SHELF_CARTS_FILE),
++        "gba=gba/Fusion\ngba=gba/Emerald\ngb=xyz/Tetris\nno equals sign\n=gba/Emerald\ngb=gb/Tetris\n",
++    )
++    .unwrap();
++    assert_eq!(
++        read_shelf_carts(d.path()),
++        [
++            kept("gba", Platform::Gba, "Fusion"),
++            kept("gb", Platform::Gb, "Tetris")
++        ]
++    );
++}
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index c23df04..f6f6e16 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -331,6 +331,10 @@ impl Shelf {
+         self.held = None;
+     }
+ 
++    pub fn held(&self) -> bool {
++        self.held.is_some()
++    }
++
+     pub fn tick(&mut self, now: Millis) {
+         let Some((by, due, fired)) = self.held else {
+             return;
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index b4ba49e..dab03e7 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -407,6 +407,8 @@ pub struct App {
+     powering_off: bool,
+     radio: Box<dyn RadioJobs>,
+     state_writer: crate::state_writer::StateWriter,
++    shelf_carts: Vec<(String, Recent)>,
++    rested: Option<(usize, usize)>,
+ }
+ 
+ const FACE_AHEAD: i32 = 8;
+@@ -552,6 +554,8 @@ impl App {
+             battery: None,
+             last_led: None,
+             powering_off: false,
++            shelf_carts: Vec::new(),
++            rested: None,
+         }
+     }
+ 
+@@ -563,8 +567,12 @@ impl App {
+         let mut app = App::new(carts);
+         app.root = Some(root.to_path_buf());
+         app.state = read_slot_state(root);
++        app.shelf_carts = slot_store::read_shelf_carts(root);
+         app.restock_recents();
+         app.restock_favorites();
++        for at in 0..app.shelves.len() {
++            app.recall_cart(at);
++        }
+         if let Some((at, i)) = app.remembered_seat() {
+             app.shelf_at = at;
+             app.shelves[at].1.select(i);
+@@ -745,9 +753,68 @@ impl App {
+             stem: cart.stem.clone(),
+         });
+         self.state.shelf = Some(self.shelves[self.shelf_at].0.key());
++        self.keep_shelf_cart();
+         self.persist();
+     }
+ 
++    fn remember_shelf_at_rest(&mut self) {
++        if !matches!(self.phase, Phase::Shelf) || self.held_dir.is_some() || self.shelf().held() {
++            return;
++        }
++        let seat = (self.shelf_at, self.shelf().index);
++        if self.rested == Some(seat) {
++            return;
++        }
++        self.rested = Some(seat);
++        let Some(cart) = self.shelf().carts.get(seat.1) else {
++            return;
++        };
++        let cart = Recent {
++            platform: cart.platform,
++            stem: cart.stem.clone(),
++        };
++        let key = self.shelves[seat.0].0.key();
++        if self.state.shelf.as_ref() == Some(&key)
++            && self.state.shelf_cart.as_ref() == Some(&cart)
++            && self.shelf_carts.contains(&(key.clone(), cart.clone()))
++        {
++            return;
++        }
++        self.state.shelf = Some(key);
++        self.state.shelf_cart = Some(cart);
++        self.keep_shelf_cart();
++        self.persist_soon();
++    }
++
++    fn keep_shelf_cart(&mut self) {
++        let (Some(key), Some(cart)) = (self.state.shelf.clone(), self.state.shelf_cart.clone())
++        else {
++            return;
++        };
++        match self.shelf_carts.iter_mut().find(|(k, _)| *k == key) {
++            Some((_, kept)) => *kept = cart,
++            None => self.shelf_carts.push((key, cart)),
++        }
++        if let Some(root) = &self.root {
++            self.state_writer.save_shelf_carts(root, &self.shelf_carts);
++        }
++    }
++
++    fn recall_cart(&mut self, at: usize) {
++        let key = self.shelves[at].0.key();
++        let Some((_, cart)) = self.shelf_carts.iter().find(|(k, _)| *k == key) else {
++            return;
++        };
++        let shelf = &mut self.shelves[at].1;
++        if let Some(i) = shelf
++            .carts
++            .iter()
++            .position(|c| c.platform == cart.platform && c.stem == cart.stem)
++        {
++            shelf.select(i);
++        }
++    }
++
+     fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
+         self.shelves
+             .iter()
+@@ -2594,6 +2661,7 @@ impl App {
+     fn timers(&mut self) {
+         self.play_hold();
+         self.repeat_held_dir();
++        self.remember_shelf_at_rest();
+         let offer = self.undo_label();
+         if let Some(p) = &mut self.polaroids {
+             p.set_undo(offer);
+@@ -2739,6 +2807,7 @@ impl App {
+             return;
+         }
+         let old = self.shelves[at].1.restock(carts);
++        self.rested = None;
+         self.orphaned.extend(old);
+         let empty = self.shelves[at].1.carts.is_empty();
+         if self.shelf_at == at && empty {
+diff --git a/crates/slot/src/state_writer.rs b/crates/slot/src/state_writer.rs
+index 40564e4..c2ba7fd 100644
+--- a/crates/slot/src/state_writer.rs
++++ b/crates/slot/src/state_writer.rs
+@@ -2,13 +2,14 @@ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Condvar, Mutex};
+ use std::thread;
+ 
+-use slot_store::{write_slot_state, SlotState};
++use slot_store::{write_shelf_carts, write_slot_state, Recent, SlotState};
+ 
+ use crate::card_log::CardWrites;
+ 
+ #[derive(Default)]
+ struct Queue {
+     next: Option<(PathBuf, SlotState)>,
++    shelf_carts: Option<(PathBuf, Vec<(String, Recent)>)>,
+     busy: bool,
+     closed: bool,
+ }
+@@ -48,6 +49,16 @@ impl StateWriter {
+         wake.notify_all();
+     }
+ 
++    pub fn save_shelf_carts(&self, root: &Path, carts: &[(String, Recent)]) {
++        if !self.threaded {
++            return write_carts(root, carts, &self.failing);
++        }
++        let (lock, wake) = &*self.shared;
++        let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
++        q.shelf_carts = Some((root.to_path_buf(), carts.to_vec()));
++        wake.notify_all();
++    }
++
+     pub fn card_writes(&self) -> Arc<CardWrites> {
+         self.failing.clone()
+     }
+@@ -55,7 +66,7 @@ impl StateWriter {
+     pub fn flush(&self) {
+         let (lock, wake) = &*self.shared;
+         let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+-        while q.next.is_some() || q.busy {
++        while q.next.is_some() || q.shelf_carts.is_some() || q.busy {
+             q = wake.wait(q).unwrap_or_else(|e| e.into_inner());
+         }
+     }
+@@ -73,12 +84,12 @@ impl Drop for StateWriter {
+ fn work(shared: &Shared, failing: &CardWrites) {
+     let (lock, wake) = &**shared;
+     loop {
+-        let (root, state) = {
++        let (state, carts) = {
+             let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+             loop {
+-                if let Some(job) = q.next.take() {
++                if q.next.is_some() || q.shelf_carts.is_some() {
+                     q.busy = true;
+-                    break job;
++                    break (q.next.take(), q.shelf_carts.take());
+                 }
+                 if q.closed {
+                     return;
+@@ -86,7 +97,12 @@ fn work(shared: &Shared, failing: &CardWrites) {
+                 q = wake.wait(q).unwrap_or_else(|e| e.into_inner());
+             }
+         };
+-        write(&root, &state, failing);
++        if let Some((root, state)) = state {
++            write(&root, &state, failing);
++        }
++        if let Some((root, carts)) = carts {
++            write_carts(&root, &carts, failing);
++        }
+         lock.lock().unwrap_or_else(|e| e.into_inner()).busy = false;
+         wake.notify_all();
+     }
+@@ -99,3 +115,11 @@ fn write(root: &Path, state: &SlotState, failing: &CardWrites) {
+     }
+     failing.wrote("slot.state", &written);
+ }
++
++fn write_carts(root: &Path, carts: &[(String, Recent)], failing: &CardWrites) {
++    let written = write_shelf_carts(root, carts);
++    if let Err(e) = &written {
++        eprintln!("slot: shelf_carts.txt: {e}");
++    }
++    failing.wrote("shelf_carts.txt", &written);
++}
+diff --git a/crates/slot/tests/shelf_cart_memory.rs b/crates/slot/tests/shelf_cart_memory.rs
+new file mode 100644
+index 0000000..821ffea
+--- /dev/null
++++ b/crates/slot/tests/shelf_cart_memory.rs
+@@ -0,0 +1,192 @@
++mod common;
++
++use std::path::Path;
++
++use common::{tmp_root_with_carts, write_gb_cart};
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::{
++    read_shelf_carts, read_slot_state, write_slot_state, Platform, Recent, SlotState,
++    SHELF_CARTS_FILE,
++};
++use tempfile::TempDir;
++
++fn card() -> TempDir {
++    let d = tmp_root_with_carts(&["Drill Dozer", "Emerald", "Fusion"]);
++    write_gb_cart(&d, "Kirby", "KIRBY");
++    write_gb_cart(&d, "Tetris", "TETRIS");
++    d
++}
++
++fn boot_with(root: &Path, state: SlotState) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            ..state
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn settle(a: &mut App) {
++    for _ in 0..30 {
++        a.update(1.0 / 60.0);
++    }
++    a.flush_state();
++}
++
++fn press(a: &mut App, btn: Btn) {
++    a.apply(Action::GbaDown(btn));
++    a.apply(Action::GbaUp(btn));
++    settle(a);
++}
++
++fn recent(platform: Platform, stem: &str) -> Recent {
++    Recent {
++        platform,
++        stem: stem.into(),
++    }
++}
++
++fn remembered(root: &Path) -> Vec<(String, Recent)> {
++    read_shelf_carts(root)
++}
++
++#[test]
++fn switching_shelves_comes_back_to_each_shelfs_cart_after_a_crash() {
++    let d = card();
++    let mut a = boot_with(d.path(), SlotState::default());
++    press(&mut a, Btn::Right);
++    press(&mut a, Btn::Right);
++    assert_eq!(a.selected_stem(), Some("Fusion"));
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some("Game Boy"));
++    press(&mut a, Btn::Right);
++    assert_eq!(a.selected_stem(), Some("Tetris"));
++    drop(a);
++
++    let mut a = App::boot(d.path());
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.shelf_platform_name(), Some("Game Boy"));
++    assert_eq!(a.selected_stem(), Some("Tetris"));
++    press(&mut a, Btn::L1);
++    assert_eq!(a.shelf_platform_name(), Some("Game Boy Advance"));
++    assert_eq!(a.selected_stem(), Some("Fusion"));
++}
++
++#[test]
++fn a_cart_at_rest_is_written_without_a_power_off() {
++    let d = card();
++    let mut a = boot_with(d.path(), SlotState::default());
++    press(&mut a, Btn::Right);
++    assert_eq!(
++        remembered(d.path()),
++        [("gba".to_string(), recent(Platform::Gba, "Emerald"))]
++    );
++    let state = read_slot_state(d.path());
++    assert_eq!(state.shelf.as_deref(), Some("gba"));
++    assert_eq!(state.shelf_cart, Some(recent(Platform::Gba, "Emerald")));
++}
++
++#[test]
++fn a_held_direction_writes_once_it_is_let_go() {
++    let d = card();
++    let mut a = boot_with(d.path(), SlotState::default());
++    settle(&mut a);
++    a.apply(Action::GbaDown(Btn::Right));
++    settle(&mut a);
++    assert_eq!(
++        remembered(d.path()),
++        [("gba".to_string(), recent(Platform::Gba, "Drill Dozer"))],
++        "the cart under a held direction was written"
++    );
++    a.apply(Action::GbaUp(Btn::Right));
++    settle(&mut a);
++    let stem = a.selected_stem().map(str::to_string).expect("a cart");
++    assert_ne!(stem, "Drill Dozer");
++    assert_eq!(
++        remembered(d.path()),
++        [("gba".to_string(), recent(Platform::Gba, &stem))]
++    );
++}
++
++#[test]
++fn recents_and_favorites_keep_their_own_cart() {
++    let d = card();
++    let mut a = boot_with(
++        d.path(),
++        SlotState {
++            show_recents: true,
++            recents: vec![
++                recent(Platform::Gba, "Emerald"),
++                recent(Platform::Gb, "Tetris"),
++            ],
++            favorites: vec![
++                recent(Platform::Gba, "Drill Dozer"),
++                recent(Platform::Gb, "Kirby"),
++            ],
++            ..SlotState::default()
++        },
++    );
++    assert_eq!(a.shelf_platform_name(), Some("Recents"));
++    press(&mut a, Btn::Right);
++    assert_eq!(a.selected_stem(), Some("Tetris"));
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some("Favorites"));
++    press(&mut a, Btn::Right);
++    assert_eq!(a.selected_stem(), Some("Kirby"));
++    press(&mut a, Btn::R1);
++    drop(a);
++
++    let mut a = App::boot(d.path());
++    assert_eq!(a.shelf_platform_name(), Some("Game Boy Advance"));
++    press(&mut a, Btn::L1);
++    assert_eq!(a.shelf_platform_name(), Some("Favorites"));
++    assert_eq!(a.selected_stem(), Some("Kirby"));
++    press(&mut a, Btn::L1);
++    assert_eq!(a.shelf_platform_name(), Some("Recents"));
++    assert_eq!(a.selected_stem(), Some("Tetris"));
++}
++
++#[test]
++fn a_remembered_cart_the_card_no_longer_holds_starts_the_shelf_at_its_first_cart() {
++    let d = card();
++    std::fs::write(
++        d.path().join("Config").join(SHELF_CARTS_FILE),
++        "gb=gb/Deleted\ngba=gba/Fusion\n",
++    )
++    .unwrap();
++    let mut a = boot_with(d.path(), SlotState::default());
++    assert_eq!(a.selected_stem(), Some("Fusion"));
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some("Game Boy"));
++    assert_eq!(a.selected_stem(), Some("Kirby"));
++}
++
++#[test]
++fn a_seated_cart_still_resumes_over_the_shelf_memory() {
++    let d = card();
++    std::fs::write(
++        d.path().join("Config").join(SHELF_CARTS_FILE),
++        "gba=gba/Drill Dozer\ngb=gb/Tetris\n",
++    )
++    .unwrap();
++    let a = boot_with(
++        d.path(),
++        SlotState {
++            cart: Some("Fusion".into()),
++            cart_platform: Some(Platform::Gba),
++            shelf: Some("gb".into()),
++            shelf_cart: Some(recent(Platform::Gb, "Tetris")),
++            ..SlotState::default()
++        },
++    );
++    assert!(
++        matches!(a.phase(), Phase::Inserting { .. }),
++        "{:?}",
++        a.phase()
++    );
++    assert_eq!(a.selected_stem(), Some("Fusion"));
++}

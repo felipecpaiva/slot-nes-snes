@@ -52,3 +52,6 @@ file each with its context and consequences. To record a new one, add an ADR (se
 | 2026-10-15 | [0044](adr/0044-test-site-c-gone.md) | Named upstream test site (c) retired: render_shelves.rs lost label_top upstream |
 | 2026-10-15 | [0045](adr/0045-layout-hash-tests-in-both-trees.md) | slot-gfx layout.rs runs in both trees and gates on no new failure (two hash tests fail on upstream here) |
 | 2026-10-15 | [0046](adr/0046-retro-stretch-crops-height.md) | Stretch: GBA, GB, GBC take upstream's widen-only rect; NES and SNES crop both axes |
+| 2026-10-15 | [0047](adr/0047-upstream-first-fixes.md) | A fix that belongs upstream also goes to BrandonKowalski/slot as a PR; our patch is dropped on the rebase after upstream ships it |
+| 2026-10-15 | [0048](adr/0048-nes-snes-in-the-screen-platform-list.md) | Screen lists NES and SNES after the Game Boys (hidden on cards without them); named test sites (g) and (h) in slot-ui quick_menu.rs |
+| 2026-10-15 | [0049](adr/0049-per-shelf-cart-memory.md) | Each shelf remembers its cart in Config/shelf_carts.txt, saved at rest on top of upstream #53; drop when the upstream PR lands |
