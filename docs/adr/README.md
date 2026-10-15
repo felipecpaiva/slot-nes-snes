@@ -62,7 +62,6 @@ the patch set looks the way it does.
 | [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) | Fit the NES and SNES shader rows into v1.7.0's per-platform menus | Accepted. Amends 0023. Amended by 0048 | 2026-10-15 |
 | [0044](0044-test-site-c-gone.md) | Retire named test site (c): upstream deleted label_top | Accepted. Amends 0013 | 2026-10-15 |
 | [0045](0045-layout-hash-tests-in-both-trees.md) | Run upstream's layout frame-hash tests in both trees | Accepted. Amends 0035 | 2026-10-15 |
-| [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018 | 2026-10-15 |
 | [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018. Amended by 0052 | 2026-10-15 |
 | [0047](0047-upstream-first-fixes.md) | Upstream-first fixes | Accepted | 2026-10-15 |
 | [0048](0048-nes-snes-in-the-screen-platform-list.md) | List NES and SNES on the Screen page after the Game Boys | Accepted. Amends 0043 and 0013 | 2026-10-15 |
