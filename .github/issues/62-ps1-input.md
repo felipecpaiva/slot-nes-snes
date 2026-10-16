@@ -15,7 +15,7 @@ Step 9. v1 is the digital pad with all four shoulders (ADR 0068).
 - [ ] `owns_triggers` policy, true for PS1 only, checked at the L2/R2 arms of `gesture.rs` (gmaster1998's toggle shape). Every other platform keeps rewind and FF.
 - [ ] `ButtonMask` bits 12 and 13 (L2, R2) reach `input_state` for PS1.
 - [ ] Face buttons by position: Cross B, Circle A, Square Y, Triangle X. Turbo: pass-through.
-- [ ] No fast-forward gesture on PS1 in v1 (ADR 0066). A chord is a maintainer decision.
+- [ ] Fast-forward on SELECT+R2 (maintainer's choice, ADR 0066); SELECT+R2 never reaches the game.
 
 ## Tests
 | ID | File | Asserts |

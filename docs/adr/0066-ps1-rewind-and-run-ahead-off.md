@@ -24,7 +24,7 @@ dependency.
 ## Consequences
 
 - No rewind memory or capture cost on PS1.
-- L2 and R2 belong to the game, so PS1 has no fast-forward gesture in v1. A chord for it is a
-  later maintainer decision, not something a patch picks. The quick menu keeps its rows.
+- L2 and R2 belong to the game, so PS1 fast-forward moves to SELECT+R2, the maintainer's choice
+  (2026-10-17, as omega-zero does it). The quick menu keeps its rows.
 - PS1 is not listed under rewind in the parity table. The README known gaps say so.
 - Revisit only with numbers: a compressed ring that fits, and a capture cost under budget.

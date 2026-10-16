@@ -30,7 +30,7 @@ and 0x02/0x05.
 ## Consequences
 
 - v1 needs no evdev change. v2 also answers the N64 spike's stick question.
-- PS1 has no fast-forward gesture in v1 (ADR 0066).
+- PS1 fast-forward is SELECT+R2, since R2 belongs to the game (ADR 0066).
 - Analog-only games do not work until v2. The README known gaps say so.
 - v2 has to find out which axis pair is the left stick, and whether the device has a rumble
   motor. Both are unknown today.
