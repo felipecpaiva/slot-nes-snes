@@ -6,9 +6,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/scripts/lib.sh"
 read_pin
 
-cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx"
+cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed"
 # Games/ folders the zip may hold.
-games="GBA GB GBC NES SNES GG SMS MD"
+games="GBA GB GBC NES SNES GG SMS MD PS1"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States Labels BIOS Wallpapers"
 
@@ -88,7 +88,7 @@ done
 # System/ holds exactly this set: upstream's dist output plus our core and licence files.
 req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
-genesis_plus_gx_libretro.so"
+genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so"
 for f in $req; do
 	[ -f "$sys/$f" ] || bad "System/$f is missing"
 done
@@ -97,7 +97,7 @@ gc="$(slot_var GPSP_COMMIT)"
 [ -n "$mc" ] && [ -n "$gc" ] || bad "no MGBA_COMMIT or GPSP_COMMIT in build/slot/taskfile.yml, run task build"
 ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
-genesis_plus_gx_libretro.so
+genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so
 licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/retro-shaders.txt licenses/cores.sha256
 licenses/mgba-MPL-2.0.txt licenses/mgba-$mc.meta
 licenses/gpsp-GPL-2.0.txt licenses/gpsp-$gc.meta licenses/gpsp-$gc.tar.gz
@@ -106,7 +106,8 @@ licenses/fceumm-GPL-2.0.txt licenses/fceumm-headerless-files.txt licenses/$src.t
 licenses/snes9x_libretro.so.meta licenses/snes9x-src.meta licenses/snes9x-src.tar.gz licenses/snes9x-LICENSE.txt
 licenses/nestopia_libretro.so.meta licenses/nestopia-src.meta licenses/nestopia-src.tar.gz licenses/nestopia-GPL-2.0.txt
 licenses/snes9x2005_plus_libretro.so.meta licenses/snes9x2005_plus-src.meta licenses/snes9x2005_plus-src.tar.gz licenses/snes9x2005-LICENSE.txt
-licenses/genesis_plus_gx_libretro.so.meta licenses/genesis_plus_gx-src.meta licenses/genesis_plus_gx-src.tar.gz licenses/genesis_plus_gx-LICENSE.txt"
+licenses/genesis_plus_gx_libretro.so.meta licenses/genesis_plus_gx-src.meta licenses/genesis_plus_gx-src.tar.gz licenses/genesis_plus_gx-LICENSE.txt
+licenses/pcsx_rearmed_libretro.so.meta licenses/pcsx_rearmed-src.meta licenses/pcsx_rearmed-src.tar.gz licenses/pcsx_rearmed-GPL-2.0.txt"
 for p in "$root"/build/slot/cores/mgba/*.patch; do ok="$ok licenses/mgba-$(basename "$p")"; done
 for p in "$root"/build/slot/cores/gpsp/*.patch; do ok="$ok licenses/gpsp-$(basename "$p")"; done
 for p in "$root"/patches/*.patch; do ok="$ok licenses/slot-nes-snes-$(basename "$p")"; done
@@ -133,8 +134,8 @@ done
 # core's, and its sha256 is the one dist-device.sh recorded in licenses/cores.sha256.
 # snes9x2005_plus is built from snes9x 1.43 and its option keys are snes9x_2005_*, so "snes9x" is
 # legitimately in it: that one pair is skipped, and "Snes9x 2005 Plus" must stay out of snes9x.
-for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX; do
-	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX; do
+for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed; do
+	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed; do
 		f="$sys/${pair%%:*}_libretro.so"
 		[ -f "$f" ] || continue
 		[ "${pair%%:*}:${other%%:*}" != snes9x2005_plus:snes9x ] || continue
@@ -168,14 +169,14 @@ for p in "$root"/patches/*.patch; do
 	[ ! -f "$lic/slot-nes-snes-$(basename "$p")" ] || cmp -s "$p" "$lic/slot-nes-snes-$(basename "$p")" ||
 		bad "System/licenses/slot-nes-snes-$(basename "$p") differs from patches/$(basename "$p")"
 done
-for core in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx; do
+for core in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed; do
 	eval "cc=\${${core}_commit:-}"
 	[ -n "$cc" ] || bad "SLOT_PIN has no ${core}_commit"
 	for m in "$core-src.meta" "${core}_libretro.so.meta"; do
 		[ ! -f "$lic/$m" ] || grep -qx "commit=$cc" "$lic/$m" || bad "System/licenses/$m does not name the pinned commit $cc"
 	done
 done
-for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 nestopia:nestopia-src.tar.gz:nestopia_tarball_sha256 snes9x2005_plus:snes9x2005_plus-src.tar.gz:snes9x2005_plus_tarball_sha256 genesis_plus_gx:genesis_plus_gx-src.tar.gz:genesis_plus_gx_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
+for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 nestopia:nestopia-src.tar.gz:nestopia_tarball_sha256 snes9x2005_plus:snes9x2005_plus-src.tar.gz:snes9x2005_plus_tarball_sha256 genesis_plus_gx:genesis_plus_gx-src.tar.gz:genesis_plus_gx_tarball_sha256 pcsx_rearmed:pcsx_rearmed-src.tar.gz:pcsx_rearmed_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
 	f="$lic/$(echo "$pair" | cut -d: -f2)"
 	eval "want=\${$(echo "$pair" | cut -d: -f3):-}"
 	[ -n "$want" ] || bad "SLOT_PIN has no $(echo "$pair" | cut -d: -f3)"
@@ -204,6 +205,7 @@ for core in $cores; do
 	nestopia) need nestopia_libretro.so.meta nestopia-src.tar.gz nestopia-src.meta nestopia-GPL-2.0.txt ;;
 	snes9x2005_plus) need snes9x2005_plus_libretro.so.meta snes9x2005_plus-src.tar.gz snes9x2005_plus-src.meta snes9x2005-LICENSE.txt ;;
 	genesis_plus_gx) need genesis_plus_gx_libretro.so.meta genesis_plus_gx-src.tar.gz genesis_plus_gx-src.meta genesis_plus_gx-LICENSE.txt ;;
+	pcsx_rearmed) need pcsx_rearmed_libretro.so.meta pcsx_rearmed-src.tar.gz pcsx_rearmed-src.meta pcsx_rearmed-GPL-2.0.txt ;;
 	*) bad "no file list for core $core in zip-check.sh" ;;
 	esac
 done

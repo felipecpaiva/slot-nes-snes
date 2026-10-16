@@ -12,7 +12,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 
 - `slot-nes-snes-src-<release>.tar.gz`: the patched slot source (`slot/`, `work/slot` at the
   exported commit) plus this repository (`slot-nes-snes/`, with `patches/`). It does not hold
-  the gpSP, fceumm, snes9x, nestopia or snes9x2005_plus sources; those sit next to it in the same folder (below). It also does not
+  the gpSP, fceumm, snes9x, nestopia, snes9x2005_plus or pcsx_rearmed sources; those sit next to it in the same folder (below). It also does not
   hold slot's Rust crates: Cargo fetches them by `slot/Cargo.lock`, exactly as upstream does.
   A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
   Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
@@ -20,6 +20,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `snes9x-src.tar.gz` and `snes9x-src.meta`: the same for snes9x.
 - `nestopia-src.tar.gz` and `nestopia-src.meta`: the same for nestopia.
 - `snes9x2005_plus-src.tar.gz` and `snes9x2005_plus-src.meta`: the same for snes9x2005_plus.
+- `pcsx_rearmed-src.tar.gz` and `pcsx_rearmed-src.meta`: the same for pcsx_rearmed.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 
@@ -224,10 +225,11 @@ Genesis Plus GX too, and the release terms do not change: the zip was already ne
 
 Checked at commit `c8816799b50388e61cfe237fe2cdbb7d8175f20a` of libretro/pcsx_rearmed, the commit
 `SLOT_PIN` pins as `pcsx_rearmed_commit` (tarball sha256 `pcsx_rearmed_tarball_sha256`). It is built
-by `cores/pcsx_rearmed/build.sh` for PlayStation (ADR 0063) and ships from the release that carries
-the PS1 platform (issue 58). Its licence, the root `COPYING` of that source copied verbatim and whole,
-is `cores/pcsx_rearmed/pcsx_rearmed-GPL-2.0.txt` until then. The exact source ships with the core as
-`pcsx_rearmed-src.tar.gz`, with `pcsx_rearmed-src.meta` recording its sha256.
+by `cores/pcsx_rearmed/build.sh` for PlayStation (ADR 0063) and ships with the PS1 platform (patch
+`0034-platform-ps1`, issue 58). Its licence, the root `COPYING` of that source copied verbatim and
+whole, is `licenses/pcsx_rearmed-GPL-2.0.txt`, which `scripts/dist-device.sh` copies into
+`System/licenses/` and `scripts/zip-check.sh` requires and compares byte for byte. The exact source
+ships with the core as `pcsx_rearmed-src.tar.gz`, with `pcsx_rearmed-src.meta` recording its sha256.
 
 **The pcsx_rearmed core we ship is GPL-2.0-or-later**, so it combines with slot's GPL-3.0-or-later
 directly, with no plugin-boundary stance needed.
@@ -302,3 +304,9 @@ asset, and none ships in a release. Patch `0029-sms-box-art` regenerates `sms_ne
 Patch `0030-need-fullpath` follows two GPL-3.0 forks of slot, compatible with this patch set's
 GPL-3.0-or-later: the path-only load of AaronC1990/tray (the original path, not canonicalised)
 and the `SystemInfo` field order of bently0602/slot. Both are credited in the patch commit.
+
+Patch `0034-platform-ps1` draws on three of them. The playlist rules (a `.cue` or `.m3u` hides the
+discs it names, `(Disc N)` files become one game with a generated playlist) follow AaronC1990/tray
+and oauramos/omega-zero, and its test fixture, a PS-X EXE and an ISO9660 disc generated in the test,
+is ported from bently0602/slot's `crates/slot-retro/tests/pcsx.rs`. All three are GPL-3.0 and are
+credited in the patch commit.

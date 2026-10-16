@@ -8,7 +8,7 @@
 | nestopia source tarball | `cores/nestopia/build.sh fetch` | sha256 `nestopia_tarball_sha256` in `SLOT_PIN` (commit `nestopia_commit`) |
 | snes9x2005_plus source tarball (libretro/snes9x2005) | `cores/snes9x2005_plus/build.sh fetch` | sha256 `snes9x2005_plus_tarball_sha256` in `SLOT_PIN` (commit `snes9x2005_plus_commit`) |
 | Genesis Plus GX source tarball (libretro/Genesis-Plus-GX) | `cores/genesis_plus_gx/build.sh fetch` | sha256 `genesis_plus_gx_tarball_sha256` in `SLOT_PIN` (commit `genesis_plus_gx_commit`); built, not in a release yet |
-| pcsx_rearmed source tarball (libretro/pcsx_rearmed) | `cores/pcsx_rearmed/build.sh fetch` | sha256 `pcsx_rearmed_tarball_sha256` in `SLOT_PIN` (commit `pcsx_rearmed_commit`); built, not in a release yet |
+| pcsx_rearmed source tarball (libretro/pcsx_rearmed) | `cores/pcsx_rearmed/build.sh fetch` | sha256 `pcsx_rearmed_tarball_sha256` in `SLOT_PIN` (commit `pcsx_rearmed_commit`); shipped with the PS1 platform |
 | mGBA source | upstream `cores/mgba/build.sh`, `git fetch` of one commit | git commit id `MGBA_COMMIT` (SHA-1 content addressed) |
 | Task linux arm64 tarball | `scripts/fetch-task.sh` | sha256 `task_linux_arm64_sha256` in `SLOT_PIN`, checked before extraction |
 | gpSP device source tarball | upstream `core:gpsp` (curl, no checksum) | sha256 `gpsp_tarball_sha256` in `SLOT_PIN`, checked by `scripts/dist-device.sh` on the vendor copy and the dist copy right after upstream's run; failure removes the dist tree and the gpSP cache. Upstream deletes its cached copy before downloading and its skip check cannot be met from outside, so the check runs after the download, before anything is packaged |

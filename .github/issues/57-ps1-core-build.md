@@ -16,8 +16,8 @@ Step 4. PS1 needs its core built the slot way (ADR 0002, ADR 0063), before any p
 - [x] Device: `platform=unix HAVE_PHYSICAL_CDROM=0 BUILTIN_GPU=neon`, `-mcpu=cortex-a53`, CHD on (the default). ari64 is the aarch64 default. Do not put `DYNAREC` in shared `make_args`, because it would override osx's `DYNAREC := 0`.
 - [x] Host: `platform=osx`, interpreter.
 - [x] Tasks `core:pcsx_rearmed:host` and `core:device:pcsx_rearmed`. Assert ari64 from the build log or a symbol check.
-- [x] `pcsx_rearmed-GPL-2.0.txt` (GPL-2.0-or-later, named like `fceumm-GPL-2.0.txt`; beside the build script until issue 58 moves it to `licenses/`), a LICENSING.md section listing the bundled deps (lightrec, lightning, libchdr and its lzma, zstd and miniz), SUPPLY-CHAIN.md row. Credit bently0602 and oauramos for the recipe facts.
-- [ ] The core joins `dist:device` and `zip-check.sh` only with the platform patch (issue 58), so no release ships an unused core.
+- [x] `pcsx_rearmed-GPL-2.0.txt` (GPL-2.0-or-later, named like `fceumm-GPL-2.0.txt`; moved to `licenses/` with issue 58), a LICENSING.md section listing the bundled deps (lightrec, lightning, libchdr and its lzma, zstd and miniz), SUPPLY-CHAIN.md row. Credit bently0602 and oauramos for the recipe facts.
+- [x] The core joins `dist:device` and `zip-check.sh` only with the platform patch (issue 58), so no release ships an unused core.
 
 ## Tests
 | ID | File | Asserts |
