@@ -13,6 +13,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 2 | Approach, Phased rollout, Signature impact, Critical files, Test plan, Gotchas, Open questions, Evaluation | Review fixes: Host side-state, pair-relative picker, macOS-primary CI, deterministic harness, licensing tarball |
 | 3 | Open questions | User resolved OQ2 (no quick menu shader rows) and OQ4 (SELECT+X SNES video mode) |
 | 4 | Phased rollout | Phase 7 (Sega on Genesis Plus GX, patches 0024 to 0028) added |
+| 5 | Spec, Phased rollout | PS1 brought into scope as Phase 8 (ADRs 0063 to 0069, issues 56 to 68), planned, not shipped; PAL pacing moved from deferred to issue 66 |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -53,7 +54,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7) and PlayStation (Phase 8, ADR 0063) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -66,7 +67,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Out of scope:**
   - upstreaming;
   - zip ROMs;
-  - PAL 50 Hz pacing (PAL titles run about 20% fast, documented);
+  - PAL 50 Hz pacing (PAL titles run about 20% fast, documented). Planned again in issue 66, which amends this line when it ships;
   - the stem-key collision in `selected_core.txt`, `video_mode.txt` and `cart_shell.txt` (documented only);
   - Famicom Disk System (deferred variant);
   - Option B variable frame size and true hi-res SNES detail;
@@ -411,10 +412,35 @@ Done on the host: every test with `SLOT_REQUIRE_CORES=1`, real-core boot, canvas
 trip, input, Stretch and shader tests per system. Open: the device gate (heavy Mega Drive titles,
 `task perf:play` rows), a second core per system, a harness leg for a Sega cart then GBA.
 
+### Phase 8: PlayStation (planned, not shipped)
+
+Tracking issue 56, children 57 to 65, ADRs 0063 to 0069, research in docs/research/ps1-plan.md
+and docs/research/ps1-spike.md (device spike passed on 2026-10-16). One core, pcsx_rearmed pinned
+at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | `need_fullpath` load, patch 0030 (ADR 0059) |
+| 2 | done | Device spike: SotN 4.27 ms a frame threads off, Spyro 3.61, GT2 3.08; conversion at most 0.80 ms; sticks analog |
+| 3 | done | ADRs 0063 to 0069 |
+| 4 | 57 | Core build, pin and licence |
+| 5 | 58 | `Platform::Ps1`, shelf, disc scan, explicit policy |
+| 6 | 59 | Core options and pcsx's declared defaults (ADR 0064); rewind and run-ahead off (ADR 0066) |
+| 7 | 60 | 640x480 canvas, PS1 budget line, PS1 Screen section with Shader and Picture rows (ADR 0065) |
+| 8 | 61 | Disk control, remembered disc, disc index in states (ADR 0067) |
+| 9 | 62 | L2/R2 to the game, PlayStation face mapping (ADR 0068) |
+| 10 | 63 | Generated EXE and ISO tests on HLE BIOS |
+| 11 | 64 | Jewel cases with cover art and region styles (ADR 0069) |
+| 12 | 65 | Analog sticks and DualShock (v2, not blocking) |
+
+Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66) and a crash guard on
+resume (issue 67, upstream-first).
+
 ### Phase 6+: deferred (non-blocking)
 
 - Famicom Disk System variant and core support (needs a BIOS and a different save model).
-- PAL 50 Hz pacing (out of scope by spec).
+- PAL 50 Hz pacing (out of scope by spec; planned again in issue 66).
+- A 3D disc or disc stack PS1 shelf style (issue 68).
 - Stem-key collision (documented only).
 - Option B variable frame size.
 

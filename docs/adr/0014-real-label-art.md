@@ -1,6 +1,6 @@
 # 0014. Show real cartridge label art on carts, never a screenshot
 
-- Status: Accepted. Amended by [0057](0057-sms-box-art-tall-well.md)
+- Status: Accepted. Amended by [0057](0057-sms-box-art-tall-well.md) and [0069](0069-ps1-jewel-case-shelf.md)
 - Date: 2026-10-12
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 40](../../.github/issues/40-cart-studio-nes-snes.md), [issue 41](../../.github/issues/41-label-fetcher-cli.md), [PLAN.md](../PLAN.md) Phase 4, slot discussion #64

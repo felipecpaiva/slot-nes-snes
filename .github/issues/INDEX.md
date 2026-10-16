@@ -37,7 +37,7 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [31](31-rebase-and-diffsurface.md) | Add rebase.sh, docs/REBASE.md and task diffsurface | 5 | infra | chore | M | 02-patch-pipeline, 03-task-check-and-upstream-guard |
 | [32](32-phase-6-deferred.md) | Phase 6: deferred work (non-blocking) | 6 | docs | tracking | S | 28-phase-5-release |
 | [33](33-deferred-fds.md) | DEFERRED: Support the Famicom Disk System as a variant and core | 6 | cores | chore | L | 32-phase-6-deferred |
-| [34](34-deferred-pal-pacing.md) | DEFERRED: Pace PAL titles at 50 Hz | 6 | video | chore | M | 32-phase-6-deferred |
+| [34](34-deferred-pal-pacing.md) | DEFERRED: Pace PAL titles at 50 Hz (superseded by 66) | 6 | video | chore | M | 32-phase-6-deferred |
 | [35](35-deferred-stem-key-collision.md) | DEFERRED: Fix the stem-key collision in selected_core.txt, video_mode.txt and cart_shell.txt | 6 | platform | chore | M | 32-phase-6-deferred |
 | [36](36-deferred-option-b-video.md) | DEFERRED: Move to Option B variable frame size for true SNES hi-res | 6 | video | chore | L | 32-phase-6-deferred |
 | [38](38-dev-tools-mise.md) | Pin the developer toolchain with mise | 1 | infra | chore | S | none |
@@ -58,3 +58,16 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [53](53-platform-md.md) | Add Platform::Md, Mega Drive on Genesis Plus GX with 6-button input and live-width Stretch | 7 | platform | feature | L | 52-platform-sms |
 | [54](54-system-picture.md) | Choose each retro system's default picture mode from its Screen section | 7 | video | feature | S | 43-nes-snes-default-stretch, 53-platform-md |
 | [55](55-crop-overscan.md) | Crop the NES and SNES overscan edges in a new default picture mode | 7 | video | feature | S | 54-system-picture |
+| [56](56-ps1-tracking.md) | PlayStation: PS1 on pcsx_rearmed, built the NES and SNES way | 8 | device | tracking | L | 50-sega-tracking |
+| [57](57-ps1-core-build.md) | Build pcsx_rearmed from a pinned commit for host and device and record its licence | 8 | cores | feature | M | 56-ps1-tracking |
+| [58](58-platform-ps1.md) | Add Platform::Ps1 with its own shelf, disc scan and explicit policy | 8 | platform | feature | M | 57-ps1-core-build |
+| [59](59-ps1-options.md) | Set the PS1 core options and answer pcsx's declared defaults | 8 | cores | feature | S | 58-platform-ps1 |
+| [60](60-ps1-canvas-screen.md) | Give PS1 a 640x480 canvas and its own Screen section with Shader and Picture rows | 8 | video | feature | M | 59-ps1-options |
+| [61](61-ps1-disk-control.md) | Swap PS1 discs, remember the disc per game and record it in states | 8 | platform | feature | M | 60-ps1-canvas-screen |
+| [62](62-ps1-input.md) | Hand L1, R1, L2 and R2 to PS1 games and map the PlayStation face buttons | 8 | input | feature | S | 58-platform-ps1 |
+| [63](63-ps1-tests.md) | Test PS1 with generated PS-X EXE and ISO discs on HLE BIOS | 8 | tests | test | M | 57-ps1-core-build |
+| [64](64-ps1-cases.md) | Draw PS1 games as jewel cases with cover art, region styles and the disc on insert | 8 | ui-art | feature | L | 58-platform-ps1 |
+| [65](65-ps1-analog.md) | Read the RG34XXSP analog sticks and offer the DualShock on PS1 (v2) | 8 | input | feature | L | 62-ps1-input |
+| [66](66-pal-pacing.md) | Pace PAL titles at 50 Hz on NES, Master System, Mega Drive and PS1 | 8 | video | feature | M | 56-ps1-tracking |
+| [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
+| [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |

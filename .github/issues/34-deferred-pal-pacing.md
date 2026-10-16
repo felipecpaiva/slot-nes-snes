@@ -8,6 +8,8 @@ depends_on: [32-phase-6-deferred]
 ---
 
 ## Why
+**Superseded by 66-pal-pacing (2026-10-17).** The maintainer brought PAL pacing back for NES, Master System, Mega Drive and PS1, after PS1 step 2. Kept for history.
+
 **Deferred, out of scope by spec.** Slot's pacing assumes 60 fps, so PAL titles run about 20% fast. v1 documents this in the README known-gaps section (30-release-workflow) instead of fixing it (docs/PLAN.md Phase 6+, Spec "Out of scope").
 
 ## Scope

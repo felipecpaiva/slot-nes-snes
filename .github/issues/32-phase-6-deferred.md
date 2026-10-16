@@ -12,10 +12,11 @@ Items the plan explicitly defers past v1 (docs/PLAN.md "Phase 6+: deferred (non-
 
 ## Scope
 - [ ] 33-deferred-fds
-- [ ] 34-deferred-pal-pacing
+- [ ] 34-deferred-pal-pacing (superseded by 66-pal-pacing, 2026-10-17)
 - [ ] 35-deferred-stem-key-collision
 - [ ] 36-deferred-option-b-video
 - [ ] 48-deferred-n64
+- [ ] 68-deferred-ps1-disc-shelf
 
 ## Tests
 | ID | File | Asserts |

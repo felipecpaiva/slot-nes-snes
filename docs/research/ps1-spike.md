@@ -121,3 +121,91 @@ changes and the scripts live outside the patch set until the numbers say go.
 
 - try the 320x240 canvas (the synthetic lines show its cost), or
 - park PS1 per the plan.
+
+## Results (RG34XXSP, 2026-10-16)
+
+Logs: `results-20261016-234655.txt` (benches) and `results-20261016-234301.txt` (stick dump), in
+`/tmp/claude-501/ps1spike/`. Governor `performance`, CPUs 0 to 3 online, slot not running, SoC
+55.5 to 59.0 C across the runs (no throttling pattern). The card already had the user's own
+`scph*.bin` files in `BIOS/` (scph1000, 1001, 5500, 5501, 5502, 7001, 101 and others), so nothing
+was pushed and the real BIOS runs used one of them.
+
+Games: g1 Castlevania: Symphony of the Night (USA), g2 Spyro: Year of the Dragon (USA) (Rev 1),
+g3 Gran Turismo 2 (USA) (Arcade Mode) (Rev 1), all `.chd`.
+
+### ms per frame (`retro_run` plus slot's copy into the 640x480 canvas)
+
+| Run | mean | median | p95 | max | dupes of 3000 |
+|---|---|---|---|---|---|
+| g1 SotN, threads disabled | 4.27 | 4.59 | 5.18 | 10.38 | 362 |
+| g1 SotN, threads auto | 3.35 | 3.49 | 4.17 | 5.33 | 362 |
+| g2 Spyro, threads disabled | 3.61 | 1.71 | 8.93 | 38.50 | 1732 |
+| g2 Spyro, threads auto | 2.38 | 1.67 | 5.01 | 25.27 | 1731 |
+| g2 Spyro, threads enabled | 2.37 | 1.68 | 4.91 | 31.25 | 1731 |
+| g2 Spyro, HLE BIOS, threads disabled | 3.59 | 1.70 | 8.85 | 32.28 | 1732 |
+| g2 Spyro, nothing answered (slot today) | 3.45 | 1.41 | 8.83 | 33.31 | 1732 |
+| g2 Spyro, every declared default answered (omega-zero) | 2.17 | 1.01 | 5.09 | 31.07 | 1731 |
+| g3 GT2, threads disabled | 3.08 | 2.88 | 5.04 | 6.06 | 1541 |
+| g3 GT2, threads auto | 3.10 | 3.08 | 5.43 | 6.75 | 1542 |
+
+- Read the means. g2's medians are pulled down by its 1731 dupe frames.
+- Threads `auto` saves about 0.9 ms a frame on SotN (4.27 to 3.35) and 1.2 ms on Spyro (3.61 to
+  2.38). GT2 gains nothing (3.08 against 3.10).
+- Answering every declared default (`gpu_thread_rendering=auto`, `drc_thread=auto` and the rest)
+  is the fastest Spyro run: 2.17 against 3.45 for slot today.
+- `off-thread` is 0 in every run, threaded ones included. pcsx always called `video_refresh` from
+  the bound emu thread, so slot drops no frame with threading on.
+- HLE and real BIOS cost the same (Spyro, threads disabled: 3.59 against 3.61).
+- **Spikes:** Spyro's max is 25 to 38 ms in every setting, so one or two frames take longer than
+  one 16.68 ms frame. GT2 and SotN never pass 10.4 ms. Disc reads (CHD decompression) are the
+  likely cause. This is unverified: it is a device-gate item with audio on.
+
+### Frame sizes (all RGB565)
+
+- SotN: 512x240 (2515 frames), 320x240 (120), 256x240 (3).
+- Spyro: 512x240 only.
+- GT2: 320x240 (1458) and one 640x480 frame.
+
+### Conversion
+
+| Copy | ms |
+|---|---|
+| In-run slot copy/convert at canvas 640x480 | 0.56 to 0.76 |
+| 256x240, 320x240, 512x240 into 640x480 | 0.32 to 0.53 |
+| 640x480 into 640x480 (the full-frame ceiling) | 0.78 to 0.80 |
+| 512x240 into 320x240 (box filter) | 1.63 |
+| 640x480 into 320x240 (box filter) | 3.60 to 3.66 |
+| memcpy 640x480x4 (upload staging floor, not a GL upload) | 0.15 to 0.23 |
+
+The 320x240 fallback canvas is **slower**, not cheaper: every frame wider than 320 takes the box
+filter. 640x480 is the canvas.
+
+### Sticks
+
+- Node event1 "ANBERNIC-keys" (also `js0`) has four stick axes, codes 0x02, 0x03, 0x04 and 0x05
+  (ABS_Z, ABS_RX, ABS_RY, ABS_RZ, not ABS_X and ABS_Y). Each reads -4096 to 4096, flat 32,
+  fuzz 32. The d-pad is the hat, 0x10 and 0x11 (-1 to 1).
+- In 10 s of circles: 112, 103, 115 and 104 distinct values.
+- Diagonal samples pair them as 0x03/0x04 (437 samples past 40% on both) and 0x02/0x05 (458).
+  Which pair is the left stick is not yet known.
+- Verdict: analog. The N64 spike's stick question is answered too.
+
+### Against the go / no-go bar
+
+1. **Pass.** With threads disabled (slot today), g1 is median 4.59 and p95 5.18, and g2 is median
+   1.71 and p95 8.93. Both are under 12.5 and 16.68.
+2. **Pass.** The worst is 0.80 ms (full-frame 640x480 into 640x480), under 2 ms.
+3. **Pass.** Four axes, more than 100 values each, with diagonals.
+
+**Verdict: go.** The step 3 ADRs follow: 0063 to 0069.
+
+Open, for the device gate (not measured here):
+
+- the 25 to 38 ms Spyro frames;
+- audio underruns (no audio was output);
+- the GL upload of a 1.2 MB frame;
+- the lid-close save time for a 4.4 MB state;
+- the retro shaders at a 640x480 input.
+
+These runs were mostly intros, attract mode and title screens with no input, so the 3D verdict
+is weak until in-game play is timed.
