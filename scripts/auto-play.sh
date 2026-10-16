@@ -11,7 +11,7 @@
 #   task perf:play CORE=mgba PLATFORM=gba STEM='<name on the card>' MINUTES=1 RUNS=1    one custom pair
 #   sh scripts/auto-play.sh selftest                 local checks, no device
 #   sh scripts/auto-play.sh eval [YYYY-MM-DD]        rebuild play-eval.md from saved logs, no device
-# Env: CORE PLATFORM(gba|gb|gbc|nes|snes) STEM (card file name, extension optional) PAIR (id for a custom pair)
+# Env: CORE PLATFORM(gba|gb|gbc|nes|snes|gg|sms|md) STEM (card file name, extension optional) PAIR (id for a custom pair)
 #   MINUTES=10 RUNS=3 SD=/mnt/sdcard ADB=adb DATE=<today> NODE_KEYS=/dev/input/eventN NODE_HAT=/dev/input/eventN
 #
 # How the input gets in: slot reads every /dev/input/event* node that has buttons (no EVIOCGRAB). Writing a
@@ -60,7 +60,11 @@ gba-mgba-heavy|gba|mgba|Golden Sun (UE) [!]
 gba-mgba-light|gba|mgba|Legend of Zelda, The - The Minish Cap (U)
 gba-gpsp-heavy|gba|gpsp|Golden Sun (UE) [!]
 gba-gpsp-light|gba|gpsp|Legend of Zelda, The - The Minish Cap (U)
-gbc-mgba-card|gbc|mgba|Legend of Zelda, The - Link's Awakening DX (U) (V1.2) [C][!]"
+gbc-mgba-card|gbc|mgba|Legend of Zelda, The - Link's Awakening DX (U) (V1.2) [C][!]
+md-genesis_plus_gx-heavy|md|genesis_plus_gx|Virtua Racing (USA)
+md-genesis_plus_gx-light|md|genesis_plus_gx|Sonic The Hedgehog (USA, Europe)
+sms-genesis_plus_gx-light|sms|genesis_plus_gx|Alex Kidd in Miracle World (USA, Europe, Brazil) (Rev 1)
+gg-genesis_plus_gx-light|gg|genesis_plus_gx|Sonic Chaos (USA, Europe)"
 
 # One struct input_event as a printf format string: aarch64, 16 bytes of zero timeval, u16 type, u16 code,
 # i32 value, little endian, 24 bytes. ev TYPE CODE VALUE
@@ -208,7 +212,7 @@ case "$MINUTES$RUNS" in *[!0-9]* | "") die "MINUTES and RUNS must be whole numbe
 if [ -n "$STEM" ]; then
 	[ -n "$CORE" ] && [ -n "$PLATFORM" ] || die "a custom STEM needs CORE and PLATFORM"
 	case "$STEM" in
-	*.[gG][bB][aA] | *.[gG][bB][cC] | *.[nN][eE][sS] | *.[sS][fF][cC] | *.[sS][mM][cC] | *.[zZ][iI][pP]) STEM="${STEM%.*}" ;;
+	*.[gG][bB][aA] | *.[gG][bB][cC] | *.[nN][eE][sS] | *.[sS][fF][cC] | *.[sS][mM][cC] | *.[zZ][iI][pP] | *.[gG][gG] | *.[sS][mM][sS] | *.[mM][dD] | *.[gG][eE][nN] | *.[bB][iI][nN]) STEM="${STEM%.*}" ;;
 	esac
 	pl="$(printf '%s' "$PLATFORM" | tr '[:upper:]' '[:lower:]')"
 	sel="${PAIR:-$pl-$CORE-custom}|$pl|$CORE|$STEM"
