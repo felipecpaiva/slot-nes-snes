@@ -42,13 +42,13 @@ GG|gamegear/Sonic Chaos (USA, Europe).zip"
 if [ -z "${NODEPLOY:-}" ]; then
 	(cd "$root" && task deploy:device SD="$SD")
 	n=0
-	until $ADB shell "test -f $(shq "$SD/Config/slot.state")" </dev/null >/dev/null 2>&1; do
+	until [ "$($ADB shell "[ -f $(shq "$SD/Config/slot.state") ] && echo yes" </dev/null 2>/dev/null | tr -d '\r')" = yes ]; do
 		[ "$n" -lt 90 ] || die "slot did not come up after the reboot (no $SD/Config/slot.state)"
 		sleep 2
 		n=$((n + 2))
 	done
 fi
-$ADB shell "test -f $(shq "$SD/System/genesis_plus_gx_libretro.so")" </dev/null >/dev/null 2>&1 ||
+[ "$($ADB shell "[ -f $(shq "$SD/System/genesis_plus_gx_libretro.so") ] && echo yes" </dev/null 2>/dev/null | tr -d '\r')" = yes ] ||
 	die "no genesis_plus_gx_libretro.so in $SD/System, deploy first"
 
 stage="$(mktemp -d "${TMPDIR:-/tmp}/sega-check.XXXXXX")"
@@ -64,7 +64,8 @@ while IFS='|' read -r dir zip; do
 		continue
 	}
 	dest="$SD/Games/$dir/$rom"
-	if $ADB shell "test -f $(shq "$dest")" </dev/null >/dev/null 2>&1; then
+	# This device's adbd does not pass the shell's exit status back, so read an answer instead.
+	if [ "$($ADB shell "[ -f $(shq "$dest") ] && echo yes" </dev/null 2>/dev/null | tr -d '\r')" = yes ]; then
 		echo "  on the card already: Games/$dir/$rom"
 		continue
 	fi

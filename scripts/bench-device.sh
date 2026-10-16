@@ -75,14 +75,15 @@ is_aarch64 "$bin" || {
 	echo "slot-nes-snes: no adb device in state device ($ADB get-state), connect the RG34XXSP" >&2
 	exit 1
 }
-$ADB shell "test -f '$SD/System/${CORE}_libretro.so'" || {
+# This device's adbd does not pass the shell's exit status back, so read an answer instead.
+[ "$($ADB shell "[ -f '$SD/System/${CORE}_libretro.so' ] && echo yes" </dev/null 2>/dev/null | tr -d '\r')" = yes ] || {
 	echo "slot-nes-snes: $SD/System/${CORE}_libretro.so is not on the device, run task deploy:device" >&2
 	exit 1
 }
 $ADB shell "rm -rf '$tmp' && mkdir -p '$tmp'"
 $ADB push "$bin" "$tmp/core_bench" >/dev/null
 if [ -n "$ROM_ON_DEVICE" ]; then
-	$ADB shell "test -f $(shq "$ROM_ON_DEVICE")" || {
+	[ "$($ADB shell "[ -f $(shq "$ROM_ON_DEVICE") ] && echo yes" </dev/null 2>/dev/null | tr -d '\r')" = yes ] || {
 		echo "slot-nes-snes: ROM_ON_DEVICE is not a file on the device" >&2
 		exit 1
 	}

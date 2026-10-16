@@ -119,8 +119,9 @@ drop it on the next rebase.
   A helper several of our tests need lives in a new shared module, because upstream
   `common/mod.rs` cannot be edited: `crates/slot/tests/nes_common/mod.rs` (`require_core(name)`,
   `fceumm()`, `nes_rom(name, battery)`) and `crates/slot/tests/snes_common/mod.rs`
-  (`snes_rom(name, map, copier, sram_kb)`, `Map`, `SNES_TITLE`). No `allow(dead_code)`: a binary
-  includes only the module it uses.
+  (`snes_rom(name, map, copier, sram_kb)`, `Map`, `SNES_TITLE`), and `sega_common/mod.rs` for the
+  Sega platforms. A shared test module starts with `#![allow(dead_code)]`, as upstream's
+  `common/mod.rs` does, because each test binary uses only part of it; nothing else allows it.
 - **Names:** a plain sentence, like upstream:
   `fn a_nes_cart_lands_on_its_own_shelf()`, `fn select_x_never_reaches_the_snes_game()`.
 - **One behaviour per test.** Assert the actual value, not just "it did not crash".
