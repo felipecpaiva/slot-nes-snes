@@ -74,3 +74,4 @@ the patch set looks the way it does.
 | [0055](0055-sega-tokens-at-named-test-sites.md) | Widen named test sites (b), (e), (g) and (h) for the Sega platforms and Genesis Plus GX | Accepted. Amends 0013 and 0048 | 2026-10-16 |
 | [0056](0056-sega-carts-one-box-per-platform.md) | Draw the Sega carts from generated neutrals, one box per platform | Accepted. Extends 0054. Amended by 0057 | 2026-10-16 |
 | [0057](0057-sms-box-art-tall-well.md) | Show the whole Master System box front in a tall label well | Accepted. Amends 0014 and 0056 | 2026-10-16 |
+| [0058](0058-propose-modular-platform-registry-upstream.md) | Propose a modular platform registry upstream, asked first on discussion #64 | Proposed | 2026-10-16 |
