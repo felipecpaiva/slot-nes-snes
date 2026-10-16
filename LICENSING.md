@@ -310,3 +310,7 @@ discs it names, `(Disc N)` files become one game with a generated playlist) foll
 and oauramos/omega-zero, and its test fixture, a PS-X EXE and an ISO9660 disc generated in the test,
 is ported from bently0602/slot's `crates/slot-retro/tests/pcsx.rs`. All three are GPL-3.0 and are
 credited in the patch commit.
+
+Patch `0035-ps1-options` answers pcsx_rearmed's declared option defaults, as oauramos/omega-zero
+does, after AaronC1990/tray found that pcsx renders on the emu thread unless its threaded-rendering
+key is answered. Both are credited in the patch commit.
