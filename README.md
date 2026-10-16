@@ -90,7 +90,7 @@ Keep NES and SNES overrides in `Config/cart_shell.txt`. The cart studio at studi
 
 ## Fetching real cart labels
 
-`tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES, SNES, Game Gear, Master System and Mega Drive. It never uses box art or a screenshot, and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
+`tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES, SNES, Game Gear, Master System and Mega Drive. It never uses a screenshot, and box art only for Master System, whose carts carry little more than the name: every Master System cart shows its whole front box (ScreenScraper `box-2D`, ADR 0057), and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
 
 ```sh
 # the SD card stays in the device, ROM library on this machine (nes/ snes/ gba/ gb/ gbc/ folders, loose or zipped)

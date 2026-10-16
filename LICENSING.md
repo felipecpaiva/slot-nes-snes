@@ -258,4 +258,5 @@ Patch `0028-sega-carts` adds `gg_neutral.png`, `sms_neutral.png`, `segacard_neut
 Sega outline and detail SVGs, with the same lighting measured from upstream's `gba_neutral.png`. They
 are GPL-3.0-or-later. The reference photos in `docs/cart-art/refs/` that guided the outlines are
 listed with their own licences in `docs/cart-art/refs/SOURCES.md`; none of their pixels is used in any
-asset, and none ships in a release.
+asset, and none ships in a release. Patch `0029-sms-box-art` regenerates `sms_neutral.png` and
+`segacard_neutral.png` with the tall box art well (ADR 0057), by the same example, under the same licence.

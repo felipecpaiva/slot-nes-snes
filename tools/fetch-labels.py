@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch real cart labels (never box art, never a screenshot) for the ROMs on a slot SD card.
+"""Fetch real cart labels (never a screenshot) for the ROMs on a slot SD card; Master System gets the box front.
 
     python3 tools/fetch-labels.py --card /Volumes/SLOT                       # a mounted card
     python3 tools/fetch-labels.py --device --library ~/ROMS                  # SD card stays in the device, over adb
@@ -17,11 +17,13 @@ Label sources, in order, per ROM:
   1. https://art.slot-cfw.fyi/ (Brandon Kowalski's art set, GBA/GB/GBC: index.json maps CRC32 to the real
      support-texture label). One request at a time, a short pause, a User-Agent naming this project.
   2. ScreenScraper support-texture, when SS_DEVID and SS_DEVPASSWORD (and usually SS_SSID, SS_SSPASSWORD) are set.
+     Master System takes the front box art (box-2D) instead, for every game: its carts carry little more than the
+     name, and slot draws the whole box in a tall well (ADR 0057). Labels fetched before that are kept until --force.
      Credentials are never printed. Stops cleanly when the quota is spent; the next run resumes.
   A ROM with neither is reported as missing. (libretro Named_Logos on a generated ground needs image code
   beyond the standard library, so that fallback is not implemented.)
-The PNG is written as fetched: slot cover-fits any PNG into the label box and caches it itself (art.rs,
-label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
+The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
+box) and caches it itself (art.rs, retro_cart.rs, label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
 """
 import argparse
 import json
@@ -62,6 +64,9 @@ SYSTEMS = {
     "MD": ("megadrive", {".md", ".gen", ".bin"}, [SEGA + "Mega Drive - Genesis"], 1),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
+# ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
+MEDIA = {"SMS": "box-2D"}
+LABEL = "support-texture"
 # slot's own plastic for a cart with no per-title colour (patch 0012), so a line only sets the outline
 SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696", "megadrive": "26242a"}
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -236,7 +241,9 @@ class ScreenScraper:
             self.pause = 60.0 / per_min
 
     def label(self, system, crc, name, size):
-        d = os.path.join(self.ctx.cache, "ss", system)
+        kind = MEDIA.get(system, LABEL)
+        # a box is cached apart from the label scans, so a scan cached before ADR 0057 is never served as a box
+        d = os.path.join(self.ctx.cache, "ss", system, *([kind] if kind != LABEL else []))
         png, none = os.path.join(d, crc + ".png"), os.path.join(d, crc + ".none")
         if os.path.isfile(png):
             return slurp(png)
@@ -253,7 +260,7 @@ class ScreenScraper:
             data = self.call("jeuInfos.php", crc=crc, systemeid=SYSTEMS[system][3], romnom=name + ".bin",
                              romtaille=size or "")
             medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
-            media = self.pick(medias, name)
+            media = self.pick(medias, name, kind)
             os.makedirs(d, exist_ok=True)
             if not media:
                 spit(none, b"")
@@ -269,10 +276,12 @@ class ScreenScraper:
             self.stop = str(e)
             return None
 
-    def pick(self, medias, name):
+    def pick(self, medias, name, kind=LABEL):
         tag = re.search(r"\(([^)]*)\)", name)
         own = self.REGION.get(tag.group(1).split(",")[0].strip()) if tag else None
-        same = [m for m in medias if m.get("type") == "support-texture"]
+        same = [m for m in medias if m.get("type") == kind]
+        # slot decodes PNG only: a media that says it is another format goes last
+        same.sort(key=lambda m: str(m.get("format", "png")).lower() != "png")
         for region in [own, "us", "wor", "eu", "jp"]:
             for m in same:
                 if region and (m.get("region") or "").lower() == region:
@@ -509,13 +518,14 @@ def get_label(ctx, system, crc, rom, name):
 
 
 def process(ctx, system, roms, have, out, dat, args):
-    stats, tried = ctx.stats, 0
+    stats, tried, kept = ctx.stats, 0, 0
     for rom in roms:
         stem, tag = rom.stem, f"{system}/{rom.stem}"
         if args.only_stem and nfc(stem) != nfc(args.only_stem):
             continue
         if f"{stem}.png".lower() in have and not args.force:
             stats["skipped"] += 1
+            kept += 1
             continue
         crc = resolve(system, rom, dat, ctx.art)
         if crc is None:
@@ -550,6 +560,9 @@ def process(ctx, system, roms, have, out, dat, args):
         dest = os.path.join(out, "Labels", system, stem + ".png")
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         spit(dest, body)
+    if kept and system in MEDIA:
+        print(f"  kept {kept} existing {system} label(s); any fetched before ADR 0057 is a cart scan, not the "
+              f"{MEDIA[system]} box front. Rerun with --force --only {system} to replace them.")
 
 
 def summary(ctx, args):

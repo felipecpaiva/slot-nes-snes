@@ -120,6 +120,15 @@ class Base(unittest.TestCase):
 SS_ENV = {"SS_DEVID": "d", "SS_DEVPASSWORD": "p", "SS_SSID": "u", "SS_SSPASSWORD": "secret"}
 JEU = {"response": {"jeu": {"medias": [{"type": "support-texture", "region": "us", "url": "https://x.test/m.png"}]}}}
 
+SMS_JEU = {"response": {"jeu": {"medias": [
+    {"type": "support-texture", "region": "us", "url": "https://x.test/scan.png"},
+    {"type": "ss", "region": "wor", "url": "https://x.test/shot.png"},
+    {"type": "box-2D-side", "region": "us", "url": "https://x.test/side.png"},
+    {"type": "box-2D-back", "region": "us", "url": "https://x.test/back.png"},
+    {"type": "box-2D", "region": "jp", "url": "https://x.test/box-jp.png", "format": "png"},
+    {"type": "box-2D", "region": "eu", "url": "https://x.test/box-eu.png", "format": "png"},
+    {"type": "box-2D", "region": "us", "url": "https://x.test/box-us.png", "format": "png"}]}}}
+
 
 class NesSnes(Base):
     def ss_http(self, routes):
@@ -339,11 +348,57 @@ class Sega(Base):
         self.rom("SMS", "Not Mine.gg", gg)
         r = self.dat("GG", ("Shinobi (USA, Europe)", crc(gg)))
         r.update(self.dat("SMS", ("Alex Kidd in Miracle World (Japan)", crc(sms))))
-        stats = self.run_ss("GG", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card])
+        stats = self.run_ss("GG", r, {}, (200, json.dumps(SMS_JEU).encode(), None), ["--card", self.card])
         self.assertEqual((stats["matched"], stats["written"]), (2, 2))
         self.assertEqual(self.label("GG", "Shinobi"), PNG)
         self.assertEqual(self.label("SMS", "Alex Kidd"), PNG)
         self.assertFalse(os.path.exists(os.path.join(self.card, "Labels", "cart_shell.txt")))
+
+    def test_master_system_takes_the_front_box_never_a_side_scan_or_screenshot(self):
+        ss = fl.ScreenScraper(fl.Ctx(env={}))
+        medias = SMS_JEU["response"]["jeu"]["medias"]
+        self.assertEqual(ss.pick(medias, "Alex Kidd (USA)", "box-2D")["url"], "https://x.test/box-us.png")
+        self.assertEqual(ss.pick(medias, "Alex Kidd (Europe)", "box-2D")["url"], "https://x.test/box-eu.png")
+        self.assertEqual(ss.pick(medias, "Alex Kidd (Japan)", "box-2D")["url"], "https://x.test/box-jp.png")
+        self.assertEqual(ss.pick(medias, "Alex Kidd (Brazil)", "box-2D")["url"], "https://x.test/box-us.png")
+        self.assertEqual(ss.pick(medias, "Alex Kidd (USA)")["url"], "https://x.test/scan.png")
+        jpg_first = [{"type": "box-2D", "region": "us", "format": "jpg", "url": "https://x.test/box.jpg"},
+                     {"type": "box-2D", "region": "us", "format": "png", "url": "https://x.test/box.png"}]
+        self.assertEqual(ss.pick(jpg_first, "A (USA)", "box-2D")["url"], "https://x.test/box.png")
+        self.assertIsNone(ss.pick([m for m in medias if m["type"] != "box-2D"], "A (USA)", "box-2D"))
+        self.assertEqual(fl.MEDIA, {"SMS": "box-2D"})
+
+    def test_a_master_system_box_is_fetched_and_cached_apart_from_old_label_scans(self):
+        sms = b"m" * 0x8000
+        self.rom("SMS", "Alex Kidd.sms", sms)
+        r = self.dat("SMS", ("Alex Kidd in Miracle World (USA, Europe)", crc(sms)))
+        old = os.path.join(self.tmp, "cache", "ss", "SMS", crc(sms) + ".png")
+        os.makedirs(os.path.dirname(old))
+        fl.spit(old, fl.PNG + b"old cart scan")
+        args = ["--card", self.card, "--only", "SMS"]
+        stats = self.run_ss("SMS", r, {}, (200, json.dumps(SMS_JEU).encode(), None), args)
+        self.assertEqual(stats["written"], 1)
+        self.assertEqual(self.label("SMS", "Alex Kidd"), PNG)
+        self.assertIn("https://x.test/box-us.png", self.http.calls)
+        self.assertEqual(fl.slurp(os.path.join(self.tmp, "cache", "ss", "SMS", "box-2D", crc(sms) + ".png")), PNG)
+        self.assertEqual(fl.slurp(old), fl.PNG + b"old cart scan")
+
+    def test_an_existing_master_system_label_is_replaced_only_with_force(self):
+        sms = b"m" * 0x8000
+        self.rom("SMS", "Alex Kidd.sms", sms)
+        r = self.dat("SMS", ("Alex Kidd in Miracle World (USA, Europe)", crc(sms)))
+        scan = fl.PNG + b"cart scan from before"
+        os.makedirs(os.path.join(self.card, "Labels", "SMS"))
+        fl.spit(os.path.join(self.card, "Labels", "SMS", "Alex Kidd.png"), scan)
+        args = ["--card", self.card, "--only", "SMS"]
+        jeu = (200, json.dumps(SMS_JEU).encode(), None)
+        stats = self.run_ss("SMS", r, {}, jeu, args)
+        self.assertEqual((stats["skipped"], stats["written"]), (1, 0))
+        self.assertEqual(self.label("SMS", "Alex Kidd"), scan)
+        self.assertIn("--force --only SMS", self.out)
+        stats = self.run_ss("SMS", r, {}, jeu, args + ["--force"])
+        self.assertEqual(stats["written"], 1)
+        self.assertEqual(self.label("SMS", "Alex Kidd"), PNG)
 
     def test_mega_drive_region_rules(self):
         self.assertEqual(fl.shell_word("MD", "G", "G (Japan)"), "megadrive")

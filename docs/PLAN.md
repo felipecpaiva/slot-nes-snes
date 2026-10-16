@@ -404,6 +404,7 @@ shelf (`Games/GG`, `Games/SMS`, `Games/MD`), with no core picker until a second 
 | 0026-platform-md | `Platform::Md`, SNES input policy (X, Y, Z, MODE), Stretch follows the live frame width (ADR 0052), header title and region |
 | 0027-sega-shaders | Game Gear, Master System and Mega Drive rows on the Screen page and in game, retro shader list, `Config/sega_shaders.txt` (ADR 0051), named test sites (g) and (h) widened (ADR 0055) |
 | 0028-sega-carts | Five generated bitmap shells, one box per platform (ADR 0056), region and size rules |
+| 0029-sms-box-art | Master System and Sega Card wells made portrait for the whole front box, contain fit (ADR 0057) |
 
 Done on the host: every test with `SLOT_REQUIRE_CORES=1`, real-core boot, canvas, save RAM round
 trip, input, Stretch and shader tests per system. Open: the device gate (heavy Mega Drive titles,

@@ -34,5 +34,8 @@ Master System at 256x192 fits the 360x240 canvas at 2x like NES, with two button
 ## Device check (RG34XXSP)
 An SMS cart from the maintainer's card, full speed, both buttons and Pause, save and reload.
 
+## Box art (ADR 0057)
+Master System carts show the whole front box in a tall well instead of a label scan, for every game: well 140x196 on the cartridge and 114x160 on the Sega Card (box aspect 0.713, measured in docs/cart-art/SEGA.md section 8), contain fit on the box's edge colour. `tools/fetch-labels.py` fetches ScreenScraper `box-2D` for SMS and keeps older label scans unless `--force`. Patch 0029 (`sms-box-art`).
+
 ## References
 - ADR 0053; docs/PERFORMANCE.md "Sega core" (SMS 1.302 ms/frame on the device, 12.8x)

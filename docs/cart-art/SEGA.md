@@ -130,7 +130,7 @@ and `cart_box` take a platform, so each platform has one box and every variant i
 | Platform | Seated box | Variants and how they sit in the box | Label well (permille of the cart box: x0, y0, x1, y1) |
 |---|---|---|---|
 | Game Gear | 240 x 234 (section 1) | `gg`, body x 6.5 to 233.5, full height | 114, 173, 893, 754 |
-| Master System | 240 x 145 (the `sms_cart` box) | `sms` fills the box; `segacard` is drawn at the box height, 91.7 wide (the cited 0.632 aspect), centred | `sms` 46, 10, 935, 220; `segacard` 347, 70, 664, 590 |
+| Master System | 240 x 145 (the `sms_cart` box) | `sms` fills the box; `segacard` is drawn at the box height, 91.7 wide (the cited 0.632 aspect), centred | `sms` 306, 50, 694, 950; `segacard` 347, 70, 664, 803 (section 8; were 46, 10, 935, 220 and 347, 70, 664, 590) |
 | Mega Drive | 240 x 164 (the `md_jp` box, the taller one) | `megadrive` fills the box; `genesis` is drawn 146 high (the cited 1.557 aspect), bottom aligned, like the Famicom in the NES box | `megadrive` 125, 0, 880, 872; `genesis` 166, 110, 836, 909 |
 
 Every well is section 2's measured fraction mapped into the box (x = 6.5 + f x 227, or the card's
@@ -162,3 +162,31 @@ Selection, first match wins:
 - CRC: No-Intro hashes Mega Drive ROMs raw. No page says so; 24 of 30 library samples (all raw) matched a dat CRC when hashed whole (section 4). An SMD dump is detected and de-interleaved the way Genesis Plus GX does it (section 3) before hashing. Game Gear and Master System files are hashed whole.
 - Library folders follow the maintainer's layout: `gamegear`, `mastersystem`, `megadrive`.
 - Shell lines: only `megadrive` for a Japan-only dat name (no USA, Europe, World or Brazil tag), because slot reads the header region itself and a Japanese release whose header also lists U or E would otherwise draw as a Genesis cart. Game Gear and Master System get no line (one shell; the card rule is the file size).
+
+## 8. Master System box art (ADR 0057, patch 0029 `sms-box-art`)
+
+Master System carts carry little art beyond the name, so every Master System cart shows the game's
+front box instead of a label scan, whole, in a portrait well.
+
+Box aspect: 397 of the 408 `*-thumb.png` box fronts in the maintainer's EmulationStation scraped
+library (`/Volumes/MuOs/ROMS/mastersystem/images`, read only, PNG header sizes, nothing copied)
+round to 0.71 width / height; 393 are 456 x 640 (0.7125). The rest run 0.69 to 0.77, plus one
+landscape 500 x 400. The files do not record which scraper fetched them, so the aspect is
+measured, not cited from ScreenScraper. Design aspect: 0.713.
+
+| Shell | Well in the 360 x 218 cart box (px) | Aspect | Permille (x0, y0, x1, y1) | Placement |
+|---|---|---|---|---|
+| `sms` | x 110 to 250, y 11 to 207: 140 x 196 | 0.714 | 306, 50, 694, 950 | centred, spanning the face height; the four grooves and the panel rim are split to both sides of the well (`sms_cart_detail.svg`) |
+| `segacard` | x 125 to 239, y 15 to 175: 114 x 160 | 0.7125 | 347, 70, 664, 803 | the same tall well scaled to the card face: the old card well width, taller, ending 3 px of lip above the contacts at y 181 |
+
+Fit: `label_cover` (`retro_cart.rs`) scales the whole image to fit inside the well (contain, no
+crop) and centres it on the mean colour of the image's own outer edge pixels, so an odd aspect box
+letterboxes into its own border colour. Every other platform keeps the top-of-label cover crop.
+With no image the generated title label fills the well, laid out as a portrait label.
+
+Fetcher (`tools/fetch-labels.py`): for `SMS` the ScreenScraper media type is `box-2D` (the front;
+`box-2D-side`, `box-2D-back`, screenshots and `support-texture` are never taken), in the region order
+used for labels (the dat name's first region, then us, wor, eu, jp), a PNG ahead of any other
+format. Boxes are cached by CRC under `ss/SMS/box-2D/`, so a label scan cached before this change is
+never served as a box. A `Labels/SMS/<stem>.png` already on the card is kept unless `--force`, and
+the run prints how many were kept.

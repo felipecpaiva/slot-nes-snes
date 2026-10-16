@@ -1,6 +1,6 @@
 # 0056. Draw the Sega carts from generated neutrals, one box per platform
 
-- Status: Accepted. Extends [0054](0054-bitmap-retro-carts.md)
+- Status: Accepted. Extends [0054](0054-bitmap-retro-carts.md). Amended by [0057](0057-sms-box-art-tall-well.md)
 - Date: 2026-10-16
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 50](../../.github/issues/50-sega-tracking.md), [patch 0028](../../patches/0028-sega-carts.patch), [docs/cart-art/SEGA.md](../cart-art/SEGA.md)
