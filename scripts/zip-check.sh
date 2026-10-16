@@ -8,7 +8,7 @@ read_pin
 
 cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx"
 # Games/ folders the zip may hold.
-games="GBA GB GBC NES SNES"
+games="GBA GB GBC NES SNES GG"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States Labels BIOS Wallpapers"
 

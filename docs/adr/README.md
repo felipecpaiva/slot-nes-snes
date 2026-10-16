@@ -29,7 +29,7 @@ the patch set looks the way it does.
 | [0010](0010-macos-primary-ci.md) | Run tests on macOS; Linux arm only builds device artefacts | Accepted | 2026-10-11 |
 | [0011](0011-one-token-in-two-test-files.md) | Add one token each to two upstream test files | Accepted | 2026-10-12 |
 | [0012](0012-durability-value-pce.md) | Change durability.rs's unknown platform example from nes to pce | Accepted | 2026-10-12 |
-| [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044 and 0048 | 2026-10-12 |
+| [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044, 0048 and 0055 | 2026-10-12 |
 | [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted | 2026-10-12 |
 | [0015](0015-hostextra-canvas-only.md) | Start HostExtra with only the canvas field | Accepted | 2026-10-12 |
 | [0016](0016-set-game-canvas-every-frame.md) | Call set_game_canvas every frame and return early when unchanged | Accepted | 2026-10-12 |
@@ -71,3 +71,4 @@ the patch set looks the way it does.
 | [0052](0052-md-stretch-follows-frame-width.md) | Make Mega Drive Stretch follow the live frame width | Accepted. Amends 0046 | 2026-10-15 |
 | [0053](0053-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |
 | [0054](0054-bitmap-retro-carts.md) | Draw NES and SNES carts from generated neutral bitmaps with upstream's Overlay | Accepted. Amends 0042 | 2026-10-16 |
+| [0055](0055-sega-tokens-at-named-test-sites.md) | Widen named test sites (b) and (e) for the Sega platforms and Genesis Plus GX | Accepted. Amends 0013 | 2026-10-16 |

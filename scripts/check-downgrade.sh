@@ -1,5 +1,5 @@
 #!/bin/sh
-# T30b: an unpatched slot, with a slot.state that says cart_platform=nes (written by a patched slot),
+# T30b: an unpatched slot, with a slot.state that says cart_platform=nes, snes or a Sega platform (written by a patched slot),
 # boots to the shelf and does not panic. Runs the example harness/downgrade.rs in build/slot-upstream.
 set -eu
 

@@ -1,6 +1,6 @@
 # 0013. Allow upstream test edits only at named sites checked by the guard
 
-- Status: Accepted. Amends [0011](0011-one-token-in-two-test-files.md) and [0012](0012-durability-value-pce.md). Amended by [0044](0044-test-site-c-gone.md) and [0048](0048-nes-snes-in-the-screen-platform-list.md)
+- Status: Accepted. Amends [0011](0011-one-token-in-two-test-files.md) and [0012](0012-durability-value-pce.md). Amended by [0044](0044-test-site-c-gone.md), [0048](0048-nes-snes-in-the-screen-platform-list.md) and [0055](0055-sega-tokens-at-named-test-sites.md)
 - Date: 2026-10-12
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 03](../../.github/issues/03-task-check-and-upstream-guard.md), [issue 14](../../.github/issues/14-libretro-env-and-hires.md), [patch 0003](../../patches/0003-core-fceumm.patch), [patch 0006](../../patches/0006-libretro-env.patch), `scripts/check-upstream-tests.sh`, CONTRIBUTING.md section 1
