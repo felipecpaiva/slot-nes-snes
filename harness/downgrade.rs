@@ -6,7 +6,7 @@ use slot::root::DIRS;
 use slot_store::{read_slot_state, write_slot_state, Platform, SlotState};
 
 const STEM: &str = "Mario";
-const OURS: [&str; 4] = ["nes", "snes", "gg", "sms"];
+const OURS: [&str; 5] = ["nes", "snes", "gg", "sms", "md"];
 
 fn fail(dir: &Path, why: &str) -> ! {
     let _ = std::fs::remove_dir_all(dir);
