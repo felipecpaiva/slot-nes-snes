@@ -4,40 +4,40 @@ Date: Fri, 16 Oct 2026 09:02:47 +0400
 Subject: [PATCH] platform-gg
 
 ---
- crates/slot-retro/src/canvas.rs             |  4 +-
- crates/slot-retro/src/libretro.rs           |  4 +
- crates/slot-retro/src/libretro/env_tests.rs | 12 +++
- crates/slot-store/src/core.rs               | 25 +++++-
- crates/slot-store/src/core_policy.rs        | 24 +++--
- crates/slot-store/src/lib.rs                |  1 +
- crates/slot-store/src/platform.rs           |  5 ++
- crates/slot-store/src/platform_policy.rs    | 17 ++--
- crates/slot-store/src/scan.rs               |  2 +-
- crates/slot-store/src/sega.rs               | 37 ++++++++
- crates/slot-store/tests/core_pairs.rs       |  4 +-
- crates/slot-store/tests/gg_platform.rs      | 98 +++++++++++++++++++++
- crates/slot-store/tests/sega_header.rs      | 54 ++++++++++++
- crates/slot-store/tests/snes_core.rs        |  2 +-
- crates/slot-store/tests/snes_platform.rs    |  2 +-
- crates/slot-ui/src/cart.rs                  |  6 +-
- crates/slot-ui/src/retro_cart.rs            |  4 +-
- crates/slot-ui/src/shell.rs                 |  1 +
- crates/slot-ui/tests/chrome.rs              |  2 +-
- crates/slot/src/app.rs                      | 28 ++++--
- crates/slot/src/core.rs                     | 15 +++-
- crates/slot/src/core_options_policy.rs      | 20 ++++-
- crates/slot/src/frontend.rs                 |  3 +-
- crates/slot/src/platform_video.rs           |  2 +-
- crates/slot/src/retro_quick.rs              |  2 +-
- crates/slot/src/root.rs                     |  6 +-
- crates/slot/src/snes_input.rs               |  4 +-
- crates/slot/tests/gg_emu.rs                 | 91 +++++++++++++++++++
- crates/slot/tests/gg_seat.rs                | 94 ++++++++++++++++++++
- crates/slot/tests/gpsp.rs                   |  2 +-
- crates/slot/tests/sega_common/mod.rs        | 40 +++++++++
- crates/slot/tests/snes_rewind.rs            |  3 +
- crates/slot/tests/snes_select.rs            |  4 +-
- 33 files changed, 568 insertions(+), 50 deletions(-)
+ crates/slot-retro/src/canvas.rs             |   4 +-
+ crates/slot-retro/src/libretro.rs           |   4 +
+ crates/slot-retro/src/libretro/env_tests.rs |  12 +++
+ crates/slot-store/src/core.rs               |  25 ++++-
+ crates/slot-store/src/core_policy.rs        |  24 ++++-
+ crates/slot-store/src/lib.rs                |   1 +
+ crates/slot-store/src/platform.rs           |   5 +
+ crates/slot-store/src/platform_policy.rs    |  17 ++--
+ crates/slot-store/src/scan.rs               |   2 +-
+ crates/slot-store/src/sega.rs               |  37 +++++++
+ crates/slot-store/tests/core_pairs.rs       |   4 +-
+ crates/slot-store/tests/gg_platform.rs      | 101 ++++++++++++++++++++
+ crates/slot-store/tests/sega_header.rs      |  54 +++++++++++
+ crates/slot-store/tests/snes_core.rs        |   2 +-
+ crates/slot-store/tests/snes_platform.rs    |   2 +-
+ crates/slot-ui/src/cart.rs                  |   6 +-
+ crates/slot-ui/src/retro_cart.rs            |   4 +-
+ crates/slot-ui/src/shell.rs                 |   1 +
+ crates/slot-ui/tests/chrome.rs              |   2 +-
+ crates/slot/src/app.rs                      |  28 ++++--
+ crates/slot/src/core.rs                     |  15 ++-
+ crates/slot/src/core_options_policy.rs      |  20 +++-
+ crates/slot/src/frontend.rs                 |   3 +-
+ crates/slot/src/platform_video.rs           |   2 +-
+ crates/slot/src/retro_quick.rs              |   2 +-
+ crates/slot/src/root.rs                     |   6 +-
+ crates/slot/src/snes_input.rs               |   4 +-
+ crates/slot/tests/gg_emu.rs                 |  99 +++++++++++++++++++
+ crates/slot/tests/gg_seat.rs                | 100 +++++++++++++++++++
+ crates/slot/tests/gpsp.rs                   |   2 +-
+ crates/slot/tests/sega_common/mod.rs        |  40 ++++++++
+ crates/slot/tests/snes_rewind.rs            |   3 +
+ crates/slot/tests/snes_select.rs            |   4 +-
+ 33 files changed, 585 insertions(+), 50 deletions(-)
  create mode 100644 crates/slot-store/src/sega.rs
  create mode 100644 crates/slot-store/tests/gg_platform.rs
  create mode 100644 crates/slot-store/tests/sega_header.rs
@@ -467,10 +467,10 @@ index f5a6d19..8a6b3d2 100644
          Some((Core::Fceumm, Core::Nestopia))
 diff --git a/crates/slot-store/tests/gg_platform.rs b/crates/slot-store/tests/gg_platform.rs
 new file mode 100644
-index 0000000..ef45a91
+index 0000000..1f9316e
 --- /dev/null
 +++ b/crates/slot-store/tests/gg_platform.rs
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,101 @@
 +mod common;
 +
 +use std::path::Path;
@@ -511,7 +511,11 @@ index 0000000..ef45a91
 +fn game_gear_runs_on_genesis_plus_gx_alone_at_3x() {
 +    assert_eq!(Core::default_for(Platform::Gg), Core::GenesisPlusGx);
 +    for core in Core::EVERY {
-+        assert_eq!(core.runs(Platform::Gg), core == Core::GenesisPlusGx, "{core:?}");
++        assert_eq!(
++            core.runs(Platform::Gg),
++            core == Core::GenesisPlusGx,
++            "{core:?}"
++        );
 +    }
 +    assert!(!Core::GenesisPlusGx.runs(Platform::Gba));
 +    assert_eq!(Core::GenesisPlusGx.canvas(Platform::Gg), (240, 160));
@@ -543,8 +547,7 @@ index 0000000..ef45a91
 +    let d = tempfile::tempdir().expect("tempdir");
 +    let dir = d.path().join("Games/GG");
 +    std::fs::create_dir_all(&dir).expect("create dir");
-+    std::fs::write(dir.join("Sonic Chaos (USA, Europe).gg"), vec![0u8; 0x8000])
-+        .expect("write rom");
++    std::fs::write(dir.join("Sonic Chaos (USA, Europe).gg"), vec![0u8; 0x8000]).expect("write rom");
 +    std::fs::write(dir.join("Not Mine.sms"), vec![0u8; 0x8000]).expect("write rom");
 +    let mut carts = scan(d.path()).expect("scan");
 +    assert_eq!(carts.len(), 1);
@@ -1028,10 +1031,10 @@ index d023b24..873b394 100644
  }
 diff --git a/crates/slot/tests/gg_emu.rs b/crates/slot/tests/gg_emu.rs
 new file mode 100644
-index 0000000..0ed52a1
+index 0000000..4234dbc
 --- /dev/null
 +++ b/crates/slot/tests/gg_emu.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,99 @@
 +mod common;
 +mod core_common;
 +mod sega_common;
@@ -1116,19 +1119,27 @@ index 0000000..0ed52a1
 +        step(&mut core);
 +    }
 +    let shown = step(&mut core);
-+    assert_ne!(step(&mut core), shown, "the test cart does not change colour every frame");
++    assert_ne!(
++        step(&mut core),
++        shown,
++        "the test cart does not change colour every frame"
++    );
 +    let before = pixel(core.video_xrgb8888(), 120, 80);
 +    core.set_frame_skip(true);
-+    assert_eq!(step(&mut core), before, "a skipped frame still reached the canvas");
++    assert_eq!(
++        step(&mut core),
++        before,
++        "a skipped frame still reached the canvas"
++    );
 +    core.set_frame_skip(false);
 +    assert_ne!(step(&mut core), before);
 +}
 diff --git a/crates/slot/tests/gg_seat.rs b/crates/slot/tests/gg_seat.rs
 new file mode 100644
-index 0000000..dd0a68f
+index 0000000..99cecab
 --- /dev/null
 +++ b/crates/slot/tests/gg_seat.rs
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,100 @@
 +mod common;
 +mod core_common;
 +mod input_common;
@@ -1182,7 +1193,10 @@ index 0000000..dd0a68f
 +    assert_eq!(session.app().core(), Core::GenesisPlusGx);
 +    assert_eq!(session.app().playing_platform(), Platform::Gg);
 +    assert_eq!(
-+        session.app().core().canvas(session.app().playing_platform()),
++        session
++            .app()
++            .core()
++            .canvas(session.app().playing_platform()),
 +        (240, 160)
 +    );
 +}
@@ -1203,7 +1217,10 @@ index 0000000..dd0a68f
 +    );
 +    std::fs::remove_file(sav(root.path())).expect("remove .sav");
 +    eject(&mut session);
-+    assert_eq!(std::fs::read(sav(root.path())).expect("no .sav after eject"), marked);
++    assert_eq!(
++        std::fs::read(sav(root.path())).expect("no .sav after eject"),
++        marked
++    );
 +}
 +
 +#[test]
