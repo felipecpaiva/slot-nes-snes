@@ -26,13 +26,13 @@ fi
 # tree too (emu.rs: test.yml run 38313541162; audio.rs: run 38343132049, 2026-10-13), so there they
 # say nothing about the patches. Upstream's slot-gfx pipeline.rs pixel tests fail on the runner's GPU
 # on the unpatched tree too (run 38348725485), and render_shelf.rs compares two renders pixel for
-# pixel the same way (run 38351152364), and so does our retro_pipeline.rs (run 38407714973). Upstream's core.rs
+# pixel the same way (run 38351152364), and so do our retro_pipeline.rs (run 38407714973) and gg_lcd.rs (run 38925527548). Upstream's core.rs
 # a_cart_the_real_core_refuses_comes_back_out_of_the_slot races the boot-time core thread: it passes only
 # if the first update beats mGBA refusing the ROM (about 50 us here), and failed on the runner twice in
 # run 38862924402; the unpatched tree fails it the same way after a 100 us stall. Our own real-time budget tests (snes_ff.rs,
 # snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
 # own afterwards as information only. Locally they still gate.
-ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot:render_shelf"
+ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do
@@ -131,7 +131,7 @@ awk '
 	END { for (k in n) printf "  %s (x%d)\n", k, n[k] }
 ' "$log" | sort >"$log.skips"
 cat "$log.skips"
-[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, core, snes_ff, snes_rewind, render_shelf and slot-gfx tests pipeline and retro_pipeline (runner-sensitive, run apart as information on CI only)"
+[ -z "$ci_skips" ] || echo "  [runner] slot tests emu, audio, core, snes_ff, snes_rewind, render_shelf and slot-gfx tests pipeline, retro_pipeline and gg_lcd (runner-sensitive, run apart as information on CI only)"
 if grep -q '^  CORE MISSING ' "$log.skips"; then
 	echo "slot-nes-snes: a test skipped because a core is missing, build the host cores first" >&2
 	exit 1
