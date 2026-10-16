@@ -154,3 +154,11 @@ Selection, first match wins:
 - Mega Drive: the header region set (`crates/slot-store/src/sega.rs`, read as Genesis Plus GX reads
   it): Japan only gives `megadrive`; any Americas or Europe region, a blank field or no header gives
   `genesis`.
+
+## 7. Label fetcher facts (tools/fetch-labels.py)
+
+- libretro dat names, from [libretro-database metadat/no-intro](https://github.com/libretro/libretro-database/tree/master/metadat/no-intro), each fetched raw with the spaces percent-encoded (HTTP 200, dat version 2026.10.07): `Sega - Game Gear` (extensions gg and sms), `Sega - Master System - Mark III` (sms), `Sega - Mega Drive - Genesis` (bin and md). Skyscraper's `peas.json` `retroarch_dbname` names the same three.
+- ScreenScraper system ids: Mega Drive 1, Master System 2, Game Gear 21, from Skyscraper ([Gemba/skyscraper](https://github.com/Gemba/skyscraper), commit ccd49ae, `platforms_idmap.csv` lines 55, 54 and 42; `screenscraper.cpp:113` passes the id as `systemeid`). ScreenScraper itself was not contacted for this research.
+- CRC: No-Intro hashes Mega Drive ROMs raw. No page says so; 24 of 30 library samples (all raw) matched a dat CRC when hashed whole (section 4). An SMD dump is detected and de-interleaved the way Genesis Plus GX does it (section 3) before hashing. Game Gear and Master System files are hashed whole.
+- Library folders follow the maintainer's layout: `gamegear`, `mastersystem`, `megadrive`.
+- Shell lines: only `megadrive` for a Japan-only dat name (no USA, Europe, World or Brazil tag), because slot reads the header region itself and a Japanese release whose header also lists U or E would otherwise draw as a Genesis cart. Game Gear and Master System get no line (one shell; the card rule is the file size).

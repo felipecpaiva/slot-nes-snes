@@ -7,7 +7,7 @@
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
-                 stem's CRC32 in --library (<library>/nes snes gba gb gbc, loose or zipped; the stem of a zipped
+                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive, loose or zipped; the stem of a zipped
                  ROM is the stem of the ROM inside the zip, as scripts/push-roms.py names it), stages the labels
                  locally and adb pushes only the new ones.
 Never overwrites a PNG or a cart_shell.txt line without --force. Reruns are cheap: everything fetched is cached
@@ -47,7 +47,9 @@ ART = "https://art.slot-cfw.fyi/"
 DAT = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/"
 SS_API = "https://api.screenscraper.fr/api2/"
 NO_INTRO = "Nintendo - "
-# system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id)
+SEGA = "Sega - "
+# system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id). The Sega dat names
+# and ids are cited in docs/cart-art/SEGA.md (libretro-database metadat/no-intro; Skyscraper's platform map).
 SYSTEMS = {
     "GBA": ("gba", {".gba"}, [NO_INTRO + "Game Boy Advance"], 12),
     "GB": ("gb", {".gb", ".gbc"}, [NO_INTRO + "Game Boy"], 9),
@@ -55,10 +57,13 @@ SYSTEMS = {
     "NES": ("nes", {".nes", ".unf"},
             [NO_INTRO + "Nintendo Entertainment System", NO_INTRO + "Nintendo Entertainment System (Headered)"], 3),
     "SNES": ("snes", {".sfc", ".smc", ".swc", ".fig"}, [NO_INTRO + "Super Nintendo Entertainment System"], 4),
+    "GG": ("gamegear", {".gg"}, [SEGA + "Game Gear"], 21),
+    "SMS": ("mastersystem", {".sms"}, [SEGA + "Master System - Mark III"], 2),
+    "MD": ("megadrive", {".md", ".gen", ".bin"}, [SEGA + "Mega Drive - Genesis"], 1),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # slot's own plastic for a cart with no per-title colour (patch 0012), so a line only sets the outline
-SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696"}
+SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696", "megadrive": "26242a"}
 PNG = b"\x89PNG\r\n\x1a\n"
 DAY = 86400
 
@@ -290,12 +295,27 @@ class Rom:
 
     def crcs(self, system):
         """CRC32 candidates in the order the issue gives: NES whole file then without the 16-byte header,
-        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file."""
+        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a Mega Drive SMD
+        dump (as Genesis Plus GX detects one) de-interleaved, since No-Intro hashes the raw ROM."""
         if system == "SNES" and self.size % 1024 == 512:
             yield zlib.crc32(self.read()[512:])
+        if system == "MD" and self.size % 512 == 0 and (self.size // 512) % 2 == 1:
+            data = self.read()
+            if data[0x100:0x104] != b"SEGA":
+                yield zlib.crc32(deinterleave(data[512:]))
         yield self.whole()
         if system == "NES" and self.size > 16:
             yield zlib.crc32(self.read()[16:])
+
+
+def deinterleave(smd):
+    """Genesis Plus GX's deinterleave_block (core/loadrom.c): in each 16 KB block the second 8 KB are the
+    even bytes and the first 8 KB the odd ones."""
+    out = bytearray(len(smd))
+    for at in range(0, len(smd) - len(smd) % 0x4000, 0x4000):
+        out[at:at + 0x4000:2] = smd[at + 0x2000:at + 0x4000]
+        out[at + 1:at + 0x4000:2] = smd[at:at + 0x2000]
+    return bytes(out)
 
 
 def loose_rom(path):
@@ -376,14 +396,17 @@ def regions(name):
 
 
 def shell_word(system, stem, dat_name):
-    """'famicom' or 'sfc' when the dat's region says so and slot would not pick it itself, else None.
-    slot already reads a NES stem's (Japan) tag and a SNES ROM's header; a line only adds what it misses."""
+    """'famicom', 'sfc' or 'megadrive' when the dat's region says so and slot might not pick it itself, else
+    None. slot already reads a NES stem's (Japan) tag and a SNES or Mega Drive ROM's header; a line only adds
+    what it misses (a Japanese Mega Drive release whose header also lists U or E)."""
     t = tags(dat_name or "")
     if system == "NES":
         japan = lambda s: "Japan" in regions(s) and not regions(s) & {"USA", "Europe", "World"}
         return "famicom" if japan(dat_name or "") and not japan(stem) else None
     if system == "SNES":
         return "sfc" if t and not t & {"USA", "Canada", "World"} else None
+    if system == "MD":
+        return "megadrive" if "Japan" in t and not t & {"USA", "Europe", "World", "Brazil"} else None
     return None
 
 

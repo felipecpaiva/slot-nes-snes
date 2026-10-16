@@ -83,7 +83,8 @@ class FakeAdb:
 def slot_parses(line):
     """slot's grammar (cart_shell.rs ShellChoice::parse): outline word, 6 hex digits, finish, nothing else."""
     w = line.split()
-    return (len(w) == 3 and w[0] in {"auto", "notched", "rounded", "nes", "famicom", "snes", "sfc"}
+    return (len(w) == 3 and w[0] in {"auto", "notched", "rounded", "nes", "famicom", "snes", "sfc", "gg", "sms",
+                                     "segacard", "megadrive", "genesis"}
             and re.fullmatch(r"[0-9a-fA-F]{6}", w[1]) is not None and w[2] in {"solid", "clear", "glitter"})
 
 
@@ -281,6 +282,88 @@ class NesSnes(Base):
         self.assertEqual(fl.shell_word("SNES", "G", "G (Europe)"), "sfc")
         self.assertIsNone(fl.shell_word("SNES", "G", "G (USA)"))
         self.assertIsNone(fl.shell_word("GBA", "G", "G (Japan)"), "no shell lines for GB, GBC or GBA")
+
+
+def md_raw(size=0x8000):
+    raw = bytearray((i * 7 + 3) & 0xff for i in range(size))
+    raw[0x100:0x110] = b"SEGA MEGA DRIVE "
+    return bytes(raw)
+
+
+def smd_of(raw):
+    """The inverse of Genesis Plus GX's deinterleave_block: odd bytes first, then even, per 16 KB."""
+    out = bytearray()
+    for at in range(0, len(raw), 0x4000):
+        block = raw[at:at + 0x4000]
+        out += block[1::2] + block[0::2]
+    return bytes(512) + bytes(out)
+
+
+class Sega(Base):
+    ss_http = NesSnes.ss_http
+    run_ss = NesSnes.run_ss
+
+    def test_the_sega_systems_name_their_library_folders_dats_and_screenscraper_ids(self):
+        self.assertEqual(fl.SYSTEMS["GG"][:2], ("gamegear", {".gg"}))
+        self.assertEqual(fl.SYSTEMS["SMS"][:2], ("mastersystem", {".sms"}))
+        self.assertEqual(fl.SYSTEMS["MD"][:2], ("megadrive", {".md", ".gen", ".bin"}))
+        self.assertEqual([fl.SYSTEMS[s][2] for s in ("GG", "SMS", "MD")],
+                         [["Sega - Game Gear"], ["Sega - Master System - Mark III"], ["Sega - Mega Drive - Genesis"]])
+        self.assertEqual([fl.SYSTEMS[s][3] for s in ("GG", "SMS", "MD")], [21, 2, 1])
+        self.assertNotIn("MD", fl.ART_SYSTEMS)
+
+    def test_an_interleaved_smd_dump_matches_the_raw_rom_crc_in_the_dat(self):
+        raw = md_raw()
+        smd = smd_of(raw)
+        self.assertEqual(fl.deinterleave(smd[512:]), raw)
+        self.rom("MD", "Sonic.bin", smd)
+        r = self.dat("MD", ("Sonic the Hedgehog (USA, Europe)", crc(raw)))
+        stats = self.run_ss("MD", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "MD"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("MD", "Sonic"), PNG)
+
+    def test_a_raw_mega_drive_rom_of_an_odd_512_multiple_is_hashed_whole(self):
+        raw = md_raw(0x200 * 3)
+        self.rom("MD", "Tiny.md", raw)
+        r = self.dat("MD", ("Tiny (Japan)", crc(raw)))
+        stats = self.run_ss("MD", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "MD"])
+        self.assertEqual(stats["written"], 1)
+        text = fl.slurp(os.path.join(self.card, "Labels", "cart_shell.txt"), "r")
+        self.assertEqual(text, "Tiny = megadrive 26242a solid\n")
+        self.assertTrue(slot_parses(text.split("=", 1)[1]))
+
+    def test_game_gear_and_master_system_carts_match_their_own_dats_and_write_no_shell_line(self):
+        gg, sms = b"g" * 0x8000, b"m" * 0x8000
+        self.rom("GG", "Shinobi.gg", gg)
+        self.rom("SMS", "Alex Kidd.sms", sms)
+        self.rom("SMS", "Not Mine.gg", gg)
+        r = self.dat("GG", ("Shinobi (USA, Europe)", crc(gg)))
+        r.update(self.dat("SMS", ("Alex Kidd in Miracle World (Japan)", crc(sms))))
+        stats = self.run_ss("GG", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card])
+        self.assertEqual((stats["matched"], stats["written"]), (2, 2))
+        self.assertEqual(self.label("GG", "Shinobi"), PNG)
+        self.assertEqual(self.label("SMS", "Alex Kidd"), PNG)
+        self.assertFalse(os.path.exists(os.path.join(self.card, "Labels", "cart_shell.txt")))
+
+    def test_mega_drive_region_rules(self):
+        self.assertEqual(fl.shell_word("MD", "G", "G (Japan)"), "megadrive")
+        self.assertEqual(fl.shell_word("MD", "G", "G (Japan, Korea)"), "megadrive")
+        self.assertIsNone(fl.shell_word("MD", "G", "G (Japan, USA)"))
+        self.assertIsNone(fl.shell_word("MD", "G", "G (Europe)"))
+        self.assertIsNone(fl.shell_word("MD", "G", "G (Brazil)"))
+        self.assertIsNone(fl.shell_word("GG", "G", "G (Japan)"))
+        self.assertIsNone(fl.shell_word("SMS", "G", "G (Japan)"))
+
+    def test_a_zipped_mega_drive_library_rom_is_found_by_the_name_inside_the_zip(self):
+        lib = os.path.join(self.tmp, "lib")
+        os.makedirs(os.path.join(lib, "megadrive"))
+        raw = md_raw()
+        with zipfile.ZipFile(os.path.join(lib, "megadrive", "Sonic (USA, Europe).zip"), "w") as z:
+            z.writestr("Sonic the Hedgehog (USA, Europe).md", raw)
+        found, bad = fl.scan_library(lib, "MD")
+        self.assertEqual(bad, [])
+        rom = found[fl.nfc("Sonic the Hedgehog (USA, Europe)")]
+        self.assertEqual(f"{rom.whole() & 0xffffffff:08X}", crc(raw))
 
 
 class ArtHost(Base):
