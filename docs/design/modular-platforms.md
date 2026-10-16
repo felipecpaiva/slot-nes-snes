@@ -239,8 +239,15 @@ impl QuickRow {
 }
 ```
 
-`QuickRow` derives `PartialEq, Eq`, so the consts also work as match patterns. Upstream's two
-pinned assertions need care:
+`QuickRow` derives `PartialEq, Eq`, so the consts also work as match patterns. The consts need
+`#[allow(non_upper_case_globals)]`, which upstream has nowhere today. So this is offered as one of
+two options and Brandon picks: (a) the payload variants plus consts, as above; or (b) keep
+upstream's named variants (`ScreenGba`, `GbaShader`, ...) exactly as they are and add only
+`QuickRow::System(Platform)` and `QuickRow::Set(Platform, Setting)` for platforms outside the
+three, with `page()` and `label()` delegating to the spec for those. Option (b) adds no `allow`
+and touches fewer lines; it keeps upstream's three systems special-cased in the menu code.
+
+Upstream's two pinned assertions need care:
 
 - `QuickRow::SCREEN` stays a const `[QuickRow; 3]` with the same three rows, so
   `tests/quick_menu.rs:110-113` is unchanged. A new test asserts that the generated page equals

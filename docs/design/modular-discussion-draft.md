@@ -24,6 +24,9 @@ No new systems, no new dependencies, same `slot.state` bytes, your tests unedite
 as about 8 small steps, the first one just naming the places where the code asks "is this a GBA?"
 (link cable, core picker, shoulders, bezel, run-ahead).
 
+The whole design, with every touch point counted, is here:
+https://github.com/felipecpaiva/slot-nes-snes/blob/main/docs/design/modular-platforms.md
+
 Two questions:
 
 1. Do you want this at all? A no is a fine answer, we keep maintaining our patches.
