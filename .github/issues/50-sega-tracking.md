@@ -32,8 +32,8 @@ Child work, in merge order:
 | (children) | Owned by the child issue that touches that layer |
 
 ## Acceptance
-- [ ] All child issues done; `task check` green with `SLOT_REQUIRE_CORES=1` and the Genesis Plus GX dylib.
-- [ ] Harness: a Sega cart, eject, GBA leg equals the GBA-only run (H3 pattern); `bench:compare` GBA within 2%. Covered for now by `crates/slot/tests/sega_then_gba.rs` (input and picture come back after a Mega Drive game); no harness leg added yet.
+- [x] All child issues done on the host; `task check` green with `SLOT_REQUIRE_CORES=1` and the Genesis Plus GX dylib (2026-10-16). The Mega Drive device gate in issue 53 is still open.
+- [ ] Harness: a Sega cart, eject, GBA leg equals the GBA-only run (H3 pattern); `bench:compare` GBA within 2%. Covered for now by `crates/slot/tests/sega_then_gba.rs` (input and picture come back after a Mega Drive game); no harness leg added yet. `bench:compare` gpSP reads 102.6 to 103.8% on the M5 Max host, but the tree before the Sega patches (ff09368) reads the same (0.0493 vs 0.0494 ms/frame), so it is not from this work.
 - [x] Release notes and README carry Genesis Plus GX in the non-commercial notice (LICENSING.md notice text, which `scripts/release-notes.sh` quotes).
 
 ## Device check (RG34XXSP)
