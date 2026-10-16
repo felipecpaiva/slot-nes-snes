@@ -1,0 +1,533 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 15 Oct 2026 22:06:10 +0400
+Subject: [PATCH] screen-platform-list
+
+---
+ crates/slot-ui/src/quick_menu.rs        |  38 ++++++---
+ crates/slot-ui/src/quick_retro.rs       |  17 +---
+ crates/slot-ui/tests/quick_menu.rs      |   4 +-
+ crates/slot-ui/tests/quick_retro.rs     |  49 +++++------
+ crates/slot/src/app.rs                  |  18 ++++-
+ crates/slot/src/retro_quick.rs          |  29 +++++++
+ crates/slot/tests/quick_retro_shader.rs | 103 ++++++++++++++++--------
+ crates/slot/tests/render_quick_retro.rs |  16 ++--
+ 8 files changed, 178 insertions(+), 96 deletions(-)
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index defa372..19d9e97 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -48,10 +48,12 @@ pub enum QuickRow {
+     ScreenGb,
+     NesShader,
+     SnesShader,
++    ScreenNes,
++    ScreenSnes,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 42] = [
++    pub const ALL: [QuickRow; 44] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -94,6 +96,8 @@ impl QuickRow {
+         QuickRow::ScreenGb,
+         QuickRow::NesShader,
+         QuickRow::SnesShader,
++        QuickRow::ScreenNes,
++        QuickRow::ScreenSnes,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -112,8 +116,13 @@ impl QuickRow {
+         QuickRow::DateTime,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 3] =
+-        [QuickRow::ScreenGba, QuickRow::ScreenGbc, QuickRow::ScreenGb];
++    pub const SCREEN: [QuickRow; 5] = [
++        QuickRow::ScreenGba,
++        QuickRow::ScreenGbc,
++        QuickRow::ScreenGb,
++        QuickRow::ScreenNes,
++        QuickRow::ScreenSnes,
++    ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+         QuickRow::GbaShader,
+@@ -166,7 +175,11 @@ impl QuickRow {
+ 
+     pub fn page(self) -> &'static [QuickRow] {
+         match self {
+-            QuickRow::ScreenGba | QuickRow::ScreenGbc | QuickRow::ScreenGb => &QuickRow::SCREEN,
++            QuickRow::ScreenGba
++            | QuickRow::ScreenGbc
++            | QuickRow::ScreenGb
++            | QuickRow::ScreenNes
++            | QuickRow::ScreenSnes => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -197,8 +210,8 @@ impl QuickRow {
+             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
+                 &QuickRow::PLAY_SCREEN
+             }
+-            QuickRow::NesShader => &QuickRow::NES_SCREEN,
+-            QuickRow::SnesShader => &QuickRow::SNES_SCREEN,
++            QuickRow::NesShader => &QuickRow::SCREEN_NES,
++            QuickRow::SnesShader => &QuickRow::SCREEN_SNES,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -213,7 +226,8 @@ impl QuickRow {
+             QuickRow::Wallpaper => Some(QuickRow::General),
+             QuickRow::PlayScreen => Some(QuickRow::Settings),
+             QuickRow::Shader => Some(QuickRow::PlayScreen),
+-            QuickRow::NesShader | QuickRow::SnesShader => Some(QuickRow::Screen),
++            QuickRow::NesShader => Some(QuickRow::ScreenNes),
++            QuickRow::SnesShader => Some(QuickRow::ScreenSnes),
+             _ => None,
+         }
+     }
+@@ -246,6 +260,8 @@ impl QuickRow {
+             QuickRow::ScreenGba => Some(QuickRow::SCREEN_GBA[0]),
+             QuickRow::ScreenGbc => Some(QuickRow::SCREEN_GBC[0]),
+             QuickRow::ScreenGb => Some(QuickRow::SCREEN_GB[0]),
++            QuickRow::ScreenNes => Some(QuickRow::SCREEN_NES[0]),
++            QuickRow::ScreenSnes => Some(QuickRow::SCREEN_SNES[0]),
+             _ => None,
+         }
+     }
+@@ -307,8 +323,10 @@ impl QuickRow {
+             QuickRow::GbcBezel => "Bezel",
+             QuickRow::GbaBezel => "Bezel",
+             QuickRow::Bezel => "Bezel",
+-            QuickRow::NesShader => "NES Shader",
+-            QuickRow::SnesShader => "SNES Shader",
++            QuickRow::NesShader => "Shader",
++            QuickRow::SnesShader => "Shader",
++            QuickRow::ScreenNes => "NES",
++            QuickRow::ScreenSnes => "SNES",
+         }
+     }
+ 
+@@ -329,6 +347,8 @@ impl QuickRow {
+                 | QuickRow::ScreenGba
+                 | QuickRow::ScreenGbc
+                 | QuickRow::ScreenGb
++                | QuickRow::ScreenNes
++                | QuickRow::ScreenSnes
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index d16f48d..ce24cc4 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -1,21 +1,10 @@
+ use crate::quick_menu::{QuickRow, QuickValue};
+ use crate::toast::Toast;
+-use slot_store::{Platform, RetroShader};
++use slot_store::RetroShader;
+ 
+ impl QuickRow {
+-    pub const NES_SCREEN: [QuickRow; 1] = [QuickRow::NesShader];
+-    pub const SNES_SCREEN: [QuickRow; 1] = [QuickRow::SnesShader];
+-
+-    pub fn child_for(self, shelf: Option<Platform>) -> Option<QuickRow> {
+-        if self != QuickRow::Screen {
+-            return self.child();
+-        }
+-        match shelf {
+-            Some(Platform::Gba | Platform::Gb | Platform::Gbc) | None => self.child(),
+-            Some(Platform::Nes) => Some(QuickRow::NES_SCREEN[0]),
+-            Some(Platform::Snes) => Some(QuickRow::SNES_SCREEN[0]),
+-        }
+-    }
++    pub const SCREEN_NES: [QuickRow; 1] = [QuickRow::NesShader];
++    pub const SCREEN_SNES: [QuickRow; 1] = [QuickRow::SnesShader];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 538f7f6..acd3d73 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -109,7 +109,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::PlayGameplay,
+             QuickRow::ScreenGba,
+             QuickRow::ScreenGbc,
+-            QuickRow::ScreenGb
++            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes
+         ]
+     );
+     for page in [
+diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
+index 4f5fd2e..6762304 100644
+--- a/crates/slot-ui/tests/quick_retro.rs
++++ b/crates/slot-ui/tests/quick_retro.rs
+@@ -1,36 +1,31 @@
+-use slot_store::Platform;
+ use slot_ui::QuickRow;
+ 
+ #[test]
+-fn the_nes_and_snes_pages_hold_only_their_own_shader_row() {
+-    assert_eq!(QuickRow::NesShader.page(), [QuickRow::NesShader]);
+-    assert_eq!(QuickRow::SnesShader.page(), [QuickRow::SnesShader]);
+-    assert_eq!(QuickRow::NesShader.label(), "NES Shader");
+-    assert_eq!(QuickRow::SnesShader.label(), "SNES Shader");
+-    assert_eq!(QuickRow::NesShader.parent(), Some(QuickRow::Screen));
+-    assert_eq!(QuickRow::SnesShader.parent(), Some(QuickRow::Screen));
++fn nes_and_snes_close_the_screen_platform_list() {
++    assert_eq!(
++        QuickRow::SCREEN[3..],
++        [QuickRow::ScreenNes, QuickRow::ScreenSnes]
++    );
++    assert_eq!(QuickRow::ScreenNes.label(), "NES");
++    assert_eq!(QuickRow::ScreenSnes.label(), "SNES");
++    for row in [QuickRow::ScreenNes, QuickRow::ScreenSnes] {
++        assert_eq!(row.page(), QuickRow::SCREEN);
++        assert_eq!(row.parent(), Some(QuickRow::Screen));
++        assert!(row.opens(), "{row:?}");
++        assert!(row.centred(), "{row:?}");
++    }
+ }
+ 
+ #[test]
+-fn the_screen_row_opens_the_page_of_the_shelf_it_is_opened_on() {
+-    for shelf in [
+-        Some(Platform::Gba),
+-        Some(Platform::Gb),
+-        Some(Platform::Gbc),
+-        None,
++fn the_nes_and_snes_pages_hold_only_their_own_shader_row() {
++    for (console, row) in [
++        (QuickRow::ScreenNes, QuickRow::NesShader),
++        (QuickRow::ScreenSnes, QuickRow::SnesShader),
+     ] {
+-        assert_eq!(QuickRow::Screen.child_for(shelf), Some(QuickRow::ScreenGba));
++        assert_eq!(console.child(), Some(row));
++        assert_eq!(row.page(), [row]);
++        assert_eq!(row.label(), "Shader");
++        assert_eq!(row.parent(), Some(console));
++        assert!(!row.opens(), "{row:?}");
+     }
+-    assert_eq!(
+-        QuickRow::Screen.child_for(Some(Platform::Nes)),
+-        Some(QuickRow::NesShader)
+-    );
+-    assert_eq!(
+-        QuickRow::Screen.child_for(Some(Platform::Snes)),
+-        Some(QuickRow::SnesShader)
+-    );
+-    assert_eq!(
+-        QuickRow::Game.child_for(Some(Platform::Nes)),
+-        Some(QuickRow::FastForward)
+-    );
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index dab03e7..c95aaa2 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -995,6 +995,8 @@ impl App {
+             | QuickRow::ScreenGba
+             | QuickRow::ScreenGbc
+             | QuickRow::ScreenGb
++            | QuickRow::ScreenNes
++            | QuickRow::ScreenSnes
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -1192,6 +1194,14 @@ impl App {
+             self.state.wallpaper,
+             WallpaperPick::File(_) | WallpaperPick::Random
+         );
++        if let Some(hidden) = crate::retro_quick::hidden_on_shelf(
++            own,
++            self.framed_panel(),
++            self.carts()
++                .any(|c| matches!(c.platform, Platform::Nes | Platform::Snes)),
++        ) {
++            return hidden;
++        }
+         match (own, self.framed_panel()) {
+             (true, true) => &[],
+             (true, false) => &[QuickRow::GbaBezel],
+@@ -2091,8 +2101,10 @@ impl App {
+             | QuickRow::General
+             | QuickRow::ScreenGba
+             | QuickRow::ScreenGbc
+-            | QuickRow::ScreenGb => {
+-                if let Some(row) = row.child_for(self.shelves[self.shelf_at].0.platform()) {
++            | QuickRow::ScreenGb
++            | QuickRow::ScreenNes
++            | QuickRow::ScreenSnes => {
++                if let Some(row) = row.child() {
+                     let row = row.shown(self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+                 }
+@@ -2247,6 +2259,8 @@ impl App {
+             | QuickRow::ScreenGba
+             | QuickRow::ScreenGbc
+             | QuickRow::ScreenGb
++            | QuickRow::ScreenNes
++            | QuickRow::ScreenSnes
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 845d964..1e072dc 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -38,3 +38,32 @@ pub fn hidden_in_game(
+         }),
+     }
+ }
++
++pub fn hidden_on_shelf(
++    own_wallpaper: bool,
++    framed: bool,
++    retro_carts: bool,
++) -> Option<&'static [QuickRow]> {
++    if retro_carts {
++        return None;
++    }
++    Some(match (own_wallpaper, framed) {
++        (true, true) => &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
++        (true, false) => &[
++            QuickRow::GbaBezel,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++        ],
++        (false, true) => &[
++            QuickRow::WallpaperTint,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++        ],
++        (false, false) => &[
++            QuickRow::WallpaperTint,
++            QuickRow::GbaBezel,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++        ],
++    })
++}
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index cff87e1..ef0ca2b 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -48,35 +48,83 @@ fn open_screen(app: &mut App) {
+     press(app, Btn::A);
+ }
+ 
+-type ShaderRow = (Platform, QuickRow, fn(&SlotState) -> Shader);
++type ShaderRow = (QuickRow, QuickRow, fn(&SlotState) -> Shader);
+ 
+ fn shader_rows() -> [ShaderRow; 2] {
+     [
+-        (Platform::Nes, QuickRow::NesShader, |s| s.shader_nes),
+-        (Platform::Snes, QuickRow::SnesShader, |s| s.shader_snes),
++        (QuickRow::ScreenNes, QuickRow::NesShader, |s| s.shader_nes),
++        (QuickRow::ScreenSnes, QuickRow::SnesShader, |s| {
++            s.shader_snes
++        }),
+     ]
+ }
+ 
++fn open_console(app: &mut App, console: QuickRow) {
++    open_screen(app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenGba));
++    for _ in 0..console.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(console));
++    press(app, Btn::A);
++}
++
+ #[test]
+-fn the_nes_and_snes_shelves_open_their_own_shader_row_alone() {
+-    for (platform, row, _) in shader_rows() {
++fn the_screen_list_names_nes_and_snes_after_the_game_boys_from_every_shelf() {
++    for platform in [Platform::Gba, Platform::Gb, Platform::Nes, Platform::Snes] {
+         let (_root, mut app) = on_shelf(platform);
+         open_screen(&mut app);
+-        assert_eq!(app.quick_menu(), Some(row), "{platform:?}");
+-        assert_eq!(row.page(), [row], "{platform:?}");
+-        assert_eq!(app.quick_value(row), Some(QuickValue::Off), "{platform:?}");
+-        press(&mut app, Btn::Down);
+-        assert_eq!(app.quick_menu(), Some(row), "{platform:?}");
++        assert_eq!(app.quick_menu(), Some(QuickRow::ScreenGba), "{platform:?}");
++        for want in [
++            QuickRow::ScreenGbc,
++            QuickRow::ScreenGb,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++            QuickRow::ScreenGba,
++        ] {
++            press(&mut app, Btn::Down);
++            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
++        }
+         press(&mut app, Btn::B);
+         assert_eq!(app.quick_menu(), Some(QuickRow::Screen), "{platform:?}");
+     }
+ }
+ 
+ #[test]
+-fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+-    for (platform, row, pick) in shader_rows() {
+-        let (root, mut app) = on_shelf(platform);
+-        open_screen(&mut app);
++fn a_card_with_no_nes_or_snes_carts_keeps_the_upstream_platform_list() {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    write_gb_cart(&root, "Tetris", "TETRIS");
++    let mut app = boot(root.path());
++    open_screen(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenGba));
++    for want in [QuickRow::ScreenGbc, QuickRow::ScreenGb, QuickRow::ScreenGba] {
++        press(&mut app, Btn::Down);
++        assert_eq!(app.quick_menu(), Some(want));
++    }
++    press(&mut app, Btn::B);
++    press(&mut app, Btn::B);
++    assert!(matches!(app.phase(), Phase::Shelf));
++}
++
++#[test]
++fn the_nes_and_snes_pages_hold_one_shader_row_and_back_out_to_their_console() {
++    for (console, row, _) in shader_rows() {
++        let (_root, mut app) = on_shelf(Platform::Gba);
++        open_console(&mut app, console);
++        assert_eq!(app.quick_menu(), Some(row), "{console:?}");
++        assert_eq!(app.quick_value(row), Some(QuickValue::Off), "{console:?}");
++        press(&mut app, Btn::Down);
++        assert_eq!(app.quick_menu(), Some(row), "{console:?}");
++        press(&mut app, Btn::B);
++        assert_eq!(app.quick_menu(), Some(console), "{console:?}");
++    }
++}
++
++#[test]
++fn the_screen_menus_nes_and_snes_shader_rows_walk_all_nine_shaders_into_slot_state() {
++    for (console, row, pick) in shader_rows() {
++        let (root, mut app) = on_shelf(Platform::Gba);
++        open_console(&mut app, console);
+         let mut seen = vec![];
+         for _ in 0..Shader::RETRO.len() {
+             press(&mut app, Btn::Right);
+@@ -96,20 +144,21 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+                 Shader::Retro(RetroShader::Pixel),
+                 Shader::Off,
+             ],
+-            "{platform:?}"
++            "{console:?}"
+         );
+         press(&mut app, Btn::Left);
+         app.flush_state();
+         let st = read_slot_state(root.path());
+-        assert_eq!(pick(&st), Shader::Retro(RetroShader::Pixel), "{platform:?}");
++        assert_eq!(pick(&st), Shader::Retro(RetroShader::Pixel), "{console:?}");
+         assert_eq!(
+             app.quick_value(row),
+             Some(QuickValue::Retro(RetroShader::Pixel)),
+-            "{platform:?}"
++            "{console:?}"
+         );
+         assert_eq!(st.shader_gba, SlotState::default().shader_gba);
+         assert_eq!(st.shader_gb, SlotState::default().shader_gb);
+-        let other = if platform == Platform::Nes {
++        assert_eq!(st.shader_gbc, SlotState::default().shader_gbc);
++        let other = if console == QuickRow::ScreenNes {
+             st.shader_snes
+         } else {
+             st.shader_nes
+@@ -117,27 +166,11 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+         assert_eq!(
+             other,
+             Shader::Off,
+-            "{platform:?} moved the other retro shader"
++            "{console:?} moved the other retro shader"
+         );
+     }
+ }
+ 
+-#[test]
+-fn the_gba_and_gb_shelves_keep_the_upstream_platform_list() {
+-    for platform in [Platform::Gba, Platform::Gb] {
+-        let (_root, mut app) = on_shelf(platform);
+-        open_screen(&mut app);
+-        assert_eq!(app.quick_menu(), Some(QuickRow::ScreenGba), "{platform:?}");
+-        for want in [QuickRow::ScreenGbc, QuickRow::ScreenGb, QuickRow::ScreenGba] {
+-            press(&mut app, Btn::Down);
+-            assert_eq!(app.quick_menu(), Some(want), "{platform:?}");
+-        }
+-        press(&mut app, Btn::B);
+-        press(&mut app, Btn::B);
+-        assert!(matches!(app.phase(), Phase::Shelf), "{platform:?}");
+-    }
+-}
+-
+ #[test]
+ fn the_in_game_screen_page_hides_colour_correction_and_palette_on_nes_and_snes() {
+     use slot::retro_quick::hidden_in_game;
+diff --git a/crates/slot/tests/render_quick_retro.rs b/crates/slot/tests/render_quick_retro.rs
+index 93ec378..68496e5 100644
+--- a/crates/slot/tests/render_quick_retro.rs
++++ b/crates/slot/tests/render_quick_retro.rs
+@@ -10,7 +10,7 @@ use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
+ use slot_input::{Btn, InputSource, Millis, RawEvent};
+ use slot_power::SimPlatform;
+ use slot_store::Platform;
+-use slot_ui::{QUICK_LABEL_X, QUICK_PITCH};
++use slot_ui::{QuickRow, QUICK_LABEL_X, QUICK_PITCH};
+ 
+ struct Script(VecDeque<Vec<RawEvent>>);
+ 
+@@ -44,7 +44,7 @@ fn save(px: &[u8], name: &str) {
+ }
+ 
+ #[test]
+-fn the_nes_shelf_quick_menu_prints_the_nes_shader_row_where_gba_prints_its_own() {
++fn the_screen_lists_nes_page_prints_one_shader_row_with_its_value() {
+     let Ok(surface) = HeadlessSurface::new() else {
+         return;
+     };
+@@ -62,13 +62,15 @@ fn the_nes_shelf_quick_menu_prints_the_nes_shader_row_where_gba_prints_its_own()
+     let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+     f.upload_faces(&mut c);
+     let mut input = Script(VecDeque::new());
+-    tap(&mut f, &mut input, Btn::R1);
+-    for _ in 0..40 {
+-        f.advance(&mut input);
+-    }
+     tap(&mut f, &mut input, Btn::Menu);
+     tap(&mut f, &mut input, Btn::Down);
+     tap(&mut f, &mut input, Btn::A);
++    for _ in 0..QuickRow::ScreenNes.position(&[]) {
++        tap(&mut f, &mut input, Btn::Down);
++    }
++    f.compose(&mut c);
++    save(&c.read_frame(), "screen-list");
++    tap(&mut f, &mut input, Btn::A);
+     f.compose(&mut c);
+     let px = c.read_frame();
+     save(&px, "nes-shader");
+@@ -92,7 +94,7 @@ fn the_nes_shelf_quick_menu_prints_the_nes_shader_row_where_gba_prints_its_own()
+     let first = label[0];
+     assert!((x0..=x0 + 4).contains(&first), "label starts at x {first}");
+     assert!(
+-        label.len() > 60,
++        label.len() > 30,
+         "label is only {} columns wide",
+         label.len()
+     );

@@ -90,7 +90,6 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	cmp -s "$up/$f" "$ours/$f" && continue
 	case "$f" in
 	crates/slot-ui/tests/chrome.rs) prefix=Platform ;;
-	crates/slot/tests/render_shelves.rs) prefix=CartPlatform ;;
 	crates/slot-store/tests/durability.rs)
 		pce='^[[:space:]]*\("cart_platform=pce\\n", None\),$'
 		shaders='^[[:space:]]+shader_(nes|snes): Shader::Off,$'
@@ -111,6 +110,17 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 			echo "upstream test code: $f uses the named exception (new cores on the Core::Mgba colour-correction arm)"
 		else
 			fail "$f differs beyond the Core::Mgba arm's new core tokens"
+		fi
+		continue ;;
+	crates/slot-ui/tests/quick_menu.rs)
+		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"\]$'
+		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes$'
+		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(\])$/$1$2/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes$/$1/' "$ours/$f" >"$tmp/x" &&
+			cmp -s "$up/$f" "$tmp/x"; then
+			echo "upstream test code: $f uses the named exceptions (NES and SNES after Game Boy in the Screen labels and the rows that open pages)"
+		else
+			fail "$f differs beyond the NES and SNES tokens in the Screen labels and the rows that open pages"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;

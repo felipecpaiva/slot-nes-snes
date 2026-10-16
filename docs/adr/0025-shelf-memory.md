@@ -1,9 +1,9 @@
 # 0025. Remember the last shelf and each shelf's cart in Config/shelf.state
 
-- Status: Accepted
+- Status: Superseded by [0039](0039-upstream-shelf-memory.md); its per-shelf carts return in [0049](0049-per-shelf-cart-memory.md)
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [issue 45](../../.github/issues/45-shelf-memory.md), [patch 0019](../../patches/0019-shelf-memory.patch)
+- Related: [issue 45](../../.github/issues/45-shelf-memory.md), patch 0019-shelf-memory (dropped in v1.7.0-ns.1, see ADR 0039)
 
 ## Context
 

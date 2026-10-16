@@ -409,7 +409,7 @@ EOF
 
 # Everything below changes the device. Backup first, nothing is touched if it fails.
 dx "mkdir -p $(shq "$bk/inj")" || die "cannot create $bk"
-dx "cd $(shq "$bk") && cp -p $(shq "$cfg/slot.state") slot.state && { [ -f $(shq "$cfg/selected_core.txt") ] && cp -p $(shq "$cfg/selected_core.txt") selected_core.txt; true; } && cp -p $(shq "$tf") launch_frontend.sh && { [ -f $(shq "$flag") ] && touch had-latency-flag; true; } && { cp -p $(shq "$SD/slot.log") slot.log.bak 2>/dev/null; cp -p $(shq "$SD/slot.log.1") slot.log.1.bak 2>/dev/null; true; }" ||
+dx "cd $(shq "$bk") && cp -p $(shq "$cfg/slot.state") slot.state && { [ -f $(shq "$cfg/selected_core.txt") ] && cp -p $(shq "$cfg/selected_core.txt") selected_core.txt; true; } && cp -p $(shq "$tf") launch_frontend.sh && { [ -f $(shq "$flag") ] && touch had-latency-flag; true; } && { cp -p $(shq "$SD/Logs/slot.log") slot.log.bak 2>/dev/null; cp -p $(shq "$SD/Logs/slot.log.1") slot.log.1.bak 2>/dev/null; true; }" ||
 	die "the backup failed, nothing was changed"
 for f in "$tmp"/inj/*; do $ADB push "$f" "$bk/inj/" </dev/null >/dev/null || die "adb push of ${f##*/} failed"; done
 armed=1
@@ -431,7 +431,7 @@ cat "$out/meta.txt"
 seen() {
 	n=0
 	while [ "$n" -lt "$2" ]; do
-		c="$(dev "grep -cF -- $(shq "$1") $(shq "$SD/slot.log")")"
+		c="$(dev "grep -cF -- $(shq "$1") $(shq "$SD/Logs/slot.log")")"
 		case "$c" in '' | *[!0-9]*) c=0 ;; esac
 		[ "$c" -gt 0 ] && return 0
 		sleep 1
@@ -483,7 +483,7 @@ while IFS='|' read -r id pl core stem; do
 		restore_one "$pd" "$core" "$stem"
 		set_config "$stem" "$pl" "$core"
 		$ADB push "$tmp/launch.new" "$tf" </dev/null >/dev/null || die "cannot write launch_frontend.sh"
-		dx "chmod 755 $(shq "$tf"); touch $(shq "$flag"); rm -f $(shq "$SD/slot.log"); touch $(shq "$bk/mark")"
+		dx "chmod 755 $(shq "$tf"); touch $(shq "$flag"); rm -f $(shq "$SD/Logs/slot.log"); touch $(shq "$bk/mark")"
 		restart_slot || die "slot did not start"
 		if seen "launch: first frame shown" 120; then
 			sleep 2
@@ -493,10 +493,10 @@ while IFS='|' read -r id pl core stem; do
 			echo "  no first game frame within 120 s, logging what exists" >&2
 		fi
 		raw="$tmp/slot.raw"
-		$ADB pull "$SD/slot.log" "$raw" </dev/null >/dev/null 2>&1 || : >"$raw"
+		$ADB pull "$SD/Logs/slot.log" "$raw" </dev/null >/dev/null 2>&1 || : >"$raw"
 		# slot.log.1 only counts if this run's launches rotated it (a second start inside one run)
-		if dx "test $(shq "$SD/slot.log.1") -nt $(shq "$bk/mark")"; then
-			$ADB pull "$SD/slot.log.1" "$tmp/slot.raw1" </dev/null >/dev/null 2>&1 && cat "$tmp/slot.raw1" "$raw" >"$tmp/slot.raw2" && mv "$tmp/slot.raw2" "$raw"
+		if dx "test $(shq "$SD/Logs/slot.log.1") -nt $(shq "$bk/mark")"; then
+			$ADB pull "$SD/Logs/slot.log.1" "$tmp/slot.raw1" </dev/null >/dev/null 2>&1 && cat "$tmp/slot.raw1" "$raw" >"$tmp/slot.raw2" && mv "$tmp/slot.raw2" "$raw"
 		fi
 		# keep only the last slot session: a restart can rotate an older session into slot.log.1 just
 		# after the mark, and its lines would otherwise be parsed as this run's (seen 2026-10-13)

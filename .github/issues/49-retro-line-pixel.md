@@ -11,7 +11,7 @@ depends_on: [46-retro-shaders]
 MinUI's picture on H700 handhelds is well liked. Research (docs/research/minui-screen-effects.md) found two looks we lacked: MinUI's Line (a hard scanline locked to panel rows) and NextUI's Pixel Perfect Sharp (`pixellate.glsl`). Our Scanlines sampled nearest and shimmered at the 2.8125x Stretch width. Decision: [ADR 0036](../../docs/adr/0036-line-pixel-sharp-scanlines.md).
 
 ## Scope
-`patches/0022-retro-line-pixel.patch`:
+`patches/0019-retro-line-pixel.patch`:
 - [x] Line after crt-1tap (key `line`): the Sharp picture with the top panel row of every repeat at 50%, repeat = max(2, floor(panel rows per source line)), counted from the picture top with `gl_FragCoord`. Our own code; no MinUI code or images (no licence).
 - [x] Pixel after Line (key `pixel`): single-pass port of libretro `pixellate.glsl`, 4 nearest reads, gamma by squaring and a square root. Full ISC style notice in the GLSL comment and in `licenses/retro-shaders.txt`.
 - [x] Scanlines samples `sharp()` instead of nearest; name and key unchanged.

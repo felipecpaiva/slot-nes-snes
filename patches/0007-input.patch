@@ -10,18 +10,18 @@ Subject: [PATCH] input
  crates/slot-retro/tests/snes_turbo.rs    |  35 +++
  crates/slot-store/src/platform_policy.rs |  18 +-
  crates/slot-store/tests/snes_platform.rs |   5 +-
- crates/slot/src/app.rs                   |   3 +-
+ crates/slot/src/app.rs                   |   1 +
  crates/slot/src/emu.rs                   |  23 +-
  crates/slot/src/lib.rs                   |   1 +
  crates/slot/src/session.rs               |   3 +
  crates/slot/src/snes_input.rs            |  13 ++
  crates/slot/tests/input_common/mod.rs    |  27 +++
- crates/slot/tests/select_x_gba.rs        | 106 ++++++++++
+ crates/slot/tests/select_x_gba.rs        | 106 +++++++++
  crates/slot/tests/snes_emu_input.rs      | 117 ++++++++++
- crates/slot/tests/snes_select.rs         | 258 +++++++++++++++++++++++
+ crates/slot/tests/snes_select.rs         | 263 +++++++++++++++++++++++
  crates/slot/tests/snes_shoulders.rs      |  30 +++
  crates/slot/tests/snes_then_gba.rs       | 121 +++++++++++
- 17 files changed, 789 insertions(+), 11 deletions(-)
+ 17 files changed, 793 insertions(+), 10 deletions(-)
  create mode 100644 crates/slot-retro/src/turbo_mode.rs
  create mode 100644 crates/slot-retro/tests/snes_turbo.rs
  create mode 100644 crates/slot/src/snes_input.rs
@@ -33,7 +33,7 @@ Subject: [PATCH] input
  create mode 100644 crates/slot/tests/snes_then_gba.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index a0837ab..e6aeabc 100644
+index 5396cac..11532a7 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
 @@ -48,6 +48,7 @@ pub enum Action {
@@ -44,7 +44,7 @@ index a0837ab..e6aeabc 100644
  }
  
  #[derive(Copy, Clone, Default)]
-@@ -82,6 +83,7 @@ pub struct Gestures {
+@@ -84,6 +85,7 @@ pub struct Gestures {
      r2_refused: bool,
      r2_last_release: Option<Millis>,
      rewinding: bool,
@@ -52,8 +52,8 @@ index a0837ab..e6aeabc 100644
  }
  
  fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
-@@ -99,6 +101,10 @@ impl Gestures {
-         Self::default()
+@@ -105,6 +107,10 @@ impl Gestures {
+         self.menu_dpad_display = enabled;
      }
  
 +    pub fn set_video_mode_chord(&mut self, on: bool) {
@@ -63,18 +63,18 @@ index a0837ab..e6aeabc 100644
      pub fn ff_latched(&self) -> bool {
          self.ff_latched
      }
-@@ -161,7 +167,8 @@ impl Gestures {
-     }
- 
-     fn down(&mut self, b: Btn, now: Millis) -> Vec<Action> {
+@@ -175,7 +181,8 @@ impl Gestures {
+             self.chord_held |= bit;
+             return vec![action];
+         }
 -        if let (true, Some((bit, action))) = (self.chording(now), chord(b)) {
 +        let chord = chord(b).filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
 +        if let (true, Some((bit, action))) = (self.chording(now), chord) {
              self.mark_chorded();
              self.chord_held |= bit;
              return vec![action];
-@@ -414,6 +421,7 @@ fn chord(b: Btn) -> Option<(u16, Action)> {
-         Btn::Right => (8, Action::BlueLightUp),
+@@ -452,6 +459,7 @@ fn chord(b: Btn) -> Option<(u16, Action)> {
+         Btn::Up | Btn::Down | Btn::Left | Btn::Right => display_chord(b)?,
          Btn::L1 => (16, Action::LoadState),
          Btn::R1 => (32, Action::SaveState),
 +        Btn::X => (8192, Action::VideoModeToggle),
@@ -174,7 +174,7 @@ index 0000000..e526493
 +    assert_eq!(TurboMode::from_flags(false, false), TurboMode::Off);
 +}
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 0f68b1e..c2efef4 100644
+index bbde823..711b787 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -19,8 +19,22 @@ impl Platform {
@@ -217,40 +217,31 @@ index 2ea6532..fba322b 100644
 +    assert!(Platform::Nes.owns_shoulders());
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index f4f8a6b..6d33777 100644
+index 70b535b..86e02fe 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1279,6 +1279,7 @@ impl App {
+@@ -1884,6 +1884,7 @@ impl App {
                  Action::GbaDown(Btn::R1) if self.slot_owns_the_shoulders() => {
                      self.set_picture(VideoMode::Actual)
                  }
 +                Action::VideoModeToggle => self.set_picture(self.video_mode.flipped(self.platform)),
                  Action::Eject => self.eject(),
                  Action::GameMenu => self.game_menu_shortcut(),
-                 Action::Polaroids => self.open_polaroids(),
-@@ -1444,7 +1445,7 @@ impl App {
-             }
-             return true;
-         }
--        if action == Action::ColourCorrectionToggle {
-+        if action == Action::ColourCorrectionToggle && self.core.has_colour_correction() {
-             self.change_setting(QuickRow::ColourCorrection, true);
-             let said = match self.state.colour_correction {
-                 true => Toast::ColourOn,
+                 Action::QuickMenu => self.tap_in_game_menu(Some(QuickRow::PLAY[0])),
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index a0a5358..f3f3b71 100644
+index fa55d4c..34d518c 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
- use std::time::{Duration, Instant};
+@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
  
  use crate::cable::{self, Cable};
--use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
-+use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE};
+ use slot_retro::{
+-    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
++    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
+ };
+ use slot_store::RUN_AHEAD_MAX;
  
- use crate::audio::Ring;
- use crate::av_rate;
-@@ -88,6 +88,7 @@ struct Shared {
+@@ -92,6 +92,7 @@ struct Shared {
      rewind: AtomicBool,
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
@@ -258,7 +249,7 @@ index a0a5358..f3f3b71 100644
      recording: AtomicBool,
      stop: AtomicBool,
      volume: AtomicU8,
-@@ -156,6 +157,7 @@ impl EmuHandle {
+@@ -161,6 +162,7 @@ impl EmuHandle {
              rewind: AtomicBool::new(false),
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
@@ -266,7 +257,7 @@ index a0a5358..f3f3b71 100644
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
              volume: AtomicU8::new(100),
-@@ -351,6 +353,14 @@ impl EmuHandle {
+@@ -367,6 +369,14 @@ impl EmuHandle {
          self.shared.rewind.store(on, Ordering::Relaxed);
      }
  
@@ -281,7 +272,7 @@ index a0a5358..f3f3b71 100644
      pub fn set_turbo(&self, on: bool) {
          self.shared.turbo.store(on, Ordering::Relaxed);
      }
-@@ -654,10 +664,13 @@ impl Worker {
+@@ -683,10 +693,13 @@ impl Worker {
                  loop {
                      ran += 1;
                      let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -300,10 +291,10 @@ index a0a5358..f3f3b71 100644
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 348f1fa..a6e3365 100644
+index bfabc3a..a40c58e 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -32,6 +32,7 @@ pub mod resample;
+@@ -39,6 +39,7 @@ pub mod resample;
  pub mod rewind;
  pub mod root;
  pub mod session;
@@ -312,10 +303,10 @@ index 348f1fa..a6e3365 100644
  pub mod thumb;
  pub mod thumb_sized;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index af87947..7c29799 100644
+index 95d5738..6629b31 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -468,6 +468,9 @@ impl Session {
+@@ -499,6 +499,9 @@ impl Session {
          };
          emu.set_volume(self.app.output_volume());
          emu.set_driven(self.driven);
@@ -614,10 +605,10 @@ index 0000000..1f315a7
 +}
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
 new file mode 100644
-index 0000000..37ff520
+index 0000000..ac402fd
 --- /dev/null
 +++ b/crates/slot/tests/snes_select.rs
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,263 @@
 +mod common;
 +mod input_common;
 +
@@ -684,9 +675,14 @@ index 0000000..37ff520
 +        self.session.app().colour_correction()
 +    }
 +
-+    fn saved_colour(&self) -> bool {
++    fn saved_colour(&self) -> [bool; 3] {
 +        self.session.app().flush_state();
-+        read_slot_state(self.root.path()).colour_correction
++        let s = read_slot_state(self.root.path());
++        [
++            s.colour_correction_gba,
++            s.colour_correction_gb,
++            s.colour_correction_gbc,
++        ]
 +    }
 +
 +    fn picture(&self) -> slot::video_mode::VideoMode {

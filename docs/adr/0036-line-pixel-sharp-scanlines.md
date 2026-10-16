@@ -3,7 +3,7 @@
 - Status: Accepted. Amends [0026](0026-four-more-retro-shaders.md)
 - Date: 2026-10-14
 - Deciders: maintainer (Felipe Paiva)
-- Related: [minui-screen-effects.md](../research/minui-screen-effects.md), [patch 0022](../../patches/0022-retro-line-pixel.patch), [issue 49](../../.github/issues/49-retro-line-pixel.md)
+- Related: [minui-screen-effects.md](../research/minui-screen-effects.md), [patch 0019](../../patches/0019-retro-line-pixel.patch), [issue 49](../../.github/issues/49-retro-line-pixel.md)
 
 ## Context
 

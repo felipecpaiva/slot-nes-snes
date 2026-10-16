@@ -1,6 +1,6 @@
 # 0004. Give NES and SNES cores a fixed 360x240 canvas at 2x
 
-- Status: Accepted
+- Status: Accepted. Amended by [0050](0050-canvas-per-core-and-platform.md)
 - Date: 2026-10-11
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 09](../../.github/issues/09-canvas.md), [issue 14](../../.github/issues/14-libretro-env-and-hires.md), [issue 36](../../.github/issues/36-deferred-option-b-video.md), [patch 0004](../../patches/0004-canvas.patch), [patch 0006](../../patches/0006-libretro-env.patch)

@@ -11,7 +11,7 @@ use slot::session::Session;
 use slot_gfx::{Compositor, HeadlessSurface, Surface, OUT_H, OUT_W};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::{Power, SimPlatform};
-use slot_store::{Core, Shader};
+use slot_store::{Core, Platform, Shader};
 
 const LEGS: [&str; 5] = ["H1", "H1G", "H2", "B1", "H3"];
 const BEZEL_WINDOW: (u32, u32) = (640, 480);
@@ -275,7 +275,7 @@ impl CompositeRig {
         frontend.drive_emulator();
         let before = framebuffers(&surface);
         compositor.fit(window);
-        compositor.begin_frame();
+        compositor.begin_frame(slot_gfx::Layout::Framed);
         compositor.end_frame(window);
         let made: Vec<u32> = framebuffers(&surface)
             .into_iter()
@@ -392,6 +392,7 @@ fn running(app: &App) -> bool {
     matches!(app.phase(), Phase::Playing { .. })
         && app.power_menu().is_none()
         && !app.game_menu_open()
+        && app.in_game_menu().is_none()
         && !app.shutting_down()
 }
 
@@ -470,7 +471,16 @@ impl<R: Rig> Run<R> {
                     }
                 }
             }
-            if !self.rig.step() {
+            let mut stepped = self.rig.step();
+            // The composite rig cannot see the lock (frame_dump builds in the upstream tree, which
+            // has no Frontend accessor for it). Since v1.7.0 the worker locks later after an
+            // insert, so the first tick of a run is retried until it lands; a tick that misses the
+            // lock is dropped by the worker's rate restart, so no extra frame runs.
+            while !stepped && self.stepped.is_none() && began.elapsed() < CORE_TIMEOUT {
+                std::thread::sleep(Duration::from_micros(500));
+                stepped = self.rig.step();
+            }
+            if !stepped {
                 late(&format!(
                     "the emulator was not locked {} ms after the update at frame {}",
                     began.elapsed().as_millis(),
@@ -727,24 +737,43 @@ impl<R: Rig> Run<R> {
         self.tap(Btn::Menu, 6);
         self.wait(60);
         self.mark("quick menu steady");
-        self.tap(Btn::A, 6);
-        self.wait(30);
+        self.open_screen(0);
+        self.wait(20);
         self.mark("quick screen rows");
         self.tap(Btn::Right, 6);
         self.wait(10);
         self.mark("quick shader stepped");
         self.tap(Btn::Left, 6);
         self.wait(10);
+        self.close_screen();
+    }
+
+    // v1.7.0 opens the quick menu on General; Screen is the next row and lists the platforms
+    // (Game Boy Advance, Game Boy Color, Game Boy), each with its own page.
+    fn open_screen(&mut self, platform: u32) {
+        self.tap(Btn::Down, 6);
+        self.wait(4);
+        self.tap(Btn::A, 6);
+        self.wait(10);
+        for _ in 0..platform {
+            self.tap(Btn::Down, 6);
+            self.wait(4);
+        }
+        self.tap(Btn::A, 6);
+        self.wait(10);
+    }
+
+    fn close_screen(&mut self) {
+        self.tap(Btn::B, 6);
         self.tap(Btn::B, 6);
         self.tap(Btn::Menu, 6);
         self.wait(30);
     }
 
-    fn screen_row(&mut self, downs: u32, what: &str) {
+    fn screen_row(&mut self, platform: u32, downs: u32, what: &str) {
         self.tap(Btn::Menu, 6);
         self.wait(30);
-        self.tap(Btn::A, 6);
-        self.wait(10);
+        self.open_screen(platform);
         for _ in 0..downs {
             self.tap(Btn::Down, 6);
             self.wait(4);
@@ -752,13 +781,12 @@ impl<R: Rig> Run<R> {
         self.tap(Btn::Right, 6);
         self.wait(10);
         self.mark(what);
-        self.tap(Btn::B, 6);
-        self.tap(Btn::Menu, 6);
-        self.wait(30);
+        self.close_screen();
     }
 
     fn colour_visit(&mut self) {
-        self.screen_row(2, "colour correction on");
+        self.screen_row(0, 1, "colour correction on");
+        self.must("GBA colour correction to be on", |a| a.colour_correction_for(Platform::Gba));
         self.enter();
         self.drive(60);
         self.mark("colour correction in game");
@@ -841,12 +869,13 @@ impl<R: Rig> Run<R> {
                 self.enter();
                 self.in_game(Shader::GB.len(), true, 300);
                 self.leave();
-                self.screen_row(3, "gb palettes on");
+                self.screen_row(2, 2, "gb palettes on");
                 self.palette_visit();
                 self.tap(Btn::R1, 6);
                 self.wait(SETTLE);
                 self.mark("gbc shelf idle");
-                self.screen_row(2, "colour correction on");
+                self.screen_row(1, 1, "colour correction on");
+                self.must("GBC colour correction to be on", |a| a.colour_correction_for(Platform::Gbc));
                 self.enter();
                 self.in_game(Shader::GB.len(), true, 300);
                 self.leave();

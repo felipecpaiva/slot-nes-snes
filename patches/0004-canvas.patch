@@ -4,30 +4,31 @@ Date: Mon, 12 Oct 2026 15:48:55 +0400
 Subject: [PATCH] canvas
 
 ---
- crates/slot-gfx/src/fbo.rs            |   4 +
- crates/slot-gfx/src/pipeline.rs       |  58 ++++++--
- crates/slot-gfx/tests/nes_pipeline.rs | 101 +++++++++++++
- crates/slot-retro/src/canvas.rs       | 205 ++++++++++++++++++++++++++
- crates/slot-retro/src/core.rs         |   3 +
- crates/slot-retro/src/lib.rs          |   1 +
- crates/slot-retro/src/libretro.rs     |  39 +++++
- crates/slot-retro/src/mock.rs         |  19 ++-
- crates/slot-store/src/core_policy.rs  |  12 ++
- crates/slot/src/app.rs                |   4 +-
- crates/slot/src/core.rs               |   6 +-
- crates/slot/src/emu.rs                |  10 +-
- crates/slot/src/frontend.rs           |   2 +
- crates/slot/src/lib.rs                |   1 +
- crates/slot/src/thumb.rs              |   1 +
- crates/slot/src/thumb_sized.rs        |  19 +++
- crates/slot/src/video_mode.rs         |  19 +--
- crates/slot/tests/nes_common/mod.rs   |  23 ++-
- crates/slot/tests/nes_emu.rs          |  77 ++++++++++
- crates/slot/tests/nes_fceumm.rs       |   6 +-
- crates/slot/tests/nes_mock.rs         |  61 ++++++++
- crates/slot/tests/nes_thumb.rs        |  48 ++++++
- crates/slot/tests/nes_window.rs       | 200 +++++++++++++++++++++++++
- 23 files changed, 875 insertions(+), 44 deletions(-)
+ crates/slot-gfx/src/fbo.rs               |   4 +
+ crates/slot-gfx/src/pipeline.rs          |  58 +++++--
+ crates/slot-gfx/tests/nes_pipeline.rs    | 101 +++++++++++
+ crates/slot-retro/src/canvas.rs          | 205 +++++++++++++++++++++++
+ crates/slot-retro/src/core.rs            |   3 +
+ crates/slot-retro/src/lib.rs             |   1 +
+ crates/slot-retro/src/libretro.rs        |  39 +++++
+ crates/slot-retro/src/mock.rs            |  19 ++-
+ crates/slot-store/src/core_policy.rs     |  12 ++
+ crates/slot-store/src/platform_policy.rs |   7 +
+ crates/slot/src/app.rs                   |   4 +-
+ crates/slot/src/core.rs                  |   6 +-
+ crates/slot/src/emu.rs                   |   8 +-
+ crates/slot/src/frontend.rs              |   2 +
+ crates/slot/src/lib.rs                   |   1 +
+ crates/slot/src/thumb.rs                 |   1 +
+ crates/slot/src/thumb_sized.rs           |  19 +++
+ crates/slot/src/video_mode.rs            |  25 ++-
+ crates/slot/tests/nes_common/mod.rs      |  23 ++-
+ crates/slot/tests/nes_emu.rs             |  77 +++++++++
+ crates/slot/tests/nes_fceumm.rs          |  12 +-
+ crates/slot/tests/nes_mock.rs            |  61 +++++++
+ crates/slot/tests/nes_thumb.rs           |  48 ++++++
+ crates/slot/tests/nes_window.rs          | 200 ++++++++++++++++++++++
+ 24 files changed, 895 insertions(+), 41 deletions(-)
  create mode 100644 crates/slot-gfx/tests/nes_pipeline.rs
  create mode 100644 crates/slot-retro/src/canvas.rs
  create mode 100644 crates/slot/src/thumb_sized.rs
@@ -37,10 +38,10 @@ Subject: [PATCH] canvas
  create mode 100644 crates/slot/tests/nes_window.rs
 
 diff --git a/crates/slot-gfx/src/fbo.rs b/crates/slot-gfx/src/fbo.rs
-index ae4325a..14e9057 100644
+index f1386a2..dfae689 100644
 --- a/crates/slot-gfx/src/fbo.rs
 +++ b/crates/slot-gfx/src/fbo.rs
-@@ -129,6 +129,10 @@ impl Compositor {
+@@ -136,6 +136,10 @@ impl Compositor {
          self.game.upload(xrgb8888);
      }
  
@@ -52,7 +53,7 @@ index ae4325a..14e9057 100644
          self.game.draw(&self.quad);
      }
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index 988bb8c..9c79495 100644
+index 3247daa..570ca51 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
 @@ -13,6 +13,9 @@ pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
@@ -65,12 +66,12 @@ index 988bb8c..9c79495 100644
      u_rect: gl::types::GLint,
      u_bright: gl::types::GLint,
      u_uv: gl::types::GLint,
-@@ -41,15 +44,12 @@ impl GamePass {
+@@ -44,15 +47,12 @@ impl GamePass {
              crate::gl::gray_format(),
              Some(&[255]),
          );
--        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo);
-+        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_src);
+-        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin);
++        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin, u_src);
          unsafe {
              gl::UseProgram(prog);
              gl::Uniform1i(crate::gl::uniform_location(prog, "u_game"), 0);
@@ -84,7 +85,7 @@ index 988bb8c..9c79495 100644
              gl::Uniform2f(
                  crate::gl::uniform_location(prog, "u_target"),
                  OUT_W as f32,
-@@ -67,6 +67,9 @@ impl GamePass {
+@@ -71,6 +71,9 @@ impl GamePass {
          Ok(GamePass {
              prog,
              game,
@@ -94,7 +95,7 @@ index 988bb8c..9c79495 100644
              u_rect,
              u_bright,
              u_uv,
-@@ -118,10 +121,39 @@ impl GamePass {
+@@ -140,10 +143,39 @@ impl GamePass {
          self.src = rect;
      }
  
@@ -135,7 +136,7 @@ index 988bb8c..9c79495 100644
          unsafe {
              gl::BindTexture(gl::TEXTURE_2D, self.game);
              gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-@@ -130,8 +162,8 @@ impl GamePass {
+@@ -152,8 +184,8 @@ impl GamePass {
                  0,
                  0,
                  0,
@@ -146,7 +147,7 @@ index 988bb8c..9c79495 100644
                  gl::BGRA,
                  gl::UNSIGNED_BYTE,
                  xrgb8888.as_ptr() as *const std::ffi::c_void,
-@@ -141,7 +173,7 @@ impl GamePass {
+@@ -163,7 +195,7 @@ impl GamePass {
  
      pub fn draw(&self, quad: &Quad) {
          let src = match self.effect {
@@ -155,7 +156,7 @@ index 988bb8c..9c79495 100644
              _ => self.src,
          };
          self.draw_source(self.game, quad, src);
-@@ -177,9 +209,9 @@ impl GamePass {
+@@ -205,9 +237,9 @@ impl GamePass {
      }
  }
  
@@ -170,7 +171,7 @@ index 988bb8c..9c79495 100644
  
 diff --git a/crates/slot-gfx/tests/nes_pipeline.rs b/crates/slot-gfx/tests/nes_pipeline.rs
 new file mode 100644
-index 0000000..8db0d29
+index 0000000..bda6b61
 --- /dev/null
 +++ b/crates/slot-gfx/tests/nes_pipeline.rs
 @@ -0,0 +1,101 @@
@@ -204,7 +205,7 @@ index 0000000..8db0d29
 +}
 +
 +fn drawn(c: &mut Compositor, buf: &[u8]) -> Vec<u8> {
-+    c.begin_frame();
++    c.begin_frame(slot_gfx::Layout::Framed);
 +    c.upload_game(buf);
 +    c.draw_game();
 +    c.read_frame()
@@ -736,11 +737,27 @@ index e805dac..442fbd4 100644
      pub fn has_colour_correction(self) -> bool {
          match self {
              Core::Mgba | Core::Gpsp => true,
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index a66d208..e31b323 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -24,4 +24,11 @@ impl Platform {
+             Platform::Gb | Platform::Gbc | Platform::Nes => None,
+         }
+     }
++
++    pub fn stretch_crops_height(self) -> bool {
++        match self {
++            Platform::Gba | Platform::Gb | Platform::Gbc => false,
++            Platform::Nes => true,
++        }
++    }
+ }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 2f0f747..b50bed0 100644
+index a4eb528..93c0382 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -848,7 +848,7 @@ impl App {
+@@ -1377,7 +1377,7 @@ impl App {
      }
  
      pub fn source_rect(&self) -> [f32; 4] {
@@ -749,7 +766,7 @@ index 2f0f747..b50bed0 100644
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
-@@ -927,7 +927,7 @@ impl App {
+@@ -1456,7 +1456,7 @@ impl App {
  
      pub fn picture_rect(&self) -> [f32; 4] {
          let (w, h) = self.platform.picture();
@@ -759,10 +776,10 @@ index 2f0f747..b50bed0 100644
          [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
      }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 6d862e3..323efb1 100644
+index 21b7b43..3a41c9d 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -52,7 +52,7 @@ pub fn open_core(
+@@ -53,7 +53,7 @@ pub fn open_core(
          None => {
              report_missing(core, &paths);
              Opened {
@@ -771,16 +788,16 @@ index 6d862e3..323efb1 100644
                  named: false,
              }
          }
-@@ -79,7 +79,7 @@ pub fn open_core_for_palette(
+@@ -81,7 +81,7 @@ pub fn open_core_for_palette(
  ) -> Box<dyn RetroCore> {
-     open_named(root, core, serial, colour, palette, None, paths).unwrap_or_else(|| {
+     open_named(root, core, platform, serial, colour, palette, None, paths).unwrap_or_else(|| {
          report_missing(core, paths);
 -        Box::new(MockCore::new())
 +        Box::new(MockCore::sized(core.canvas()))
      })
  }
  
-@@ -100,6 +100,8 @@ fn open_named(
+@@ -104,6 +104,8 @@ fn open_named(
          }
          match LibretroCore::open_with(path, &bios, &saves) {
              Ok(mut opened) => {
@@ -790,21 +807,19 @@ index 6d862e3..323efb1 100644
                      &mut opened,
                      core,
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index d9b2e62..8bdbfb3 100644
+index f36c889..f766095 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -6,9 +6,7 @@ use std::thread::JoinHandle;
- use std::time::{Duration, Instant};
+@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
  
  use crate::cable::{self, Cable};
--use slot_retro::{
--    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
--};
-+use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
+ use slot_retro::{
+-    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
++    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
+ };
+ use slot_store::RUN_AHEAD_MAX;
  
- use crate::audio::Ring;
- use crate::drc::{drc_ratio, drc_target};
-@@ -148,7 +146,8 @@ impl EmuHandle {
+@@ -151,7 +151,8 @@ impl EmuHandle {
      ) -> Self {
          let rumble = core.rumble();
          let link = core.net();
@@ -814,7 +829,7 @@ index d9b2e62..8bdbfb3 100644
          let shared = Arc::new(Shared {
              input: AtomicU16::new(0),
              speed: AtomicU8::new(Speed::Paused as u8),
-@@ -881,7 +880,8 @@ impl Worker {
+@@ -943,7 +944,8 @@ impl Worker {
                  let _ = reply.send(core.save_ram());
              }
              Cmd::Thumb(reply) => {
@@ -825,23 +840,23 @@ index d9b2e62..8bdbfb3 100644
              Cmd::BeginLink(client_id, t) => {
                  self.shared.link_lost.store(false, Ordering::Relaxed);
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index f7f35e9..2be9a14 100644
+index f4871b7..22b8b8c 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -339,6 +339,8 @@ impl Frontend {
+@@ -504,6 +504,8 @@ impl Frontend {
+         compositor.set_shake(self.session.app().screen_shake());
          compositor.set_screen_power(self.session.app().screen_power());
-         compositor.set_frame_lift(self.session.app().frame_lift());
-         compositor.set_frame_split(self.session.app().frame_split());
+         compositor.set_overlay_slide(self.session.app().overlay_slide());
 +        let (canvas_w, canvas_h) = self.session.app().core().canvas();
 +        compositor.set_game_canvas(canvas_w, canvas_h);
          compositor.set_game_source_rect(self.session.app().source_rect());
-         compositor.begin_frame();
-         if self.draw_rebuild(compositor) {
+         self.grab_link_shot(compositor);
+         compositor.begin_frame(self.session.app().layout());
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 9c8cff0..fd22e10 100644
+index 0b37773..9ad8026 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -33,5 +33,6 @@ pub mod root;
+@@ -40,5 +40,6 @@ pub mod root;
  pub mod session;
  pub mod state_writer;
  pub mod thumb;
@@ -883,7 +898,7 @@ index 0000000..8e762aa
 +    Some(out)
 +}
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 06c8f1e..1c0f22d 100644
+index da522e0..735ff8d 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
 @@ -1,6 +1,6 @@
@@ -894,7 +909,7 @@ index 06c8f1e..1c0f22d 100644
  use slot_store::{ini, Platform};
  
  pub const VIDEO_MODE_FILE: &str = "Config/video_mode.txt";
-@@ -40,17 +40,18 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
+@@ -40,11 +40,26 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
      ini::write(root, VIDEO_MODE_FILE, stem, mode.as_str())
  }
  
@@ -907,19 +922,23 @@ index 06c8f1e..1c0f22d 100644
          return WHOLE_TEXTURE;
      }
 -    let x = SRC_W.saturating_sub(w) / 2;
--    let y = SRC_H.saturating_sub(h) / 2;
+-    [x as f32 / SRC_W as f32, 0.0, w as f32 / SRC_W as f32, 1.0]
 +    let x = canvas_w.saturating_sub(w) / 2;
++    if !platform.stretch_crops_height() {
++        return [
++            x as f32 / canvas_w as f32,
++            0.0,
++            w as f32 / canvas_w as f32,
++            1.0,
++        ];
++    }
 +    let y = canvas_h.saturating_sub(h) / 2;
-     [
--        x as f32 / SRC_W as f32,
--        y as f32 / SRC_H as f32,
--        w as f32 / SRC_W as f32,
--        h as f32 / SRC_H as f32,
++    [
 +        x as f32 / canvas_w as f32,
 +        y as f32 / canvas_h as f32,
 +        w as f32 / canvas_w as f32,
 +        h as f32 / canvas_h as f32,
-     ]
++    ]
  }
 diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
 index 3166a25..f3dbdf0 100644
@@ -1056,12 +1075,24 @@ index 0000000..4393f80
 +    );
 +}
 diff --git a/crates/slot/tests/nes_fceumm.rs b/crates/slot/tests/nes_fceumm.rs
-index c13ffa5..5ba478e 100644
+index c13ffa5..79dde0a 100644
 --- a/crates/slot/tests/nes_fceumm.rs
 +++ b/crates/slot/tests/nes_fceumm.rs
-@@ -46,7 +46,7 @@ fn loaded_geometry(dylib: &Path, rom: &str, tweak: impl FnOnce(&mut LibretroCore
+@@ -7,7 +7,7 @@ use common::core_lock;
+ use nes_common::{fceumm, nes_rom};
+ use slot::core::{apply_core_options, open_core_for};
+ use slot_retro::{ButtonMask, LibretroCore, MockCore, RetroCore};
+-use slot_store::Core;
++use slot_store::{Core, Platform};
+ 
+ const OVERSCAN_KEYS: [&str; 4] = [
+     "fceumm_overscan_h_left",
+@@ -44,9 +44,9 @@ fn base_geometry(dylib: &Path) -> (u32, u32) {
+ 
+ fn loaded_geometry(dylib: &Path, rom: &str, tweak: impl FnOnce(&mut LibretroCore)) -> (u32, u32) {
      let mut core = LibretroCore::open(dylib).expect("open fceumm");
-     apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
+-    apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
++    apply_core_options(&mut core, Core::Fceumm, Platform::Nes, "auto", false, false, None);
      tweak(&mut core);
 -    core.load(&nes_rom(rom))
 +    core.load(&nes_rom(rom, false))
@@ -1077,18 +1108,20 @@ index c13ffa5..5ba478e 100644
          .expect("fceumm refused the generated cart");
      for _ in 0..5 {
          core.run_frame(ButtonMask::default());
-@@ -84,7 +84,7 @@ fn fceumm_is_told_to_show_the_whole_picture() {
+@@ -83,8 +83,8 @@ fn fceumm_is_told_to_show_the_whole_picture() {
+         return;
      };
      let mut core = LibretroCore::open(&dylib).expect("open fceumm");
-     apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
+-    apply_core_options(&mut core, Core::Fceumm, "auto", false, false, None);
 -    core.load(&nes_rom("fceumm_overscan.nes"))
++    apply_core_options(&mut core, Core::Fceumm, Platform::Nes, "auto", false, false, None);
 +    core.load(&nes_rom("fceumm_overscan.nes", false))
          .expect("fceumm refused the generated cart");
      for _ in 0..3 {
          core.run_frame(ButtonMask::default());
 diff --git a/crates/slot/tests/nes_mock.rs b/crates/slot/tests/nes_mock.rs
 new file mode 100644
-index 0000000..148a479
+index 0000000..886f7c5
 --- /dev/null
 +++ b/crates/slot/tests/nes_mock.rs
 @@ -0,0 +1,61 @@
@@ -1143,7 +1176,7 @@ index 0000000..148a479
 +        core.run_frame(ButtonMask::default());
 +        c.set_game_canvas(360, 240);
 +        c.set_screen_effect(ScreenEffect::None);
-+        c.begin_frame();
++        c.begin_frame(slot_gfx::Layout::Framed);
 +        c.upload_game(core.video_xrgb8888());
 +        c.draw_game();
 +        let frame = c.read_frame();
@@ -1209,7 +1242,7 @@ index 0000000..8375864
 +}
 diff --git a/crates/slot/tests/nes_window.rs b/crates/slot/tests/nes_window.rs
 new file mode 100644
-index 0000000..0fa10e3
+index 0000000..b33761c
 --- /dev/null
 +++ b/crates/slot/tests/nes_window.rs
 @@ -0,0 +1,200 @@
@@ -1354,7 +1387,7 @@ index 0000000..0fa10e3
 +    f.upload_bezel(&mut c, window);
 +    let before = framebuffers(&surface);
 +    c.fit(window);
-+    c.begin_frame();
++    c.begin_frame(slot_gfx::Layout::Framed);
 +    c.end_frame(window);
 +    let made: Vec<u32> = framebuffers(&surface)
 +        .into_iter()

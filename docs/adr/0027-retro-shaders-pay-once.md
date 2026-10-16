@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
-- Related: [patch 0020](../../patches/0020-retro-shaders.patch), [retro-shaders.md](../research/retro-shaders.md)
+- Related: [patch 0017](../../patches/0017-retro-shaders.patch), [retro-shaders.md](../research/retro-shaders.md)
 
 ## Context
 
