@@ -29,6 +29,7 @@ PHASES = {
     "4": "Phase 4: real cart art with variants",
     "5": "Phase 5: release and CI with the device gate",
     "6": "Deferred",
+    "7": "Phase 7: Game Gear, Master System and Mega Drive",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}
 FIELDS = {"Phase": list(PHASES.values()),
@@ -156,7 +157,10 @@ def main():
         if not item:
             continue
         for name, value in (("Phase", PHASES[meta["phase"]]), ("Area", meta["area"]), ("Size", meta["size"])):
-            option = next(o["id"] for o in fields[name]["options"] if o["name"] == value)
+            option = next((o["id"] for o in fields[name]["options"] if o["name"] == value), None)
+            if option is None:  # an option added to FIELDS after the field was made; add it on the board
+                print(f"note: board field {name} has no option {value!r}, left unset")
+                continue
             gh("project", "item-edit", "--id", item["id"], "--project-id", project_id,
                "--field-id", fields[name]["id"], "--single-select-option-id", option)
     (ISSUES / "numbers.json").write_text(json.dumps(numbers, indent=2) + "\n")
