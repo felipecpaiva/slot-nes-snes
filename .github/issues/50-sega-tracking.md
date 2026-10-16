@@ -13,13 +13,13 @@ The maintainer wants Game Gear, Master System and Mega Drive shelves. One core, 
 ## Scope
 Child work, in merge order:
 - [x] Core build and measurement, no frontend code: `cores/genesis_plus_gx/build.sh`, pin in `SLOT_PIN`, `task core:genesis_plus_gx:host`, `task core:device:genesis_plus_gx`, host and device `core_bench` (docs/PERFORMANCE.md "Sega core").
-- [ ] Canvas per (core, platform) (ADR 0050) and the width-change border clear, before the first Sega platform.
-- [ ] 51-platform-gg
-- [ ] 52-platform-sms
-- [ ] 53-platform-md
-- [ ] Sega shaders in their own `Config/` file (ADR 0051).
-- [ ] Cart art for all three after a VARIANTS-style research pass (outlines and colours cited or photo-sampled, our own procedural renderer, ADR 0042).
-- [ ] Ship the core: add it to `core:host`, `core:device`, `dist:device` and `zip-check.sh`, move its licence to `licenses/`. Not before the first platform patch, so no release carries an unused core.
+- [x] Canvas per (core, platform) (ADR 0050) and the width-change border clear, before the first Sega platform (patch 0024; the border test in patch 0026).
+- [x] 51-platform-gg (patch 0024)
+- [x] 52-platform-sms (patch 0025)
+- [x] 53-platform-md (patch 0026; the heavy-title device gate is still open there)
+- [x] Sega shaders in their own `Config/` file (ADR 0051): `Config/sega_shaders.txt`, patch 0027.
+- [x] Cart art for all three after a VARIANTS-style research pass (outlines and colours cited or photo-sampled, our own procedural renderer, ADR 0042): docs/cart-art/SEGA.md, ADR 0056, patch 0028.
+- [x] Ship the core: add it to `core:host`, `core:device`, `dist:device` and `zip-check.sh`, move its licence to `licenses/`. Not before the first platform patch, so no release carries an unused core.
 
 ## Tests
 | ID | File | Asserts |
@@ -33,8 +33,8 @@ Child work, in merge order:
 
 ## Acceptance
 - [ ] All child issues done; `task check` green with `SLOT_REQUIRE_CORES=1` and the Genesis Plus GX dylib.
-- [ ] Harness: a Sega cart, eject, GBA leg equals the GBA-only run (H3 pattern); `bench:compare` GBA within 2%.
-- [ ] Release notes and README carry Genesis Plus GX in the non-commercial notice.
+- [ ] Harness: a Sega cart, eject, GBA leg equals the GBA-only run (H3 pattern); `bench:compare` GBA within 2%. Covered for now by `crates/slot/tests/sega_then_gba.rs` (input and picture come back after a Mega Drive game); no harness leg added yet.
+- [x] Release notes and README carry Genesis Plus GX in the non-commercial notice (LICENSING.md notice text, which `scripts/release-notes.sh` quotes).
 
 ## Device check (RG34XXSP)
 1. Heavy MD gate on the maintainer's own cards: Virtua Racing (SVP), Sonic 3D, Street Fighter II SCE (6-button), Thunder Force IV, Vectorman. Full speed, or PicoDrive becomes the MD fallback.
