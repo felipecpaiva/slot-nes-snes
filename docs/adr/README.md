@@ -18,9 +18,9 @@ the patch set looks the way it does.
 | Number | Title | Status | Date |
 |---|---|---|---|
 | [0001](0001-patch-set-over-pinned-slot.md) | Ship NES and SNES as a patch set over pinned slot releases | Accepted | 2026-10-11 |
-| [0002](0002-cores.md) | Use fceumm and nestopia for NES, snes9x and snes9x2005_plus for SNES | Amended by 0050 | 2026-10-11 |
+| [0002](0002-cores.md) | Use fceumm and nestopia for NES, snes9x and snes9x2005_plus for SNES | Amended by 0053 and 0063 | 2026-10-11 |
 | [0003](0003-reference-device-rg35xxsp.md) | Use the Anbernic RG35XXSP as the reference device | Superseded by [0021](0021-reference-device-rg34xxsp.md) | 2026-10-11 |
-| [0004](0004-fixed-2x-canvas.md) | Give NES and SNES cores a fixed 360x240 canvas at 2x | Amended by 0047 | 2026-10-11 |
+| [0004](0004-fixed-2x-canvas.md) | Give NES and SNES cores a fixed 360x240 canvas at 2x | Amended by 0050 and 0065 | 2026-10-11 |
 | [0005](0005-gba-sp-bezel-on-rg35xxsp.md) | Keep the GBA SP bezel for NES and SNES on the RG35XXSP | Accepted | 2026-10-11 |
 | [0006](0006-real-cart-art-with-variants.md) | Ship real NES, Famicom, SNES and Super Famicom cart art with variants in v1 | Amended by 0042 | 2026-10-11 |
 | [0007](0007-snes-select-x-picture-mode.md) | Toggle the SNES picture mode with SELECT+X | Accepted | 2026-10-11 |
@@ -30,7 +30,7 @@ the patch set looks the way it does.
 | [0011](0011-one-token-in-two-test-files.md) | Add one token each to two upstream test files | Accepted | 2026-10-12 |
 | [0012](0012-durability-value-pce.md) | Change durability.rs's unknown platform example from nes to pce | Accepted | 2026-10-12 |
 | [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044, 0048 and 0055 | 2026-10-12 |
-| [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted. Amended by 0057 | 2026-10-12 |
+| [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted. Amended by 0057 and 0069 | 2026-10-12 |
 | [0015](0015-hostextra-canvas-only.md) | Start HostExtra with only the canvas field | Accepted | 2026-10-12 |
 | [0016](0016-set-game-canvas-every-frame.md) | Call set_game_canvas every frame and return early when unchanged | Accepted | 2026-10-12 |
 | [0017](0017-thumb-sized-new-file.md) | Put thumb::png_sized in a new file | Accepted | 2026-10-12 |
@@ -66,7 +66,7 @@ the patch set looks the way it does.
 | [0047](0047-upstream-first-fixes.md) | Upstream-first fixes | Accepted | 2026-10-15 |
 | [0048](0048-nes-snes-in-the-screen-platform-list.md) | List NES and SNES on the Screen page after the Game Boys | Accepted. Amends 0043 and 0013. Amended by 0055 | 2026-10-15 |
 | [0049](0049-per-shelf-cart-memory.md) | Remember each shelf's cart on top of upstream's shelf memory | Accepted. Amends 0039 | 2026-10-15 |
-| [0050](0050-canvas-per-core-and-platform.md) | Choose the canvas per core and platform, so Game Gear runs at 3x like Game Boy | Accepted. Amends 0004 | 2026-10-15 |
+| [0050](0050-canvas-per-core-and-platform.md) | Choose the canvas per core and platform, so Game Gear runs at 3x like Game Boy | Accepted. Amends 0004. Amended by 0065 | 2026-10-15 |
 | [0051](0051-sega-shaders-outside-slot-state.md) | Store the Sega shader settings in their own file, outside slot.state | Accepted. Amended by 0060 | 2026-10-15 |
 | [0052](0052-md-stretch-follows-frame-width.md) | Make Mega Drive Stretch follow the live frame width | Accepted. Amends 0046 | 2026-10-15 |
 | [0053](0053-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |
@@ -77,5 +77,12 @@ the patch set looks the way it does.
 | [0058](0058-propose-modular-platform-registry-upstream.md) | Propose a modular platform registry upstream, asked first on discussion #64 | Proposed | 2026-10-16 |
 | [0059](0059-need-fullpath-load.md) | Hand need_fullpath cores the path only, never a ROM buffer | Accepted. Drop when upstream lands (0047) | 2026-10-16 |
 | [0060](0060-game-gear-lcd3x.md) | Offer upstream's LCD3x for Game Gear, right after Off | Accepted. Amends 0051 | 2026-10-16 |
-| [0061](0061-per-system-picture-row.md) | Give each retro system's Screen section a Picture row for its default picture mode | Accepted. Amends 0022. Amended by 0062 | 2026-10-16 |
+| [0061](0061-per-system-picture-row.md) | Give each retro system's Screen section a Picture row for its default picture mode | Accepted. Amends 0022. Amended by 0062 and 0065 | 2026-10-16 |
 | [0062](0062-crop-overscan-picture.md) | Add a Crop picture mode that hides the NES and SNES overscan edges, default for both | Accepted. Amends 0046 and 0061 | 2026-10-16 |
+| [0063](0063-ps1-in-scope-on-pcsx-rearmed.md) | Bring PlayStation into scope, built the NES and SNES way, on pinned pcsx_rearmed | Accepted. Amends 0002 | 2026-10-17 |
+| [0064](0064-answer-pcsx-declared-option-defaults.md) | Answer pcsx_rearmed's declared option defaults, and leave every other core's answers alone | Accepted | 2026-10-17 |
+| [0065](0065-ps1-canvas-and-screen-section.md) | Give PS1 a fixed 640x480 canvas, its own frontend budget and its own Screen section | Accepted. Amends 0004, 0050 and 0061 | 2026-10-17 |
+| [0066](0066-ps1-rewind-and-run-ahead-off.md) | Turn rewind and run-ahead off for PS1 | Accepted | 2026-10-17 |
+| [0067](0067-ps1-disk-control-and-disc-in-states.md) | Swap PS1 discs through both disk-control interfaces, remember the disc, and record it in states | Accepted | 2026-10-17 |
+| [0068](0068-ps1-input-digital-then-analog.md) | Ship PS1 with the digital pad and L2/R2 to the game, and analog DualShock in v2 | Accepted | 2026-10-17 |
+| [0069](0069-ps1-jewel-case-shelf.md) | Show PS1 games as jewel cases with front cover art, and the disc on insert | Accepted. Amends 0014 | 2026-10-17 |

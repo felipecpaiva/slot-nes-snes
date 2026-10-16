@@ -1,6 +1,6 @@
 # 0050. Choose the canvas per core and platform, so Game Gear runs at 3x like Game Boy
 
-- Status: Accepted. Amends [0004](0004-fixed-2x-canvas.md)
+- Status: Accepted. Amends [0004](0004-fixed-2x-canvas.md). Amended by [0065](0065-ps1-canvas-and-screen-section.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0053](0053-genesis-plus-gx-for-sega.md), [issue 50](../../.github/issues/50-sega-tracking.md), [issue 51](../../.github/issues/51-platform-gg.md), [ADR 0015](0015-hostextra-canvas-only.md), [ADR 0016](0016-set-game-canvas-every-frame.md)
