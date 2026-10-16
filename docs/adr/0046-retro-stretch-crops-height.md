@@ -1,6 +1,6 @@
 # 0046. Keep the NES and SNES stretch crop on both axes
 
-- Status: Accepted. Amends [0018](0018-source-rect-takes-canvas.md). Amended by [0052](0052-md-stretch-follows-frame-width.md)
+- Status: Accepted. Amends [0018](0018-source-rect-takes-canvas.md). Amended by [0052](0052-md-stretch-follows-frame-width.md) and [0062](0062-crop-overscan-picture.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0038](0038-rebase-to-slot-v1-7-0.md), [ADR 0022](0022-nes-snes-default-stretch.md), [patch 0004](../../patches/0004-canvas.patch)

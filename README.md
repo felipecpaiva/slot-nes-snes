@@ -39,7 +39,7 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
 
 ## Known gaps
 
-- **SNES picture mode is SELECT+X.** L and R are game buttons on SNES, so slot's L/R picture toggle does not apply. NES keeps L1 for Stretch and R1 for Actual. NES and SNES default to Stretch.
+- **SNES picture mode is SELECT+X.** L and R are game buttons on SNES, so slot's L/R picture toggle does not apply. NES keeps L1 for Stretch (it moves between Crop and Stretch) and R1 for Actual. NES and SNES default to Crop, a stretch that hides the overscan edges a TV hid (NES 8 pixels on every edge, SNES 8 lines top and bottom, ADR 0062); SELECT+X on SNES cycles Crop, Stretch, Actual.
 - SNES hi-res frames (512 wide, a few titles) are blended 2:1 and lose detail.
 - No colour correction on NES and SNES: SELECT+Y does nothing there and the in-game Screen page hides the Color Correction and Palette rows.
 - NES and SNES carts keep their own procedural look (ns.0 style), not slot v1.7.0's bitmap carts; the light and dark themes change only the chrome around them.

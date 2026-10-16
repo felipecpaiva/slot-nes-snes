@@ -27,13 +27,13 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/board.rs` | 3 | 8 (+6/-2) | 0012-cart-art |
 | `crates/slot-ui/src/cart.rs` | 11 | 60 (+57/-3) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0020-label-top, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
 | `crates/slot-ui/src/lib.rs` | 6 | 24 (+21/-3) | 0012-cart-art, 0016-quick-menu-retro-shaders, 0020-label-top, 0028-sega-carts |
-| `crates/slot-ui/src/quick_menu.rs` | 13 | 101 (+96/-5) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders, 0032-system-picture |
+| `crates/slot-ui/src/quick_menu.rs` | 13 | 104 (+99/-5) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders, 0032-system-picture, 0033-crop-overscan |
 | `crates/slot-ui/src/shelf.rs` | 4 | 12 (+10/-2) | 0012-cart-art, 0021-shelf-cart-memory |
 | `crates/slot-ui/src/shell.rs` | 1 | 3 (+3/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0017-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders |
-| `crates/slot/src/app.rs` | 42 | 250 (+230/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd, 0032-system-picture |
+| `crates/slot/src/app.rs` | 44 | 254 (+232/-22) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd, 0032-system-picture, 0033-crop-overscan |
 | `crates/slot/src/audio/alsa.rs` | 4 | 10 (+6/-4) | 0018-audio-reopen |
 | `crates/slot/src/audio/mod.rs` | 2 | 2 (+2/-0) | 0018-audio-reopen |
 | `crates/slot/src/core.rs` | 7 | 19 (+15/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg |
@@ -47,7 +47,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/session.rs` | 4 | 9 (+8/-1) | 0007-input, 0008-default-stretch, 0018-audio-reopen, 0026-platform-md |
 | `crates/slot/src/state_writer.rs` | 9 | 60 (+54/-6) | 0021-shelf-cart-memory, 0027-sega-shaders |
 | `crates/slot/src/thumb.rs` | 1 | 1 (+1/-0) | 0004-canvas |
-| `crates/slot/src/video_mode.rs` | 3 | 31 (+25/-6) | 0004-canvas, 0026-platform-md |
+| `crates/slot/src/video_mode.rs` | 6 | 34 (+28/-6) | 0004-canvas, 0026-platform-md, 0033-crop-overscan |
 | `crates/slot/tests/gpsp.rs` | 1 | 2 (+1/-1) | 0003-core-fceumm, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg |
 
 ## Hunks
@@ -182,9 +182,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#7 | 241 | +5/-0 | impl QuickRow { | The NES, SNES and Sega console rows open their one-row shader pages |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#8 | 302 | +15/-0 | impl QuickRow { | Labels the console rows NES, SNES, Game Gear, Master System and Mega Drive, their shader rows Shader and their picture rows Picture (ADR 0061) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#9 | 322 | +5/-0 | impl QuickRow { | The NES, SNES and Sega console rows open a page, so they get the chevron and A opens them |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickValue {#1 | 356 | +3/-0 | pub enum QuickValue { | The one retro hook in QuickValue: Retro carries a RetroShader, then Stretch and Actual for the Picture rows; QuickValue::ALL stays upstream's 18 |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#1 | 382 | +6/-1 | impl QuickValue { | `self as usize` cannot cast an enum with a payload; same position lookup as Toast::index, retro faces follow ALL, then Stretch and Actual |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#2 | 404 | +3/-0 | impl QuickValue { | Prints a retro shader by its label, and Stretch and Actual |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickValue {#1 | 356 | +4/-0 | pub enum QuickValue { | The one retro hook in QuickValue: Retro carries a RetroShader, then Stretch, Actual and Crop for the Picture rows; QuickValue::ALL stays upstream's 18 |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#1 | 382 | +7/-1 | impl QuickValue { | `self as usize` cannot cast an enum with a payload; same position lookup as Toast::index, retro faces follow ALL, then Stretch, Actual and Crop |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#2 | 404 | +4/-0 | impl QuickValue { | Prints a retro shader by its label, and Stretch, Actual and Crop |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#use crate::hud::Millis;#1 | 9 | +3/-0 | use crate::hud::Millis; | Imports the retro shell lookup, the retro label rect and the published shadows |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#1 | 330 | +4/-0 | impl Shelf { | held() tells the app the cursor is at rest, so a held direction writes once when it is let go (patch 0021) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#2 | 460 | +1/-1 | impl Shelf { | Backs a receding NES or SNES cart with its own shadow instead of the GBA one |
@@ -213,29 +213,31 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#12 | 950-951 | +7/-2 | impl App { | Lists no bezel files for NES, SNES and the Sega platforms and replaces upstream's wildcard with explicit arms |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#13 | 972 | +6/-1 | impl App { | NES, SNES and the Sega platforms change the GBA bezel choice (ADR 0005) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#14 | 980 | +6/-1 | impl App { | NES, SNES and the Sega platforms resolve to the GBA bezel choice (ADR 0005) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#15 | 1116 | +7/-0 | impl App { | Hides each NES/SNES and Sega console row on a card with no carts of that system, so GBA, GB and GBC menus stay upstream's (retro_quick::hidden_on_shelf) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#16 | 1378 | +4/-0 | impl App { | Stores the live frame width the emu reports and crops Stretch to it, so the Mega Drive picture follows H32 and H40 (ADR 0052) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#17 | 1380 | +6/-1 | impl App { | Sizes the source rect from the canvas of the core and seated platform instead of fixed 240x160 (ADR 0050) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#18 | 1384 | +1/-1 | impl App { | Uses owns_shoulders so NES and SNES keep the shoulder buttons for the game |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#19 | 1458-1459 | +2/-2 | impl App { | Sizes the shader picture from the canvas of the core and seated platform and the live frame width (ADR 0050, 0052) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#20 | 1620 | +5/-0 | impl App { | Adds NES, SNES and Sega arms to the shader value for the current platform |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#21 | 1636 | +1/-0 | impl App { | NES and SNES have no colour correction |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#22 | 1885 | +1/-0 | impl App { | Select+X toggles the picture mode where the platform says so (SNES, Mega Drive) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#23 | 2012 | +6/-1 | impl App { | The NES, SNES and Sega console rows open their page through child(), like the Game Boy console rows |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#24 | 2049 | +11/-1 | impl App { | New shader and picture rows change only with Left/Right; exhaustive match needs the arm |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#25 | 2054 | +10/-0 | impl App { | Steps a Game Gear, Master System or Mega Drive shader row into its own Config/sega_shaders.txt, not slot.state (ADR 0051), and flips a Picture row into Config/picture.txt (ADR 0061) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#26 | 2143 | +7/-0 | impl App { | Left/Right steps the NES or SNES shader through Shader::RETRO and persists; Picture rows are handled earlier |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#27 | 2164 | +5/-0 | impl App { | The NES, SNES and Sega console rows only open a page; exhaustive match needs the arm |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#28 | 2185 | +5/-0 | impl App { | SELECT+A/B steps the NES, SNES or Sega shader through Shader::RETRO |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#29 | 2193 | +1/-0 | impl App { | Shows the retro shader's own banner when SELECT+A/B picks it |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#30 | 2195 | +1/-0 | impl App { | SELECT+A/B on a Sega game saves the Sega shader file too; it writes nothing while the Sega shaders are unchanged (ADR 0051) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#31 | 2237 | +3/-0 | impl App { | SELECT+Y does nothing on NES, SNES and the Sega platforms (no colour correction); the action is left unhandled as before |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#32 | 2574 | +1/-0 | impl App { | Saves the shelf and its cart each time the cursor comes to rest on the shelf (patch 0021) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#33 | 2719 | +1/-0 | impl App { | A restocked shelf is noted again at its next rest (patch 0021) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#34 | 2774 | +7/-0 | impl App { | Hands the Sega shaders to the state writer, beside slot.state (ADR 0051) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#35 | 3238 | +1/-1 | impl App { | Uses shelf_cart_of so the lid fits the current shelf's platform |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#36 | 3695 | +1/-1 | impl App { | Opens the core picker for any platform with a core pair, not just GBA |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#37 | 3698 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#15 | 1012 | +1/-1 | impl App { | Crop hides the GBA bezel like Stretch: only Actual draws it (ADR 0062) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#16 | 1116 | +7/-0 | impl App { | Hides each NES/SNES and Sega console row on a card with no carts of that system, so GBA, GB and GBC menus stay upstream's (retro_quick::hidden_on_shelf) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#17 | 1378 | +4/-0 | impl App { | Stores the live frame width the emu reports and crops Stretch to it, so the Mega Drive picture follows H32 and H40 (ADR 0052) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#18 | 1380 | +6/-1 | impl App { | Sizes the source rect from the canvas of the core and seated platform instead of fixed 240x160 (ADR 0050), and from the overscan-cropped picture in Crop (ADR 0062) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#19 | 1384 | +1/-1 | impl App { | Uses owns_shoulders so NES and SNES keep the shoulder buttons for the game |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#20 | 1458-1459 | +2/-2 | impl App { | Sizes the shader picture from the canvas of the core and seated platform and the live frame width (ADR 0050, 0052) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#21 | 1620 | +5/-0 | impl App { | Adds NES, SNES and Sega arms to the shader value for the current platform |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#22 | 1636 | +1/-0 | impl App { | NES and SNES have no colour correction |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#23 | 1881 | +1/-1 | impl App { | L1 asks the platform which stretch to take, so NES moves between Crop and Stretch; GB, GBC, GG and SMS still get Stretch (ADR 0062) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#24 | 1885 | +1/-0 | impl App { | Select+X toggles the picture mode where the platform says so (SNES, Mega Drive) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#25 | 2012 | +6/-1 | impl App { | The NES, SNES and Sega console rows open their page through child(), like the Game Boy console rows |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#26 | 2049 | +11/-1 | impl App { | New shader and picture rows change only with Left/Right; exhaustive match needs the arm |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#27 | 2054 | +10/-0 | impl App { | Steps a Game Gear, Master System or Mega Drive shader row into its own Config/sega_shaders.txt, not slot.state (ADR 0051), and steps a Picture row either way through its platform's choices into Config/picture.txt (ADR 0061, 0062) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#28 | 2143 | +7/-0 | impl App { | Left/Right steps the NES or SNES shader through Shader::RETRO and persists; Picture rows are handled earlier |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#29 | 2164 | +5/-0 | impl App { | The NES, SNES and Sega console rows only open a page; exhaustive match needs the arm |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#30 | 2185 | +5/-0 | impl App { | SELECT+A/B steps the NES, SNES or Sega shader through Shader::RETRO |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#31 | 2193 | +1/-0 | impl App { | Shows the retro shader's own banner when SELECT+A/B picks it |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#32 | 2195 | +1/-0 | impl App { | SELECT+A/B on a Sega game saves the Sega shader file too; it writes nothing while the Sega shaders are unchanged (ADR 0051) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#33 | 2237 | +3/-0 | impl App { | SELECT+Y does nothing on NES, SNES and the Sega platforms (no colour correction); the action is left unhandled as before |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#34 | 2574 | +1/-0 | impl App { | Saves the shelf and its cart each time the cursor comes to rest on the shelf (patch 0021) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#35 | 2719 | +1/-0 | impl App { | A restocked shelf is noted again at its next rest (patch 0021) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#36 | 2774 | +7/-0 | impl App { | Hands the Sega shaders to the state writer, beside slot.state (ADR 0051) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#37 | 3238 | +1/-1 | impl App { | Uses shelf_cart_of so the lid fits the current shelf's platform |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#38 | 3695 | +1/-1 | impl App { | Opens the core picker for any platform with a core pair, not just GBA |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#39 | 3698 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn shader_value(shader: Shader) -> QuickValue {#1 | 4451 | +1/-0 | fn shader_value(shader: Shader) -> QuickValue { | Shows the retro shader's name in the NES and SNES quick menu row |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn bezel_slot(platform: Platform) -> usize {#1 | 4553 | +6/-1 | fn bezel_slot(platform: Platform) -> usize { | NES, SNES and the Sega platforms use the GBA bezel value faces (ADR 0005) |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use libloading::Library;#1 | 8 | +1/-0 | use libloading::Library; | Imports the hold that keeps a fed device open |
@@ -319,6 +321,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/state_writer.rs` | crates/slot/src/state_writer.rs#fn write(root: &Path, state: &SlotState, failing: &CardWrites) {#1 | 101 | +16/-0 | fn write(root: &Path, state: &SlotState, failing: &CardWrites) { | write_carts and write_shaders log a failed write and raise the card alarm like slot.state |
 | `crates/slot/src/thumb.rs` | crates/slot/src/thumb.rs#top#1 | 0 | +1/-0 | (top of file) | Re-exports png_sized for the thumbnail |
 | `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#use std::path::Path;#1 | 3 | +1/-1 | use std::path::Path; | Drops the fixed 240x160 constants now that the canvas is passed in |
+| `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#pub enum VideoMode {#1 | 12 | +1/-0 | pub enum VideoMode { | Appends Crop after Stretch, the NES and SNES stretch with the overscan edges cropped (ADR 0062); Actual stays the default |
+| `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#impl VideoMode {#1 | 19 | +1/-0 | impl VideoMode { | Writes Crop as `crop` in video_mode.txt and picture.txt (ADR 0062) |
+| `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#impl VideoMode {#2 | 26 | +1/-0 | impl VideoMode { | Reads `crop` back as Crop; `stretch` and `actual` keep their meaning (ADR 0062) |
 | `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re#1 | 43-45 | +8/-3 | pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re | Takes the picture (fixed, or the live Mega Drive width) and the core's canvas, and compares the picture against the canvas instead of fixed 240x160 |
 | `crates/slot/src/video_mode.rs` | crates/slot/src/video_mode.rs#pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {#1 | 48-49 | +16/-2 | pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] { | Centres the crop in the canvas; GBA, GB, GBC and Game Gear keep upstream's widen-only stretch (full height), NES, SNES, Master System and Mega Drive also crop the height (stretch_crops_height) |
 | `crates/slot/tests/gpsp.rs` | crates/slot/tests/gpsp.rs#fn both_cores_are_told_about_colour_correction_in_their_own_words() {#1 | 224 | +1/-1 | fn both_cores_are_told_about_colour_correction_in_their_own_words() { | Names the new cores as using the same option key in the test match |

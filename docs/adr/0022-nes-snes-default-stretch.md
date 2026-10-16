@@ -1,6 +1,6 @@
 # 0022. Default NES and SNES to the Stretch picture mode
 
-- Status: Accepted. Amended by [0061](0061-per-system-picture-row.md)
+- Status: Accepted. Amended by [0061](0061-per-system-picture-row.md) and [0062](0062-crop-overscan-picture.md)
 - Date: 2026-10-12
 - Deciders: maintainer (Felipe Paiva)
 - Related: [issue 43](../../.github/issues/43-nes-snes-default-stretch.md), [patch 0008](../../patches/0008-default-stretch.patch)
