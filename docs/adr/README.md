@@ -64,11 +64,11 @@ the patch set looks the way it does.
 | [0045](0045-layout-hash-tests-in-both-trees.md) | Run upstream's layout frame-hash tests in both trees | Accepted. Amends 0035 | 2026-10-15 |
 | [0046](0046-retro-stretch-crops-height.md) | Keep the NES and SNES stretch crop on both axes | Accepted. Amends 0018. Amended by 0052 | 2026-10-15 |
 | [0047](0047-upstream-first-fixes.md) | Upstream-first fixes | Accepted | 2026-10-15 |
-| [0048](0048-nes-snes-in-the-screen-platform-list.md) | List NES and SNES on the Screen page after the Game Boys | Accepted. Amends 0043 and 0013 | 2026-10-15 |
+| [0048](0048-nes-snes-in-the-screen-platform-list.md) | List NES and SNES on the Screen page after the Game Boys | Accepted. Amends 0043 and 0013. Amended by 0055 | 2026-10-15 |
 | [0049](0049-per-shelf-cart-memory.md) | Remember each shelf's cart on top of upstream's shelf memory | Accepted. Amends 0039 | 2026-10-15 |
 | [0050](0050-canvas-per-core-and-platform.md) | Choose the canvas per core and platform, so Game Gear runs at 3x like Game Boy | Accepted. Amends 0004 | 2026-10-15 |
 | [0051](0051-sega-shaders-outside-slot-state.md) | Store the Sega shader settings in their own file, outside slot.state | Accepted | 2026-10-15 |
 | [0052](0052-md-stretch-follows-frame-width.md) | Make Mega Drive Stretch follow the live frame width | Accepted. Amends 0046 | 2026-10-15 |
 | [0053](0053-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |
 | [0054](0054-bitmap-retro-carts.md) | Draw NES and SNES carts from generated neutral bitmaps with upstream's Overlay | Accepted. Amends 0042 | 2026-10-16 |
-| [0055](0055-sega-tokens-at-named-test-sites.md) | Widen named test sites (b) and (e) for the Sega platforms and Genesis Plus GX | Accepted. Amends 0013 | 2026-10-16 |
+| [0055](0055-sega-tokens-at-named-test-sites.md) | Widen named test sites (b), (e), (g) and (h) for the Sega platforms and Genesis Plus GX | Accepted. Amends 0013 and 0048 | 2026-10-16 |

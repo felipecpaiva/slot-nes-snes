@@ -113,14 +113,14 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot-ui/tests/quick_menu.rs)
-		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"\]$'
-		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes$'
+		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive")?\]$'
+		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
-			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(\])$/$1$2/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes$/$1/' "$ours/$f" >"$tmp/x" &&
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive")?(\])$/$1$3/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd)?$/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (NES and SNES after Game Boy in the Screen labels and the rows that open pages)"
+			echo "upstream test code: $f uses the named exceptions (NES, SNES and the Sega systems after Game Boy in the Screen labels and the rows that open pages)"
 		else
-			fail "$f differs beyond the NES and SNES tokens in the Screen labels and the rows that open pages"
+			fail "$f differs beyond the NES, SNES and Sega tokens in the Screen labels and the rows that open pages"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;

@@ -1,6 +1,6 @@
 # 0048. List NES and SNES on the Screen page after the Game Boys
 
-- Status: Accepted. Amends [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) and [0013](0013-five-named-test-sites.md)
+- Status: Accepted. Amends [0043](0043-retro-shader-rows-on-v1-7-0-menus.md) and [0013](0013-five-named-test-sites.md). Amended by [0055](0055-sega-tokens-at-named-test-sites.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [patch 0022](../../patches/0022-screen-platform-list.patch), slot #83, `scripts/check-upstream-tests.sh`, CONTRIBUTING.md section 1

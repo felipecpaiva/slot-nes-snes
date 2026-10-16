@@ -1,0 +1,1106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Fri, 16 Oct 2026 09:29:02 +0400
+Subject: [PATCH] sega-shaders
+
+---
+ crates/slot-store/src/lib.rs                 |   2 +
+ crates/slot-store/src/sega_shader.rs         |  59 ++++++
+ crates/slot-store/tests/sega_shader_state.rs |  57 ++++++
+ crates/slot-ui/src/quick_menu.rs             |  42 ++++-
+ crates/slot-ui/src/quick_retro.rs            |   3 +
+ crates/slot-ui/tests/quick_menu.rs           |   4 +-
+ crates/slot-ui/tests/quick_retro.rs          |  26 ++-
+ crates/slot/src/app.rs                       |  49 ++++-
+ crates/slot/src/retro_quick.rs               |  83 +++++---
+ crates/slot/src/state_writer.rs              |  34 +++-
+ crates/slot/tests/render_sega_quick.rs       |  90 +++++++++
+ crates/slot/tests/sega_ingame_shader.rs      |  75 ++++++++
+ crates/slot/tests/sega_quick_shader.rs       | 187 +++++++++++++++++++
+ 13 files changed, 667 insertions(+), 44 deletions(-)
+ create mode 100644 crates/slot-store/src/sega_shader.rs
+ create mode 100644 crates/slot-store/tests/sega_shader_state.rs
+ create mode 100644 crates/slot/tests/render_sega_quick.rs
+ create mode 100644 crates/slot/tests/sega_ingame_shader.rs
+ create mode 100644 crates/slot/tests/sega_quick_shader.rs
+
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 75fb45d..81c17cf 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -14,6 +14,7 @@ mod retro_shader;
+ mod ring;
+ mod scan;
+ pub mod sega;
++mod sega_shader;
+ mod shelf_carts;
+ mod slot_state;
+ pub mod snes;
+@@ -31,6 +32,7 @@ pub use platform::Platform;
+ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
++pub use sega_shader::{read_sega_shaders, write_sega_shaders, SegaShaders, SEGA_SHADERS_FILE};
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+     read_slot_state, write_slot_state, Appearance, BezelPick, Recent, Shader, SlotState,
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+new file mode 100644
+index 0000000..1c05bbb
+--- /dev/null
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -0,0 +1,59 @@
++use std::path::Path;
++
++use crate::atomic::atomic_write;
++use crate::slot_state::{list_path, Shader};
++
++pub const SEGA_SHADERS_FILE: &str = "sega_shaders.txt";
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub struct SegaShaders {
++    pub gg: Shader,
++    pub sms: Shader,
++    pub md: Shader,
++}
++
++impl Default for SegaShaders {
++    fn default() -> Self {
++        SegaShaders {
++            gg: Shader::Off,
++            sms: Shader::Off,
++            md: Shader::Off,
++        }
++    }
++}
++
++pub fn read_sega_shaders(root: &Path) -> SegaShaders {
++    let mut s = SegaShaders::default();
++    let text = std::fs::read_to_string(list_path(root, SEGA_SHADERS_FILE)).unwrap_or_default();
++    for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
++        let Some(shader) = Shader::parse(value.trim()).filter(|v| Shader::RETRO.contains(v)) else {
++            eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {key}={value}");
++            continue;
++        };
++        match key.trim() {
++            "gg" => s.gg = shader,
++            "sms" => s.sms = shader,
++            "md" => s.md = shader,
++            other => eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {other}"),
++        }
++    }
++    s
++}
++
++pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
++    let path = list_path(root, SEGA_SHADERS_FILE);
++    let text = format!(
++        "gg={}\nsms={}\nmd={}\n",
++        s.gg.name(),
++        s.sms.name(),
++        s.md.name()
++    );
++    let unchanged = match std::fs::read(&path) {
++        Ok(old) => old == text.as_bytes(),
++        Err(_) => *s == SegaShaders::default(),
++    };
++    if unchanged {
++        return Ok(());
++    }
++    atomic_write(&path, text.as_bytes())
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+new file mode 100644
+index 0000000..61c40b0
+--- /dev/null
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -0,0 +1,57 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{
++    read_sega_shaders, read_slot_state, write_sega_shaders, write_slot_state, RetroShader,
++    SegaShaders, Shader, SlotState,
++};
++
++#[test]
++fn a_card_with_no_sega_shader_file_reads_every_sega_shader_as_off() {
++    let d = tmp_root();
++    assert_eq!(read_sega_shaders(d.path()), SegaShaders::default());
++    assert_eq!(SegaShaders::default().gg, Shader::Off);
++}
++
++#[test]
++fn sega_shaders_round_trip_through_their_own_file() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        gg: Shader::Retro(RetroShader::CrtPi),
++        sms: Shader::Grid,
++        md: Shader::Retro(RetroShader::Line),
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config/sega_shaders.txt")).expect("read"),
++        "gg=crt-pi\nsms=grid\nmd=line\n"
++    );
++    assert_eq!(read_sega_shaders(d.path()), s);
++}
++
++#[test]
++fn a_damaged_or_foreign_line_keeps_the_default_for_that_system_only() {
++    let d = tmp_root();
++    std::fs::write(
++        d.path().join("Config/sega_shaders.txt"),
++        "gg=lcd3x\nsms=bogus\nmd=pixel\nnes=crt-pi\nnot a line\n",
++    )
++    .expect("write");
++    let s = read_sega_shaders(d.path());
++    assert_eq!(s.gg, Shader::Off);
++    assert_eq!(s.sms, Shader::Off);
++    assert_eq!(s.md, Shader::Retro(RetroShader::Pixel));
++}
++
++#[test]
++fn the_default_sega_shaders_write_no_file_and_slot_state_never_names_them() {
++    let d = tmp_root();
++    write_sega_shaders(d.path(), &SegaShaders::default()).expect("write");
++    assert!(!d.path().join("Config/sega_shaders.txt").exists());
++    write_slot_state(d.path(), &SlotState::default()).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    for key in ["shader_gg", "shader_sms", "shader_md", "sega"] {
++        assert!(!text.contains(key), "{key} in {text:?}");
++    }
++    assert_eq!(read_slot_state(d.path()), SlotState::default());
++}
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 19d9e97..40df3d2 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -50,10 +50,16 @@ pub enum QuickRow {
+     SnesShader,
+     ScreenNes,
+     ScreenSnes,
++    GgShader,
++    SmsShader,
++    MdShader,
++    ScreenGg,
++    ScreenSms,
++    ScreenMd,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 44] = [
++    pub const ALL: [QuickRow; 50] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -98,6 +104,12 @@ impl QuickRow {
+         QuickRow::SnesShader,
+         QuickRow::ScreenNes,
+         QuickRow::ScreenSnes,
++        QuickRow::GgShader,
++        QuickRow::SmsShader,
++        QuickRow::MdShader,
++        QuickRow::ScreenGg,
++        QuickRow::ScreenSms,
++        QuickRow::ScreenMd,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -116,12 +128,15 @@ impl QuickRow {
+         QuickRow::DateTime,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 5] = [
++    pub const SCREEN: [QuickRow; 8] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+         QuickRow::ScreenNes,
+         QuickRow::ScreenSnes,
++        QuickRow::ScreenGg,
++        QuickRow::ScreenSms,
++        QuickRow::ScreenMd,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -179,7 +194,10 @@ impl QuickRow {
+             | QuickRow::ScreenGbc
+             | QuickRow::ScreenGb
+             | QuickRow::ScreenNes
+-            | QuickRow::ScreenSnes => &QuickRow::SCREEN,
++            | QuickRow::ScreenSnes
++            | QuickRow::ScreenGg
++            | QuickRow::ScreenSms
++            | QuickRow::ScreenMd => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -212,6 +230,9 @@ impl QuickRow {
+             }
+             QuickRow::NesShader => &QuickRow::SCREEN_NES,
+             QuickRow::SnesShader => &QuickRow::SCREEN_SNES,
++            QuickRow::GgShader => &QuickRow::SCREEN_GG,
++            QuickRow::SmsShader => &QuickRow::SCREEN_SMS,
++            QuickRow::MdShader => &QuickRow::SCREEN_MD,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -228,6 +249,9 @@ impl QuickRow {
+             QuickRow::Shader => Some(QuickRow::PlayScreen),
+             QuickRow::NesShader => Some(QuickRow::ScreenNes),
+             QuickRow::SnesShader => Some(QuickRow::ScreenSnes),
++            QuickRow::GgShader => Some(QuickRow::ScreenGg),
++            QuickRow::SmsShader => Some(QuickRow::ScreenSms),
++            QuickRow::MdShader => Some(QuickRow::ScreenMd),
+             _ => None,
+         }
+     }
+@@ -262,6 +286,9 @@ impl QuickRow {
+             QuickRow::ScreenGb => Some(QuickRow::SCREEN_GB[0]),
+             QuickRow::ScreenNes => Some(QuickRow::SCREEN_NES[0]),
+             QuickRow::ScreenSnes => Some(QuickRow::SCREEN_SNES[0]),
++            QuickRow::ScreenGg => Some(QuickRow::SCREEN_GG[0]),
++            QuickRow::ScreenSms => Some(QuickRow::SCREEN_SMS[0]),
++            QuickRow::ScreenMd => Some(QuickRow::SCREEN_MD[0]),
+             _ => None,
+         }
+     }
+@@ -327,6 +354,12 @@ impl QuickRow {
+             QuickRow::SnesShader => "Shader",
+             QuickRow::ScreenNes => "NES",
+             QuickRow::ScreenSnes => "SNES",
++            QuickRow::GgShader => "Shader",
++            QuickRow::SmsShader => "Shader",
++            QuickRow::MdShader => "Shader",
++            QuickRow::ScreenGg => "Game Gear",
++            QuickRow::ScreenSms => "Master System",
++            QuickRow::ScreenMd => "Mega Drive",
+         }
+     }
+ 
+@@ -349,6 +382,9 @@ impl QuickRow {
+                 | QuickRow::ScreenGb
+                 | QuickRow::ScreenNes
+                 | QuickRow::ScreenSnes
++                | QuickRow::ScreenGg
++                | QuickRow::ScreenSms
++                | QuickRow::ScreenMd
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index ce24cc4..f1fbe6b 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -5,6 +5,9 @@ use slot_store::RetroShader;
+ impl QuickRow {
+     pub const SCREEN_NES: [QuickRow; 1] = [QuickRow::NesShader];
+     pub const SCREEN_SNES: [QuickRow; 1] = [QuickRow::SnesShader];
++    pub const SCREEN_GG: [QuickRow; 1] = [QuickRow::GgShader];
++    pub const SCREEN_SMS: [QuickRow; 1] = [QuickRow::SmsShader];
++    pub const SCREEN_MD: [QuickRow; 1] = [QuickRow::MdShader];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index acd3d73..bd77ada 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -109,7 +109,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::PlayGameplay,
+             QuickRow::ScreenGba,
+             QuickRow::ScreenGbc,
+-            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes
++            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd
+         ]
+     );
+     for page in [
+diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
+index 6762304..e95a0e8 100644
+--- a/crates/slot-ui/tests/quick_retro.rs
++++ b/crates/slot-ui/tests/quick_retro.rs
+@@ -1,14 +1,25 @@
+ use slot_ui::QuickRow;
+ 
+ #[test]
+-fn nes_and_snes_close_the_screen_platform_list() {
++fn nes_and_snes_follow_the_game_boys_and_the_sega_systems_close_the_screen_list() {
+     assert_eq!(
+         QuickRow::SCREEN[3..],
+-        [QuickRow::ScreenNes, QuickRow::ScreenSnes]
++        [
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++            QuickRow::ScreenGg,
++            QuickRow::ScreenSms,
++            QuickRow::ScreenMd
++        ]
+     );
+-    assert_eq!(QuickRow::ScreenNes.label(), "NES");
+-    assert_eq!(QuickRow::ScreenSnes.label(), "SNES");
+-    for row in [QuickRow::ScreenNes, QuickRow::ScreenSnes] {
++    for (row, label) in [
++        (QuickRow::ScreenNes, "NES"),
++        (QuickRow::ScreenSnes, "SNES"),
++        (QuickRow::ScreenGg, "Game Gear"),
++        (QuickRow::ScreenSms, "Master System"),
++        (QuickRow::ScreenMd, "Mega Drive"),
++    ] {
++        assert_eq!(row.label(), label);
+         assert_eq!(row.page(), QuickRow::SCREEN);
+         assert_eq!(row.parent(), Some(QuickRow::Screen));
+         assert!(row.opens(), "{row:?}");
+@@ -17,10 +28,13 @@ fn nes_and_snes_close_the_screen_platform_list() {
+ }
+ 
+ #[test]
+-fn the_nes_and_snes_pages_hold_only_their_own_shader_row() {
++fn each_retro_and_sega_page_holds_only_its_own_shader_row() {
+     for (console, row) in [
+         (QuickRow::ScreenNes, QuickRow::NesShader),
+         (QuickRow::ScreenSnes, QuickRow::SnesShader),
++        (QuickRow::ScreenGg, QuickRow::GgShader),
++        (QuickRow::ScreenSms, QuickRow::SmsShader),
++        (QuickRow::ScreenMd, QuickRow::MdShader),
+     ] {
+         assert_eq!(console.child(), Some(row));
+         assert_eq!(row.page(), [row]);
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index f5f15d3..95d5fd9 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -409,6 +409,7 @@ pub struct App {
+     state_writer: crate::state_writer::StateWriter,
+     shelf_carts: Vec<(String, Recent)>,
+     frame_w: u32,
++    sega_shaders: slot_store::SegaShaders,
+     rested: Option<(usize, usize)>,
+ }
+ 
+@@ -557,6 +558,7 @@ impl App {
+             powering_off: false,
+             shelf_carts: Vec::new(),
+             frame_w: 0,
++            sega_shaders: slot_store::SegaShaders::default(),
+             rested: None,
+         }
+     }
+@@ -570,6 +572,7 @@ impl App {
+         app.root = Some(root.to_path_buf());
+         app.state = read_slot_state(root);
+         app.shelf_carts = slot_store::read_shelf_carts(root);
++        app.sega_shaders = slot_store::read_sega_shaders(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -925,6 +928,9 @@ impl App {
+             (QuickRow::Shader, Platform::Gbc) => QuickRow::GbcShader,
+             (QuickRow::Shader, Platform::Nes) => QuickRow::NesShader,
+             (QuickRow::Shader, Platform::Snes) => QuickRow::SnesShader,
++            (QuickRow::Shader, Platform::Gg) => QuickRow::GgShader,
++            (QuickRow::Shader, Platform::Sms) => QuickRow::SmsShader,
++            (QuickRow::Shader, Platform::Md) => QuickRow::MdShader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -963,6 +969,9 @@ impl App {
+             QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
+             QuickRow::NesShader => Some(shader_value(self.state.shader_nes)),
+             QuickRow::SnesShader => Some(shader_value(self.state.shader_snes)),
++            QuickRow::GgShader => Some(shader_value(self.sega_shaders.gg)),
++            QuickRow::SmsShader => Some(shader_value(self.sega_shaders.sms)),
++            QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -1007,6 +1016,9 @@ impl App {
+             | QuickRow::ScreenGb
+             | QuickRow::ScreenNes
+             | QuickRow::ScreenSnes
++            | QuickRow::ScreenGg
++            | QuickRow::ScreenSms
++            | QuickRow::ScreenMd
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -1222,8 +1234,7 @@ impl App {
+         if let Some(hidden) = crate::retro_quick::hidden_on_shelf(
+             own,
+             self.framed_panel(),
+-            self.carts()
+-                .any(|c| matches!(c.platform, Platform::Nes | Platform::Snes)),
++            crate::retro_quick::shelf_systems(self.carts().map(|c| c.platform)),
+         ) {
+             return hidden;
+         }
+@@ -1742,7 +1753,9 @@ impl App {
+             Platform::Gbc => self.state.shader_gbc,
+             Platform::Nes => self.state.shader_nes,
+             Platform::Snes => self.state.shader_snes,
+-            Platform::Gg | Platform::Sms | Platform::Md => Shader::Off,
++            Platform::Gg => self.sega_shaders.gg,
++            Platform::Sms => self.sega_shaders.sms,
++            Platform::Md => self.sega_shaders.md,
+         }
+     }
+ 
+@@ -2138,7 +2151,10 @@ impl App {
+             | QuickRow::ScreenGbc
+             | QuickRow::ScreenGb
+             | QuickRow::ScreenNes
+-            | QuickRow::ScreenSnes => {
++            | QuickRow::ScreenSnes
++            | QuickRow::ScreenGg
++            | QuickRow::ScreenSms
++            | QuickRow::ScreenMd => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2177,12 +2193,19 @@ impl App {
+             | QuickRow::GbaBezel
+             | QuickRow::Bezel
+             | QuickRow::NesShader
+-            | QuickRow::SnesShader => {}
++            | QuickRow::SnesShader
++            | QuickRow::GgShader
++            | QuickRow::SmsShader
++            | QuickRow::MdShader => {}
+         }
+     }
+ 
+     fn change_setting(&mut self, row: QuickRow, right: bool) {
+         let row = self.playing_row(row);
++        if crate::retro_quick::step_sega(&mut self.sega_shaders, row, right) {
++            self.save_sega_shaders();
++            return;
++        }
+         if row == QuickRow::Palette {
+             let to = match right {
+                 true => self.state.gb_palette.next(),
+@@ -2273,6 +2296,7 @@ impl App {
+             }
+             QuickRow::Theme => s.appearance = s.appearance.toggle(),
+             QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
++            QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+@@ -2296,6 +2320,9 @@ impl App {
+             | QuickRow::ScreenGb
+             | QuickRow::ScreenNes
+             | QuickRow::ScreenSnes
++            | QuickRow::ScreenGg
++            | QuickRow::ScreenSms
++            | QuickRow::ScreenMd
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -2319,7 +2346,9 @@ impl App {
+             Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
+             Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
+             Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
+-            Platform::Gg | Platform::Sms | Platform::Md => return,
++            Platform::Gg => (&mut self.sega_shaders.gg, &Shader::RETRO[..]),
++            Platform::Sms => (&mut self.sega_shaders.sms, &Shader::RETRO[..]),
++            Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -2331,6 +2360,7 @@ impl App {
+             Shader::Retro(s) => Toast::Retro(s),
+         };
+         self.persist();
++        self.save_sega_shaders();
+         self.hud.toast(said, self.now());
+     }
+ 
+@@ -2915,6 +2945,13 @@ impl App {
+         self.card_writes.wrote("slot.state", &written);
+     }
+ 
++    fn save_sega_shaders(&self) {
++        if let Some(root) = &self.root {
++            self.state_writer
++                .save_sega_shaders(root, &self.sega_shaders);
++        }
++    }
++
+     fn persist_soon(&self) {
+         if let Some(root) = &self.root {
+             self.state_writer.save(root, &self.state);
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 386961b..c57e6ae 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -1,4 +1,6 @@
+-use slot_store::{Platform, Shader, SlotState};
++use std::sync::OnceLock;
++
++use slot_store::{Platform, SegaShaders, Shader, SlotState};
+ use slot_ui::QuickRow;
+ 
+ pub fn step(state: &mut SlotState, row: QuickRow, right: bool) {
+@@ -10,6 +12,17 @@ pub fn step(state: &mut SlotState, row: QuickRow, right: bool) {
+     *shader = shader.step(&Shader::RETRO, right);
+ }
+ 
++pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool {
++    let shader = match row {
++        QuickRow::GgShader => &mut shaders.gg,
++        QuickRow::SmsShader => &mut shaders.sms,
++        QuickRow::MdShader => &mut shaders.md,
++        _ => return false,
++    };
++    *shader = shader.step(&Shader::RETRO, right);
++    true
++}
++
+ pub fn hidden_in_game(
+     platform: Platform,
+     framed: bool,
+@@ -41,31 +54,57 @@ pub fn hidden_in_game(
+     }
+ }
+ 
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 4] {
++    let mut seen = [false; 4];
++    for platform in platforms {
++        let at = match platform {
++            Platform::Gba | Platform::Gb | Platform::Gbc => continue,
++            Platform::Nes | Platform::Snes => 0,
++            Platform::Gg => 1,
++            Platform::Sms => 2,
++            Platform::Md => 3,
++        };
++        seen[at] = true;
++    }
++    seen
++}
++
++const SYSTEM_ROWS: [&[QuickRow]; 4] = [
++    &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
++    &[QuickRow::ScreenGg],
++    &[QuickRow::ScreenSms],
++    &[QuickRow::ScreenMd],
++];
++
+ pub fn hidden_on_shelf(
+     own_wallpaper: bool,
+     framed: bool,
+-    retro_carts: bool,
++    systems: [bool; 4],
+ ) -> Option<&'static [QuickRow]> {
+-    if retro_carts {
++    if systems == [true; 4] {
+         return None;
+     }
+-    Some(match (own_wallpaper, framed) {
+-        (true, true) => &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+-        (true, false) => &[
+-            QuickRow::GbaBezel,
+-            QuickRow::ScreenNes,
+-            QuickRow::ScreenSnes,
+-        ],
+-        (false, true) => &[
+-            QuickRow::WallpaperTint,
+-            QuickRow::ScreenNes,
+-            QuickRow::ScreenSnes,
+-        ],
+-        (false, false) => &[
+-            QuickRow::WallpaperTint,
+-            QuickRow::GbaBezel,
+-            QuickRow::ScreenNes,
+-            QuickRow::ScreenSnes,
+-        ],
+-    })
++    static TABLE: OnceLock<Vec<Vec<QuickRow>>> = OnceLock::new();
++    let table = TABLE.get_or_init(|| (0..64).map(hidden_for).collect());
++    let key = systems.iter().enumerate().fold(
++        usize::from(own_wallpaper) | usize::from(framed) << 1,
++        |k, (i, on)| k | usize::from(*on) << (i + 2),
++    );
++    table.get(key).map(Vec::as_slice)
++}
++
++fn hidden_for(key: usize) -> Vec<QuickRow> {
++    let mut rows = Vec::new();
++    if key & 1 == 0 {
++        rows.push(QuickRow::WallpaperTint);
++    }
++    if key & 2 == 0 {
++        rows.push(QuickRow::GbaBezel);
++    }
++    for (i, system) in SYSTEM_ROWS.iter().enumerate() {
++        if key & 1 << (i + 2) == 0 {
++            rows.extend_from_slice(system);
++        }
++    }
++    rows
+ }
+diff --git a/crates/slot/src/state_writer.rs b/crates/slot/src/state_writer.rs
+index c2ba7fd..17a6892 100644
+--- a/crates/slot/src/state_writer.rs
++++ b/crates/slot/src/state_writer.rs
+@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Condvar, Mutex};
+ use std::thread;
+ 
+-use slot_store::{write_shelf_carts, write_slot_state, Recent, SlotState};
++use slot_store::{
++    write_sega_shaders, write_shelf_carts, write_slot_state, Recent, SegaShaders, SlotState,
++};
+ 
+ use crate::card_log::CardWrites;
+ 
+@@ -10,6 +12,7 @@ use crate::card_log::CardWrites;
+ struct Queue {
+     next: Option<(PathBuf, SlotState)>,
+     shelf_carts: Option<(PathBuf, Vec<(String, Recent)>)>,
++    sega_shaders: Option<(PathBuf, SegaShaders)>,
+     busy: bool,
+     closed: bool,
+ }
+@@ -59,6 +62,16 @@ impl StateWriter {
+         wake.notify_all();
+     }
+ 
++    pub fn save_sega_shaders(&self, root: &Path, shaders: &SegaShaders) {
++        if !self.threaded {
++            return write_shaders(root, shaders, &self.failing);
++        }
++        let (lock, wake) = &*self.shared;
++        let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
++        q.sega_shaders = Some((root.to_path_buf(), *shaders));
++        wake.notify_all();
++    }
++
+     pub fn card_writes(&self) -> Arc<CardWrites> {
+         self.failing.clone()
+     }
+@@ -66,7 +79,7 @@ impl StateWriter {
+     pub fn flush(&self) {
+         let (lock, wake) = &*self.shared;
+         let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+-        while q.next.is_some() || q.shelf_carts.is_some() || q.busy {
++        while q.next.is_some() || q.shelf_carts.is_some() || q.sega_shaders.is_some() || q.busy {
+             q = wake.wait(q).unwrap_or_else(|e| e.into_inner());
+         }
+     }
+@@ -84,12 +97,12 @@ impl Drop for StateWriter {
+ fn work(shared: &Shared, failing: &CardWrites) {
+     let (lock, wake) = &**shared;
+     loop {
+-        let (state, carts) = {
++        let (state, carts, shaders) = {
+             let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+             loop {
+-                if q.next.is_some() || q.shelf_carts.is_some() {
++                if q.next.is_some() || q.shelf_carts.is_some() || q.sega_shaders.is_some() {
+                     q.busy = true;
+-                    break (q.next.take(), q.shelf_carts.take());
++                    break (q.next.take(), q.shelf_carts.take(), q.sega_shaders.take());
+                 }
+                 if q.closed {
+                     return;
+@@ -103,6 +116,9 @@ fn work(shared: &Shared, failing: &CardWrites) {
+         if let Some((root, carts)) = carts {
+             write_carts(&root, &carts, failing);
+         }
++        if let Some((root, shaders)) = shaders {
++            write_shaders(&root, &shaders, failing);
++        }
+         lock.lock().unwrap_or_else(|e| e.into_inner()).busy = false;
+         wake.notify_all();
+     }
+@@ -123,3 +139,11 @@ fn write_carts(root: &Path, carts: &[(String, Recent)], failing: &CardWrites) {
+     }
+     failing.wrote("shelf_carts.txt", &written);
+ }
++
++fn write_shaders(root: &Path, shaders: &SegaShaders, failing: &CardWrites) {
++    let written = write_sega_shaders(root, shaders);
++    if let Err(e) = &written {
++        eprintln!("slot: sega_shaders.txt: {e}");
++    }
++    failing.wrote("sega_shaders.txt", &written);
++}
+diff --git a/crates/slot/tests/render_sega_quick.rs b/crates/slot/tests/render_sega_quick.rs
+new file mode 100644
+index 0000000..e254c8a
+--- /dev/null
++++ b/crates/slot/tests/render_sega_quick.rs
+@@ -0,0 +1,90 @@
++#![cfg(target_os = "macos")]
++
++mod common;
++
++use std::collections::VecDeque;
++
++use common::{clocked, tmp_root_with_real_carts};
++use slot::frontend::Frontend;
++use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
++use slot_input::{Btn, InputSource, Millis, RawEvent};
++use slot_power::SimPlatform;
++use slot_store::Platform;
++use slot_ui::QUICK_LABEL_X;
++
++struct Script(VecDeque<Vec<RawEvent>>);
++
++impl InputSource for Script {
++    fn poll(&mut self, _now: Millis) -> Vec<RawEvent> {
++        self.0.pop_front().unwrap_or_default()
++    }
++}
++
++fn tap(f: &mut Frontend, input: &mut Script, btn: Btn) {
++    input.0.push_back(vec![RawEvent::Down(btn)]);
++    f.advance(input);
++    input.0.push_back(vec![RawEvent::Up(btn)]);
++    f.advance(input);
++}
++
++fn save(px: &[u8], name: &str) {
++    let Ok(dir) = std::env::var("SCRATCH_PNG_DIR") else {
++        return;
++    };
++    let path = format!("{dir}/quick-menu-{name}.png");
++    let file = std::fs::File::create(&path).expect("create png");
++    let mut e = png::Encoder::new(std::io::BufWriter::new(file), OUT_W, OUT_H);
++    e.set_color(png::ColorType::Rgba);
++    e.set_depth(png::BitDepth::Eight);
++    e.write_header()
++        .expect("png header")
++        .write_image_data(px)
++        .expect("png data");
++    println!("wrote {path}");
++}
++
++#[test]
++fn the_full_screen_list_of_eight_systems_fits_between_the_top_and_the_legend() {
++    let Ok(surface) = HeadlessSurface::new() else {
++        return;
++    };
++    let Ok(mut c) = Compositor::new(&surface) else {
++        return;
++    };
++    let d = tmp_root_with_real_carts(&["Emerald"]);
++    for platform in [
++        Platform::Gb,
++        Platform::Nes,
++        Platform::Gg,
++        Platform::Sms,
++        Platform::Md,
++    ] {
++        let dir = d.path().join("Games").join(platform.dir_name());
++        std::fs::create_dir_all(&dir).expect("create dir");
++        let cart = dir.join(format!("Zelda.{}", platform.extensions()[0]));
++        std::fs::write(cart, vec![0u8; 0x8000]).expect("write cart");
++    }
++    clocked(d.path());
++    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
++    f.upload_faces(&mut c);
++    let mut input = Script(VecDeque::new());
++    tap(&mut f, &mut input, Btn::Menu);
++    tap(&mut f, &mut input, Btn::Down);
++    tap(&mut f, &mut input, Btn::A);
++    f.compose(&mut c);
++    let px = c.read_frame();
++    save(&px, "sega-screen-list");
++    let x0 = QUICK_LABEL_X as usize;
++    let ink = |x: usize, y: usize| {
++        let i = (y * OUT_W as usize + x) * 4;
++        px[i..i + 3].iter().all(|c| *c > 0x70)
++    };
++    let rows: Vec<usize> = (0..427).filter(|y| (x0..360).any(|x| ink(x, *y))).collect();
++    let bands = rows.windows(2).filter(|w| w[1] > w[0] + 1).count() + 1;
++    assert!(bands >= 8, "only {bands} ink bands for eight rows");
++    assert!(rows[0] > 0, "the first row is cut at the top");
++    assert!(
++        *rows.last().expect("ink") < 427,
++        "the last row runs into the legend"
++    );
++}
+diff --git a/crates/slot/tests/sega_ingame_shader.rs b/crates/slot/tests/sega_ingame_shader.rs
+new file mode 100644
+index 0000000..057b073
+--- /dev/null
++++ b/crates/slot/tests/sega_ingame_shader.rs
+@@ -0,0 +1,75 @@
++mod common;
++mod input_common;
++
++use input_common::playing;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{
++    read_sega_shaders, read_slot_state, Platform, RetroShader, SegaShaders, Shader, SlotState,
++};
++use slot_ui::{QuickRow, Toast};
++
++fn chord(session: &mut slot::session::Session, now: &mut Millis, b: Btn) -> u16 {
++    let mut ever = 0;
++    for ev in [
++        RawEvent::Down(Btn::Select),
++        RawEvent::Down(b),
++        RawEvent::Up(b),
++        RawEvent::Up(Btn::Select),
++    ] {
++        *now += 20;
++        session.feed([ev], *now);
++        ever |= session.emu().expect("core").input().0;
++    }
++    ever
++}
++
++fn cycle(platform: Platform, pick: fn(&SegaShaders) -> Shader) {
++    let (root, mut session) = playing(platform, "Zzz");
++    let mut now = 100;
++    assert_eq!(session.app().screen_shader(), Shader::Off);
++    assert_eq!(
++        session.app().quick_value(QuickRow::Shader),
++        Some(slot_ui::QuickValue::Off)
++    );
++    let mut ever = 0;
++    for _ in 0..Shader::RETRO.len() {
++        ever |= chord(&mut session, &mut now, Btn::A);
++        session.app().flush_state();
++        let saved = pick(&read_sega_shaders(root.path()));
++        assert_eq!(session.app().screen_shader(), saved, "{platform:?}");
++        if let Shader::Retro(s) = saved {
++            assert_eq!(session.app().toast(), Some(Toast::Retro(s)));
++        }
++    }
++    assert_eq!(session.app().screen_shader(), Shader::Off);
++    ever |= chord(&mut session, &mut now, Btn::B);
++    session.app().flush_state();
++    assert_eq!(
++        pick(&read_sega_shaders(root.path())),
++        Shader::Retro(RetroShader::Pixel)
++    );
++    let st = read_slot_state(root.path());
++    assert_eq!(st.shader_nes, SlotState::default().shader_nes);
++    assert_eq!(st.shader_gb, SlotState::default().shader_gb);
++    assert_eq!(
++        ever & (ButtonMask::A | ButtonMask::B),
++        0,
++        "A or B reached the game"
++    );
++}
++
++#[test]
++fn select_a_and_b_cycle_the_game_gear_shader_into_the_sega_file() {
++    cycle(Platform::Gg, |s| s.gg);
++}
++
++#[test]
++fn select_a_and_b_cycle_the_master_system_shader_into_the_sega_file() {
++    cycle(Platform::Sms, |s| s.sms);
++}
++
++#[test]
++fn select_a_and_b_cycle_the_mega_drive_shader_into_the_sega_file() {
++    cycle(Platform::Md, |s| s.md);
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+new file mode 100644
+index 0000000..742ff9c
+--- /dev/null
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -0,0 +1,187 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts, write_gb_cart};
++use slot::app::App;
++use slot_input::{Action, Btn};
++use slot_store::{
++    read_sega_shaders, read_slot_state, Platform, RetroShader, SegaShaders, Shader, SlotState,
++};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card(platforms: &[Platform]) -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    write_gb_cart(&root, "Tetris", "TETRIS");
++    for platform in platforms {
++        let dir = root.path().join("Games").join(platform.dir_name());
++        std::fs::create_dir_all(&dir).expect("create dir");
++        let cart = dir.join(format!("Sonic.{}", platform.extensions()[0]));
++        std::fs::write(cart, vec![0u8; 0x8000]).expect("write cart");
++    }
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_screen(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::Screen));
++    press(app, Btn::A);
++}
++
++fn screen_list(app: &mut App) -> Vec<QuickRow> {
++    open_screen(app);
++    let first = app.quick_menu().expect("menu open");
++    let mut rows = vec![first];
++    loop {
++        press(app, Btn::Down);
++        let row = app.quick_menu().expect("menu open");
++        if row == first {
++            return rows;
++        }
++        rows.push(row);
++    }
++}
++
++const SEGA: [Platform; 3] = [Platform::Gg, Platform::Sms, Platform::Md];
++
++#[test]
++fn the_screen_list_names_each_sega_system_after_the_others_when_its_carts_are_on_the_card() {
++    let (_root, mut app) = card(&SEGA);
++    assert_eq!(
++        screen_list(&mut app),
++        [
++            QuickRow::ScreenGba,
++            QuickRow::ScreenGbc,
++            QuickRow::ScreenGb,
++            QuickRow::ScreenGg,
++            QuickRow::ScreenSms,
++            QuickRow::ScreenMd,
++        ]
++    );
++}
++
++#[test]
++fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
++    let (_root, mut app) = card(&[Platform::Md, Platform::Nes]);
++    assert_eq!(
++        screen_list(&mut app),
++        [
++            QuickRow::ScreenGba,
++            QuickRow::ScreenGbc,
++            QuickRow::ScreenGb,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++            QuickRow::ScreenMd,
++        ]
++    );
++    let (_root, mut app) = card(&[]);
++    assert_eq!(
++        screen_list(&mut app),
++        [QuickRow::ScreenGba, QuickRow::ScreenGbc, QuickRow::ScreenGb]
++    );
++}
++
++#[test]
++fn every_card_mix_hides_exactly_the_absent_systems_and_upstreams_rows() {
++    use slot::retro_quick::hidden_on_shelf;
++    for own in [true, false] {
++        for framed in [true, false] {
++            assert_eq!(hidden_on_shelf(own, framed, [true; 4]), None);
++            for key in 0..15u8 {
++                let systems = [0, 1, 2, 3].map(|i| key & 1 << i != 0);
++                let hidden = hidden_on_shelf(own, framed, systems).expect("a hidden list");
++                assert_eq!(hidden.contains(&QuickRow::WallpaperTint), !own);
++                assert_eq!(hidden.contains(&QuickRow::GbaBezel), !framed);
++                assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
++                assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
++                assert_eq!(hidden.contains(&QuickRow::ScreenGg), !systems[1]);
++                assert_eq!(hidden.contains(&QuickRow::ScreenSms), !systems[2]);
++                assert_eq!(hidden.contains(&QuickRow::ScreenMd), !systems[3]);
++            }
++        }
++    }
++}
++
++#[test]
++fn each_sega_shader_row_walks_the_nine_retro_shaders_into_its_own_file_not_slot_state() {
++    type Pick = fn(&SegaShaders) -> Shader;
++    let rows: [(QuickRow, QuickRow, Pick); 3] = [
++        (QuickRow::ScreenGg, QuickRow::GgShader, |s| s.gg),
++        (QuickRow::ScreenSms, QuickRow::SmsShader, |s| s.sms),
++        (QuickRow::ScreenMd, QuickRow::MdShader, |s| s.md),
++    ];
++    for (console, row, pick) in rows {
++        let (root, mut app) = card(&SEGA);
++        let before = std::fs::read(root.path().join("Config/slot.state")).ok();
++        open_screen(&mut app);
++        for _ in 0..console.position(app.hidden_rows()) {
++            press(&mut app, Btn::Down);
++        }
++        assert_eq!(app.quick_menu(), Some(console));
++        press(&mut app, Btn::A);
++        assert_eq!(app.quick_menu(), Some(row));
++        assert_eq!(app.quick_value(row), Some(QuickValue::Off));
++        let mut seen = vec![];
++        for _ in 0..Shader::RETRO.len() {
++            press(&mut app, Btn::Right);
++            app.flush_state();
++            seen.push(pick(&read_sega_shaders(root.path())));
++        }
++        assert_eq!(seen[..2], [Shader::Grid, Shader::Dot], "{console:?}");
++        assert_eq!(seen[7], Shader::Retro(RetroShader::Pixel), "{console:?}");
++        assert_eq!(seen[8], Shader::Off, "{console:?}");
++        press(&mut app, Btn::Left);
++        app.flush_state();
++        let saved = read_sega_shaders(root.path());
++        assert_eq!(pick(&saved), Shader::Retro(RetroShader::Pixel));
++        assert_eq!(
++            app.quick_value(row),
++            Some(QuickValue::Retro(RetroShader::Pixel))
++        );
++        let others = [saved.gg, saved.sms, saved.md]
++            .iter()
++            .filter(|s| **s == Shader::Off)
++            .count();
++        assert_eq!(others, 2, "{console:?} moved another Sega shader");
++        assert_eq!(
++            std::fs::read(root.path().join("Config/slot.state")).ok(),
++            before,
++            "{console:?} wrote slot.state"
++        );
++        let st = read_slot_state(root.path());
++        assert_eq!(st.shader_nes, SlotState::default().shader_nes);
++        assert_eq!(st.shader_snes, SlotState::default().shader_snes);
++    }
++}
++
++#[test]
++fn a_sega_shader_on_the_card_is_the_one_the_screen_draws_with_after_a_boot() {
++    let (root, app) = card(&SEGA);
++    drop(app);
++    std::fs::write(
++        root.path().join("Config/sega_shaders.txt"),
++        "gg=crt-pi\nsms=line\nmd=scanlines\n",
++    )
++    .expect("write sega shaders");
++    let app = boot(root.path());
++    assert_eq!(
++        app.quick_value(QuickRow::GgShader),
++        Some(QuickValue::Retro(RetroShader::CrtPi))
++    );
++    assert_eq!(
++        app.quick_value(QuickRow::SmsShader),
++        Some(QuickValue::Retro(RetroShader::Line))
++    );
++    assert_eq!(
++        app.quick_value(QuickRow::MdShader),
++        Some(QuickValue::Retro(RetroShader::Scanlines))
++    );
++}
