@@ -18,6 +18,8 @@ Game Gear is the smallest Sega step: 160x144 like Game Boy, two buttons and Star
 - [x] Region from the SMS-style header at 0x7FF0 (`TMR SEGA`), GG codes in the region nibble (`slot_store::sega::sms_region`; the Game Gear has one shell, so the region does not change it).
 - [x] Placeholder cart until the cart art issue lands (replaced by patch 0028).
 
+- [x] LCD filter (patch 0031, ADR 0060): the Game Gear Screen row and in-game Shader row offer upstream's LCD3x right after Off (`Shader::GG`), stored as `gg=lcd3x` in `Config/sega_shaders.txt`; Off stays the default and the other systems' lists do not change.
+
 ## Tests
 | ID | File | Asserts |
 |---|---|---|

@@ -1,0 +1,386 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Fri, 16 Oct 2026 18:08:56 +0400
+Subject: [PATCH] gg-lcd
+
+---
+ crates/slot-gfx/tests/gg_lcd.rs              | 99 ++++++++++++++++++++
+ crates/slot-store/src/platform_policy.rs     |  5 +-
+ crates/slot-store/src/retro_shader.rs        | 15 +++
+ crates/slot-store/src/sega_shader.rs         | 20 ++--
+ crates/slot-store/tests/gg_platform.rs       | 17 +++-
+ crates/slot-store/tests/sega_shader_state.rs | 10 +-
+ crates/slot/src/app.rs                       |  2 +-
+ crates/slot/src/retro_quick.rs               | 10 +-
+ crates/slot/tests/sega_ingame_shader.rs      |  5 +-
+ crates/slot/tests/sega_quick_shader.rs       | 39 ++++++--
+ 10 files changed, 191 insertions(+), 31 deletions(-)
+ create mode 100644 crates/slot-gfx/tests/gg_lcd.rs
+
+diff --git a/crates/slot-gfx/tests/gg_lcd.rs b/crates/slot-gfx/tests/gg_lcd.rs
+new file mode 100644
+index 0000000..963ec72
+--- /dev/null
++++ b/crates/slot-gfx/tests/gg_lcd.rs
+@@ -0,0 +1,99 @@
++#![cfg(target_os = "macos")]
++
++use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect};
++use std::sync::{Mutex, PoisonError};
++
++static GL: Mutex<()> = Mutex::new(());
++
++const CANVAS: (u32, u32) = (240, 160);
++const PICTURE: [f32; 4] = [40.0 / 240.0, 8.0 / 160.0, 200.0 / 240.0, 152.0 / 160.0];
++const PANEL_W: usize = 720;
++
++fn game_gear(grey: bool) -> Vec<u8> {
++    let mut buf = Vec::with_capacity(240 * 160 * 4);
++    for y in 0..160 {
++        for x in 0..240 {
++            let inside = (40..200).contains(&x) && (8..152).contains(&y);
++            let px = match (inside, grey) {
++                (false, _) => [0, 0, 0, 0],
++                (true, true) => [160, 160, 160, 0],
++                (true, false) => [(x * 7 + y * 13) as u8, (y * 5) as u8, (x * 3) as u8, 0],
++            };
++            buf.extend_from_slice(&px);
++        }
++    }
++    buf
++}
++
++fn drawn(c: &mut Compositor, effect: ScreenEffect, src: &[u8]) -> Vec<u8> {
++    c.set_game_canvas(CANVAS.0, CANVAS.1);
++    c.set_picture(PICTURE);
++    c.set_screen_effect(effect);
++    c.set_screen_power(1.0);
++    c.begin_frame(slot_gfx::Layout::Framed);
++    c.upload_game(src);
++    c.draw_game();
++    c.read_frame()
++}
++
++fn at(frame: &[u8], x: usize, y: usize) -> &[u8] {
++    let i = (y * PANEL_W + x) * 4;
++    &frame[i..i + 4]
++}
++
++fn in_picture(x: usize, y: usize) -> bool {
++    (120..600).contains(&x) && (24..456).contains(&y)
++}
++
++#[test]
++fn lcd3x_draws_a_3x_game_gear_frame_the_same_twice_and_leaves_the_border_alone() {
++    let _g = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let Ok(surface) = HeadlessSurface::new() else {
++        return;
++    };
++    let mut c = Compositor::new(&surface).expect("the compositor and its shaders build");
++    let src = game_gear(false);
++    let off = drawn(&mut c, ScreenEffect::None, &src);
++    let once = drawn(&mut c, ScreenEffect::Lcd3x, &src);
++    let twice = drawn(&mut c, ScreenEffect::Lcd3x, &src);
++    assert_eq!(once, twice, "LCD3x is not deterministic on Game Gear");
++    let mut changed = 0;
++    for y in 0..480 {
++        for x in 0..PANEL_W {
++            if in_picture(x, y) {
++                changed += usize::from(at(&once, x, y) != at(&off, x, y));
++            } else {
++                assert_eq!(
++                    at(&once, x, y),
++                    at(&off, x, y),
++                    "({x}, {y}) outside the picture"
++                );
++            }
++        }
++    }
++    assert!(
++        changed > 480 * 432 / 2,
++        "only {changed} picture pixels changed"
++    );
++}
++
++#[test]
++fn lcd3x_on_a_flat_game_gear_frame_repeats_every_3_panel_pixels_with_3_subpixel_columns() {
++    let _g = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let Ok(surface) = HeadlessSurface::new() else {
++        return;
++    };
++    let mut c = Compositor::new(&surface).expect("the compositor and its shaders build");
++    let frame = drawn(&mut c, ScreenEffect::Lcd3x, &game_gear(true));
++    for y in 24..453 {
++        for x in 120..597 {
++            assert_eq!(at(&frame, x, y), at(&frame, x + 3, y), "({x}, {y})");
++            assert_eq!(at(&frame, x, y), at(&frame, x, y + 3), "({x}, {y})");
++        }
++    }
++    let cells: Vec<&[u8]> = (120..123).map(|x| at(&frame, x, 25)).collect();
++    assert!(
++        cells[0] != cells[1] && cells[1] != cells[2] && cells[0] != cells[2],
++        "{cells:?}"
++    );
++}
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 0ed0e96..1d001d3 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -77,9 +77,8 @@ impl Platform {
+         match self {
+             Platform::Gba => &Shader::GBA,
+             Platform::Gb | Platform::Gbc => &Shader::GB,
+-            Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+-                &Shader::RETRO
+-            }
++            Platform::Gg => &Shader::GG,
++            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => &Shader::RETRO,
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/retro_shader.rs b/crates/slot-store/src/retro_shader.rs
+index 87acdc4..b16e054 100644
+--- a/crates/slot-store/src/retro_shader.rs
++++ b/crates/slot-store/src/retro_shader.rs
+@@ -74,4 +74,19 @@ impl Shader {
+         Shader::Retro(RetroShader::Line),
+         Shader::Retro(RetroShader::Pixel),
+     ];
++
++    // Game Gear is an LCD handheld at 3x like the Game Boy, so it gets upstream's LCD3x right
++    // after Off, where Shader::GB and Shader::GBA have it, before the shared retro list.
++    pub const GG: [Shader; 10] = [
++        Shader::Off,
++        Shader::Lcd3x,
++        Shader::Grid,
++        Shader::Dot,
++        Shader::Retro(RetroShader::Sharp),
++        Shader::Retro(RetroShader::Scanlines),
++        Shader::Retro(RetroShader::CrtPi),
++        Shader::Retro(RetroShader::Crt1Tap),
++        Shader::Retro(RetroShader::Line),
++        Shader::Retro(RetroShader::Pixel),
++    ];
+ }
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index 1c05bbb..f92c0af 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -2,6 +2,7 @@ use std::path::Path;
+ 
+ use crate::atomic::atomic_write;
+ use crate::slot_state::{list_path, Shader};
++use crate::Platform;
+ 
+ pub const SEGA_SHADERS_FILE: &str = "sega_shaders.txt";
+ 
+@@ -26,15 +27,18 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+     let mut s = SegaShaders::default();
+     let text = std::fs::read_to_string(list_path(root, SEGA_SHADERS_FILE)).unwrap_or_default();
+     for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+-        let Some(shader) = Shader::parse(value.trim()).filter(|v| Shader::RETRO.contains(v)) else {
+-            eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {key}={value}");
+-            continue;
++        let (shader, platform) = match key.trim() {
++            "gg" => (&mut s.gg, Platform::Gg),
++            "sms" => (&mut s.sms, Platform::Sms),
++            "md" => (&mut s.md, Platform::Md),
++            other => {
++                eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {other}");
++                continue;
++            }
+         };
+-        match key.trim() {
+-            "gg" => s.gg = shader,
+-            "sms" => s.sms = shader,
+-            "md" => s.md = shader,
+-            other => eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {other}"),
++        match Shader::parse(value.trim()).filter(|v| platform.shader_choices().contains(v)) {
++            Some(v) => *shader = v,
++            None => eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {key}={value}"),
+         }
+     }
+     s
+diff --git a/crates/slot-store/tests/gg_platform.rs b/crates/slot-store/tests/gg_platform.rs
+index 1f9316e..0794619 100644
+--- a/crates/slot-store/tests/gg_platform.rs
++++ b/crates/slot-store/tests/gg_platform.rs
+@@ -24,14 +24,27 @@ fn game_gear_has_its_own_name_folder_extension_and_picture() {
+ }
+ 
+ #[test]
+-fn game_gear_plays_like_a_game_boy_with_the_retro_shaders() {
++fn game_gear_plays_like_a_game_boy_with_lcd3x_and_the_retro_shaders() {
+     assert!(Platform::Gg.owns_shoulders());
+     assert!(!Platform::Gg.passes_xy_through());
+     assert!(!Platform::Gg.select_x_toggles_picture());
+     assert!(!Platform::Gg.has_gb_palettes());
+     assert!(!Platform::Gg.stretch_crops_height());
+     assert_eq!(Platform::Gg.picker_cores(), None);
+-    assert_eq!(Platform::Gg.shader_choices(), &Shader::RETRO);
++    assert_eq!(Platform::Gg.shader_choices(), &Shader::GG);
++}
++
++#[test]
++fn only_game_gear_adds_lcd3x_to_the_retro_list_right_after_off() {
++    assert_eq!(Shader::GG[..2], [Shader::Off, Shader::Lcd3x]);
++    assert_eq!(Shader::GG[2..], Shader::RETRO[1..]);
++    for platform in [Platform::Nes, Platform::Snes, Platform::Sms, Platform::Md] {
++        assert_eq!(platform.shader_choices(), &Shader::RETRO, "{platform:?}");
++        assert!(
++            !platform.shader_choices().contains(&Shader::Lcd3x),
++            "{platform:?}"
++        );
++    }
+ }
+ 
+ #[test]
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index 61c40b0..168c27e 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -34,13 +34,21 @@ fn a_damaged_or_foreign_line_keeps_the_default_for_that_system_only() {
+     let d = tmp_root();
+     std::fs::write(
+         d.path().join("Config/sega_shaders.txt"),
+-        "gg=lcd3x\nsms=bogus\nmd=pixel\nnes=crt-pi\nnot a line\n",
++        "gg=simpletex\nsms=lcd3x\nmd=pixel\nnes=crt-pi\nnot a line\n",
+     )
+     .expect("write");
+     let s = read_sega_shaders(d.path());
+     assert_eq!(s.gg, Shader::Off);
+     assert_eq!(s.sms, Shader::Off);
+     assert_eq!(s.md, Shader::Retro(RetroShader::Pixel));
++    std::fs::write(
++        d.path().join("Config/sega_shaders.txt"),
++        "gg=lcd3x\nmd=lcd3x\n",
++    )
++    .expect("write");
++    let s = read_sega_shaders(d.path());
++    assert_eq!(s.gg, Shader::Lcd3x);
++    assert_eq!(s.md, Shader::Off);
+ }
+ 
+ #[test]
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 95d5fd9..243e595 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -2346,7 +2346,7 @@ impl App {
+             Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
+             Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
+             Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
+-            Platform::Gg => (&mut self.sega_shaders.gg, &Shader::RETRO[..]),
++            Platform::Gg => (&mut self.sega_shaders.gg, &Shader::GG[..]),
+             Platform::Sms => (&mut self.sega_shaders.sms, &Shader::RETRO[..]),
+             Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
+         };
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index c57e6ae..6c57691 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -13,13 +13,13 @@ pub fn step(state: &mut SlotState, row: QuickRow, right: bool) {
+ }
+ 
+ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool {
+-    let shader = match row {
+-        QuickRow::GgShader => &mut shaders.gg,
+-        QuickRow::SmsShader => &mut shaders.sms,
+-        QuickRow::MdShader => &mut shaders.md,
++    let (shader, platform) = match row {
++        QuickRow::GgShader => (&mut shaders.gg, Platform::Gg),
++        QuickRow::SmsShader => (&mut shaders.sms, Platform::Sms),
++        QuickRow::MdShader => (&mut shaders.md, Platform::Md),
+         _ => return false,
+     };
+-    *shader = shader.step(&Shader::RETRO, right);
++    *shader = shader.step(platform.shader_choices(), right);
+     true
+ }
+ 
+diff --git a/crates/slot/tests/sega_ingame_shader.rs b/crates/slot/tests/sega_ingame_shader.rs
+index 057b073..9b53cda 100644
+--- a/crates/slot/tests/sega_ingame_shader.rs
++++ b/crates/slot/tests/sega_ingame_shader.rs
+@@ -33,7 +33,7 @@ fn cycle(platform: Platform, pick: fn(&SegaShaders) -> Shader) {
+         Some(slot_ui::QuickValue::Off)
+     );
+     let mut ever = 0;
+-    for _ in 0..Shader::RETRO.len() {
++    for _ in 0..platform.shader_choices().len() {
+         ever |= chord(&mut session, &mut now, Btn::A);
+         session.app().flush_state();
+         let saved = pick(&read_sega_shaders(root.path()));
+@@ -41,6 +41,9 @@ fn cycle(platform: Platform, pick: fn(&SegaShaders) -> Shader) {
+         if let Shader::Retro(s) = saved {
+             assert_eq!(session.app().toast(), Some(Toast::Retro(s)));
+         }
++        if saved == Shader::Lcd3x {
++            assert_eq!(session.app().toast(), Some(Toast::ShaderLcd3x));
++        }
+     }
+     assert_eq!(session.app().screen_shader(), Shader::Off);
+     ever |= chord(&mut session, &mut now, Btn::B);
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index 742ff9c..1ca87ec 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -111,14 +111,29 @@ fn every_card_mix_hides_exactly_the_absent_systems_and_upstreams_rows() {
+ }
+ 
+ #[test]
+-fn each_sega_shader_row_walks_the_nine_retro_shaders_into_its_own_file_not_slot_state() {
++fn each_sega_shader_row_walks_its_own_list_into_its_own_file_not_slot_state() {
+     type Pick = fn(&SegaShaders) -> Shader;
+-    let rows: [(QuickRow, QuickRow, Pick); 3] = [
+-        (QuickRow::ScreenGg, QuickRow::GgShader, |s| s.gg),
+-        (QuickRow::ScreenSms, QuickRow::SmsShader, |s| s.sms),
+-        (QuickRow::ScreenMd, QuickRow::MdShader, |s| s.md),
++    let rows: [(QuickRow, QuickRow, Pick, &[Shader]); 3] = [
++        (
++            QuickRow::ScreenGg,
++            QuickRow::GgShader,
++            |s| s.gg,
++            &Shader::GG,
++        ),
++        (
++            QuickRow::ScreenSms,
++            QuickRow::SmsShader,
++            |s| s.sms,
++            &Shader::RETRO,
++        ),
++        (
++            QuickRow::ScreenMd,
++            QuickRow::MdShader,
++            |s| s.md,
++            &Shader::RETRO,
++        ),
+     ];
+-    for (console, row, pick) in rows {
++    for (console, row, pick, list) in rows {
+         let (root, mut app) = card(&SEGA);
+         let before = std::fs::read(root.path().join("Config/slot.state")).ok();
+         open_screen(&mut app);
+@@ -130,14 +145,18 @@ fn each_sega_shader_row_walks_the_nine_retro_shaders_into_its_own_file_not_slot_
+         assert_eq!(app.quick_menu(), Some(row));
+         assert_eq!(app.quick_value(row), Some(QuickValue::Off));
+         let mut seen = vec![];
+-        for _ in 0..Shader::RETRO.len() {
++        for _ in 0..list.len() {
+             press(&mut app, Btn::Right);
+             app.flush_state();
+             seen.push(pick(&read_sega_shaders(root.path())));
++            if console == QuickRow::ScreenGg && seen.len() == 1 {
++                assert_eq!(
++                    std::fs::read_to_string(root.path().join("Config/sega_shaders.txt")).ok(),
++                    Some("gg=lcd3x\nsms=off\nmd=off\n".into())
++                );
++            }
+         }
+-        assert_eq!(seen[..2], [Shader::Grid, Shader::Dot], "{console:?}");
+-        assert_eq!(seen[7], Shader::Retro(RetroShader::Pixel), "{console:?}");
+-        assert_eq!(seen[8], Shader::Off, "{console:?}");
++        assert_eq!(seen, [&list[1..], &list[..1]].concat(), "{console:?}");
+         press(&mut app, Btn::Left);
+         app.flush_state();
+         let saved = read_sega_shaders(root.path());
