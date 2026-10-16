@@ -57,3 +57,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [52](52-platform-sms.md) | Add Platform::Sms, Master System on Genesis Plus GX at 2x | 7 | platform | feature | M | 51-platform-gg |
 | [53](53-platform-md.md) | Add Platform::Md, Mega Drive on Genesis Plus GX with 6-button input and live-width Stretch | 7 | platform | feature | L | 52-platform-sms |
 | [54](54-system-picture.md) | Choose each retro system's default picture mode from its Screen section | 7 | video | feature | S | 43-nes-snes-default-stretch, 53-platform-md |
+| [55](55-crop-overscan.md) | Crop the NES and SNES overscan edges in a new default picture mode | 7 | video | feature | S | 54-system-picture |
