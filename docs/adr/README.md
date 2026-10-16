@@ -72,3 +72,4 @@ the patch set looks the way it does.
 | [0053](0053-genesis-plus-gx-for-sega.md) | Use Genesis Plus GX as the one core for Game Gear, Master System and Mega Drive | Accepted. Amends 0002 | 2026-10-15 |
 | [0054](0054-bitmap-retro-carts.md) | Draw NES and SNES carts from generated neutral bitmaps with upstream's Overlay | Accepted. Amends 0042 | 2026-10-16 |
 | [0055](0055-sega-tokens-at-named-test-sites.md) | Widen named test sites (b), (e), (g) and (h) for the Sega platforms and Genesis Plus GX | Accepted. Amends 0013 and 0048 | 2026-10-16 |
+| [0056](0056-sega-carts-one-box-per-platform.md) | Draw the Sega carts from generated neutrals, one box per platform | Accepted. Extends 0054 | 2026-10-16 |

@@ -250,3 +250,12 @@ they are GPL-3.0-or-later like the rest of the patch set. The lighting (grey lev
 bevel and label well lips) is measured from upstream's `assets/gba_neutral.png`, painted by
 Markus (@MarkusMaribu) for slot PR #74 and shipped under slot's GPL-3.0; no pixel of it is
 copied. Credit for that look is his.
+
+## Sega cart shells
+
+Patch `0028-sega-carts` adds `gg_neutral.png`, `sms_neutral.png`, `segacard_neutral.png`,
+`megadrive_neutral.png` and `genesis_neutral.png` beside them, made by the same example from our own
+Sega outline and detail SVGs, with the same lighting measured from upstream's `gba_neutral.png`. They
+are GPL-3.0-or-later. The reference photos in `docs/cart-art/refs/` that guided the outlines are
+listed with their own licences in `docs/cart-art/refs/SOURCES.md`; none of their pixels is used in any
+asset, and none ships in a release.

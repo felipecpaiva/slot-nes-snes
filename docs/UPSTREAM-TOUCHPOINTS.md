@@ -15,7 +15,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot-retro/src/lib.rs` | 3 | 3 (+3/-0) | 0004-canvas, 0007-input |
 | `crates/slot-retro/src/libretro.rs` | 21 | 60 (+60/-0) | 0004-canvas, 0006-libretro-env, 0024-platform-gg, 0026-platform-md |
 | `crates/slot-retro/src/mock.rs` | 5 | 19 (+15/-4) | 0004-canvas |
-| `crates/slot-store/src/cart_shell.rs` | 3 | 12 (+12/-0) | 0013-cart-shell-region |
+| `crates/slot-store/src/cart_shell.rs` | 3 | 27 (+27/-0) | 0013-cart-shell-region, 0028-sega-carts |
 | `crates/slot-store/src/core.rs` | 6 | 67 (+65/-2) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0003-core-fceumm, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-store/src/lib.rs` | 7 | 11 (+11/-0) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0005-platform-snes, 0013-cart-shell-region, 0017-retro-shaders, 0021-shelf-cart-memory, 0024-platform-gg, 0027-sega-shaders |
 | `crates/slot-store/src/platform.rs` | 5 | 25 (+25/-0) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
@@ -24,11 +24,11 @@ the reasons (docs/REBASE.md).
 | `crates/slot-store/tests/durability.rs` | 2 | 4 (+3/-1) | 0002-platform-nes, 0014-shaders |
 | `crates/slot-ui/src/art.rs` | 1 | 2 (+1/-1) | 0020-label-top |
 | `crates/slot-ui/src/board.rs` | 3 | 8 (+6/-2) | 0012-cart-art |
-| `crates/slot-ui/src/cart.rs` | 11 | 49 (+44/-5) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0020-label-top, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
-| `crates/slot-ui/src/lib.rs` | 6 | 23 (+20/-3) | 0012-cart-art, 0016-quick-menu-retro-shaders, 0020-label-top |
+| `crates/slot-ui/src/cart.rs` | 11 | 60 (+57/-3) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0020-label-top, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
+| `crates/slot-ui/src/lib.rs` | 6 | 24 (+21/-3) | 0012-cart-art, 0016-quick-menu-retro-shaders, 0020-label-top, 0028-sega-carts |
 | `crates/slot-ui/src/quick_menu.rs` | 13 | 80 (+75/-5) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders |
 | `crates/slot-ui/src/shelf.rs` | 4 | 12 (+10/-2) | 0012-cart-art, 0021-shelf-cart-memory |
-| `crates/slot-ui/src/shell.rs` | 1 | 2 (+2/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
+| `crates/slot-ui/src/shell.rs` | 1 | 3 (+3/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0017-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders |
@@ -105,9 +105,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-retro/src/mock.rs` | crates/slot-retro/src/mock.rs#impl MockCore {#2 | 33 | +2/-1 | impl MockCore { | Allocates the mock video buffer from the canvas instead of fixed GBA size |
 | `crates/slot-retro/src/mock.rs` | crates/slot-retro/src/mock.rs#impl MockCore {#3 | 45-47 | +4/-3 | impl MockCore { | Paints the mock test pattern across the canvas instead of fixed GBA size |
 | `crates/slot-retro/src/mock.rs` | crates/slot-retro/src/mock.rs#impl RetroCore for MockCore {#1 | 139 | +4/-0 | impl RetroCore for MockCore { | Reports the mock core's canvas size through the new trait method |
-| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#pub enum Outline {#1 | 12 | +4/-0 | pub enum Outline { | Adds NES, Famicom, SNES and SFC outlines so shells can be chosen |
-| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#impl ShellChoice {#1 | 35 | +4/-0 | impl ShellChoice { | Parses the new outline names from the shell choice setting |
-| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#impl ShellChoice {#2 | 60 | +4/-0 | impl ShellChoice { | Writes the new outline names back out to the shell choice setting |
+| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#pub enum Outline {#1 | 12 | +9/-0 | pub enum Outline { | Adds NES, Famicom, SNES and SFC outlines so shells can be chosen |
+| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#impl ShellChoice {#1 | 35 | +9/-0 | impl ShellChoice { | Parses the new outline names from the shell choice setting |
+| `crates/slot-store/src/cart_shell.rs` | crates/slot-store/src/cart_shell.rs#impl ShellChoice {#2 | 60 | +9/-0 | impl ShellChoice { | Writes the new outline names back out to the shell choice setting |
 | `crates/slot-store/src/core.rs` | crates/slot-store/src/core.rs#pub enum Core {#1 | 12 | +5/-0 | pub enum Core { | Adds the FCEUmm, Snes9x, Nestopia and Snes9x 2005+ cores |
 | `crates/slot-store/src/core.rs` | crates/slot-store/src/core.rs#impl Core {#1 | 21 | +5/-0 | impl Core { | Gives each new core its ini name |
 | `crates/slot-store/src/core.rs` | crates/slot-store/src/core.rs#impl Core {#2 | 32 | +5/-0 | impl Core { | Gives each new core its display name |
@@ -150,9 +150,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/board.rs` | crates/slot-ui/src/board.rs#pub fn lid_from(canvas: Canvas, shelf: Placed, progress: f32) -> (Placed, f32) {#1 | 232 | +4/-1 | pub fn lid_from(canvas: Canvas, shelf: Placed, progress: f32) -> (Placed, f32) { | Rests the lifted lid by the cart's own aspect (lid_rest_for), so NES and SNES lids are not stretched to the GBA box; a GBA cart gets upstream's rest unchanged |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#use crate::board::{BOARD_H, BOARD_W};#1 | 6 | +5/-0 | use crate::board::{BOARD_H, BOARD_W}; | Imports the NES and SNES shell types, sizes and the retro face builder (retro_face.rs, our own procedural renderer, since v1.7.0 draws its three moulds from bitmaps) |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {#1 | 84 | +6/-1 | pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> { | Adds Nes and Snes arms so the Game Boy shell match stays exhaustive |
-| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {#2 | 88 | +4/-1 | pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> { | Keeps the new outline choices from forcing a Game Boy shell |
-| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn seated_box(platform: Platform) -> (u32, u32) {#1 | 153 | +3/-1 | pub fn seated_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their seated cart box sizes |
-| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_box(platform: Platform) -> (u32, u32) {#1 | 160 | +3/-1 | pub fn cart_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their cart box sizes from retro_cart's look table |
+| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {#2 | 88 | +13/-1 | pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> { | Keeps the new outline choices from forcing a Game Boy shell |
+| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn seated_box(platform: Platform) -> (u32, u32) {#1 | 153 | +5/-0 | pub fn seated_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their seated cart box sizes |
+| `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_box(platform: Platform) -> (u32, u32) {#1 | 160 | +5/-0 | pub fn cart_box(platform: Platform) -> (u32, u32) { | Gives NES and SNES their cart box sizes from retro_cart's look table |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn gb_cart_shadow(shell: GbShell) -> CartFace {#1 | 173 | +5/-0 | pub fn gb_cart_shadow(shell: GbShell) -> CartFace { | Adds the shadow face for NES and SNES carts |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn cart_face(cart: &Cart) -> CartFace {#1 | 182 | +3/-0 | pub fn cart_face(cart: &Cart) -> CartFace { | Builds a NES or SNES lid face through retro_cart_face (label kept by its top rows); GBA and Game Boy carts take upstream's path unchanged |
 | `crates/slot-ui/src/cart.rs` | crates/slot-ui/src/cart.rs#pub fn is_clear(cart: &Cart) -> bool {#1 | 189 | +1/-1 | pub fn is_clear(cart: &Cart) -> bool { | A NES or SNES face already draws its own see-through plastic and board, so a clear cart_shell.ini finish never asks the shelf for upstream's GBA interior and board |
@@ -164,7 +164,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#mod refusal;#1 | 24 | +5/-0 | mod refusal; | Declares the retro_cart, retro_face, retro_mould, retro_shadows and retro_shell modules |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use cart::{#1 | 49-51 | +3/-3 | pub use cart::{ | Re-exports retro_cart_shadow so the frontend can publish NES and SNES shadows |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use icon::{badge_face, icon_box, icon_face, star_face, warm_fonts, Badge, Ic#1 | 60 | +1/-0 | pub use icon::{badge_face, icon_box, icon_face, star_face, warm_fonts, Badge, Ic | Re-exports shelf_cart_of so the app can fit lids per shelf |
-| `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use refusal::Refusal;#1 | 80 | +9/-0 | pub use refusal::Refusal; | Re-exports the retro shell types, faces, shadows, label cover and colour presets |
+| `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use refusal::Refusal;#1 | 80 | +10/-0 | pub use refusal::Refusal; | Re-exports the retro shell types, faces, shadows, label cover and colour presets |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickRow {#1 | 48 | +10/-0 | pub enum QuickRow { | Adds the NesShader and SnesShader rows and the ScreenNes and ScreenSnes console rows |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#1 | 52 | +1/-1 | impl QuickRow { | Counts the two new rows in the quick menu row list |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#2 | 92 | +10/-0 | impl QuickRow { | Lists the new rows in ALL so their label faces are built |
@@ -182,7 +182,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#1 | 330 | +4/-0 | impl Shelf { | held() tells the app the cursor is at rest, so a held direction writes once when it is let go (patch 0021) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#2 | 460 | +1/-1 | impl Shelf { | Backs a receding NES or SNES cart with its own shadow instead of the GBA one |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#3 | 542 | +2/-1 | impl Shelf { | Puts the Favorites star on the NES or SNES label box instead of the GBA label position |
-| `crates/slot-ui/src/shell.rs` | crates/slot-ui/src/shell.rs#pub fn shell_for(cart: &Cart) -> Shell {#1 | 92 | +2/-0 | pub fn shell_for(cart: &Cart) -> Shell { | Gives NES and SNES carts their own plastic shell |
+| `crates/slot-ui/src/shell.rs` | crates/slot-ui/src/shell.rs#pub fn shell_for(cart: &Cart) -> Shell {#1 | 92 | +3/-0 | pub fn shell_for(cart: &Cart) -> Shell { | Gives NES and SNES carts their own plastic shell |
 | `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#pub enum Toast {#1 | 26 | +1/-0 | pub enum Toast { | The one retro hook in Toast: Retro carries a RetroShader, like Palette carries a GbPalette |
 | `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#impl Toast {#1 | 57 | +1/-0 | impl Toast { | Places retro banners after the palette ones; Toast::all() stays upstream's list, Toast::every() adds them |
 | `crates/slot-ui/src/toast.rs` | crates/slot-ui/src/toast.rs#impl Toast {#2 | 90 | +1/-0 | impl Toast { | Says which retro shader was picked |
