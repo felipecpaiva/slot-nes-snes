@@ -33,7 +33,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0017-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders |
-| `crates/slot/src/app.rs` | 42 | 226 (+206/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders |
+| `crates/slot/src/app.rs` | 42 | 226 (+206/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd |
 | `crates/slot/src/audio/alsa.rs` | 4 | 10 (+6/-4) | 0018-audio-reopen |
 | `crates/slot/src/audio/mod.rs` | 2 | 2 (+2/-0) | 0018-audio-reopen |
 | `crates/slot/src/core.rs` | 7 | 19 (+15/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg |
