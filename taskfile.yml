@@ -11,6 +11,8 @@ vars:
     sh: . ./SLOT_PIN && echo "$snes9x2005_plus_commit"
   GENESIS_PLUS_GX_COMMIT:
     sh: . ./SLOT_PIN && echo "$genesis_plus_gx_commit"
+  PCSX_REARMED_COMMIT:
+    sh: . ./SLOT_PIN && echo "$pcsx_rearmed_commit"
 
 tasks:
   default:
@@ -131,6 +133,25 @@ tasks:
     cmds:
       - sh cores/genesis_plus_gx/build.sh build {{.GENESIS_PLUS_GX_COMMIT}} vendor/genesis_plus_gx-src.tar.gz build/genesis_plus_gx-host vendor/genesis_plus_gx_libretro.dylib
 
+  core:pcsx_rearmed:src:
+    desc: Fetch the pinned pcsx_rearmed source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/pcsx_rearmed-src.tar.gz
+      - test "$(cat vendor/pcsx_rearmed-src.sha 2>/dev/null)" = "{{.PCSX_REARMED_COMMIT}}"
+    cmds:
+      - rm -f vendor/pcsx_rearmed-src.tar.gz vendor/pcsx_rearmed-src.sha
+      - sh cores/pcsx_rearmed/build.sh fetch {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz
+      - echo "{{.PCSX_REARMED_COMMIT}}" > vendor/pcsx_rearmed-src.sha
+
+  core:pcsx_rearmed:host:
+    desc: Build the pcsx_rearmed host dylib (the interpreter, osx sets DYNAREC 0) into vendor/
+    deps: [core:pcsx_rearmed:src]
+    status:
+      - test -f vendor/pcsx_rearmed_libretro.dylib
+      - test "$(cat vendor/pcsx_rearmed_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/pcsx_rearmed/build.sh stamp {{.PCSX_REARMED_COMMIT}} host)"
+    cmds:
+      - sh cores/pcsx_rearmed/build.sh build {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz build/pcsx_rearmed-host vendor/pcsx_rearmed_libretro.dylib
+
   core:host:
     desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus and Genesis Plus GX from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
     deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src]
@@ -242,6 +263,22 @@ tasks:
         build/genesis_plus_gx-device vendor/genesis_plus_gx_libretro.so'
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/genesis_plus_gx_libretro.so'
       - 'echo "built vendor/genesis_plus_gx_libretro.so from vendor/genesis_plus_gx-src.tar.gz @ {{.GENESIS_PLUS_GX_COMMIT}}"'
+
+  core:device:pcsx_rearmed:
+    desc: Build the aarch64 linux pcsx_rearmed core into vendor/pcsx_rearmed_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it is the ari64 dynarec build and needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older
+    deps: [core:pcsx_rearmed:src]
+    status:
+      - test -f vendor/pcsx_rearmed_libretro.so
+      - test "$(cat vendor/pcsx_rearmed-src.meta 2>/dev/null)" = "$(sh cores/pcsx_rearmed/build.sh srcmeta {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz)"
+      - test "$(cat vendor/pcsx_rearmed_libretro.so.meta 2>/dev/null)" = "$(sh cores/pcsx_rearmed/build.sh stamp {{.PCSX_REARMED_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/pcsx_rearmed/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/pcsx_rearmed/build.sh build {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz
+        build/pcsx_rearmed-device vendor/pcsx_rearmed_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/pcsx_rearmed_libretro.so'
+      - sh -c '. scripts/lib.sh; is_ari64 vendor/pcsx_rearmed_libretro.so && needs_old_glibc_only vendor/pcsx_rearmed_libretro.so'
+      - 'echo "built vendor/pcsx_rearmed_libretro.so from vendor/pcsx_rearmed-src.tar.gz @ {{.PCSX_REARMED_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/pcsx_rearmed_libretro.so")"'
 
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
