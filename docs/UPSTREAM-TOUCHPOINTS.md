@@ -27,13 +27,13 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/board.rs` | 3 | 8 (+6/-2) | 0012-cart-art |
 | `crates/slot-ui/src/cart.rs` | 11 | 60 (+57/-3) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0013-cart-shell-region, 0020-label-top, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
 | `crates/slot-ui/src/lib.rs` | 6 | 24 (+21/-3) | 0012-cart-art, 0016-quick-menu-retro-shaders, 0020-label-top, 0028-sega-carts |
-| `crates/slot-ui/src/quick_menu.rs` | 13 | 80 (+75/-5) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders |
+| `crates/slot-ui/src/quick_menu.rs` | 13 | 101 (+96/-5) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders, 0032-system-picture |
 | `crates/slot-ui/src/shelf.rs` | 4 | 12 (+10/-2) | 0012-cart-art, 0021-shelf-cart-memory |
 | `crates/slot-ui/src/shell.rs` | 1 | 3 (+3/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts |
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0017-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders |
-| `crates/slot/src/app.rs` | 42 | 226 (+206/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd |
+| `crates/slot/src/app.rs` | 42 | 250 (+230/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd, 0032-system-picture |
 | `crates/slot/src/audio/alsa.rs` | 4 | 10 (+6/-4) | 0018-audio-reopen |
 | `crates/slot/src/audio/mod.rs` | 2 | 2 (+2/-0) | 0018-audio-reopen |
 | `crates/slot/src/core.rs` | 7 | 19 (+15/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg |
@@ -172,19 +172,19 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use cart::{#1 | 49-51 | +3/-3 | pub use cart::{ | Re-exports retro_cart_shadow so the frontend can publish NES and SNES shadows |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use icon::{badge_face, icon_box, icon_face, star_face, warm_fonts, Badge, Ic#1 | 60 | +1/-0 | pub use icon::{badge_face, icon_box, icon_face, star_face, warm_fonts, Badge, Ic | Re-exports shelf_cart_of so the app can fit lids per shelf |
 | `crates/slot-ui/src/lib.rs` | crates/slot-ui/src/lib.rs#pub use refusal::Refusal;#1 | 80 | +10/-0 | pub use refusal::Refusal; | Re-exports the retro and Sega shell types, faces, shadows, label cover and colour presets |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickRow {#1 | 48 | +10/-0 | pub enum QuickRow { | Adds the NES, SNES, Game Gear, Master System and Mega Drive shader rows and console rows |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickRow {#1 | 48 | +15/-0 | pub enum QuickRow { | Adds the NES, SNES, Game Gear, Master System and Mega Drive shader, picture and console rows (ADR 0061) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#1 | 52 | +1/-1 | impl QuickRow { | Counts the two new rows in the quick menu row list |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#2 | 92 | +10/-0 | impl QuickRow { | Lists the new rows in ALL so their label faces are built |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#2 | 92 | +15/-0 | impl QuickRow { | Lists the new rows in ALL so their label faces are built, the five Picture rows included (ADR 0061) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#3 | 111-112 | +10/-2 | impl QuickRow { | SCREEN lists NES, SNES, Game Gear, Master System and Mega Drive after Game Boy (upstream test sites g and h, ADR 0048 and 0055) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#4 | 165 | +8/-1 | impl QuickRow { | The NES, SNES and Sega console rows belong to the Screen platform list |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#5 | 195 | +5/-0 | impl QuickRow { | Gives the new shader rows their own one-row screen pages |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#6 | 209 | +5/-0 | impl QuickRow { | The NES, SNES and Sega shader pages back out to their own console row, like SCREEN_GB to ScreenGb |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#5 | 195 | +5/-0 | impl QuickRow { | Gives the new shader and picture rows their own screen pages (Shader, Picture, ADR 0061) |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#6 | 209 | +5/-0 | impl QuickRow { | The NES, SNES and Sega shader and picture rows back out to their own console row, like SCREEN_GB to ScreenGb |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#7 | 241 | +5/-0 | impl QuickRow { | The NES, SNES and Sega console rows open their one-row shader pages |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#8 | 302 | +10/-0 | impl QuickRow { | Labels the console rows NES, SNES, Game Gear, Master System and Mega Drive and their shader rows Shader, like the Game Boy pages |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#8 | 302 | +15/-0 | impl QuickRow { | Labels the console rows NES, SNES, Game Gear, Master System and Mega Drive, their shader rows Shader and their picture rows Picture (ADR 0061) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickRow {#9 | 322 | +5/-0 | impl QuickRow { | The NES, SNES and Sega console rows open a page, so they get the chevron and A opens them |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickValue {#1 | 356 | +1/-0 | pub enum QuickValue { | The one retro hook in QuickValue: Retro carries a RetroShader; QuickValue::ALL stays upstream's 18 |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#1 | 382 | +4/-1 | impl QuickValue { | `self as usize` cannot cast an enum with a payload; same position lookup as Toast::index, retro faces follow ALL |
-| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#2 | 404 | +1/-0 | impl QuickValue { | Prints a retro shader by its label |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub enum QuickValue {#1 | 356 | +3/-0 | pub enum QuickValue { | The one retro hook in QuickValue: Retro carries a RetroShader, then Stretch and Actual for the Picture rows; QuickValue::ALL stays upstream's 18 |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#1 | 382 | +6/-1 | impl QuickValue { | `self as usize` cannot cast an enum with a payload; same position lookup as Toast::index, retro faces follow ALL, then Stretch and Actual |
+| `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#impl QuickValue {#2 | 404 | +3/-0 | impl QuickValue { | Prints a retro shader by its label, and Stretch and Actual |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#use crate::hud::Millis;#1 | 9 | +3/-0 | use crate::hud::Millis; | Imports the retro shell lookup, the retro label rect and the published shadows |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#1 | 330 | +4/-0 | impl Shelf { | held() tells the app the cursor is at rest, so a held direction writes once when it is let go (patch 0021) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#2 | 460 | +1/-1 | impl Shelf { | Backs a receding NES or SNES cart with its own shadow instead of the GBA one |
@@ -197,10 +197,10 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/tests/quick_menu.rs` | crates/slot-ui/tests/quick_menu.rs#fn the_rows_run_in_the_order_the_user_chose() {#1 | 112 | +1/-1 | fn the_rows_run_in_the_order_the_user_chose() { | Named test site (g): the Screen labels gain "NES", "SNES" after "Game Boy" (ADR 0048) |
 | `crates/slot-ui/tests/quick_menu.rs` | crates/slot-ui/tests/quick_menu.rs#fn the_rows_run_in_the_order_the_user_chose() {#2 | 155 | +1/-1 | fn the_rows_run_in_the_order_the_user_chose() { | Named test site (h): the rows that open pages gain ScreenNes, ScreenSnes after ScreenGb (ADR 0048) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#use slot_ui::{#1 | 17 | +1/-1 | use slot_ui::{ | Uses shelf_cart_of so the cart's shelf platform sets its lid size |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#pub struct App {#1 | 409 | +4/-0 | pub struct App { | Holds the per-shelf carts and the last seat written, so a rest writes only on a change (patch 0021), the live frame width (ADR 0052) and the Sega shaders (ADR 0051) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#pub struct App {#1 | 409 | +5/-0 | pub struct App { | Holds the per-shelf carts and the last seat written, so a rest writes only on a change (patch 0021), the live frame width (ADR 0052), the Sega shaders (ADR 0051) and the per-system pictures (ADR 0061) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn shelves_of(carts: Vec<Cart>) -> Vec<(Rack, Shelf)> {#1 | 425 | +1/-1 | fn shelves_of(carts: Vec<Cart>) -> Vec<(Rack, Shelf)> { | Builds shelves from the platform list that includes NES and SNES, so upstream's shelf memory, Recents and Favorites see them too |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#1 | 554 | +4/-0 | impl App { | Starts with no per-shelf carts and no seat written (patch 0021), no frame width and the default Sega shaders |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#2 | 565 | +2/-0 | impl App { | Reads Config/shelf_carts.txt (patch 0021) and Config/sega_shaders.txt (ADR 0051) at boot beside slot.state |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#1 | 554 | +5/-0 | impl App { | Starts with no per-shelf carts and no seat written (patch 0021), no frame width, the default Sega shaders and the factory per-system pictures |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#2 | 565 | +3/-0 | impl App { | Reads Config/shelf_carts.txt (patch 0021), Config/sega_shaders.txt (ADR 0051) and Config/picture.txt (ADR 0061) at boot beside slot.state |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#3 | 567 | +3/-0 | impl App { | Puts every shelf on its remembered cart before upstream's remembered_seat picks the shelf (patch 0021) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#4 | 747 | +1/-0 | impl App { | Power off and restart also keep the cart in the per-shelf list (patch 0021) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#5 | 750 | +58/-0 | impl App { | remember_shelf_at_rest, keep_shelf_cart and recall_cart: upstream's #53 memory saved at rest and per shelf (patch 0021) |
@@ -208,7 +208,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#7 | 849 | +5/-0 | impl App { | The in-game Shader row edits the NES, SNES or Sega shader when one is playing, the way upstream maps it per Game Boy platform |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#8 | 853 | +9/-1 | impl App { | NES, SNES and the Sega platforms share the GBA bezel choice (ADR 0005) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#9 | 862-864 | +3/-3 | impl App { | A row that maps to itself (Color Correction on NES or SNES) shows no value instead of recursing forever |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#10 | 877 | +5/-0 | impl App { | Quick menu shows the NES, SNES or Sega shader value |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#10 | 877 | +10/-0 | impl App { | Quick menu shows the NES, SNES or Sega shader value and each system's picture default |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#11 | 919 | +5/-0 | impl App { | The NES, SNES and Sega console rows show no value, like the other console rows |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#12 | 950-951 | +7/-2 | impl App { | Lists no bezel files for NES, SNES and the Sega platforms and replaces upstream's wildcard with explicit arms |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#13 | 972 | +6/-1 | impl App { | NES, SNES and the Sega platforms change the GBA bezel choice (ADR 0005) |
@@ -222,9 +222,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#21 | 1636 | +1/-0 | impl App { | NES and SNES have no colour correction |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#22 | 1885 | +1/-0 | impl App { | Select+X toggles the picture mode where the platform says so (SNES, Mega Drive) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#23 | 2012 | +6/-1 | impl App { | The NES, SNES and Sega console rows open their page through child(), like the Game Boy console rows |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#24 | 2049 | +6/-1 | impl App { | New shader rows change only with Left/Right; exhaustive match needs the arm |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#25 | 2054 | +4/-0 | impl App { | Steps a Game Gear, Master System or Mega Drive shader row into its own Config/sega_shaders.txt, not slot.state (ADR 0051) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#26 | 2143 | +2/-0 | impl App { | Left/Right steps the NES or SNES shader through Shader::RETRO and persists |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#24 | 2049 | +11/-1 | impl App { | New shader and picture rows change only with Left/Right; exhaustive match needs the arm |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#25 | 2054 | +10/-0 | impl App { | Steps a Game Gear, Master System or Mega Drive shader row into its own Config/sega_shaders.txt, not slot.state (ADR 0051), and flips a Picture row into Config/picture.txt (ADR 0061) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#26 | 2143 | +7/-0 | impl App { | Left/Right steps the NES or SNES shader through Shader::RETRO and persists; Picture rows are handled earlier |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#27 | 2164 | +5/-0 | impl App { | The NES, SNES and Sega console rows only open a page; exhaustive match needs the arm |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#28 | 2185 | +5/-0 | impl App { | SELECT+A/B steps the NES, SNES or Sega shader through Shader::RETRO |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#29 | 2193 | +1/-0 | impl App { | Shows the retro shader's own banner when SELECT+A/B picks it |

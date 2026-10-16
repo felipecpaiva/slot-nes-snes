@@ -1,0 +1,745 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Fri, 16 Oct 2026 21:03:37 +0400
+Subject: [PATCH] system-picture
+
+---
+ crates/slot-ui/src/quick_menu.rs        |  43 +++-
+ crates/slot-ui/src/quick_retro.rs       |  11 +-
+ crates/slot-ui/tests/quick_retro.rs     |  33 ++-
+ crates/slot-ui/tests/retro_faces.rs     |  11 +-
+ crates/slot/src/app.rs                  |  26 +-
+ crates/slot/src/platform_video.rs       |  87 ++++++-
+ crates/slot/tests/quick_retro_shader.rs |   8 +-
+ crates/slot/tests/system_picture.rs     | 304 ++++++++++++++++++++++++
+ 8 files changed, 495 insertions(+), 28 deletions(-)
+ create mode 100644 crates/slot/tests/system_picture.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 40df3d2..6e835d4 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -56,10 +56,15 @@ pub enum QuickRow {
+     ScreenGg,
+     ScreenSms,
+     ScreenMd,
++    NesPicture,
++    SnesPicture,
++    GgPicture,
++    SmsPicture,
++    MdPicture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 50] = [
++    pub const ALL: [QuickRow; 55] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -110,6 +115,11 @@ impl QuickRow {
+         QuickRow::ScreenGg,
+         QuickRow::ScreenSms,
+         QuickRow::ScreenMd,
++        QuickRow::NesPicture,
++        QuickRow::SnesPicture,
++        QuickRow::GgPicture,
++        QuickRow::SmsPicture,
++        QuickRow::MdPicture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -228,11 +238,11 @@ impl QuickRow {
+             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
+                 &QuickRow::PLAY_SCREEN
+             }
+-            QuickRow::NesShader => &QuickRow::SCREEN_NES,
+-            QuickRow::SnesShader => &QuickRow::SCREEN_SNES,
+-            QuickRow::GgShader => &QuickRow::SCREEN_GG,
+-            QuickRow::SmsShader => &QuickRow::SCREEN_SMS,
+-            QuickRow::MdShader => &QuickRow::SCREEN_MD,
++            QuickRow::NesShader | QuickRow::NesPicture => &QuickRow::SCREEN_NES,
++            QuickRow::SnesShader | QuickRow::SnesPicture => &QuickRow::SCREEN_SNES,
++            QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
++            QuickRow::SmsShader | QuickRow::SmsPicture => &QuickRow::SCREEN_SMS,
++            QuickRow::MdShader | QuickRow::MdPicture => &QuickRow::SCREEN_MD,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -247,11 +257,11 @@ impl QuickRow {
+             QuickRow::Wallpaper => Some(QuickRow::General),
+             QuickRow::PlayScreen => Some(QuickRow::Settings),
+             QuickRow::Shader => Some(QuickRow::PlayScreen),
+-            QuickRow::NesShader => Some(QuickRow::ScreenNes),
+-            QuickRow::SnesShader => Some(QuickRow::ScreenSnes),
+-            QuickRow::GgShader => Some(QuickRow::ScreenGg),
+-            QuickRow::SmsShader => Some(QuickRow::ScreenSms),
+-            QuickRow::MdShader => Some(QuickRow::ScreenMd),
++            QuickRow::NesShader | QuickRow::NesPicture => Some(QuickRow::ScreenNes),
++            QuickRow::SnesShader | QuickRow::SnesPicture => Some(QuickRow::ScreenSnes),
++            QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
++            QuickRow::SmsShader | QuickRow::SmsPicture => Some(QuickRow::ScreenSms),
++            QuickRow::MdShader | QuickRow::MdPicture => Some(QuickRow::ScreenMd),
+             _ => None,
+         }
+     }
+@@ -360,6 +370,11 @@ impl QuickRow {
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
++            QuickRow::NesPicture
++            | QuickRow::SnesPicture
++            | QuickRow::GgPicture
++            | QuickRow::SmsPicture
++            | QuickRow::MdPicture => "Picture",
+         }
+     }
+ 
+@@ -420,6 +435,8 @@ pub enum QuickValue {
+     Medium,
+     High,
+     Retro(slot_store::RetroShader),
++    Stretch,
++    Actual,
+ }
+ 
+ impl QuickValue {
+@@ -447,6 +464,8 @@ impl QuickValue {
+     pub fn index(self) -> usize {
+         match self {
+             QuickValue::Retro(s) => Self::ALL.len() + s.index(),
++            QuickValue::Stretch => Self::ALL.len() + slot_store::RetroShader::ALL.len(),
++            QuickValue::Actual => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 1,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -472,6 +491,8 @@ impl QuickValue {
+             QuickValue::Medium => "45%",
+             QuickValue::High => "65%",
+             QuickValue::Retro(s) => s.label(),
++            QuickValue::Stretch => "Stretch",
++            QuickValue::Actual => "Actual",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index f1fbe6b..7bb74ee 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -3,11 +3,11 @@ use crate::toast::Toast;
+ use slot_store::RetroShader;
+ 
+ impl QuickRow {
+-    pub const SCREEN_NES: [QuickRow; 1] = [QuickRow::NesShader];
+-    pub const SCREEN_SNES: [QuickRow; 1] = [QuickRow::SnesShader];
+-    pub const SCREEN_GG: [QuickRow; 1] = [QuickRow::GgShader];
+-    pub const SCREEN_SMS: [QuickRow; 1] = [QuickRow::SmsShader];
+-    pub const SCREEN_MD: [QuickRow; 1] = [QuickRow::MdShader];
++    pub const SCREEN_NES: [QuickRow; 2] = [QuickRow::NesShader, QuickRow::NesPicture];
++    pub const SCREEN_SNES: [QuickRow; 2] = [QuickRow::SnesShader, QuickRow::SnesPicture];
++    pub const SCREEN_GG: [QuickRow; 2] = [QuickRow::GgShader, QuickRow::GgPicture];
++    pub const SCREEN_SMS: [QuickRow; 2] = [QuickRow::SmsShader, QuickRow::SmsPicture];
++    pub const SCREEN_MD: [QuickRow; 2] = [QuickRow::MdShader, QuickRow::MdPicture];
+ }
+ 
+ impl QuickValue {
+@@ -15,6 +15,7 @@ impl QuickValue {
+         QuickValue::ALL
+             .into_iter()
+             .chain(RetroShader::ALL.map(QuickValue::Retro))
++            .chain([QuickValue::Stretch, QuickValue::Actual])
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
+index e95a0e8..490959f 100644
+--- a/crates/slot-ui/tests/quick_retro.rs
++++ b/crates/slot-ui/tests/quick_retro.rs
+@@ -28,18 +28,35 @@ fn nes_and_snes_follow_the_game_boys_and_the_sega_systems_close_the_screen_list(
+ }
+ 
+ #[test]
+-fn each_retro_and_sega_page_holds_only_its_own_shader_row() {
+-    for (console, row) in [
+-        (QuickRow::ScreenNes, QuickRow::NesShader),
+-        (QuickRow::ScreenSnes, QuickRow::SnesShader),
+-        (QuickRow::ScreenGg, QuickRow::GgShader),
+-        (QuickRow::ScreenSms, QuickRow::SmsShader),
+-        (QuickRow::ScreenMd, QuickRow::MdShader),
++fn each_retro_and_sega_page_holds_its_own_shader_and_picture_rows() {
++    for (console, row, picture) in [
++        (
++            QuickRow::ScreenNes,
++            QuickRow::NesShader,
++            QuickRow::NesPicture,
++        ),
++        (
++            QuickRow::ScreenSnes,
++            QuickRow::SnesShader,
++            QuickRow::SnesPicture,
++        ),
++        (QuickRow::ScreenGg, QuickRow::GgShader, QuickRow::GgPicture),
++        (
++            QuickRow::ScreenSms,
++            QuickRow::SmsShader,
++            QuickRow::SmsPicture,
++        ),
++        (QuickRow::ScreenMd, QuickRow::MdShader, QuickRow::MdPicture),
+     ] {
+         assert_eq!(console.child(), Some(row));
+-        assert_eq!(row.page(), [row]);
++        assert_eq!(row.page(), [row, picture]);
++        assert_eq!(picture.page(), [row, picture]);
+         assert_eq!(row.label(), "Shader");
++        assert_eq!(picture.label(), "Picture");
+         assert_eq!(row.parent(), Some(console));
++        assert_eq!(picture.parent(), Some(console));
+         assert!(!row.opens(), "{row:?}");
++        assert!(!picture.opens(), "{picture:?}");
++        assert!(!picture.centred(), "{picture:?}");
+     }
+ }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index edf4a4d..53277cb 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -5,10 +5,19 @@ use slot_ui::{toast_face, QuickValue, Toast};
+ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+     let every = QuickValue::every();
+     assert_eq!(every[..QuickValue::ALL.len()], QuickValue::ALL);
++    let retro_end = QuickValue::ALL.len() + RetroShader::ALL.len();
+     assert_eq!(
+-        every[QuickValue::ALL.len()..],
++        every[QuickValue::ALL.len()..retro_end],
+         RetroShader::ALL.map(QuickValue::Retro)
+     );
++    assert_eq!(
++        every[retro_end..],
++        [QuickValue::Stretch, QuickValue::Actual]
++    );
++    assert_eq!(
++        [QuickValue::Stretch.text(), QuickValue::Actual.text()],
++        ["Stretch", "Actual"]
++    );
+     for (i, v) in every.iter().enumerate() {
+         assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
+     }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 243e595..6a61fb2 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -410,6 +410,7 @@ pub struct App {
+     shelf_carts: Vec<(String, Recent)>,
+     frame_w: u32,
+     sega_shaders: slot_store::SegaShaders,
++    pictures: crate::platform_video::SystemPictures,
+     rested: Option<(usize, usize)>,
+ }
+ 
+@@ -559,6 +560,7 @@ impl App {
+             shelf_carts: Vec::new(),
+             frame_w: 0,
+             sega_shaders: slot_store::SegaShaders::default(),
++            pictures: crate::platform_video::SystemPictures::default(),
+             rested: None,
+         }
+     }
+@@ -573,6 +575,7 @@ impl App {
+         app.state = read_slot_state(root);
+         app.shelf_carts = slot_store::read_shelf_carts(root);
+         app.sega_shaders = slot_store::read_sega_shaders(root);
++        app.pictures = crate::platform_video::SystemPictures::read(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -972,6 +975,11 @@ impl App {
+             QuickRow::GgShader => Some(shader_value(self.sega_shaders.gg)),
+             QuickRow::SmsShader => Some(shader_value(self.sega_shaders.sms)),
+             QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
++            QuickRow::NesPicture
++            | QuickRow::SnesPicture
++            | QuickRow::GgPicture
++            | QuickRow::SmsPicture
++            | QuickRow::MdPicture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -2196,7 +2204,12 @@ impl App {
+             | QuickRow::SnesShader
+             | QuickRow::GgShader
+             | QuickRow::SmsShader
+-            | QuickRow::MdShader => {}
++            | QuickRow::MdShader
++            | QuickRow::NesPicture
++            | QuickRow::SnesPicture
++            | QuickRow::GgPicture
++            | QuickRow::SmsPicture
++            | QuickRow::MdPicture => {}
+         }
+     }
+ 
+@@ -2206,6 +2219,12 @@ impl App {
+             self.save_sega_shaders();
+             return;
+         }
++        if let Some((platform, mode)) = self.pictures.flip(row) {
++            if let Some(root) = &self.root {
++                crate::platform_video::save(root, platform, mode, &self.card_writes);
++            }
++            return;
++        }
+         if row == QuickRow::Palette {
+             let to = match right {
+                 true => self.state.gb_palette.next(),
+@@ -2297,6 +2316,11 @@ impl App {
+             QuickRow::Theme => s.appearance = s.appearance.toggle(),
+             QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
+             QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader => return,
++            QuickRow::NesPicture
++            | QuickRow::SnesPicture
++            | QuickRow::GgPicture
++            | QuickRow::SmsPicture
++            | QuickRow::MdPicture => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 48edaba..85c3506 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -1,9 +1,21 @@
+ use std::path::Path;
+ 
+ use slot_store::{ini, Platform};
++use slot_ui::{QuickRow, QuickValue};
+ 
++use crate::card_log::CardWrites;
+ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
++pub const PICTURE_FILE: &str = "Config/picture.txt";
++
++pub const PICTURE_ROWS: [(QuickRow, Platform); 5] = [
++    (QuickRow::NesPicture, Platform::Nes),
++    (QuickRow::SnesPicture, Platform::Snes),
++    (QuickRow::GgPicture, Platform::Gg),
++    (QuickRow::SmsPicture, Platform::Sms),
++    (QuickRow::MdPicture, Platform::Md),
++];
++
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+     match platform {
+         Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg => VideoMode::Actual,
+@@ -24,5 +36,78 @@ pub fn video_mode_for(root: &Path, stem: &str, platform: Platform) -> VideoMode
+     ini::value(root, VIDEO_MODE_FILE, stem)
+         .as_deref()
+         .and_then(VideoMode::parse)
+-        .unwrap_or_else(|| default_video_mode(platform))
++        .unwrap_or_else(|| system_picture(root, platform))
++}
++
++fn picture_key(platform: Platform) -> String {
++    platform.dir_name().to_ascii_lowercase()
++}
++
++pub fn system_picture(root: &Path, platform: Platform) -> VideoMode {
++    let Some(line) = ini::value(root, PICTURE_FILE, &picture_key(platform)) else {
++        return default_video_mode(platform);
++    };
++    VideoMode::parse(&line).unwrap_or_else(|| {
++        eprintln!(
++            "slot: picture.txt: ignoring {}={line}",
++            picture_key(platform)
++        );
++        default_video_mode(platform)
++    })
++}
++
++pub fn write_system_picture(
++    root: &Path,
++    platform: Platform,
++    mode: VideoMode,
++) -> std::io::Result<()> {
++    ini::write(root, PICTURE_FILE, &picture_key(platform), mode.as_str())
++}
++
++pub fn save(root: &Path, platform: Platform, mode: VideoMode, writes: &CardWrites) {
++    let written = write_system_picture(root, platform, mode);
++    if let Err(e) = &written {
++        eprintln!("slot: video: could not write picture.txt: {e}");
++    }
++    writes.wrote("picture.txt", &written);
++}
++
++impl VideoMode {
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            VideoMode::Stretch => QuickValue::Stretch,
++            VideoMode::Actual => QuickValue::Actual,
++        }
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub struct SystemPictures([VideoMode; 5]);
++
++impl Default for SystemPictures {
++    fn default() -> Self {
++        SystemPictures(PICTURE_ROWS.map(|(_, p)| default_video_mode(p)))
++    }
++}
++
++impl SystemPictures {
++    pub fn read(root: &Path) -> Self {
++        SystemPictures(PICTURE_ROWS.map(|(_, p)| system_picture(root, p)))
++    }
++
++    pub fn get(&self, row: QuickRow) -> Option<VideoMode> {
++        let at = PICTURE_ROWS.iter().position(|(r, _)| *r == row)?;
++        self.0.get(at).copied()
++    }
++
++    pub fn flip(&mut self, row: QuickRow) -> Option<(Platform, VideoMode)> {
++        let at = PICTURE_ROWS.iter().position(|(r, _)| *r == row)?;
++        let (_, platform) = PICTURE_ROWS.get(at)?;
++        let mode = self.0.get_mut(at)?;
++        *mode = match *mode {
++            VideoMode::Actual => VideoMode::Stretch,
++            VideoMode::Stretch => VideoMode::Actual,
++        };
++        Some((*platform, *mode))
++    }
+ }
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index ef0ca2b..73995f4 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -107,13 +107,19 @@ fn a_card_with_no_nes_or_snes_carts_keeps_the_upstream_platform_list() {
+ }
+ 
+ #[test]
+-fn the_nes_and_snes_pages_hold_one_shader_row_and_back_out_to_their_console() {
++fn the_nes_and_snes_pages_hold_a_shader_and_a_picture_row_and_back_out_to_their_console() {
+     for (console, row, _) in shader_rows() {
+         let (_root, mut app) = on_shelf(Platform::Gba);
+         open_console(&mut app, console);
+         assert_eq!(app.quick_menu(), Some(row), "{console:?}");
+         assert_eq!(app.quick_value(row), Some(QuickValue::Off), "{console:?}");
+         press(&mut app, Btn::Down);
++        assert_eq!(
++            app.quick_menu().map(QuickRow::label),
++            Some("Picture"),
++            "{console:?}"
++        );
++        press(&mut app, Btn::Down);
+         assert_eq!(app.quick_menu(), Some(row), "{console:?}");
+         press(&mut app, Btn::B);
+         assert_eq!(app.quick_menu(), Some(console), "{console:?}");
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+new file mode 100644
+index 0000000..e71a8ec
+--- /dev/null
++++ b/crates/slot/tests/system_picture.rs
+@@ -0,0 +1,304 @@
++mod common;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::{App, Phase};
++use slot::platform_video::{system_picture, video_mode_for, PICTURE_FILE, PICTURE_ROWS};
++use slot::session::Session;
++use slot::video_mode::{VideoMode, VIDEO_MODE_FILE};
++use slot_input::{Action, Btn, Millis, RawEvent};
++use slot_store::Platform;
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++const STEM: &str = "Zzz";
++
++const SECTIONS: [(QuickRow, QuickRow, QuickRow, Platform, QuickValue); 5] = [
++    (
++        QuickRow::ScreenNes,
++        QuickRow::NesShader,
++        QuickRow::NesPicture,
++        Platform::Nes,
++        QuickValue::Stretch,
++    ),
++    (
++        QuickRow::ScreenSnes,
++        QuickRow::SnesShader,
++        QuickRow::SnesPicture,
++        Platform::Snes,
++        QuickValue::Stretch,
++    ),
++    (
++        QuickRow::ScreenGg,
++        QuickRow::GgShader,
++        QuickRow::GgPicture,
++        Platform::Gg,
++        QuickValue::Actual,
++    ),
++    (
++        QuickRow::ScreenSms,
++        QuickRow::SmsShader,
++        QuickRow::SmsPicture,
++        Platform::Sms,
++        QuickValue::Stretch,
++    ),
++    (
++        QuickRow::ScreenMd,
++        QuickRow::MdShader,
++        QuickRow::MdPicture,
++        Platform::Md,
++        QuickValue::Stretch,
++    ),
++];
++
++fn write_cart(root: &Path, platform: Platform, stem: &str) {
++    let dir = root.join("Games").join(platform.dir_name());
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let cart = dir.join(format!("{stem}.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x8000]).expect("write cart");
++}
++
++fn every_system() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    for (_, _, _, platform, _) in SECTIONS {
++        write_cart(root.path(), platform, "Sonic");
++    }
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_section(app: &mut App, console: QuickRow) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..console.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(console));
++    press(app, Btn::A);
++}
++
++fn picture_file(root: &TempDir) -> Option<String> {
++    std::fs::read_to_string(root.path().join(PICTURE_FILE)).ok()
++}
++
++fn root_with(picture: &str, cart_line: Option<&str>) -> TempDir {
++    let d = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir(d.path().join("Config")).expect("config dir");
++    std::fs::write(d.path().join(PICTURE_FILE), picture).expect("write picture.txt");
++    if let Some(line) = cart_line {
++        std::fs::write(d.path().join(VIDEO_MODE_FILE), format!("{STEM}={line}\n"))
++            .expect("write video_mode.txt");
++    }
++    d
++}
++
++#[test]
++fn each_retro_screen_section_shows_a_picture_row_under_its_shader() {
++    for (console, shader, picture, _, factory) in SECTIONS {
++        let (_root, mut app) = every_system();
++        assert_eq!(picture.page(), [shader, picture], "{console:?}");
++        assert_eq!(picture.label(), "Picture");
++        open_section(&mut app, console);
++        assert_eq!(app.quick_menu(), Some(shader));
++        press(&mut app, Btn::Down);
++        assert_eq!(app.quick_menu(), Some(picture));
++        assert_eq!(app.quick_value(picture), Some(factory), "{console:?}");
++        press(&mut app, Btn::Down);
++        assert_eq!(app.quick_menu(), Some(shader), "{console:?} does not wrap");
++    }
++}
++
++#[test]
++fn the_game_boy_sections_gain_no_picture_row() {
++    for page in [
++        &QuickRow::SCREEN_GBA[..],
++        &QuickRow::SCREEN_GBC[..],
++        &QuickRow::SCREEN_GB[..],
++    ] {
++        assert!(page.iter().all(|r| r.label() != "Picture"), "{page:?}");
++    }
++    for (_, platform) in PICTURE_ROWS {
++        assert!(!matches!(
++            platform,
++            Platform::Gba | Platform::Gb | Platform::Gbc
++        ));
++    }
++}
++
++#[test]
++fn the_picture_row_walks_stretch_and_actual_and_saves_only_its_own_system() {
++    for (console, _, picture, platform, factory) in SECTIONS {
++        let (root, mut app) = every_system();
++        let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++        open_section(&mut app, console);
++        press(&mut app, Btn::Down);
++        assert_eq!(
++            picture_file(&root),
++            None,
++            "{console:?} wrote before a change"
++        );
++        let flipped = match factory {
++            QuickValue::Stretch => (QuickValue::Actual, VideoMode::Actual),
++            _ => (QuickValue::Stretch, VideoMode::Stretch),
++        };
++        press(&mut app, Btn::Right);
++        assert_eq!(app.quick_value(picture), Some(flipped.0), "{console:?}");
++        assert_eq!(system_picture(root.path(), platform), flipped.1);
++        let key = platform.dir_name().to_ascii_lowercase();
++        assert_eq!(
++            picture_file(&root),
++            Some(format!("{key} = {}\n", flipped.1.as_str()))
++        );
++        for (_, _, other, p, own) in SECTIONS {
++            if p != platform {
++                assert_eq!(app.quick_value(other), Some(own), "{console:?} moved {p:?}");
++            }
++        }
++        press(&mut app, Btn::Left);
++        assert_eq!(app.quick_value(picture), Some(factory));
++        press(&mut app, Btn::Left);
++        assert_eq!(app.quick_value(picture), Some(flipped.0));
++        assert_eq!(
++            std::fs::read(root.path().join("Config/slot.state")).ok(),
++            state,
++            "{console:?} wrote slot.state"
++        );
++        drop(app);
++        let app = boot(root.path());
++        assert_eq!(app.quick_value(picture), Some(flipped.0), "{console:?}");
++    }
++}
++
++#[test]
++fn a_cart_with_no_line_of_its_own_takes_its_system_picture() {
++    let d = root_with("nes = actual\ngg = stretch\n", None);
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Nes),
++        VideoMode::Actual
++    );
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Gg),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Snes),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Gba),
++        VideoMode::Actual
++    );
++}
++
++#[test]
++fn a_cart_line_still_wins_over_the_system_picture() {
++    let d = root_with("nes = actual\nmd = actual\n", Some("stretch"));
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Nes),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        video_mode_for(d.path(), STEM, Platform::Md),
++        VideoMode::Stretch
++    );
++}
++
++#[test]
++fn an_unreadable_system_picture_reads_as_the_factory_default() {
++    let d = root_with("nes = wide\ngg = \n", None);
++    assert_eq!(system_picture(d.path(), Platform::Nes), VideoMode::Stretch);
++    assert_eq!(system_picture(d.path(), Platform::Gg), VideoMode::Actual);
++}
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn seated(platform: Platform, picture: &str) -> Rig {
++        let root = common::tmp_root_with_real_carts(&[]);
++        write_cart(root.path(), platform, STEM);
++        std::fs::write(root.path().join(PICTURE_FILE), picture).expect("write picture.txt");
++        common::clocked(root.path());
++        let mut r = Rig {
++            session: Session::boot(root.path().to_path_buf()),
++            root,
++            now: 0,
++        };
++        r.feed(RawEvent::Down(Btn::A));
++        r.feed(RawEvent::Up(Btn::A));
++        let deadline = Instant::now() + Duration::from_secs(10);
++        while !matches!(r.session.app().phase(), Phase::Playing { .. }) {
++            assert!(Instant::now() < deadline, "the cart never seated");
++            r.now += 16;
++            r.session.feed([], r.now);
++            r.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++        r
++    }
++
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn cart_line(&self) -> Option<String> {
++        slot_store::ini::value(self.root.path(), VIDEO_MODE_FILE, STEM)
++    }
++
++    fn picture_file(&self) -> Option<String> {
++        std::fs::read_to_string(self.root.path().join(PICTURE_FILE)).ok()
++    }
++}
++
++#[test]
++fn a_cart_seats_in_its_system_picture() {
++    let r = Rig::seated(Platform::Nes, "nes = actual\n");
++    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(r.cart_line(), None);
++}
++
++#[test]
++fn select_x_still_sets_the_running_snes_cart_and_leaves_the_system_picture() {
++    for platform in [Platform::Snes, Platform::Md] {
++        let key = platform.dir_name().to_ascii_lowercase();
++        let picture = format!("{key} = actual\n");
++        let mut r = Rig::seated(platform, &picture);
++        assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++        r.feed(RawEvent::Down(Btn::Select));
++        r.feed(RawEvent::Down(Btn::X));
++        r.feed(RawEvent::Up(Btn::X));
++        r.feed(RawEvent::Up(Btn::Select));
++        assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++        assert_eq!(r.cart_line().as_deref(), Some("stretch"), "{platform:?}");
++        assert_eq!(r.picture_file(), Some(picture), "{platform:?}");
++    }
++}
++
++#[test]
++fn l1_still_sets_the_running_nes_cart_and_leaves_the_system_picture() {
++    for platform in [Platform::Nes, Platform::Gg, Platform::Sms] {
++        let key = platform.dir_name().to_ascii_lowercase();
++        let picture = format!("{key} = actual\n");
++        let mut r = Rig::seated(platform, &picture);
++        assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++        r.feed(RawEvent::Down(Btn::L1));
++        r.feed(RawEvent::Up(Btn::L1));
++        assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++        assert_eq!(r.cart_line().as_deref(), Some("stretch"), "{platform:?}");
++        assert_eq!(r.picture_file(), Some(picture), "{platform:?}");
++    }
++}

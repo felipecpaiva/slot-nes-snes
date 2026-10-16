@@ -56,3 +56,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [51](51-platform-gg.md) | Add Platform::Gg, Game Gear on Genesis Plus GX at 3x | 7 | platform | feature | M | 50-sega-tracking |
 | [52](52-platform-sms.md) | Add Platform::Sms, Master System on Genesis Plus GX at 2x | 7 | platform | feature | M | 51-platform-gg |
 | [53](53-platform-md.md) | Add Platform::Md, Mega Drive on Genesis Plus GX with 6-button input and live-width Stretch | 7 | platform | feature | L | 52-platform-sms |
+| [54](54-system-picture.md) | Choose each retro system's default picture mode from its Screen section | 7 | video | feature | S | 43-nes-snes-default-stretch, 53-platform-md |
