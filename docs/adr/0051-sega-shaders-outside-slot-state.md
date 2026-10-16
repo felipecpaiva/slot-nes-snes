@@ -1,6 +1,6 @@
 # 0051. Store the Sega shader settings in their own file, outside slot.state
 
-- Status: Accepted
+- Status: Accepted. Amended by [0060](0060-game-gear-lcd3x.md)
 - Date: 2026-10-15
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0034](0034-durability-shader-lines.md), [ADR 0043](0043-retro-shader-rows-on-v1-7-0-menus.md), [ADR 0025](0025-shelf-memory.md), [issue 50](../../.github/issues/50-sega-tracking.md)

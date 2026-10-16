@@ -12,8 +12,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-gfx/src/pipeline.rs` | 14 | 65 (+52/-13) | 0004-canvas, 0017-retro-shaders |
 | `crates/slot-input/src/gesture.rs` | 5 | 10 (+9/-1) | 0007-input |
 | `crates/slot-retro/src/core.rs` | 1 | 9 (+9/-0) | 0004-canvas, 0006-libretro-env, 0026-platform-md |
+| `crates/slot-retro/src/ffi.rs` | 3 | 23 (+23/-0) | 0030-need-fullpath |
 | `crates/slot-retro/src/lib.rs` | 3 | 3 (+3/-0) | 0004-canvas, 0007-input |
-| `crates/slot-retro/src/libretro.rs` | 21 | 60 (+60/-0) | 0004-canvas, 0006-libretro-env, 0024-platform-gg, 0026-platform-md |
+| `crates/slot-retro/src/libretro.rs` | 24 | 85 (+83/-2) | 0004-canvas, 0006-libretro-env, 0024-platform-gg, 0026-platform-md, 0030-need-fullpath |
 | `crates/slot-retro/src/mock.rs` | 5 | 19 (+15/-4) | 0004-canvas |
 | `crates/slot-store/src/cart_shell.rs` | 3 | 27 (+27/-0) | 0013-cart-shell-region, 0028-sega-carts |
 | `crates/slot-store/src/core.rs` | 6 | 67 (+65/-2) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0003-core-fceumm, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
@@ -32,7 +33,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/toast.rs` | 3 | 3 (+3/-0) | 0017-retro-shaders |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders |
-| `crates/slot/src/app.rs` | 42 | 226 (+206/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders |
+| `crates/slot/src/app.rs` | 42 | 226 (+206/-20) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd |
 | `crates/slot/src/audio/alsa.rs` | 4 | 10 (+6/-4) | 0018-audio-reopen |
 | `crates/slot/src/audio/mod.rs` | 2 | 2 (+2/-0) | 0018-audio-reopen |
 | `crates/slot/src/core.rs` | 7 | 19 (+15/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg |
@@ -76,6 +77,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#impl Gestures {#2 | 178 | +2/-1 | impl Gestures { | Ignores the picture chord unless enabled, so GBA keeps its existing chord set |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#fn chord(b: Btn) -> Option<(u16, Action)> {#1 | 454 | +1/-0 | fn chord(b: Btn) -> Option<(u16, Action)> { | Maps Select+X to VideoModeToggle in the chord table |
 | `crates/slot-retro/src/core.rs` | crates/slot-retro/src/core.rs#pub trait RetroCore: Send {#1 | 101 | +9/-0 | pub trait RetroCore: Send { | Adds default canvas(), take_av_change() and frame_width() so cores can report their real size and the live frame width (ADR 0052) |
+| `crates/slot-retro/src/ffi.rs` | crates/slot-retro/src/ffi.rs#pub struct GameInfo {#1 | 44 | +21/-0 | pub struct GameInfo { | Adds the SystemInfo struct for retro_get_system_info (ADR 0059, drop when the upstream PR lands) |
+| `crates/slot-retro/src/ffi.rs` | crates/slot-retro/src/ffi.rs#pub struct Api {#1 | 131 | +1/-0 | pub struct Api { | Adds the get_system_info entry point to Api (ADR 0059, drop when the upstream PR lands) |
+| `crates/slot-retro/src/ffi.rs` | crates/slot-retro/src/ffi.rs#impl Api {#1 | 161 | +1/-0 | impl Api { | Loads retro_get_system_info with the other symbols (ADR 0059, drop when the upstream PR lands) |
 | `crates/slot-retro/src/lib.rs` | crates/slot-retro/src/lib.rs#top#1 | 0 | +1/-0 | (top of file) | Declares the canvas module for geometry and AV info handling |
 | `crates/slot-retro/src/lib.rs` | crates/slot-retro/src/lib.rs#mod rumble;#1 | 6 | +1/-0 | mod rumble; | Declares the turbo_mode module for NES and SNES X/Y pass-through |
 | `crates/slot-retro/src/lib.rs` | crates/slot-retro/src/lib.rs#pub use rumble::Rumble;#1 | 16 | +1/-0 | pub use rumble::Rumble; | Re-exports TurboMode so the frontend can pick turbo or pass-through |
@@ -84,21 +88,24 @@ the reasons (docs/REBASE.md).
 | `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#unsafe extern "C" fn video_refresh(#1 | 320 | +11/-0 | unsafe extern "C" fn video_refresh( | Copies frames centred into the canvas when it is not the GBA size |
 | `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#pub struct LibretroCore {#1 | 388 | +1/-0 | pub struct LibretroCore { | Adds per-core host state for canvas and AV changes |
 | `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#1 | 414 | +13/-0 | impl LibretroCore { | Adds set_canvas to size the video buffer from the core's canvas, and answer_av for cores slot did not ship (Genesis Plus GX on the 240x160 Game Gear canvas) |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#2 | 487 | +1/-0 | impl LibretroCore { | Creates the per-core host state when loading a core |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#3 | 489 | +1/-0 | impl LibretroCore { | Binds the host state while the core loads so callbacks can reach it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#4 | 500 | +1/-0 | impl LibretroCore { | Adds the host state field to the core struct |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#5 | 516 | +1/-0 | impl LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#2 | 426 | +11/-0 | impl LibretroCore { | Adds needs_full_path and rom_bytes_held so the load decision is visible (ADR 0059, drop when the upstream PR lands) |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#3 | 487 | +1/-0 | impl LibretroCore { | Creates the per-core host state when loading a core |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#4 | 489 | +1/-0 | impl LibretroCore { | Binds the host state while the core loads so callbacks can reach it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#5 | 500 | +1/-0 | impl LibretroCore { | Adds the host state field to the core struct |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl LibretroCore {#6 | 516 | +1/-0 | impl LibretroCore { | Binds the host state around core calls so environment callbacks see it |
 | `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl Drop for LibretroCore {#1 | 544 | +1/-0 | impl Drop for LibretroCore { | Binds the host state while the core unloads |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#1 | 570 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#2 | 598 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#3 | 602 | +1/-0 | impl RetroCore for LibretroCore { | Forwards frame skip to the host state so video copy can be skipped |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#4 | 603 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#5 | 622 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#6 | 634 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#7 | 679 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#8 | 684 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#9 | 689 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
-| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#10 | 691 | +14/-0 | impl RetroCore for LibretroCore { | Implements canvas(), take_av_change() and frame_width() from the host state |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#1 | 558 | +7/-1 | impl RetroCore for LibretroCore { | Reads no ROM for a need_fullpath core, only checks the file exists (ADR 0059, drop when the upstream PR lands) |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#2 | 565 | +5/-1 | impl RetroCore for LibretroCore { | Passes data NULL to a need_fullpath core (ADR 0059, drop when the upstream PR lands) |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#3 | 570 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#4 | 598 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#5 | 602 | +1/-0 | impl RetroCore for LibretroCore { | Forwards frame skip to the host state so video copy can be skipped |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#6 | 603 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#7 | 622 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#8 | 634 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#9 | 679 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#10 | 684 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#11 | 689 | +1/-0 | impl RetroCore for LibretroCore { | Binds the host state around core calls so environment callbacks see it |
+| `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#impl RetroCore for LibretroCore {#12 | 691 | +14/-0 | impl RetroCore for LibretroCore { | Implements canvas(), take_av_change() and frame_width() from the host state |
 | `crates/slot-retro/src/libretro.rs` | crates/slot-retro/src/libretro.rs#mod tests {#1 | 1709 | +3/-0 | mod tests { | Pulls in the env_tests module that covers the new environment handling |
 | `crates/slot-retro/src/mock.rs` | crates/slot-retro/src/mock.rs#pub struct MockCore {#1 | 17 | +1/-0 | pub struct MockCore { | Gives the mock core a canvas size |
 | `crates/slot-retro/src/mock.rs` | crates/slot-retro/src/mock.rs#impl MockCore {#1 | 30 | +4/-0 | impl MockCore { | Adds a sized constructor so tests can mock NES and SNES canvases |
