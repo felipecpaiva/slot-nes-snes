@@ -260,3 +260,9 @@ are GPL-3.0-or-later. The reference photos in `docs/cart-art/refs/` that guided 
 listed with their own licences in `docs/cart-art/refs/SOURCES.md`; none of their pixels is used in any
 asset, and none ships in a release. Patch `0029-sms-box-art` regenerates `sms_neutral.png` and
 `segacard_neutral.png` with the tall box art well (ADR 0057), by the same example, under the same licence.
+
+## Code from other slot forks
+
+Patch `0030-need-fullpath` follows two GPL-3.0 forks of slot, compatible with this patch set's
+GPL-3.0-or-later: the path-only load of AaronC1990/tray (the original path, not canonicalised)
+and the `SystemInfo` field order of bently0602/slot. Both are credited in the patch commit.

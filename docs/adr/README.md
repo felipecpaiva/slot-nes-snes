@@ -75,3 +75,4 @@ the patch set looks the way it does.
 | [0056](0056-sega-carts-one-box-per-platform.md) | Draw the Sega carts from generated neutrals, one box per platform | Accepted. Extends 0054. Amended by 0057 | 2026-10-16 |
 | [0057](0057-sms-box-art-tall-well.md) | Show the whole Master System box front in a tall label well | Accepted. Amends 0014 and 0056 | 2026-10-16 |
 | [0058](0058-propose-modular-platform-registry-upstream.md) | Propose a modular platform registry upstream, asked first on discussion #64 | Proposed | 2026-10-16 |
+| [0059](0059-need-fullpath-load.md) | Hand need_fullpath cores the path only, never a ROM buffer | Accepted. Drop when upstream lands (0047) | 2026-10-16 |

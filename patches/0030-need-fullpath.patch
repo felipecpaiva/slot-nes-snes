@@ -1,0 +1,201 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Fri, 16 Oct 2026 18:11:29 +0400
+Subject: [PATCH] need-fullpath
+
+Cores whose retro_get_system_info sets need_fullpath now get the path
+with data NULL and size 0, and slot keeps no copy of the ROM for them.
+The load reads the original path, not a canonicalised one, as in
+AaronC1990/tray (GPL-3.0). The SystemInfo field order follows
+bently0602/slot (GPL-3.0).
+---
+ crates/slot-retro/src/ffi.rs       | 23 +++++++++
+ crates/slot-retro/src/libretro.rs  | 25 ++++++++-
+ crates/slot/tests/fullpath_load.rs | 81 ++++++++++++++++++++++++++++++
+ 3 files changed, 127 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/fullpath_load.rs
+
+diff --git a/crates/slot-retro/src/ffi.rs b/crates/slot-retro/src/ffi.rs
+index 1a88c51..e346141 100644
+--- a/crates/slot-retro/src/ffi.rs
++++ b/crates/slot-retro/src/ffi.rs
+@@ -42,6 +42,27 @@ pub struct GameInfo {
+     pub meta: *const c_char,
+ }
+ 
++#[repr(C)]
++pub struct SystemInfo {
++    pub library_name: *const c_char,
++    pub library_version: *const c_char,
++    pub valid_extensions: *const c_char,
++    pub need_fullpath: bool,
++    pub block_extract: bool,
++}
++
++impl Default for SystemInfo {
++    fn default() -> Self {
++        SystemInfo {
++            library_name: std::ptr::null(),
++            library_version: std::ptr::null(),
++            valid_extensions: std::ptr::null(),
++            need_fullpath: false,
++            block_extract: false,
++        }
++    }
++}
++
+ #[repr(C)]
+ #[derive(Default)]
+ pub struct GameGeometry {
+@@ -129,6 +150,7 @@ pub struct Api {
+     pub init: unsafe extern "C" fn(),
+     pub deinit: unsafe extern "C" fn(),
+     pub api_version: unsafe extern "C" fn() -> c_uint,
++    pub get_system_info: unsafe extern "C" fn(*mut SystemInfo),
+     pub get_system_av_info: unsafe extern "C" fn(*mut SystemAvInfo),
+     pub set_environment: unsafe extern "C" fn(EnvironmentFn),
+     pub set_video_refresh: unsafe extern "C" fn(VideoRefreshFn),
+@@ -159,6 +181,7 @@ impl Api {
+             init: get!("retro_init"),
+             deinit: get!("retro_deinit"),
+             api_version: get!("retro_api_version"),
++            get_system_info: get!("retro_get_system_info"),
+             get_system_av_info: get!("retro_get_system_av_info"),
+             set_environment: get!("retro_set_environment"),
+             set_video_refresh: get!("retro_set_video_refresh"),
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index 3d54298..94be764 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -453,6 +453,17 @@ impl LibretroCore {
+         self.host.asked_for_rumble
+     }
+ 
++    pub fn needs_full_path(&self) -> bool {
++        let mut info = SystemInfo::default();
++        // SAFETY: retro_get_system_info only writes the struct it is handed, before or after load.
++        unsafe { (self.api.get_system_info)(&mut info) };
++        info.need_fullpath
++    }
++
++    pub fn rom_bytes_held(&self) -> usize {
++        self.rom.len()
++    }
++
+     pub fn set_option(&mut self, key: &str, value: &str) {
+         if !self.host.declared.is_empty() {
+             match self.host.declared.get(key) {
+@@ -589,14 +600,24 @@ impl RetroCore for LibretroCore {
+ 
+     fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
+         self.unload();
+-        self.rom = std::fs::read(rom)?;
++        let full_path = self.needs_full_path();
++        self.rom = if full_path {
++            std::fs::metadata(rom)?;
++            Vec::new()
++        } else {
++            std::fs::read(rom)?
++        };
+         self.rom_path = Some(
+             CString::new(rom.as_os_str().as_encoded_bytes())
+                 .map_err(|_| CoreError::Load("rom path contains a nul".into()))?,
+         );
+         let info = GameInfo {
+             path: self.rom_path.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
+-            data: self.rom.as_ptr() as *const c_void,
++            data: if full_path {
++                ptr::null()
++            } else {
++                self.rom.as_ptr() as *const c_void
++            },
+             size: self.rom.len(),
+             meta: ptr::null(),
+         };
+diff --git a/crates/slot/tests/fullpath_load.rs b/crates/slot/tests/fullpath_load.rs
+new file mode 100644
+index 0000000..503973c
+--- /dev/null
++++ b/crates/slot/tests/fullpath_load.rs
+@@ -0,0 +1,81 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod sega_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use slot_retro::{ButtonMask, CoreError, LibretroCore, RetroCore};
++
++fn booted(dylib: &Path, rom: &Path) -> LibretroCore {
++    let mut core = LibretroCore::open(dylib).expect("open core");
++    core.load(rom).expect("load rom");
++    for _ in 0..60 {
++        core.run_frame(ButtonMask::default());
++    }
++    core
++}
++
++fn harness_rom(name: &str) -> PathBuf {
++    common::repo_root().join("../../harness/roms").join(name)
++}
++
++#[test]
++fn cores_that_read_their_own_file_are_handed_only_its_path() {
++    let _g = core_lock();
++    let carts = [
++        ("gpsp", require_core("gpsp"), harness_rom("240pee_mb.gba")),
++        (
++            "fceumm",
++            nes_common::fceumm(),
++            nes_common::nes_rom("fullpath.nes", false),
++        ),
++        (
++            "genesis_plus_gx",
++            sega_common::genesis_plus_gx(),
++            sega_common::md_rom("fullpath.md", true, false),
++        ),
++    ];
++    for (name, dylib, rom) in carts {
++        let Some(dylib) = dylib else {
++            continue;
++        };
++        let core = booted(&dylib, &rom);
++        assert!(core.needs_full_path(), "{name} reads its own file");
++        assert_eq!(core.rom_bytes_held(), 0, "{name} got a rom it never reads");
++        assert!(
++            core.video_xrgb8888().iter().any(|b| *b != 0),
++            "{name} drew nothing from {}",
++            rom.display()
++        );
++    }
++}
++
++#[test]
++fn mgba_still_gets_the_whole_rom_in_memory() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("mgba") else {
++        return;
++    };
++    let rom = harness_rom("240pee_mb.gba");
++    let core = booted(&dylib, &rom);
++    assert!(!core.needs_full_path());
++    assert_eq!(
++        core.rom_bytes_held() as u64,
++        std::fs::metadata(&rom).expect("rom").len()
++    );
++    assert!(core.video_xrgb8888().iter().any(|b| *b != 0));
++}
++
++#[test]
++fn a_missing_rom_is_still_an_io_error_on_a_core_that_reads_its_own_file() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("gpsp") else {
++        return;
++    };
++    let mut core = LibretroCore::open(&dylib).expect("open gpsp");
++    let missing = Path::new(env!("CARGO_TARGET_TMPDIR")).join("no-such-cart.gba");
++    assert!(matches!(core.load(&missing), Err(CoreError::Io(_))));
++}
