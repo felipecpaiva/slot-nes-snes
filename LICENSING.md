@@ -121,10 +121,10 @@ What follows for users:
 
 Notice text (README "Licences" and the release notes carry it):
 
-> snes9x and snes9x2005_plus are licensed for non-commercial use only and are not GPL. This release
-> includes them, with their licences in System/licenses/snes9x-LICENSE.txt and
-> System/licenses/snes9x2005-LICENSE.txt. Do not sell this zip or bundle it with anything that is
-> sold.
+> snes9x, snes9x2005_plus and Genesis Plus GX are licensed for non-commercial use only and are not
+> GPL. This release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
+> System/licenses/snes9x2005-LICENSE.txt and System/licenses/genesis_plus_gx-LICENSE.txt. Do not
+> sell this zip or bundle it with anything that is sold.
 
 ## nestopia
 
@@ -184,16 +184,16 @@ This is our reading, not legal advice. The core is plain C, so no libstdc++ is l
 never be sold, or bundled with anything that is sold**, and the notice under snes9x covers this core
 too. The README "Licences" paragraph names both.
 
-## Genesis Plus GX (built, not shipped yet)
+## Genesis Plus GX
 
 Checked at commit `393f70cd64c7334564c19a424c383f53986c13f4` of libretro/Genesis-Plus-GX, the commit
 `SLOT_PIN` pins as `genesis_plus_gx_commit` (tarball sha256 `genesis_plus_gx_tarball_sha256`). It
-is built by `cores/genesis_plus_gx/build.sh` for Game Gear, Master System and Mega Drive (ADR 0053).
-**No release carries it yet**: it is not in `dist:device` or `zip-check.sh` until the first Sega
-platform patch lands (issue 50). Its licence, the root `LICENSE.txt` of that source copied verbatim
-and whole, is kept as `cores/genesis_plus_gx/LICENSE.txt` for now, because `scripts/dist-device.sh`
-copies every file in `licenses/` into the release. It moves to `licenses/genesis_plus_gx-LICENSE.txt`
-when the core ships, and the core's source then ships as `genesis_plus_gx-src.tar.gz` with its `.meta`.
+is built by `cores/genesis_plus_gx/build.sh` for Game Gear, Master System and Mega Drive (ADR 0053),
+and ships from the release that carries the first Sega platform (issue 50). Its licence, the root
+`LICENSE.txt` of that source copied verbatim and whole, is `licenses/genesis_plus_gx-LICENSE.txt`,
+which `scripts/dist-device.sh` copies into `System/licenses/` with every other file in `licenses/`, and
+`scripts/zip-check.sh` requires and compares byte for byte. The exact source ships with the core as
+`genesis_plus_gx-src.tar.gz`, with `genesis_plus_gx-src.meta` recording its sha256.
 
 **Genesis Plus GX is not free software and is not GPL-compatible**, like snes9x. The file says, quoted:
 
@@ -217,8 +217,8 @@ restriction on the whole.
 
 The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across
 the libretro C ABI, the zip an aggregate of separate works. This is our reading, not legal advice.
-The core is plain C and links only `libc` and `libm` on the device. When it ships, the notice under
-snes9x gains Genesis Plus GX, and the release terms do not change: the zip is already never to be sold.
+The core is plain C and links only `libc` and `libm` on the device. The notice under snes9x names
+Genesis Plus GX too, and the release terms do not change: the zip was already never to be sold.
 
 ## NES and SNES screen shaders
 

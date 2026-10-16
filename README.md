@@ -134,9 +134,11 @@ Progress is tracked on the [project board](https://github.com/users/felipecpaiva
 ## Licences
 
 slot is GPL-3.0-or-later, so this patch set is too (see [LICENSE](LICENSE)). fceumm and nestopia
-are GPL-2.0-or-later. **snes9x and snes9x2005_plus are not GPL**: they are free for non-commercial
-use only. Builds that include them ship their licence files (`System/licenses/snes9x-LICENSE.txt`,
-`System/licenses/snes9x2005-LICENSE.txt`) and must never be sold or bundled with anything sold. See [LICENSING.md](LICENSING.md).
+are GPL-2.0-or-later. **snes9x, snes9x2005_plus and Genesis Plus GX are not GPL**: they are free for
+non-commercial use only. Builds that include them ship their licence files
+(`System/licenses/snes9x-LICENSE.txt`, `System/licenses/snes9x2005-LICENSE.txt`,
+`System/licenses/genesis_plus_gx-LICENSE.txt`) and must never be sold or bundled with anything sold.
+See [LICENSING.md](LICENSING.md).
 
 ## Credit
 
