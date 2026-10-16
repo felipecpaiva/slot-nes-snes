@@ -5,7 +5,8 @@
     python3 scripts/push-roms.py --src ~/ROMS --only gba       # one system
     python3 scripts/push-roms.py --src ~/ROMS --dry-run        # count only, touch nothing
 
---src holds one folder per system: nes, snes, gba, gb, gbc (missing ones are skipped).
+--src holds one folder per system: nes, snes, gba, gb, gbc, gamegear, mastersystem, megadrive (missing ones
+are skipped).
 ROMs:   zips are read in place and only new games are unzipped; duplicates are found by CRC32 and
         size (zip headers), so nothing is unzipped twice. Loose ROMs are pushed as they are.
 Saves:  Name.srm or Name.sav -> Saves/<SYSTEM>/<rom file stem>.sav. Never overwrites a save already
@@ -34,10 +35,13 @@ SYSTEMS = {  # folder -> (device folder, rom extensions, core that loads its sta
     "gba": ("GBA", {".gba"}, "mgba"),
     "gb": ("GB", {".gb", ".gbc"}, "mgba"),
     "gbc": ("GBC", {".gb", ".gbc"}, "mgba"),
+    "gamegear": ("GG", {".gg"}, "genesis_plus_gx"),
+    "mastersystem": ("SMS", {".sms"}, "genesis_plus_gx"),
+    "megadrive": ("MD", {".md", ".gen", ".bin"}, "genesis_plus_gx"),
 }
 
 ap = argparse.ArgumentParser(description="Push ROMs, saves and states to the device over adb.")
-ap.add_argument("--src", default=".", help="library folder holding nes/ snes/ gba/ gb/ gbc/ (default: .)")
+ap.add_argument("--src", default=".", help="library folder holding nes/ snes/ gba/ gb/ gbc/ gamegear/ mastersystem/ megadrive/ (default: .)")
 ap.add_argument("--only", choices=SYSTEMS, help="push one system only")
 ap.add_argument("--dry-run", action="store_true", help="count what would be pushed; touch nothing")
 ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default: /mnt/sdcard)")

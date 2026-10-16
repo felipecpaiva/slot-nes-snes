@@ -12,6 +12,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 1 (initial) | All sections | First cut. Five phases: NES boot slice, SNES, parity, real cart art with variants, release/CI/rebase. Bezel decided. Cart art expanded to full variant parity. |
 | 2 | Approach, Phased rollout, Signature impact, Critical files, Test plan, Gotchas, Open questions, Evaluation | Review fixes: Host side-state, pair-relative picker, macOS-primary CI, deterministic harness, licensing tarball |
 | 3 | Open questions | User resolved OQ2 (no quick menu shader rows) and OQ4 (SELECT+X SNES video mode) |
+| 4 | Phased rollout | Phase 7 (Sega on Genesis Plus GX, patches 0024 to 0028) added |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -389,6 +390,25 @@ Acceptance:
 ### Cross-platform performance evaluation (Phase 5, after all implementation)
 
 One platform experience: every platform and core (GBA on mGBA and gpSP, GB, GBC, NES on fceumm and nestopia, SNES on snes9x and snes9x2005_plus) is measured on the RG34XXSP against unpatched slot playing GBA on mGBA, in the same session. Metrics: boot and insert to first frame, frame time median and p99, audio underruns, fast-forward speed, rewind cost, save and load state time, shelf and menu frame time, input latency. Results in `docs/PERFORMANCE.md`; every miss gets a follow-up issue. Tracked in `.github/issues/39-cross-platform-performance.md` (GitHub #45). Added at the maintainer's request on 2026-10-12.
+
+### Phase 7: Sega (Game Gear, Master System, Mega Drive)
+
+Tracking issue 50, children 51 to 53, ADRs 0050 to 0056, research in docs/research/sega-plan.md
+and docs/cart-art/SEGA.md. One core, Genesis Plus GX, serves three new platforms, each its own
+shelf (`Games/GG`, `Games/SMS`, `Games/MD`), with no core picker until a second core exists.
+
+| Patch | Content |
+|---|---|
+| 0024-platform-gg | `Platform::Gg`, `Core::GenesisPlusGx`, `Core::canvas(platform)` (ADR 0050: Game Gear 240x160 at 3x), core options, env answers for cores slot did not ship, `TMR SEGA` region reader |
+| 0025-platform-sms | `Platform::Sms`, 360x240 at 2x, left border hidden, START is Pause |
+| 0026-platform-md | `Platform::Md`, SNES input policy (X, Y, Z, MODE), Stretch follows the live frame width (ADR 0052), header title and region |
+| 0027-sega-shaders | Game Gear, Master System and Mega Drive rows on the Screen page and in game, retro shader list, `Config/sega_shaders.txt` (ADR 0051), named test sites (g) and (h) widened (ADR 0055) |
+| 0028-sega-carts | Five generated bitmap shells, one box per platform (ADR 0056), region and size rules |
+| 0029-sms-box-art | Master System and Sega Card wells made portrait for the whole front box, contain fit (ADR 0057) |
+
+Done on the host: every test with `SLOT_REQUIRE_CORES=1`, real-core boot, canvas, save RAM round
+trip, input, Stretch and shader tests per system. Open: the device gate (heavy Mega Drive titles,
+`task perf:play` rows), a second core per system, a harness leg for a Sega cart then GBA.
 
 ### Phase 6+: deferred (non-blocking)
 

@@ -11,11 +11,11 @@ depends_on: [51-platform-gg]
 Master System at 256x192 fits the 360x240 canvas at 2x like NES, with two buttons, on the same core as Game Gear (ADR 0053).
 
 ## Scope
-- [ ] `Platform::Sms` in `SHELVES`, `Games/SMS`, extension `sms` (`sg` later), title from the stem.
-- [ ] Canvas 360x240 at 2x; picture 256x192 (taller extended modes follow the frame).
-- [ ] NES like policy: slot owns L1 and R1, X and Y turbo; START is Pause.
-- [ ] Core option `genesis_plus_gx_left_border` hides the blank left column; `genesis_plus_gx_ym2413` left at its default.
-- [ ] Region from the header nibble at 0x7FFF.
+- [x] `Platform::Sms` in `SHELVES`, `Games/SMS`, extension `sms` (`sg` later), title from the stem.
+- [x] Canvas 360x240 at 2x; picture 256x192. Taller extended modes are centred in the canvas; Stretch keeps the fixed 256x192 (ADR 0052 covers Mega Drive only).
+- [x] NES like policy: slot owns L1 and R1, X and Y turbo; START is Pause. SELECT does nothing on Genesis Plus GX's 2-button pad, so no mask is needed.
+- [x] Core option `genesis_plus_gx_left_border` (`left border`) hides the blank left column; `genesis_plus_gx_ym2413` left at its default.
+- [x] Region from the header nibble at 0x7FFF (`slot_store::sega::sms_region`). The cart shell (cartridge or Sega Card) follows the file size, because the header does not say which (SEGA.md section 3).
 
 ## Tests
 | ID | File | Asserts |
@@ -29,10 +29,13 @@ Master System at 256x192 fits the 360x240 canvas at 2x like NES, with two button
 | Pause on START | Reaches the game; slot chords on SELECT are unchanged |
 
 ## Acceptance
-- [ ] Tests green, `task check` green, touch-point map regenerated.
+- [x] Tests green, `task check` green, touch-point map regenerated.
 
 ## Device check (RG34XXSP)
 An SMS cart from the maintainer's card, full speed, both buttons and Pause, save and reload.
+
+## Box art (ADR 0057)
+Master System carts show the whole front box in a tall well instead of a label scan, for every game: well 140x196 on the cartridge and 114x160 on the Sega Card (box aspect 0.713, measured in docs/cart-art/SEGA.md section 8), contain fit on the box's edge colour. `tools/fetch-labels.py` fetches ScreenScraper `box-2D` for SMS and keeps older label scans unless `--force`. Patch 0029 (`sms-box-art`).
 
 ## References
 - ADR 0053; docs/PERFORMANCE.md "Sega core" (SMS 1.302 ms/frame on the device, 12.8x)

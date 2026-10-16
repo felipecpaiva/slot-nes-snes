@@ -103,9 +103,9 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot/tests/gpsp.rs)
-		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)? => "gpsp_color_correction",$'
+		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)?( \| Core::GenesisPlusGx)? => "gpsp_color_correction",$'
 		if [ "$(grep -cE "$mgba" "$ours/$f")" = 1 ] &&
-			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
+			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)?( \\| Core::GenesisPlusGx)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exception (new cores on the Core::Mgba colour-correction arm)"
 		else
@@ -113,28 +113,30 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot-ui/tests/quick_menu.rs)
-		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"\]$'
-		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes$'
+		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive")?\]$'
+		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
-			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(\])$/$1$2/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes$/$1/' "$ours/$f" >"$tmp/x" &&
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive")?(\])$/$1$3/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd)?$/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (NES and SNES after Game Boy in the Screen labels and the rows that open pages)"
+			echo "upstream test code: $f uses the named exceptions (NES, SNES and the Sega systems after Game Boy in the Screen labels and the rows that open pages)"
 		else
-			fail "$f differs beyond the NES and SNES tokens in the Screen labels and the rows that open pages"
+			fail "$f differs beyond the NES, SNES and Sega tokens in the Screen labels and the rows that open pages"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;
 	esac
-	# Exact rule: exactly one Game Boy arm line may carry | $prefix::Nes (and | $prefix::Snes);
-	# everything else, whitespace and final newline included, must be byte-identical. A reflowed
-	# arm fails here on purpose: that is a decision for a human.
-	arm="^[[:space:]]*$prefix::Gb \\| $prefix::Gbc \\| $prefix::Nes( \\| $prefix::Snes)? =>"
+	# Exact rule: exactly one Game Boy arm line may carry | $prefix::Nes, then optionally
+	# | $prefix::Snes, | $prefix::Gg, | $prefix::Sms and | $prefix::Md in that order; everything
+	# else, whitespace and final newline included, must be byte-identical. A reflowed arm fails
+	# here on purpose: that is a decision for a human.
+	tail="( \\| $prefix::Snes( \\| $prefix::Gg( \\| $prefix::Sms( \\| $prefix::Md)?)?)?)?"
+	arm="^[[:space:]]*$prefix::Gb \\| $prefix::Gbc \\| $prefix::Nes$tail =>"
 	if [ "$(grep -cE "$arm" "$ours/$f")" = 1 ] &&
-		perl -pe "s/^([ \\t]*$prefix::Gb \\| $prefix::Gbc) \\| $prefix::Nes( \\| $prefix::Snes)? =>/\$1 =>/" "$ours/$f" >"$tmp/x" &&
+		perl -pe "s/^([ \\t]*$prefix::Gb \\| $prefix::Gbc) \\| $prefix::Nes$tail =>/\$1 =>/" "$ours/$f" >"$tmp/x" &&
 		cmp -s "$up/$f" "$tmp/x"; then
-		echo "upstream test code: $f uses the named exception (| $prefix::Nes / | $prefix::Snes in the Game Boy arm)"
+		echo "upstream test code: $f uses the named exception (| $prefix::Nes, | $prefix::Snes and the Sega platforms in the Game Boy arm)"
 	else
-		fail "$f differs beyond the Game Boy arm's | $prefix::Nes / | $prefix::Snes tokens"
+		fail "$f differs beyond the Game Boy arm's | $prefix::Nes, | $prefix::Snes and Sega platform tokens"
 	fi
 done
 

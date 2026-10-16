@@ -26,10 +26,12 @@ check_cores() {
 		vendor/nestopia_libretro.so vendor/nestopia_libretro.so.meta vendor/nestopia-src.tar.gz \
 		vendor/nestopia-src.meta licenses/nestopia-GPL-2.0.txt \
 		vendor/snes9x2005_plus_libretro.so vendor/snes9x2005_plus_libretro.so.meta \
-		vendor/snes9x2005_plus-src.tar.gz vendor/snes9x2005_plus-src.meta licenses/snes9x2005-LICENSE.txt; do
+		vendor/snes9x2005_plus-src.tar.gz vendor/snes9x2005_plus-src.meta licenses/snes9x2005-LICENSE.txt \
+		vendor/genesis_plus_gx_libretro.so vendor/genesis_plus_gx_libretro.so.meta \
+		vendor/genesis_plus_gx-src.tar.gz vendor/genesis_plus_gx-src.meta licenses/genesis_plus_gx-LICENSE.txt; do
 		[ -f "$root/$f" ] || missing "$f"
 	done
-	for c in fceumm snes9x nestopia snes9x2005_plus; do
+	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx; do
 		is_aarch64 "$root/vendor/${c}_libretro.so" || {
 			echo "slot-nes-snes: vendor/${c}_libretro.so is not an aarch64 ELF" >&2
 			exit 1
@@ -70,13 +72,15 @@ build() {
 
 	sys="$root/$dist/System"
 	cp "$root/vendor/fceumm_libretro.so" "$root/vendor/snes9x_libretro.so" \
-		"$root/vendor/nestopia_libretro.so" "$root/vendor/snes9x2005_plus_libretro.so" "$sys/"
+		"$root/vendor/nestopia_libretro.so" "$root/vendor/snes9x2005_plus_libretro.so" \
+		"$root/vendor/genesis_plus_gx_libretro.so" "$sys/"
 	cp "$root/vendor/fceumm_libretro.so.meta" "$root/vendor/fceumm-src.tar.gz" \
 		"$root/vendor/fceumm-src.meta" "$root/vendor/snes9x_libretro.so.meta" \
 		"$root/vendor/snes9x-src.tar.gz" "$root/vendor/snes9x-src.meta" \
 		"$root/vendor/nestopia_libretro.so.meta" "$root/vendor/nestopia-src.tar.gz" "$root/vendor/nestopia-src.meta" \
 		"$root/vendor/snes9x2005_plus_libretro.so.meta" "$root/vendor/snes9x2005_plus-src.tar.gz" \
-		"$root/vendor/snes9x2005_plus-src.meta" "$sys/licenses/"
+		"$root/vendor/snes9x2005_plus-src.meta" "$root/vendor/genesis_plus_gx_libretro.so.meta" \
+		"$root/vendor/genesis_plus_gx-src.tar.gz" "$root/vendor/genesis_plus_gx-src.meta" "$sys/licenses/"
 	for f in "$root"/licenses/*; do
 		[ -f "$f" ] && [ ! -L "$f" ] && cp "$f" "$sys/licenses/"
 	done
@@ -84,7 +88,7 @@ build() {
 		cp "$p" "$sys/licenses/slot-nes-snes-$(basename "$p")"
 	done
 	(cd "$sys" && shasum -a 256 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
-		nestopia_libretro.so snes9x2005_plus_libretro.so >licenses/cores.sha256)
+		nestopia_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so >licenses/cores.sha256)
 	echo "device tree ready at $dist"
 }
 

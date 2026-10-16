@@ -11,11 +11,11 @@ depends_on: [52-platform-sms]
 Mega Drive is the heaviest of the three: 6-button pads, H32 and H40 widths that can change mid-game, interlace mode 2, and the most core cost (ADR 0053). The go for Genesis Plus GX is provisional on the heavy-title device gate.
 
 ## Scope
-- [ ] `Platform::Md` in `SHELVES`, `Games/MD`, extensions `md`, `gen`, `bin` (folder scoped), title from the header.
-- [ ] Canvas 360x240 at 2x; Stretch follows the last frame width, 320 or 256 (ADR 0052); default Stretch.
-- [ ] SNES like input policy: X, Y, L, R reach the game (core map: Y to A, B to B, A to C, L to X, X to Y, R to Z, SELECT to MODE), picture toggle on SELECT+X (ADR 0007).
-- [ ] Core options: `genesis_plus_gx_render=single field`, `genesis_plus_gx_ym2612` left at `mame (ym2612)` (Nuked costs 11.76 ms/frame on the device).
-- [ ] Region from the header at 0x1F0.
+- [x] `Platform::Md` in `SHELVES`, `Games/MD`, extensions `md`, `gen`, `bin` (folder scoped), title from the header (overseas title at 0x150, else the domestic one if it is ASCII, else the stem).
+- [x] Canvas 360x240 at 2x; Stretch follows the last frame width, 320 or 256 (ADR 0052); default Stretch.
+- [x] SNES like input policy: X, Y, L, R reach the game (core map: Y to A, B to B, A to C, L to X, X to Y, R to Z, SELECT to MODE), picture toggle on SELECT+X (ADR 0007).
+- [x] Core options: `genesis_plus_gx_render=single field`, `genesis_plus_gx_ym2612` left at `mame (ym2612)` (Nuked costs 11.76 ms/frame on the device).
+- [x] Region from the header at 0x1F0 (`slot_store::sega::md_regions`, read as Genesis Plus GX reads it; it picks the Japanese or Western cart).
 
 ## Tests
 | ID | File | Asserts |
@@ -30,7 +30,7 @@ Mega Drive is the heaviest of the three: 6-button pads, H32 and H40 widths that 
 | `.bin` outside `Games/MD` | Not claimed, folder scoped |
 
 ## Acceptance
-- [ ] Tests green, `task check` green, touch-point map regenerated.
+- [x] Tests green, `task check` green, touch-point map regenerated.
 - [ ] Heavy-title device gate passed, or PicoDrive added as the MD fallback.
 
 ## Device check (RG34XXSP)

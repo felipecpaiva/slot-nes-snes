@@ -123,7 +123,7 @@ tasks:
       - echo "{{.GENESIS_PLUS_GX_COMMIT}}" > vendor/genesis_plus_gx-src.sha
 
   core:genesis_plus_gx:host:
-    desc: Build the Genesis Plus GX host dylib into vendor/ (not part of core:host or task check yet, no frontend code uses it)
+    desc: Build the Genesis Plus GX host dylib into vendor/ (core:host builds it too)
     deps: [core:genesis_plus_gx:src]
     status:
       - test -f vendor/genesis_plus_gx_libretro.dylib
@@ -132,8 +132,8 @@ tasks:
       - sh cores/genesis_plus_gx/build.sh build {{.GENESIS_PLUS_GX_COMMIT}} vendor/genesis_plus_gx-src.tar.gz build/genesis_plus_gx-host vendor/genesis_plus_gx_libretro.dylib
 
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia and snes9x2005_plus from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus and Genesis Plus GX from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -154,14 +154,19 @@ tasks:
         test -f vendor/snes9x2005_plus_libretro.dylib &&
           test "$(cat vendor/snes9x2005_plus_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/snes9x2005_plus/build.sh stamp {{.SNES9X2005_PLUS_COMMIT}} host)" ||
           sh cores/snes9x2005_plus/build.sh build {{.SNES9X2005_PLUS_COMMIT}} vendor/snes9x2005_plus-src.tar.gz build/snes9x2005_plus-host vendor/snes9x2005_plus_libretro.dylib
+      - |
+        test -f vendor/genesis_plus_gx_libretro.dylib &&
+          test "$(cat vendor/genesis_plus_gx_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/genesis_plus_gx/build.sh stamp {{.GENESIS_PLUS_GX_COMMIT}} host)" ||
+          sh cores/genesis_plus_gx/build.sh build {{.GENESIS_PLUS_GX_COMMIT}} vendor/genesis_plus_gx-src.tar.gz build/genesis_plus_gx-host vendor/genesis_plus_gx_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia and snes9x2005_plus cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus and Genesis Plus GX cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
       - task: core:device:nestopia
       - task: core:device:snes9x2005_plus
+      - task: core:device:genesis_plus_gx
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -224,7 +229,7 @@ tasks:
       - 'echo "built vendor/snes9x2005_plus_libretro.so from vendor/snes9x2005_plus-src.tar.gz @ {{.SNES9X2005_PLUS_COMMIT}}"'
 
   core:device:genesis_plus_gx:
-    desc: Build the aarch64 linux Genesis Plus GX core into vendor/genesis_plus_gx_libretro.so, in rust:1-bullseye via scripts/device-sh.sh (not part of core:device or dist:device yet)
+    desc: Build the aarch64 linux Genesis Plus GX core into vendor/genesis_plus_gx_libretro.so, in rust:1-bullseye via scripts/device-sh.sh
     deps: [core:genesis_plus_gx:src]
     status:
       - test -f vendor/genesis_plus_gx_libretro.so
@@ -258,6 +263,7 @@ tasks:
       - test -f vendor/snes9x_libretro.dylib
       - test -f vendor/nestopia_libretro.dylib
       - test -f vendor/snes9x2005_plus_libretro.dylib
+      - test -f vendor/genesis_plus_gx_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
@@ -323,7 +329,7 @@ tasks:
       - sh scripts/bench-compare.sh
 
   bench:device:
-    desc: Run core_bench on a connected device over adb. CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus|genesis_plus_gx (default mgba), ROM=local path (default harness/roms/240pee_mb.gba) or ROM_ON_DEVICE=/mnt/sdcard/Games/... for a cart already on the card (nothing is pushed), ARGS and SD optional. Run task deploy:device first, the core under test is the one already in System/ (genesis_plus_gx is not in the dist yet, so adb push vendor/genesis_plus_gx_libretro.so to System/ by hand)
+    desc: Run core_bench on a connected device over adb. CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus|genesis_plus_gx (default mgba), ROM=local path (default harness/roms/240pee_mb.gba) or ROM_ON_DEVICE=/mnt/sdcard/Games/... for a cart already on the card (nothing is pushed), ARGS and SD optional. Run task deploy:device first, the core under test is the one already in System/
     deps: [build]
     env:
       CORE: '{{.CORE}}'
@@ -369,7 +375,7 @@ tasks:
       - sh evals/eval-frontend-cost.sh
 
   dist:device:
-    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia and snes9x2005_plus cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia, snes9x2005_plus and Genesis Plus GX cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
     deps: [build, core:device]
     vars:
       NAME:
@@ -389,6 +395,8 @@ tasks:
       - vendor/nestopia-src.*
       - vendor/snes9x2005_plus_libretro.so*
       - vendor/snes9x2005_plus-src.*
+      - vendor/genesis_plus_gx_libretro.so*
+      - vendor/genesis_plus_gx-src.*
       - scripts/dist-device.sh
       - scripts/device-sh.sh
       - scripts/fetch-task.sh
@@ -437,7 +445,7 @@ tasks:
         for f in "$sys"/licenses/*; do
           case "$f" in */slot-nes-snes-src-*) ;; *) adb push "$f" '{{.SD}}/System/licenses/' ;; esac
         done
-      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so {{.SD}}/System/nestopia_libretro.so {{.SD}}/System/snes9x2005_plus_libretro.so && sync'
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so {{.SD}}/System/nestopia_libretro.so {{.SD}}/System/snes9x2005_plus_libretro.so {{.SD}}/System/genesis_plus_gx_libretro.so && sync'
       - adb reboot
       - adb wait-for-device
       - 'echo "deployed to {{.SD}}, device rebooting"'

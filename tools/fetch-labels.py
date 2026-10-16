@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch real cart labels (never box art, never a screenshot) for the ROMs on a slot SD card.
+"""Fetch real cart labels (never a screenshot) for the ROMs on a slot SD card; Master System gets the box front.
 
     python3 tools/fetch-labels.py --card /Volumes/SLOT                       # a mounted card
     python3 tools/fetch-labels.py --device --library ~/ROMS                  # SD card stays in the device, over adb
@@ -7,7 +7,7 @@
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
-                 stem's CRC32 in --library (<library>/nes snes gba gb gbc, loose or zipped; the stem of a zipped
+                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive, loose or zipped; the stem of a zipped
                  ROM is the stem of the ROM inside the zip, as scripts/push-roms.py names it), stages the labels
                  locally and adb pushes only the new ones.
 Never overwrites a PNG or a cart_shell.txt line without --force. Reruns are cheap: everything fetched is cached
@@ -17,11 +17,13 @@ Label sources, in order, per ROM:
   1. https://art.slot-cfw.fyi/ (Brandon Kowalski's art set, GBA/GB/GBC: index.json maps CRC32 to the real
      support-texture label). One request at a time, a short pause, a User-Agent naming this project.
   2. ScreenScraper support-texture, when SS_DEVID and SS_DEVPASSWORD (and usually SS_SSID, SS_SSPASSWORD) are set.
+     Master System takes the front box art (box-2D) instead, for every game: its carts carry little more than the
+     name, and slot draws the whole box in a tall well (ADR 0057). Labels fetched before that are kept until --force.
      Credentials are never printed. Stops cleanly when the quota is spent; the next run resumes.
   A ROM with neither is reported as missing. (libretro Named_Logos on a generated ground needs image code
   beyond the standard library, so that fallback is not implemented.)
-The PNG is written as fetched: slot cover-fits any PNG into the label box and caches it itself (art.rs,
-label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
+The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
+box) and caches it itself (art.rs, retro_cart.rs, label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
 """
 import argparse
 import json
@@ -47,7 +49,9 @@ ART = "https://art.slot-cfw.fyi/"
 DAT = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/"
 SS_API = "https://api.screenscraper.fr/api2/"
 NO_INTRO = "Nintendo - "
-# system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id)
+SEGA = "Sega - "
+# system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id). The Sega dat names
+# and ids are cited in docs/cart-art/SEGA.md (libretro-database metadat/no-intro; Skyscraper's platform map).
 SYSTEMS = {
     "GBA": ("gba", {".gba"}, [NO_INTRO + "Game Boy Advance"], 12),
     "GB": ("gb", {".gb", ".gbc"}, [NO_INTRO + "Game Boy"], 9),
@@ -55,10 +59,16 @@ SYSTEMS = {
     "NES": ("nes", {".nes", ".unf"},
             [NO_INTRO + "Nintendo Entertainment System", NO_INTRO + "Nintendo Entertainment System (Headered)"], 3),
     "SNES": ("snes", {".sfc", ".smc", ".swc", ".fig"}, [NO_INTRO + "Super Nintendo Entertainment System"], 4),
+    "GG": ("gamegear", {".gg"}, [SEGA + "Game Gear"], 21),
+    "SMS": ("mastersystem", {".sms"}, [SEGA + "Master System - Mark III"], 2),
+    "MD": ("megadrive", {".md", ".gen", ".bin"}, [SEGA + "Mega Drive - Genesis"], 1),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
+# ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
+MEDIA = {"SMS": "box-2D"}
+LABEL = "support-texture"
 # slot's own plastic for a cart with no per-title colour (patch 0012), so a line only sets the outline
-SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696"}
+SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696", "megadrive": "26242a"}
 PNG = b"\x89PNG\r\n\x1a\n"
 DAY = 86400
 
@@ -231,7 +241,9 @@ class ScreenScraper:
             self.pause = 60.0 / per_min
 
     def label(self, system, crc, name, size):
-        d = os.path.join(self.ctx.cache, "ss", system)
+        kind = MEDIA.get(system, LABEL)
+        # a box is cached apart from the label scans, so a scan cached before ADR 0057 is never served as a box
+        d = os.path.join(self.ctx.cache, "ss", system, *([kind] if kind != LABEL else []))
         png, none = os.path.join(d, crc + ".png"), os.path.join(d, crc + ".none")
         if os.path.isfile(png):
             return slurp(png)
@@ -248,7 +260,7 @@ class ScreenScraper:
             data = self.call("jeuInfos.php", crc=crc, systemeid=SYSTEMS[system][3], romnom=name + ".bin",
                              romtaille=size or "")
             medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
-            media = self.pick(medias, name)
+            media = self.pick(medias, name, kind)
             os.makedirs(d, exist_ok=True)
             if not media:
                 spit(none, b"")
@@ -264,10 +276,12 @@ class ScreenScraper:
             self.stop = str(e)
             return None
 
-    def pick(self, medias, name):
+    def pick(self, medias, name, kind=LABEL):
         tag = re.search(r"\(([^)]*)\)", name)
         own = self.REGION.get(tag.group(1).split(",")[0].strip()) if tag else None
-        same = [m for m in medias if m.get("type") == "support-texture"]
+        same = [m for m in medias if m.get("type") == kind]
+        # slot decodes PNG only: a media that says it is another format goes last
+        same.sort(key=lambda m: str(m.get("format", "png")).lower() != "png")
         for region in [own, "us", "wor", "eu", "jp"]:
             for m in same:
                 if region and (m.get("region") or "").lower() == region:
@@ -290,12 +304,27 @@ class Rom:
 
     def crcs(self, system):
         """CRC32 candidates in the order the issue gives: NES whole file then without the 16-byte header,
-        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file."""
+        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a Mega Drive SMD
+        dump (as Genesis Plus GX detects one) de-interleaved, since No-Intro hashes the raw ROM."""
         if system == "SNES" and self.size % 1024 == 512:
             yield zlib.crc32(self.read()[512:])
+        if system == "MD" and self.size % 512 == 0 and (self.size // 512) % 2 == 1:
+            data = self.read()
+            if data[0x100:0x104] != b"SEGA":
+                yield zlib.crc32(deinterleave(data[512:]))
         yield self.whole()
         if system == "NES" and self.size > 16:
             yield zlib.crc32(self.read()[16:])
+
+
+def deinterleave(smd):
+    """Genesis Plus GX's deinterleave_block (core/loadrom.c): in each 16 KB block the second 8 KB are the
+    even bytes and the first 8 KB the odd ones."""
+    out = bytearray(len(smd))
+    for at in range(0, len(smd) - len(smd) % 0x4000, 0x4000):
+        out[at:at + 0x4000:2] = smd[at + 0x2000:at + 0x4000]
+        out[at + 1:at + 0x4000:2] = smd[at:at + 0x2000]
+    return bytes(out)
 
 
 def loose_rom(path):
@@ -376,14 +405,17 @@ def regions(name):
 
 
 def shell_word(system, stem, dat_name):
-    """'famicom' or 'sfc' when the dat's region says so and slot would not pick it itself, else None.
-    slot already reads a NES stem's (Japan) tag and a SNES ROM's header; a line only adds what it misses."""
+    """'famicom', 'sfc' or 'megadrive' when the dat's region says so and slot might not pick it itself, else
+    None. slot already reads a NES stem's (Japan) tag and a SNES or Mega Drive ROM's header; a line only adds
+    what it misses (a Japanese Mega Drive release whose header also lists U or E)."""
     t = tags(dat_name or "")
     if system == "NES":
         japan = lambda s: "Japan" in regions(s) and not regions(s) & {"USA", "Europe", "World"}
         return "famicom" if japan(dat_name or "") and not japan(stem) else None
     if system == "SNES":
         return "sfc" if t and not t & {"USA", "Canada", "World"} else None
+    if system == "MD":
+        return "megadrive" if "Japan" in t and not t & {"USA", "Europe", "World", "Brazil"} else None
     return None
 
 
@@ -486,13 +518,14 @@ def get_label(ctx, system, crc, rom, name):
 
 
 def process(ctx, system, roms, have, out, dat, args):
-    stats, tried = ctx.stats, 0
+    stats, tried, kept = ctx.stats, 0, 0
     for rom in roms:
         stem, tag = rom.stem, f"{system}/{rom.stem}"
         if args.only_stem and nfc(stem) != nfc(args.only_stem):
             continue
         if f"{stem}.png".lower() in have and not args.force:
             stats["skipped"] += 1
+            kept += 1
             continue
         crc = resolve(system, rom, dat, ctx.art)
         if crc is None:
@@ -527,6 +560,9 @@ def process(ctx, system, roms, have, out, dat, args):
         dest = os.path.join(out, "Labels", system, stem + ".png")
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         spit(dest, body)
+    if kept and system in MEDIA:
+        print(f"  kept {kept} existing {system} label(s); any fetched before ADR 0057 is a cart scan, not the "
+              f"{MEDIA[system]} box front. Rerun with --force --only {system} to replace them.")
 
 
 def summary(ctx, args):

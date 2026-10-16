@@ -44,5 +44,7 @@ option stays at its default, `mame (ym2612)`.
   is the fallback if one misses. Nuked FM is too slow for fast-forward and stays off.
 - The state is about 1 MB on every system, so rewind costs the same per push on GG and SMS as
   on MD, about twice snes9x2005_plus. Serialize is still under 0.5 ms (p95) on the device.
-- Licence file: `cores/genesis_plus_gx/LICENSE.txt` until the core ships, because
-  `scripts/dist-device.sh` copies every file in `licenses/` into the release.
+- Licence file: `cores/genesis_plus_gx/LICENSE.txt` until the core shipped, because
+  `scripts/dist-device.sh` copies every file in `licenses/` into the release. It moved to
+  `licenses/genesis_plus_gx-LICENSE.txt` when the core joined the release (2026-10-16), where
+  `zip-check.sh` requires it and compares it with the repo copy.

@@ -18,12 +18,12 @@ code as possible, and prove GBA did not change.**
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
    seven, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
-   - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`. The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
+   - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`, `| Platform::Gg`, `| Platform::Sms` and `| Platform::Md`, in that order (the Sega tokens by the standing rule below, ADR 0055). The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
-   - (e) `both_cores_are_told_about_colour_correction_in_their_own_words` in `crates/slot/tests/gpsp.rs`: the colour-correction match gains `| Core::Fceumm` on its `Core::Mgba` arm, then optionally `| Core::Nestopia`, `| Core::Snes9x` and `| Core::Snes9x2005Plus`, in that order, and nothing else.
+   - (e) `both_cores_are_told_about_colour_correction_in_their_own_words` in `crates/slot/tests/gpsp.rs`: the colour-correction match gains `| Core::Fceumm` on its `Core::Mgba` arm, then optionally `| Core::Nestopia`, `| Core::Snes9x`, `| Core::Snes9x2005Plus` and `| Core::GenesisPlusGx`, in that order, and nothing else.
    - (f) `a_card_from_before_the_settings_keeps_all_its_values` in `crates/slot-store/tests/durability.rs`: its full `SlotState` literal gains exactly `shader_nes: Shader::Off,` and `shader_snes: Shader::Off,`, in that order, directly after `shader_gb: Shader::Simpletex,`, because that literal has no `..Default::default()` and the new fields are required. Approved by the maintainer on 2026-10-13 (issue 21). Any other line of that file changing still fails.
-   - (g) `the_rows_run_in_the_order_the_user_chose` in `crates/slot-ui/tests/quick_menu.rs`: the line `        ["Game Boy Advance", "Game Boy Color", "Game Boy"]` becomes `        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"]`, because `QuickRow::SCREEN` lists NES and SNES (ADR 0048, approved by the maintainer on 2026-10-15).
-   - (h) the same test: the line `            QuickRow::ScreenGb` (last entry of the rows that open pages) becomes `            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes`, on that one line (ADR 0048). Any other line of that file changing still fails.
+   - (g) `the_rows_run_in_the_order_the_user_chose` in `crates/slot-ui/tests/quick_menu.rs`: the line `        ["Game Boy Advance", "Game Boy Color", "Game Boy"]` becomes `        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"]`, because `QuickRow::SCREEN` lists NES and SNES (ADR 0048, approved by the maintainer on 2026-10-15), and then optionally gains `, "Game Gear", "Master System", "Mega Drive"` before the `]` (ADR 0055).
+   - (h) the same test: the line `            QuickRow::ScreenGb` (last entry of the rows that open pages) becomes `            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes`, on that one line (ADR 0048), then optionally `, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd` on the same line (ADR 0055). Any other line of that file changing still fails.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must
@@ -119,8 +119,9 @@ drop it on the next rebase.
   A helper several of our tests need lives in a new shared module, because upstream
   `common/mod.rs` cannot be edited: `crates/slot/tests/nes_common/mod.rs` (`require_core(name)`,
   `fceumm()`, `nes_rom(name, battery)`) and `crates/slot/tests/snes_common/mod.rs`
-  (`snes_rom(name, map, copier, sram_kb)`, `Map`, `SNES_TITLE`). No `allow(dead_code)`: a binary
-  includes only the module it uses.
+  (`snes_rom(name, map, copier, sram_kb)`, `Map`, `SNES_TITLE`), and `sega_common/mod.rs` for the
+  Sega platforms. A shared test module starts with `#![allow(dead_code)]`, as upstream's
+  `common/mod.rs` does, because each test binary uses only part of it; nothing else allows it.
 - **Names:** a plain sentence, like upstream:
   `fn a_nes_cart_lands_on_its_own_shelf()`, `fn select_x_never_reaches_the_snes_game()`.
 - **One behaviour per test.** Assert the actual value, not just "it did not crash".

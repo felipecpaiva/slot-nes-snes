@@ -16,12 +16,21 @@ slot's own releases.
 The pinned base is slot v1.7.0 (`SLOT_PIN`, rebased from v1.6.0 on 2026-10-15, ADR 0038).
 
 slot keeps GBA, GB and GBC on their own shelves, each with its own cores and settings. This patch
-set adds two more shelves the same way:
+set adds more shelves the same way:
 
 | Shelf | Folder | Default core | Alternative |
 |---|---|---|---|
 | NES | `Games/NES` | fceumm | nestopia |
 | SNES | `Games/SNES` | snes9x | snes9x2005_plus |
+| Game Gear | `Games/GG` (`.gg`) | Genesis Plus GX (3x, like Game Boy) | none yet |
+| Master System | `Games/SMS` (`.sms`) | Genesis Plus GX (2x) | none yet |
+| Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
+
+The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
+System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
+Drive like SNES (X, Y, L and R are its X, Y, Z buttons and the game's own keys, SELECT is MODE,
+SELECT+X toggles the picture, and Stretch follows the game's 256 or 320 wide frame). Their shaders
+are the NES and SNES retro list, stored in `Config/sega_shaders.txt`, not in `slot.state`.
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
@@ -38,6 +47,12 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
 - slot remembers the shelf and its cart at power off and restart (upstream's memory); the other shelves do not keep their own cart.
 - The Turbo quick-menu row does nothing on SNES.
 - PAL (50 Hz) titles run about 20% fast.
+- Sega: no second core yet (PicoDrive for Mega Drive, Gearsystem for Game Gear and Master System are
+  the candidates). Mega Drive is a provisional go until the heavy-title device gate (Virtua Racing,
+  Sonic 3D Blast, Street Fighter II SCE, Thunder Force IV) passes on the RG34XXSP. A Game Gear game
+  that runs in Master System mode (256x192) is cropped to the 240x160 Game Gear canvas. Interlace
+  mode 2 (Sonic 2 two-player) uses the core's single-field blend. Sega bezels use the GBA bezel
+  choice, like NES and SNES.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.
 
@@ -69,13 +84,13 @@ Super Mario Bros. (USA)=famicom 7a7a7a solid
 Some Game=auto ac8642 glitter
 ```
 
-Words: `nes`, `famicom`, `snes`, `sfc`, `auto` (the region pick), plus the Game Boy words `notched` and `rounded`. A word that belongs to another platform is ignored and the cart is treated as `auto`: `sfc` on a NES game does nothing. The colour is six hex digits, the finish is `solid`, `clear` or `glitter`.
+Words: `nes`, `famicom`, `snes`, `sfc`, `gg`, `sms`, `segacard`, `megadrive`, `genesis`, `auto` (the region pick), plus the Game Boy words `notched` and `rounded`. A word that belongs to another platform is ignored and the cart is treated as `auto`: `sfc` on a NES game does nothing. The colour is six hex digits, the finish is `solid`, `clear` or `glitter`.
 
 Keep NES and SNES overrides in `Config/cart_shell.txt`. The cart studio at studio.slot-cfw.fyi writes `Labels/cart_shell.txt`, and whether it keeps the new words when it rewrites that file has not been checked.
 
 ## Fetching real cart labels
 
-`tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES and SNES. It never uses box art or a screenshot, and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
+`tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES, SNES, Game Gear, Master System and Mega Drive. It never uses a screenshot, and box art only for Master System, whose carts carry little more than the name: every Master System cart shows its whole front box (ScreenScraper `box-2D`, ADR 0057), and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
 
 ```sh
 # the SD card stays in the device, ROM library on this machine (nes/ snes/ gba/ gb/ gbc/ folders, loose or zipped)
@@ -106,13 +121,13 @@ Build the zip with `task zip` (it runs `task dist:device` and `task src-tarball`
 **Without adb (how most people install):** unzip, then copy the contents of the one top folder
 (`System/`, `BIOS/`, `Config/`, `Games/`, ...) onto the root of the SD card, merging with what is
 there. An update replaces `System/` and keeps `Config/`, `Saves/` and `States/`. Put NES carts in
-`Games/NES`.
+`Games/NES`, Sega carts in `Games/GG`, `Games/SMS` and `Games/MD`.
 
 **With adb:** `task deploy:device` pushes `System/` to `/mnt/sdcard` and reboots the device
 (`SD=/other/path` overrides the target), then `task log:device` prints `slot.log`.
 
 **Going back to stock slot:** an unpatched slot does not know the NES or SNES shelves. If its
-`Config/slot.state` says `cart_platform=nes` (or `snes`) because a NES or SNES cart was in the slot,
+`Config/slot.state` says `cart_platform=nes` (or `snes`, `gg`, `sms`, `md`) because one of our carts was in the slot,
 it reads that as no platform and looks the cart up by name. The cart sits in `Games/NES`, which
 stock slot never scans, so it finds nothing and boots to the shelf with the slot empty (unless a
 GBA, GB or GBC cart has the same name, which it seats instead). Nothing panics and no file is
@@ -134,9 +149,11 @@ Progress is tracked on the [project board](https://github.com/users/felipecpaiva
 ## Licences
 
 slot is GPL-3.0-or-later, so this patch set is too (see [LICENSE](LICENSE)). fceumm and nestopia
-are GPL-2.0-or-later. **snes9x and snes9x2005_plus are not GPL**: they are free for non-commercial
-use only. Builds that include them ship their licence files (`System/licenses/snes9x-LICENSE.txt`,
-`System/licenses/snes9x2005-LICENSE.txt`) and must never be sold or bundled with anything sold. See [LICENSING.md](LICENSING.md).
+are GPL-2.0-or-later. **snes9x, snes9x2005_plus and Genesis Plus GX are not GPL**: they are free for
+non-commercial use only. Builds that include them ship their licence files
+(`System/licenses/snes9x-LICENSE.txt`, `System/licenses/snes9x2005-LICENSE.txt`,
+`System/licenses/genesis_plus_gx-LICENSE.txt`) and must never be sold or bundled with anything sold.
+See [LICENSING.md](LICENSING.md).
 
 ## Credit
 
