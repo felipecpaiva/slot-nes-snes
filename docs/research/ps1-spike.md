@@ -9,8 +9,8 @@ changes and the scripts live outside the patch set until the numbers say go.
 |---|---|---|
 | Source | `https://github.com/libretro/pcsx_rearmed/archive/c8816799b50388e61cfe237fe2cdbb7d8175f20a.tar.gz` (the pin bently and omega-zero use) | `edeb21fdeef8815521cb9d4488d2cd35746607c968ca9b26cce4e42c09f2dc99` |
 | `pcsx_rearmed_libretro.so` | `cores/lib.sh` in rust:1-bullseye, `make -f Makefile.libretro platform=unix DYNAREC=ari64 BUILTIN_GPU=neon HAVE_PHYSICAL_CDROM=0 HAVE_CHD=1`, CFLAGS `-mcpu=cortex-a53` (omega-zero's flags) | `2b438b1ef1fafa118cb5f7ce4021e7b6882560529ebc974335d2ebfcef0f35b8` |
-| `core_bench` | slot's `bench:device` task, with the spike diff below | `96d0947e8702d06edd020830f203108be029b0df66bfaa4085c863aa91ae8e67` |
-| `stickread` | 83 lines of C, static, same container | `1a1156332f669bb8e6952a6b110f80fac309a62f9bf9787844660f81aa910f2e` |
+| `core_bench` | slot's `bench:device` task, with the spike diff below | `f6684504c1277374c65879aa3af46545bd6666f84e0ce41a5d108af362cad684` |
+| `stickread` | 91 lines of C, static, same container | `0cb6427283b5a405454e73c5977f56a7a64c6a8514a845f38d01f6baec35f0bc` |
 
 - The build log shows `new_dynarec` (ari64), `gpu_neon`, `libchdr` and `gpu_async` objects.
 - NEEDED is libpthread, libdl, libm and libc only, at GLIBC_2.17 or older.
@@ -38,7 +38,7 @@ changes and the scripts live outside the patch set until the numbers say go.
   - x realtime at 59.94 Hz and at the core's fps;
   - the size histogram;
   - slot's convert ms per shown frame, and emulation time with that subtracted;
-  - a synthetic `copy_centred` cost for each seen size into 640x480 and 320x240;
+  - a synthetic `copy_centred` cost for each seen size, plus 640x480 RGB565 always, into 640x480 and 320x240;
   - a 640x480x4 memcpy.
 
 ## Method (run.sh)
@@ -57,7 +57,7 @@ changes and the scripts live outside the patch set until the numbers say go.
    It copies them into the temp dir as `g1` to `g3`, after a free-space check.
 5. Ten runs. Each is 3000 frames after 600 warmup, with idle input, canvas 640x480, `memcard2=none` and `neon_enhancement_enable=disabled`:
    - g1 and g3: threads `disabled` vs `auto`;
-   - g2: `disabled`, `auto`, `enabled`, HLE BIOS, no options answered (slot today), every default answered (omega-zero).
+   - g2: `disabled`, `auto`, `enabled`, HLE BIOS, threads and BIOS unanswered (slot today), every default answered (omega-zero).
 6. Removes the temp dir; `KEEP=1` keeps it. BIOS files it pushed stay in `BIOS/`, where slot will look for them.
 
 ## Facts from the source at the pin
@@ -85,6 +85,8 @@ changes and the scripts live outside the patch set until the numbers say go.
   - More than 8 distinct values on ABS_X/Y or ABS_RX/RY (or Z/RZ) means analog.
   - Diagonal samples above zero mean the sticks do not snap to cardinals.
   - Only the hat codes 0x10/0x11 moving, or no ABS node at all, means the sticks are digital or not exposed. That answers the N64 spike's question too.
+  - `VERDICT: UNKNOWN` means no input node could be opened (adb shell not root). That is not a fail; rerun as root.
+- **SoC temperature** is printed in each run's header (the zone `perf-eval.sh` picks). A late run that is slower and hotter is throttling, not the game.
 
 ### Caveats
 
@@ -103,7 +105,11 @@ changes and the scripts live outside the patch set until the numbers say go.
 1. **Light (g1) and 3D (g2) run at full speed with headroom.** With threads `disabled` (slot today), or with `auto` if `off-thread` is 0:
    - median ms/frame is at most 12.5 (x realtime at least 1.33);
    - p95 is under 16.68.
-2. **Conversion is under 2 ms a frame:** the in-run `slot copy/convert` at canvas 640x480, for every frame size seen.
+2. **Conversion is under 2 ms a frame.** Take the larger of:
+   - the in-run `slot copy/convert` at canvas 640x480;
+   - the synthetic `convert 640x480 RGB565 into 640x480` line.
+
+   The in-run copy centres a 512x240 frame unscaled, about 123k pixels. A canvas patch that fills 640x480 with resample and row doubling converts about 307k, so the synthetic full-frame line is the ceiling.
 3. **The sticks are analog:** at least one stick pair moves through more than 8 values, with diagonal samples.
 
 **Partial:**
