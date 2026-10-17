@@ -106,7 +106,7 @@ task labels:fetch -- --device --library ~/ROMS                          # the lo
 task labels:fetch -- --card /Volumes/SLOT                               # a mounted card instead of adb
 ```
 
-Flags: `--only <GBA|GB|GBC|NES|SNES or one ROM stem>`, `--dry-run`, `--force`, `--limit N` (per system), `--sd` (default `/mnt/sdcard`), `--by-name` and `--report <file>` (a ROM no CRC finds copies a same-title sibling's label or is searched on ScreenScraper by name, see `docs/cart-art/BY-NAME.md`). It ends with a summary of matched, written, skipped (label already there), missing (no art found), unknown CRC and errors. Restart slot after the push so it reads the new labels.
+Flags: `--only <GBA|GB|GBC|NES|SNES or one ROM stem>`, `--dry-run`, `--force`, `--limit N` (per system), `--sd` (default `/mnt/sdcard`), `--by-name`, `--report <file>`, `--suggest <file>` and `--aliases <file>` (a ROM no CRC finds copies a same-title sibling's label or is searched on ScreenScraper by name, see `docs/cart-art/BY-NAME.md`). It ends with a summary of matched, written, skipped (label already there), missing (no art found), unknown CRC and errors. Restart slot after the push so it reads the new labels.
 
 How it works:
 - Each ROM is found by CRC32, never by name. NES is hashed whole and then without the 16 byte iNES header, SNES without a 512 byte copier header. A zipped ROM is named for the ROM inside the zip, the same rule `scripts/push-roms.py` uses. The libretro-database dats map the CRC to the No-Intro name, for the report and for the region.
