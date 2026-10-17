@@ -1,0 +1,1333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 10:39:59 +0400
+Subject: [PATCH] ps1-discs
+
+PlayStation discs swap through the libretro disk-control interface. slot
+answers the legacy interface (13), the interface version (57, version 1)
+and the EXT interface (58), and keeps the core's callbacks in HostExtra; they are used only where
+the platform swaps discs (PlayStation), so a Sega or NES core that
+registers the interface is never asked about discs.
+A swap opens the tray, sets the index and closes the tray; an index out of
+range or one the core refuses goes back to the disc that was in, with a
+"Disc swap failed" toast. SELECT+L2 swaps to the next disc on PlayStation
+only, because L2 and R2 belong to the game and the in-game menus are pinned
+by upstream tests; everywhere else SELECT+L2 still steps the palette back.
+
+The disc in play is written to Saves/PS1/<stem>.disc on every swap and
+handed to set_initial_image before the next load, so a game restarts on
+the disc it was left on; a missing, unreadable or out-of-range file means
+disc 1, logged. A state of a game with more than one disc ends with
+SLOTPSX1 and the disc index as a little-endian u32. Loading it strips the
+trailer and swaps to that disc first when it is not the disc in play; a
+state with no trailer loads as the core reads it, and a trailer of an
+unknown version is refused with a toast. Single-disc states are exactly
+the core's bytes.
+
+The swap with rollback follows bently0602/slot, and the initial disc and
+the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
+(all GPL-3.0).
+---
+ crates/slot-input/src/gesture.rs         |   8 +-
+ crates/slot-input/src/gesture/ps1.rs     |  14 ++
+ crates/slot-input/tests/ps1_gesture.rs   |  30 +++
+ crates/slot-retro/src/canvas.rs          |   9 +
+ crates/slot-retro/src/core.rs            |   6 +
+ crates/slot-retro/src/lib.rs             |   2 +-
+ crates/slot-retro/src/libretro.rs        |  23 +-
+ crates/slot-retro/src/libretro/discs.rs  | 254 ++++++++++++++++++++
+ crates/slot-store/src/platform_policy.rs |  14 ++
+ crates/slot-ui/src/disc_toast.rs         |  44 ++++
+ crates/slot-ui/src/lib.rs                |   2 +
+ crates/slot-ui/src/quick_retro.rs        |   5 +
+ crates/slot-ui/src/toast.rs              |   3 +
+ crates/slot-ui/tests/retro_faces.rs      |   5 +-
+ crates/slot/src/app.rs                   |   2 +
+ crates/slot/src/app/ps1_discs.rs         |  33 +++
+ crates/slot/src/core.rs                  |   3 +
+ crates/slot/src/emu.rs                   |  29 ++-
+ crates/slot/src/ps1_load.rs              |  70 +++++-
+ crates/slot/src/session.rs               |  14 +-
+ crates/slot/tests/ps1_common/mod.rs      |   8 +
+ crates/slot/tests/ps1_discs.rs           | 290 +++++++++++++++++++++++
+ crates/slot/tests/real_seat/mod.rs       |   2 +
+ 23 files changed, 857 insertions(+), 13 deletions(-)
+ create mode 100644 crates/slot-input/src/gesture/ps1.rs
+ create mode 100644 crates/slot-input/tests/ps1_gesture.rs
+ create mode 100644 crates/slot-retro/src/libretro/discs.rs
+ create mode 100644 crates/slot-ui/src/disc_toast.rs
+ create mode 100644 crates/slot/src/app/ps1_discs.rs
+ create mode 100644 crates/slot/tests/ps1_discs.rs
+
+diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
+index 11532a7..56709c6 100644
+--- a/crates/slot-input/src/gesture.rs
++++ b/crates/slot-input/src/gesture.rs
+@@ -1,5 +1,7 @@
+ use crate::{Btn, Millis, RawEvent};
+ 
++mod ps1;
++
+ pub const SELECT_CHORD_MS: Millis = 600;
+ 
+ pub const SELECT_TAP_MS: Millis = 50;
+@@ -49,6 +51,7 @@ pub enum Action {
+     LidClose,
+     LidOpen,
+     VideoModeToggle,
++    DiscNext,
+ }
+ 
+ #[derive(Copy, Clone, Default)]
+@@ -86,6 +89,7 @@ pub struct Gestures {
+     r2_last_release: Option<Millis>,
+     rewinding: bool,
+     video_mode_chord: bool,
++    disc_chord: bool,
+ }
+ 
+ fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
+@@ -181,7 +185,9 @@ impl Gestures {
+             self.chord_held |= bit;
+             return vec![action];
+         }
+-        let chord = chord(b).filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
++        let chord = self
++            .ps1_chord(chord(b))
++            .filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
+         if let (true, Some((bit, action))) = (self.chording(now), chord) {
+             self.mark_chorded();
+             self.chord_held |= bit;
+diff --git a/crates/slot-input/src/gesture/ps1.rs b/crates/slot-input/src/gesture/ps1.rs
+new file mode 100644
+index 0000000..e90b726
+--- /dev/null
++++ b/crates/slot-input/src/gesture/ps1.rs
+@@ -0,0 +1,14 @@
++use super::{Action, Gestures};
++
++impl Gestures {
++    pub fn set_disc_chord(&mut self, on: bool) {
++        self.disc_chord = on;
++    }
++
++    pub(super) fn ps1_chord(&self, chord: Option<(u16, Action)>) -> Option<(u16, Action)> {
++        match chord {
++            Some((bit, Action::PalettePrev)) if self.disc_chord => Some((bit, Action::DiscNext)),
++            other => other,
++        }
++    }
++}
+diff --git a/crates/slot-input/tests/ps1_gesture.rs b/crates/slot-input/tests/ps1_gesture.rs
+new file mode 100644
+index 0000000..1f9060d
+--- /dev/null
++++ b/crates/slot-input/tests/ps1_gesture.rs
+@@ -0,0 +1,30 @@
++use slot_input::{Action, Btn, Gestures, RawEvent};
++
++fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
++    let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
++    out.extend(g.feed(RawEvent::Down(b), 1020));
++    out.extend(g.feed(RawEvent::Up(b), 1100));
++    out.extend(g.feed(RawEvent::Up(Btn::Select), 1120));
++    out.extend(g.tick(2000));
++    out
++}
++
++fn ps1() -> Gestures {
++    let mut g = Gestures::new();
++    g.set_video_mode_chord(true);
++    g.set_disc_chord(true);
++    g
++}
++
++#[test]
++fn select_l2_swaps_the_disc_on_ps1() {
++    assert_eq!(select_with(&mut ps1(), Btn::L2), [Action::DiscNext]);
++}
++
++#[test]
++fn select_l2_still_steps_the_palette_back_everywhere_else() {
++    assert_eq!(
++        select_with(&mut Gestures::new(), Btn::L2),
++        [Action::PalettePrev]
++    );
++}
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index 11b39f6..6bc842d 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -5,6 +5,7 @@ use std::ptr;
+ 
+ use crate::core::{AvInfo, GBA_H, GBA_W};
+ use crate::ffi::SystemAvInfo;
++use crate::libretro::discs::DiscDrive;
+ 
+ pub const SET_SYSTEM_AV_INFO: c_uint = 32;
+ pub const SET_GEOMETRY: c_uint = 37;
+@@ -21,6 +22,7 @@ pub struct HostExtra {
+     pub fills: bool,
+     pub columns: Vec<u16>,
+     pub columns_for: u32,
++    pub discs: DiscDrive,
+ }
+ 
+ impl Default for HostExtra {
+@@ -34,6 +36,7 @@ impl Default for HostExtra {
+             fills: false,
+             columns: Vec::new(),
+             columns_for: 0,
++            discs: DiscDrive::default(),
+         }
+     }
+ }
+@@ -73,6 +76,12 @@ pub fn bound_canvas() -> Option<(u32, u32)> {
+     unsafe { p.as_ref() }.map(|extra| extra.canvas)
+ }
+ 
++pub fn with_extra<R>(f: impl FnOnce(&mut HostExtra) -> R) -> Option<R> {
++    let p = EXTRA.with(|e| e.get());
++    // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
++    unsafe { p.as_mut() }.map(f)
++}
++
+ fn with_av<R>(f: impl FnOnce(&mut HostExtra) -> R) -> Option<R> {
+     let p = EXTRA.with(|e| e.get());
+     // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index dd754e5..ec927a1 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -1,6 +1,7 @@
+ use std::fmt;
+ use std::path::Path;
+ 
++pub use crate::libretro::discs::DiscEvent;
+ use crate::link::Link;
+ use crate::rumble::Rumble;
+ 
+@@ -108,6 +109,11 @@ pub trait RetroCore: Send {
+     fn frame_width(&self) -> u32 {
+         0
+     }
++    fn set_initial_disc(&mut self, _index: u32, _path: &Path) {}
++    fn next_disc(&mut self) {}
++    fn take_disc_event(&mut self) -> Option<DiscEvent> {
++        None
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 04b98d0..6729703 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -7,7 +7,7 @@ mod mock;
+ mod rumble;
+ mod turbo_mode;
+ 
+-pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
++pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ pub use ffi::{
+     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+     NETPACKET_UNSEQUENCED,
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index b64e3d1..ac25603 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -8,11 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ use libloading::Library;
+ 
+ use crate::canvas::{self, ExtraGuard, HostExtra};
+-use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
++use crate::core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ use crate::ffi::*;
+ use crate::link::Link;
+ use crate::rumble::Rumble;
+ 
++pub(crate) mod discs;
++
+ const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
+ 
+ static LIVE: AtomicBool = AtomicBool::new(false);
+@@ -214,6 +216,9 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
+         canvas::SET_GEOMETRY => canvas::geometry_set(),
+         canvas::SET_SYSTEM_AV_INFO => canvas::av_info_set(data as *const SystemAvInfo),
+         canvas::GET_AUDIO_VIDEO_ENABLE => canvas::av_enable_get(data as *mut c_int),
++        discs::SET_DISK_CONTROL_INTERFACE
++        | discs::GET_DISK_CONTROL_INTERFACE_VERSION
++        | discs::SET_DISK_CONTROL_EXT_INTERFACE => discs::env(cmd, data),
+         _ => false,
+     }
+ }
+@@ -625,6 +630,7 @@ impl RetroCore for LibretroCore {
+             size: self.rom.len(),
+             meta: ptr::null(),
+         };
++        self.offer_initial_disc();
+         let ok = {
+             let _a = Active::bind(&mut self.host);
+             let _e = ExtraGuard::bind(&mut self.extra);
+@@ -687,13 +693,14 @@ impl RetroCore for LibretroCore {
+             unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+         };
+         if ok {
+-            Ok(buf)
++            Ok(self.with_disc_trailer(buf))
+         } else {
+             Err(CoreError::State("serialize refused".into()))
+         }
+     }
+ 
+     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        let data = self.without_disc_trailer(data)?;
+         let ok = {
+             let _a = Active::bind(&mut self.host);
+             let _e = ExtraGuard::bind(&mut self.extra);
+@@ -771,6 +778,18 @@ impl RetroCore for LibretroCore {
+     fn frame_width(&self) -> u32 {
+         self.extra.frame.0
+     }
++
++    fn set_initial_disc(&mut self, index: u32, path: &Path) {
++        LibretroCore::set_initial_disc(self, index, path);
++    }
++
++    fn next_disc(&mut self) {
++        LibretroCore::next_disc(self);
++    }
++
++    fn take_disc_event(&mut self) -> Option<DiscEvent> {
++        LibretroCore::take_disc_event(self)
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/libretro/discs.rs b/crates/slot-retro/src/libretro/discs.rs
+new file mode 100644
+index 0000000..65e8e67
+--- /dev/null
++++ b/crates/slot-retro/src/libretro/discs.rs
+@@ -0,0 +1,254 @@
++use std::ffi::{c_char, c_uint, c_void, CString};
++use std::path::Path;
++
++use super::{Active, LibretroCore};
++use crate::canvas::{self, ExtraGuard};
++use crate::core::CoreError;
++use crate::ffi::GameInfo;
++
++pub const SET_DISK_CONTROL_INTERFACE: c_uint = 13;
++pub const GET_DISK_CONTROL_INTERFACE_VERSION: c_uint = 57;
++pub const SET_DISK_CONTROL_EXT_INTERFACE: c_uint = 58;
++
++pub const MOST_DISCS: u32 = 8;
++pub const TRAILER_MAGIC: &[u8; 7] = b"SLOTPSX";
++pub const TRAILER_VERSION: u8 = b'1';
++pub const TRAILER_BYTES: usize = 12;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum DiscEvent {
++    Swapped(u32),
++    Restored(u32),
++    Refused,
++    NewerState,
++}
++
++#[repr(C)]
++#[derive(Copy, Clone)]
++struct DiskControl {
++    set_eject_state: Option<unsafe extern "C" fn(bool) -> bool>,
++    _get_eject_state: Option<unsafe extern "C" fn() -> bool>,
++    get_image_index: Option<unsafe extern "C" fn() -> c_uint>,
++    set_image_index: Option<unsafe extern "C" fn(c_uint) -> bool>,
++    get_num_images: Option<unsafe extern "C" fn() -> c_uint>,
++    _replace_image_index: Option<unsafe extern "C" fn(c_uint, *const GameInfo) -> bool>,
++    _add_image_index: Option<unsafe extern "C" fn() -> bool>,
++}
++
++#[repr(C)]
++#[derive(Copy, Clone)]
++struct DiskControlExt {
++    legacy: DiskControl,
++    set_initial_image: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
++    _get_image_path: Option<unsafe extern "C" fn(c_uint, *mut c_char, usize) -> bool>,
++    _get_image_label: Option<unsafe extern "C" fn(c_uint, *mut c_char, usize) -> bool>,
++}
++
++#[derive(Default)]
++pub struct DiscDrive {
++    in_use: bool,
++    control: Option<DiskControl>,
++    set_initial_image: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
++    initial: Option<(c_uint, CString)>,
++    event: Option<DiscEvent>,
++}
++
++pub unsafe fn env(cmd: c_uint, data: *mut c_void) -> bool {
++    match cmd {
++        GET_DISK_CONTROL_INTERFACE_VERSION => {
++            let Some(version) = (data as *mut c_uint).as_mut() else {
++                return false;
++            };
++            *version = 1;
++            true
++        }
++        SET_DISK_CONTROL_INTERFACE => {
++            let control = (data as *const DiskControl).as_ref().copied();
++            canvas::with_extra(|e| {
++                e.discs.control = control;
++                e.discs.set_initial_image = None;
++            })
++            .is_some()
++        }
++        SET_DISK_CONTROL_EXT_INTERFACE => {
++            let ext = (data as *const DiskControlExt).as_ref().copied();
++            canvas::with_extra(|e| {
++                e.discs.control = ext.map(|x| x.legacy);
++                e.discs.set_initial_image = ext.and_then(|x| x.set_initial_image);
++            })
++            .is_some()
++        }
++        _ => false,
++    }
++}
++
++impl LibretroCore {
++    pub fn use_disc_drive(&mut self) {
++        self.extra.discs.in_use = true;
++    }
++
++    fn drive(&self) -> Option<DiskControl> {
++        self.extra.discs.control.filter(|_| self.extra.discs.in_use)
++    }
++
++    fn with_drive<R>(&mut self, f: impl FnOnce(&DiskControl) -> R) -> Option<R> {
++        let control = self.drive()?;
++        let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
++        Some(f(&control))
++    }
++
++    pub fn disc_count(&mut self) -> u32 {
++        self.with_drive(|c| {
++            // SAFETY: the core registered this getter through the disk-control interface and is loaded.
++            c.get_num_images.map(|f| unsafe { f() })
++        })
++        .flatten()
++        .unwrap_or(0)
++    }
++
++    pub fn disc_index(&mut self) -> u32 {
++        self.with_drive(|c| {
++            // SAFETY: the core registered this getter through the disk-control interface and is loaded.
++            c.get_image_index.map(|f| unsafe { f() })
++        })
++        .flatten()
++        .unwrap_or(0)
++    }
++
++    pub fn swap_disc(&mut self, index: u32) -> Result<(), CoreError> {
++        let count = self.disc_count();
++        if index >= count.min(MOST_DISCS) {
++            return Err(CoreError::State(format!(
++                "disc {} is out of range, the game has {count}",
++                u64::from(index) + 1
++            )));
++        }
++        let old = self.disc_index();
++        let swapped = self.with_drive(|c| {
++            let (Some(eject), Some(set)) = (c.set_eject_state, c.set_image_index) else {
++                return false;
++            };
++            // SAFETY: the core registered both callbacks and is loaded; the tray is closed again on every path.
++            unsafe {
++                eject(true);
++                let swapped = set(index);
++                if !swapped {
++                    set(old);
++                }
++                eject(false);
++                swapped
++            }
++        });
++        match swapped {
++            Some(true) => Ok(()),
++            _ => Err(CoreError::State(format!(
++                "the core refused disc {}, disc {} stays in",
++                index + 1,
++                old + 1
++            ))),
++        }
++    }
++
++    pub fn next_disc(&mut self) {
++        let count = self.disc_count();
++        if count < 2 {
++            eprintln!("slot: disc: this game has {count} disc, nothing to swap");
++            return;
++        }
++        let next = (self.disc_index() + 1) % count;
++        self.extra.discs.event = Some(match self.swap_disc(next) {
++            Ok(()) => {
++                eprintln!("slot: disc: swapped to disc {} of {count}", next + 1);
++                DiscEvent::Swapped(next)
++            }
++            Err(e) => {
++                eprintln!("slot: disc: {e}");
++                DiscEvent::Refused
++            }
++        });
++    }
++
++    pub fn set_initial_disc(&mut self, index: u32, path: &Path) {
++        match CString::new(path.as_os_str().as_encoded_bytes()) {
++            Ok(path) => self.extra.discs.initial = Some((index, path)),
++            Err(_) => eprintln!("slot: disc: {} contains a nul", path.display()),
++        }
++    }
++
++    pub(super) fn offer_initial_disc(&mut self) {
++        let Some((index, path)) = self.extra.discs.initial.take() else {
++            return;
++        };
++        let Some(set) = self
++            .extra
++            .discs
++            .set_initial_image
++            .filter(|_| self.extra.discs.in_use)
++        else {
++            eprintln!("slot: disc: the core takes no initial disc, starting on disc 1");
++            return;
++        };
++        let _a = Active::bind(&mut self.host);
++        let _e = ExtraGuard::bind(&mut self.extra);
++        // SAFETY: the core registered set_initial_image through the EXT interface; it copies the path before returning.
++        if !unsafe { set(index, path.as_ptr()) } {
++            eprintln!(
++                "slot: disc: the core refused disc {} to start on",
++                u64::from(index) + 1
++            );
++        }
++    }
++
++    pub fn take_disc_event(&mut self) -> Option<DiscEvent> {
++        self.extra.discs.event.take()
++    }
++
++    pub(super) fn with_disc_trailer(&mut self, mut state: Vec<u8>) -> Vec<u8> {
++        if self.disc_count() < 2 {
++            return state;
++        }
++        let index = self.disc_index();
++        state.extend_from_slice(TRAILER_MAGIC);
++        state.push(TRAILER_VERSION);
++        state.extend_from_slice(&index.to_le_bytes());
++        state
++    }
++
++    pub(super) fn without_disc_trailer<'a>(
++        &mut self,
++        data: &'a [u8],
++    ) -> Result<&'a [u8], CoreError> {
++        if self.drive().is_none() {
++            return Ok(data);
++        }
++        let Some(at) = data.len().checked_sub(TRAILER_BYTES) else {
++            return Ok(data);
++        };
++        let (state, trailer) = data.split_at(at);
++        let (magic, rest) = trailer.split_at(TRAILER_MAGIC.len());
++        if magic != TRAILER_MAGIC {
++            return Ok(data);
++        }
++        let (version, index) = rest.split_at(1);
++        if version != [TRAILER_VERSION] {
++            self.extra.discs.event = Some(DiscEvent::NewerState);
++            return Err(CoreError::State(format!(
++                "the state's disc trailer is version {}, slot reads version 1",
++                String::from_utf8_lossy(version)
++            )));
++        }
++        let mut le = [0u8; 4];
++        le.copy_from_slice(index);
++        let index = u32::from_le_bytes(le);
++        if index != self.disc_index() {
++            if let Err(e) = self.swap_disc(index) {
++                self.extra.discs.event = Some(DiscEvent::Refused);
++                return Err(e);
++            }
++            eprintln!("slot: disc: the state swapped to disc {}", index + 1);
++            self.extra.discs.event = Some(DiscEvent::Restored(index));
++        }
++        Ok(state)
++    }
++}
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index fea6c42..1896363 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -146,4 +146,18 @@ impl Platform {
+             | Platform::Md => false,
+         }
+     }
++
++    pub fn swaps_discs(self) -> bool {
++        match self {
++            Platform::Ps1 => true,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md => false,
++        }
++    }
+ }
+diff --git a/crates/slot-ui/src/disc_toast.rs b/crates/slot-ui/src/disc_toast.rs
+new file mode 100644
+index 0000000..e917714
+--- /dev/null
++++ b/crates/slot-ui/src/disc_toast.rs
+@@ -0,0 +1,44 @@
++const INSERTED: [&str; 8] = [
++    "Disc 1", "Disc 2", "Disc 3", "Disc 4", "Disc 5", "Disc 6", "Disc 7", "Disc 8",
++];
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum DiscToast {
++    Inserted(u8),
++    Refused,
++    NewerState,
++}
++
++impl DiscToast {
++    pub const ALL: [DiscToast; 10] = [
++        DiscToast::Inserted(0),
++        DiscToast::Inserted(1),
++        DiscToast::Inserted(2),
++        DiscToast::Inserted(3),
++        DiscToast::Inserted(4),
++        DiscToast::Inserted(5),
++        DiscToast::Inserted(6),
++        DiscToast::Inserted(7),
++        DiscToast::Refused,
++        DiscToast::NewerState,
++    ];
++
++    pub fn inserted(index: u32) -> Option<DiscToast> {
++        u8::try_from(index)
++            .ok()
++            .filter(|i| usize::from(*i) < INSERTED.len())
++            .map(DiscToast::Inserted)
++    }
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            DiscToast::Inserted(i) => INSERTED.get(usize::from(i)).copied().unwrap_or("Disc"),
++            DiscToast::Refused => "Disc swap failed",
++            DiscToast::NewerState => "State needs a newer slot",
++        }
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 855a94d..150511a 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -12,6 +12,7 @@ mod battery;
+ mod board;
+ mod cart;
+ mod clock;
++mod disc_toast;
+ mod draw;
+ mod footer;
+ mod hud;
+@@ -59,6 +60,7 @@ pub use cart::{
+     GB_LABEL_H, GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_WELL, LABEL_X, LABEL_Y,
+ };
+ pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
++pub use disc_toast::DiscToast;
+ pub use draw::{Canvas, Draw, Layout, TexId, OUT_H, OUT_W};
+ pub use footer::{draw_corners, draw_footer, Printed, FOOTER_Y};
+ pub use hud::{
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index d0f6c6c..7058551 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -22,10 +22,15 @@ impl QuickValue {
+ }
+ 
+ impl Toast {
++    pub fn disc_index(d: crate::DiscToast) -> usize {
++        Toast::all().len() + RetroShader::ALL.len() + d.index()
++    }
++
+     pub fn every() -> Vec<Toast> {
+         Toast::all()
+             .into_iter()
+             .chain(RetroShader::ALL.map(Toast::Retro))
++            .chain(crate::DiscToast::ALL.map(Toast::Disc))
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index 996098d..2ffeb4d 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -25,6 +25,7 @@ pub enum Toast {
+     CardUnwritable,
+     Palette(GbPalette),
+     Retro(slot_store::RetroShader),
++    Disc(crate::DiscToast),
+ }
+ 
+ impl Toast {
+@@ -57,6 +58,7 @@ impl Toast {
+         match self {
+             Toast::Palette(p) => Self::FIXED.len() + p.index(),
+             Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
++            Toast::Disc(d) => Toast::disc_index(d),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -91,6 +93,7 @@ impl Toast {
+             Toast::CardUnwritable => "Can't write to SD card",
+             Toast::Palette(p) => p.label(),
+             Toast::Retro(s) => s.toast(),
++            Toast::Disc(d) => d.text(),
+         }
+     }
+ }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index 0d62155..de32a5e 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -36,7 +36,10 @@ fn the_toasts_upload_upstream_banners_then_one_per_retro_shader() {
+     let every = Toast::every();
+     let all = Toast::all();
+     assert_eq!(every[..all.len()], all[..]);
+-    assert_eq!(every[all.len()..], RetroShader::ALL.map(Toast::Retro));
++    assert_eq!(
++        every[all.len()..all.len() + RetroShader::ALL.len()],
++        RetroShader::ALL.map(Toast::Retro)
++    );
+     for (i, t) in every.iter().enumerate() {
+         assert_eq!(t.index(), i, "{t:?} does not answer to its own place");
+     }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 51da98e..378b7a1 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,3 +1,5 @@
++mod ps1_discs;
++
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+diff --git a/crates/slot/src/app/ps1_discs.rs b/crates/slot/src/app/ps1_discs.rs
+new file mode 100644
+index 0000000..3d30d5d
+--- /dev/null
++++ b/crates/slot/src/app/ps1_discs.rs
+@@ -0,0 +1,33 @@
++use slot_retro::DiscEvent;
++use slot_ui::{DiscToast, Toast};
++
++use super::App;
++
++impl App {
++    pub fn disc_event(&mut self, event: DiscEvent) {
++        let (Some(root), Some(cart)) = (
++            self.root.clone(),
++            self.seated_cart().map(|c| c.stem.clone()),
++        ) else {
++            return;
++        };
++        let toast = match event {
++            DiscEvent::Swapped(index) | DiscEvent::Restored(index) => {
++                let written = crate::ps1_load::remember_disc(&root, &cart, index);
++                if let Err(e) = &written {
++                    eprintln!("slot: disc: could not remember disc {}: {e}", index + 1);
++                }
++                self.card_writes.wrote("disc", &written);
++                match event {
++                    DiscEvent::Swapped(_) => DiscToast::inserted(index),
++                    _ => None,
++                }
++            }
++            DiscEvent::Refused => Some(DiscToast::Refused),
++            DiscEvent::NewerState => Some(DiscToast::NewerState),
++        };
++        if let Some(toast) = toast {
++            self.hud.toast(Toast::Disc(toast), self.now());
++        }
++    }
++}
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index a0e2293..e62c847 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -109,6 +109,9 @@ fn open_named(
+                 if platform.fills_canvas() {
+                     opened.fill_canvas();
+                 }
++                if platform.swaps_discs() {
++                    opened.use_disc_drive();
++                }
+                 if !Core::ALL.contains(&core) {
+                     opened.answer_av();
+                 }
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index cc2e566..9984dfb 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
+ 
+ use crate::cable::{self, Cable};
+ use slot_retro::{
+-    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
++    ButtonMask, CoreError, DiscEvent, Link, LinkChannel, RetroCore, Rumble, TurboMode,
++    NETPACKET_RELIABLE,
+ };
+ use slot_store::RUN_AHEAD_MAX;
+ 
+@@ -82,6 +83,7 @@ enum Cmd {
+     BeginCable(u8, Box<dyn LinkChannel>),
+     SetOption(String, String),
+     Refresh,
++    NextDisc,
+ }
+ 
+ struct Shared {
+@@ -113,6 +115,7 @@ struct Shared {
+     requested: AtomicBool,
+     clock: Mutex<Clock>,
+     clocked: Condvar,
++    disc_event: Mutex<Option<DiscEvent>>,
+ }
+ 
+ #[derive(Default)]
+@@ -184,6 +187,7 @@ impl EmuHandle {
+             requested: AtomicBool::new(false),
+             clock: Mutex::new(Clock::default()),
+             clocked: Condvar::new(),
++            disc_event: Mutex::new(None),
+         });
+         let (tx, rx) = channel();
+         let worker = Worker {
+@@ -417,6 +421,14 @@ impl EmuHandle {
+         request(&self.cmds, &self.shared, Cmd::Load(state));
+     }
+ 
++    pub fn next_disc(&self) {
++        request(&self.cmds, &self.shared, Cmd::NextDisc);
++    }
++
++    pub fn take_disc_event(&self) -> Option<DiscEvent> {
++        self.shared.disc_event.lock().ok()?.take()
++    }
++
+     pub fn snapshot(&self) -> EmuSnapshot {
+         EmuSnapshot {
+             cmds: self.cmds.clone(),
+@@ -498,6 +510,15 @@ struct Worker {
+ }
+ 
+ impl Worker {
++    fn keep_disc_event(&self, core: &mut dyn RetroCore) {
++        let Some(event) = core.take_disc_event() else {
++            return;
++        };
++        if let Ok(mut slot) = self.shared.disc_event.lock() {
++            *slot = Some(event);
++        }
++    }
++
+     fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
+         match self.player {
+             Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
+@@ -553,6 +574,7 @@ impl Worker {
+                 eprintln!("slot: resume: {e}");
+                 self.shared.resume_refused.store(true, Ordering::Release);
+             }
++            self.keep_disc_event(core.as_mut());
+         }
+         let av = core.av_info();
+         let device_hz = match ring.sample_rate() {
+@@ -956,6 +978,11 @@ impl Worker {
+                 if let Err(e) = core.unserialize(&self.for_core(state)) {
+                     eprintln!("slot: {e}");
+                 }
++                self.keep_disc_event(core);
++            }
++            Cmd::NextDisc => {
++                core.next_disc();
++                self.keep_disc_event(core);
+             }
+             Cmd::Refresh => match core.serialize() {
+                 Ok(state) => {
+diff --git a/crates/slot/src/ps1_load.rs b/crates/slot/src/ps1_load.rs
+index 383fea8..988c95e 100644
+--- a/crates/slot/src/ps1_load.rs
++++ b/crates/slot/src/ps1_load.rs
+@@ -1,14 +1,72 @@
+-use std::path::Path;
++use std::path::{Path, PathBuf};
+ 
+ use slot_retro::{CoreError, RetroCore};
++use slot_store::Platform;
+ 
+ pub fn load(core: &mut dyn RetroCore, rom: &Path) -> Result<(), CoreError> {
+-    let playlist = rom
+-        .extension()
+-        .and_then(|e| e.to_str())
+-        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"));
+-    if playlist {
++    if is_playlist(rom) {
+         slot_store::ps1::playable_discs(rom).map_err(CoreError::Load)?;
+     }
+     core.load(rom)
+ }
++
++fn is_playlist(rom: &Path) -> bool {
++    rom.extension()
++        .and_then(|e| e.to_str())
++        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
++}
++
++pub fn disc_file(root: &Path, stem: &str) -> PathBuf {
++    crate::root::saves_dir(root)
++        .join(Platform::Ps1.dir_name())
++        .join(format!("{stem}.disc"))
++}
++
++pub fn remembered_disc(root: &Path, stem: &str, discs: usize) -> u32 {
++    let path = disc_file(root, stem);
++    let text = match std::fs::read_to_string(&path) {
++        Ok(text) => text,
++        Err(e) => {
++            eprintln!("slot: disc: {}: {e}, starting on disc 1", path.display());
++            return 0;
++        }
++    };
++    match text.trim().parse::<u32>() {
++        Ok(index) if (index as usize) < discs => index,
++        _ => {
++            eprintln!(
++                "slot: disc: {} says {:?} for a game of {discs} discs, starting on disc 1",
++                path.display(),
++                text.trim()
++            );
++            0
++        }
++    }
++}
++
++pub fn remember_disc(root: &Path, stem: &str, index: u32) -> std::io::Result<()> {
++    let path = disc_file(root, stem);
++    if let Some(dir) = path.parent() {
++        std::fs::create_dir_all(dir)?;
++    }
++    slot_store::atomic_write(&path, format!("{index}\n").as_bytes())
++}
++
++pub fn offer_remembered_disc(
++    core: &mut dyn RetroCore,
++    root: &Path,
++    platform: Platform,
++    stem: &str,
++    rom: &Path,
++) {
++    if !platform.swaps_discs() || !is_playlist(rom) {
++        return;
++    }
++    let Some(discs) = slot_store::ps1::playlist(rom) else {
++        return;
++    };
++    let index = remembered_disc(root, stem, discs.len());
++    if let Some(path) = discs.get(index as usize).filter(|_| index > 0) {
++        core.set_initial_disc(index, path);
++    }
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 8c63097..eb75d95 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -208,6 +208,7 @@ impl Session {
+             Action::RewindStop => self.rewinding = false,
+             Action::FfStart if !menu_open => self.fast = true,
+             Action::FfStop => self.fast = false,
++            Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
+             _ => {}
+         }
+         let menu = self.overlaid();
+@@ -281,6 +282,9 @@ impl Session {
+                 self.app.peer_lost();
+             }
+         }
++        if let Some(event) = self.emu.as_ref().and_then(EmuHandle::take_disc_event) {
++            self.app.disc_event(event);
++        }
+         if let Some(sfx) = self.app.take_sfx() {
+             self.play_sfx(sfx);
+         }
+@@ -483,7 +487,7 @@ impl Session {
+         let player = self.app.link_player();
+         let palette = crate::core::palette_for(self.app.gb_palette(), platform, &rom, player);
+         self.app.set_palette_live(palette.is_some());
+-        let opened = open_core(
++        let mut opened = open_core(
+             &self.root,
+             core,
+             platform,
+@@ -493,6 +497,13 @@ impl Session {
+             player,
+         );
+         self.app.set_named_core(opened.named);
++        crate::ps1_load::offer_remembered_disc(
++            opened.core.as_mut(),
++            &self.root,
++            platform,
++            stem,
++            &rom,
++        );
+         launch("core opened");
+         let sav = persist::read_sav(&self.root, platform, stem);
+         launch("save read");
+@@ -506,6 +517,7 @@ impl Session {
+         emu.set_pass_through(platform.passes_xy_through());
+         self.gestures
+             .set_video_mode_chord(platform.select_x_toggles_picture());
++        self.gestures.set_disc_chord(platform.swaps_discs());
+         self.app.set_snapshot(Box::new(emu.snapshot()));
+         self.emu = Some(emu);
+     }
+diff --git a/crates/slot/tests/ps1_common/mod.rs b/crates/slot/tests/ps1_common/mod.rs
+index 50e5d04..88f6f30 100644
+--- a/crates/slot/tests/ps1_common/mod.rs
++++ b/crates/slot/tests/ps1_common/mod.rs
+@@ -154,3 +154,11 @@ pub fn red(video: &[u8]) -> usize {
+         .filter(|p| p[2] > 200 && p[1] < 10 && p[0] < 10)
+         .count()
+ }
++
++pub fn two_discs(dir: &Path, stem: &str) -> PathBuf {
++    disc(dir, &format!("{stem} (Disc 1)"));
++    disc(dir, &format!("{stem} (Disc 2)"));
++    let m3u = dir.join(format!("{stem}.m3u"));
++    std::fs::write(&m3u, format!("{stem} (Disc 1).cue\n{stem} (Disc 2).cue\n")).expect("write m3u");
++    m3u
++}
+diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
+new file mode 100644
+index 0000000..4eaa8ab
+--- /dev/null
++++ b/crates/slot/tests/ps1_discs.rs
+@@ -0,0 +1,290 @@
++mod common;
++mod core_common;
++mod ps1_common;
++mod real_seat;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed, two_discs};
++use slot::core::{apply_core_options, dylib_name};
++use slot::ps1_load::{disc_file, offer_remembered_disc, remember_disc, remembered_disc};
++use slot_input::{Btn, RawEvent};
++use slot_retro::{DiscEvent, LibretroCore, RetroCore};
++use slot_store::{Core, Platform};
++use slot_ui::{DiscToast, Toast};
++
++const PCSX_STATE_BYTES: usize = 0x44_0000;
++const STEM: &str = "Game";
++
++fn opened(dylib: &Path, root: &Path) -> LibretroCore {
++    let mut core = LibretroCore::open_with(
++        dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open pcsx");
++    core.set_canvas(640, 480);
++    core.fill_canvas();
++    core.use_disc_drive();
++    apply_core_options(
++        &mut core,
++        Core::PcsxRearmed,
++        Platform::Ps1,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core.set_option("pcsx_rearmed_bios", "HLE");
++    core
++}
++
++fn run(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(slot_retro::ButtonMask::default());
++    }
++}
++
++fn two_disc_game(dylib: &Path) -> (tempfile::TempDir, LibretroCore) {
++    let root = common::tmp_root_with_real_carts(&[]);
++    let m3u = two_discs(&root.path().join("Games/PS1"), STEM);
++    let mut core = opened(dylib, root.path());
++    slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
++    run(&mut core, 10);
++    (root, core)
++}
++
++#[test]
++fn a_two_disc_game_swaps_from_disc_one_to_disc_two_and_back() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (_root, mut core) = two_disc_game(&dylib);
++    assert_eq!((core.disc_count(), core.disc_index()), (2, 0));
++    core.next_disc();
++    assert_eq!(core.disc_index(), 1);
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Swapped(1)));
++    run(&mut core, 5);
++    core.next_disc();
++    assert_eq!(core.disc_index(), 0);
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Swapped(0)));
++}
++
++#[test]
++fn a_disc_out_of_range_is_refused_and_the_disc_in_play_stays() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (_root, mut core) = two_disc_game(&dylib);
++    for index in [2, 7, 8, u32::MAX] {
++        assert!(core.swap_disc(index).is_err(), "disc index {index}");
++        assert_eq!(core.disc_index(), 0, "disc index {index}");
++    }
++}
++
++#[test]
++fn a_swap_the_core_refuses_rolls_back_to_the_old_disc() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (root, mut core) = two_disc_game(&dylib);
++    for name in ["Game (Disc 2).cue", "Game (Disc 2).bin"] {
++        std::fs::remove_file(root.path().join("Games/PS1").join(name)).expect("remove disc 2");
++    }
++    core.next_disc();
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Refused));
++    assert_eq!(core.disc_index(), 0);
++    run(&mut core, 5);
++    assert_eq!(
++        core.serialize().expect("serialize").len(),
++        PCSX_STATE_BYTES + 12
++    );
++}
++
++#[test]
++fn a_game_resumes_on_the_disc_its_disc_file_names() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = common::tmp_root_with_real_carts(&[]);
++    let m3u = two_discs(&root.path().join("Games/PS1"), STEM);
++    remember_disc(root.path(), STEM, 1).expect("write the disc file");
++    let mut core = opened(&dylib, root.path());
++    offer_remembered_disc(&mut core, root.path(), Platform::Ps1, STEM, &m3u);
++    slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
++    assert_eq!(core.disc_index(), 1);
++}
++
++#[test]
++fn a_disc_one_state_loaded_on_disc_two_swaps_back_to_disc_one() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (_root, mut core) = two_disc_game(&dylib);
++    let state = core.serialize().expect("serialize");
++    assert_eq!(state.len(), PCSX_STATE_BYTES + 12);
++    assert_eq!(&state[PCSX_STATE_BYTES..PCSX_STATE_BYTES + 8], b"SLOTPSX1");
++    assert_eq!(state[PCSX_STATE_BYTES + 8..], 0u32.to_le_bytes());
++    core.next_disc();
++    core.take_disc_event();
++    assert_eq!(core.disc_index(), 1);
++    core.unserialize(&state).expect("unserialize");
++    assert_eq!(core.disc_index(), 0);
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Restored(0)));
++}
++
++#[test]
++fn a_state_with_no_trailer_is_left_to_the_core_and_slot_swaps_nothing() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (_root, mut core) = two_disc_game(&dylib);
++    let state = core.serialize().expect("serialize");
++    core.next_disc();
++    core.take_disc_event();
++    core.unserialize(&state[..PCSX_STATE_BYTES])
++        .expect("a state from before the trailer");
++    assert_eq!(core.take_disc_event(), None);
++    assert_eq!(
++        core.disc_index(),
++        0,
++        "pcsx records its own disc in the state"
++    );
++}
++
++#[test]
++fn a_trailer_of_an_unknown_version_is_refused() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let (_root, mut core) = two_disc_game(&dylib);
++    let mut state = core.serialize().expect("serialize");
++    state[PCSX_STATE_BYTES + 7] = b'2';
++    assert!(core.unserialize(&state).is_err());
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::NewerState));
++    assert_eq!(core.disc_index(), 0);
++}
++
++#[test]
++fn a_single_disc_state_is_exactly_the_cores_bytes() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = common::tmp_root_with_real_carts(&[]);
++    let cue = disc(&root.path().join("Games/PS1"), "Single");
++    let mut core = opened(&dylib, root.path());
++    core.load(&cue).expect("load");
++    run(&mut core, 10);
++    assert_eq!(core.disc_count(), 1);
++    assert_eq!(core.serialize().expect("serialize").len(), PCSX_STATE_BYTES);
++    core.next_disc();
++    assert_eq!(core.take_disc_event(), None);
++}
++
++#[test]
++fn a_missing_or_corrupt_disc_file_means_disc_one() {
++    let root = tempfile::tempdir().expect("tempdir");
++    assert_eq!(remembered_disc(root.path(), STEM, 2), 0);
++    for text in ["", "two", "-1", "2", "7\n"] {
++        std::fs::create_dir_all(disc_file(root.path(), STEM).parent().expect("dir")).expect("dir");
++        std::fs::write(disc_file(root.path(), STEM), text).expect("write");
++        assert_eq!(remembered_disc(root.path(), STEM, 2), 0, "{text:?}");
++    }
++    remember_disc(root.path(), STEM, 1).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(root.path().join("Saves/PS1/Game.disc")).expect("read"),
++        "1\n"
++    );
++    assert_eq!(remembered_disc(root.path(), STEM, 2), 1);
++}
++
++#[test]
++fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
++    let every = Toast::every();
++    for (i, d) in DiscToast::ALL.into_iter().enumerate() {
++        let t = Toast::Disc(d);
++        assert_eq!(every.get(t.index()), Some(&t), "{d:?}");
++        assert_eq!(t.index(), every.len() - DiscToast::ALL.len() + i);
++    }
++    assert_eq!(Toast::Disc(DiscToast::Inserted(1)).text(), "Disc 2");
++    assert_eq!(DiscToast::inserted(7), Some(DiscToast::Inserted(7)));
++    assert_eq!(DiscToast::inserted(8), None);
++    assert_eq!(Toast::Disc(DiscToast::Refused).text(), "Disc swap failed");
++}
++
++fn seated_two_disc_game(dylib: &Path) -> tempfile::TempDir {
++    let root = common::tmp_root_with_real_carts(&[]);
++    two_discs(&root.path().join("Games/PS1"), STEM);
++    std::os::unix::fs::symlink(
++        std::fs::canonicalize(dylib).expect("core path"),
++        root.path()
++            .join("System")
++            .join(dylib_name(Core::PcsxRearmed)),
++    )
++    .expect("link core");
++    common::clocked(root.path());
++    root
++}
++
++#[test]
++fn select_l2_in_a_two_disc_game_swaps_the_disc_and_remembers_it() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = seated_two_disc_game(&dylib);
++    remember_disc(root.path(), STEM, 1).expect("start on disc 2");
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().playing_platform(), Platform::Ps1);
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    session.feed([RawEvent::Down(Btn::L2)], 5016);
++    session.feed([RawEvent::Up(Btn::L2)], 5100);
++    session.feed([RawEvent::Up(Btn::Select)], 5116);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while std::fs::read_to_string(disc_file(root.path(), STEM))
++        .ok()
++        .as_deref()
++        != Some("0\n")
++    {
++        assert!(
++            Instant::now() < deadline,
++            "the swap to disc 1 was never remembered"
++        );
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(5));
++    }
++}
++
++#[test]
++fn a_disc_interface_on_a_platform_that_swaps_no_discs_is_never_used() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = common::tmp_root_with_real_carts(&[]);
++    let m3u = two_discs(&root.path().join("Games/PS1"), STEM);
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root.path()),
++        &slot::root::saves_dir(root.path()),
++    )
++    .expect("open pcsx");
++    core.set_option("pcsx_rearmed_bios", "HLE");
++    core.load(&m3u).expect("load the playlist");
++    run(&mut core, 10);
++    assert_eq!(core.disc_count(), 0);
++    assert_eq!(core.serialize().expect("serialize").len(), PCSX_STATE_BYTES);
++    core.next_disc();
++    assert_eq!(core.take_disc_event(), None);
++    assert!(!Platform::Md.swaps_discs() && !Platform::Nes.swaps_discs());
++}
+diff --git a/crates/slot/tests/real_seat/mod.rs b/crates/slot/tests/real_seat/mod.rs
+index 5d9d2d4..2bd67db 100644
+--- a/crates/slot/tests/real_seat/mod.rs
++++ b/crates/slot/tests/real_seat/mod.rs
+@@ -1,3 +1,5 @@
++#![allow(dead_code)]
++
+ use std::path::Path;
+ use std::time::{Duration, Instant};
+ 

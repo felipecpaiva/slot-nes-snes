@@ -39,3 +39,27 @@ differ:
 - The swap row needs a menu home. The in-game Screen page is pinned (ADR 0061), so issue 61 picks
   one and asks the maintainer if it needs a new named test site.
 - One more `Saves/PS1` file per multi-disc game.
+
+## Amendment (2026-10-17, issue 61 build)
+
+- **Swap home: SELECT+L2, the next disc, on PlayStation only.** The in-game Screen page and the
+  in-game menu lists (`QuickRow::PLAY`, `PLAY_SCREEN`) are pinned by upstream tests, so a menu row
+  would need a new named test site. A chord needs none. L2 and R2 belong to the game (ADR 0068),
+  SELECT+L1 and SELECT+R1 are load and save, SELECT+R2 is fast-forward, and SELECT+L2 was the
+  palette step back, which PS1 has no use for. Every other system keeps SELECT+L2 as before. A menu
+  row can replace the chord later if the maintainer adds a test site for it.
+- The swap result is a banner: "Disc 2" after a swap, "Disc swap failed" after a rollback, and
+  "State needs a newer slot" for a trailer of an unknown version.
+- `Saves/PS1/<stem>.disc` holds the 0-based index on one line. A state load that swaps the disc
+  writes it too.
+- The pinned pcsx records its own disc in its state (`CdromFrontendId` in `retro_serialize`) and
+  swaps back on `retro_unserialize`, so a state with no trailer already returns to its disc on this
+  core. The trailer stays as decided: it keeps the disc in the state whatever the core does, and
+  slot swaps only when the trailer's disc is not the one in play, so the tray never moves for a
+  state of the current disc.
+- The three calls are answered for every core, because pcsx asks in `retro_init`, before slot knows
+  the platform. Genesis Plus GX registers the legacy interface for Sega CD; it is stored and never
+  used. Every disc call (count, index, swap, the initial disc, the trailer on save and on load)
+  first checks a `HostExtra` flag that `open_named` sets only where `Platform::swaps_discs` is
+  true, today PlayStation alone.
+

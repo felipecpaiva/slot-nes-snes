@@ -39,6 +39,19 @@ is the GBA row in the same session.
 Worst cases are reported, not gated. A miss gets its own follow-up issue with the numbers attached.
 SA-1 and Super FX titles are reported on their own rows against the same thresholds, not averaged in.
 
+## PS1 frontend budget (ADR 0065, issue 60)
+
+PS1 has its own frontend-cost line. Every other system keeps the GBA budget above.
+
+| Metric | Budget | Measured |
+|---|---|---|
+| Convert one core frame into the 640x480 canvas (horizontal resample to 640, rows doubled for 240-line frames, RGB565 to BGRX) | at most 2 ms a frame on the RG34XXSP | host, release build, M5 Max, best of 200: 0.06 ms (320x240), 0.06 ms (512x240), 0.08 ms (256x240), 0.09 ms (640x480). Device: the spike's full-frame ceiling was 0.80 ms (docs/research/ps1-spike.md); the resample patch is a device-gate item |
+| Convert plus upload (about 1.2 MB a frame) | under about 3 ms | device-gate item, not measured |
+
+The host test `filling_640_by_480_from_a_full_rgb565_frame_takes_well_under_a_frame_on_the_host`
+(`crates/slot-retro/src/canvas.rs`) is a lenient bound on the debug build (best of 10 under 16 ms,
+about 6 ms seen), only there to catch an accidental per-pixel allocation or division.
+
 ## Automated part: `task perf:eval`
 
 ```
@@ -300,6 +313,7 @@ Sonic 3D, Street Fighter II SCE, Thunder Force IV, Vectorman (issue 53).
 - Unpatched v1.6.0 slot as a separate baseline binary (the GBA row of the same session stands in).
 - Battery state other than on charger, and any governor other than the default.
 - Shader, video mode and rewind-on-play cost on top of the core.
+- PS1 convert and upload on the device, and each retro shader at the 640x480 PS1 input (issue 60).
 
 ## Play results, automated (2026-10-13)
 
