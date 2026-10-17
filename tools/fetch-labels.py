@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fetch real cart labels (never a screenshot) for the ROMs on a slot SD card; Master System gets the box front.
+"""Fetch real cart labels (never a screenshot) for the ROMs on a slot SD card; Master System gets the box front,
+PlayStation the front cover and the disc label.
 
     python3 tools/fetch-labels.py --card /Volumes/SLOT                       # a mounted card
     python3 tools/fetch-labels.py --device --library ~/ROMS                  # SD card stays in the device, over adb
@@ -7,7 +8,7 @@
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
-                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive, loose or zipped; the stem of a zipped
+                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive psx, loose or zipped; the stem of a zipped
                  ROM is the stem of the ROM inside the zip, as scripts/push-roms.py names it), stages the labels
                  locally and adb pushes only the new ones.
 Never overwrites a PNG or a cart_shell.txt line without --force. Reruns are cheap: everything fetched is cached
@@ -20,6 +21,12 @@ Label sources, in order, per ROM:
      Master System takes the front box art (box-2D) instead, for every game: its carts carry little more than the
      name, and slot draws the whole box in a tall well (ADR 0057). Labels fetched before that are kept until --force.
      Credentials are never printed. Stops cleanly when the quota is spent; the next run resumes.
+     PlayStation (ADR 0069) takes the front cover (box-2D) to Labels/PS1/<stem>.png and the disc label scan
+     (support-2D) to Labels/PS1/disc/<stem>.png from one jeuInfos call. A disc has no CRC in any dat, so it is
+     matched by its serial (SYSTEM.CNF of a .cue's first track, DISC_ID of a .pbp's PARAM.SFO, sent as
+     serialnum) plus the CRC32 and size of the disc file and its name (romnom); a .chd has no readable serial
+     and goes by CRC and name. An .m3u stands for its first disc, the discs it names are skipped, and
+     (Disc N) files with no playlist are one game under the stem slot gives them (Labels/PS1/<title>.png).
   A ROM with neither is reported as missing. (libretro Named_Logos on a generated ground needs image code
   beyond the standard library, so that fallback is not implemented.)
 The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
@@ -62,11 +69,16 @@ SYSTEMS = {
     "GG": ("gamegear", {".gg"}, [SEGA + "Game Gear"], 21),
     "SMS": ("mastersystem", {".sms"}, [SEGA + "Master System - Mark III"], 2),
     "MD": ("megadrive", {".md", ".gen", ".bin"}, [SEGA + "Mega Drive - Genesis"], 1),
+    # PlayStation discs are not in a No-Intro dat; ScreenScraper id 57 per Skyscraper's platforms_idmap.csv
+    # (Gemba/skyscraper ccd49ae, row "psx,57,6,10"). The extensions are the ones slot scans (patch 0034).
+    "PS1": ("psx", {".cue", ".chd", ".pbp", ".m3u"}, [], 57),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
 MEDIA = {"SMS": "box-2D"}
 LABEL = "support-texture"
+# PlayStation: (ScreenScraper media type, folder under Labels/PS1) for the case cover and the disc (ADR 0069)
+PS1_MEDIA = (("box-2D", ""), ("support-2D", "disc"))
 # slot's own plastic for a cart with no per-title colour (patch 0012), so a line only sets the outline
 SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696", "megadrive": "26242a"}
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -276,9 +288,57 @@ class ScreenScraper:
             self.stop = str(e)
             return None
 
-    def pick(self, medias, name, kind=LABEL):
+    def disc_media(self, key, ident, name, prefer):
+        """{kind: bytes or None} for the PlayStation cover and disc of one game, from one jeuInfos call. The
+        documentation (webapi2.php, jeuInfos.php) asks for a crc, md5 or sha1 and the size with every request;
+        serialnum "Forcer la recherche du jeu avec le numero de série de la rom (iso)"."""
+        dirs = {kind: os.path.join(self.ctx.cache, "ss", "PS1", kind) for kind, _ in PS1_MEDIA}
+        out, want = {}, []
+        for kind, d in dirs.items():
+            png, none = os.path.join(d, key + ".png"), os.path.join(d, key + ".none")
+            if os.path.isfile(png):
+                out[kind] = slurp(png)
+            elif os.path.isfile(none):
+                out[kind] = None
+            else:
+                want.append(kind)
+        if not want or not self.ready or self.stop:
+            return {kind: out.get(kind) for kind in dirs}
+        if self.ctx.dry:
+            return {kind: out.get(kind, b"") for kind in dirs}
+        try:
+            if not self.started:
+                self.begin()
+            if self.left is not None and self.asked >= self.left:
+                raise Stop("ScreenScraper daily quota spent")
+            self.asked += 1
+            params = dict(crc=ident["crc"], systemeid=SYSTEMS["PS1"][3], romtype="iso", romnom=ident["romnom"],
+                          romtaille=ident["size"])
+            if ident["serial"]:
+                params["serialnum"] = ident["serial"]
+            data = self.call("jeuInfos.php", **params)
+            medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
+            for kind in want:
+                media = self.pick(medias, name, kind, prefer)
+                os.makedirs(dirs[kind], exist_ok=True)
+                if not media:
+                    spit(os.path.join(dirs[kind], key + ".none"), b"")
+                    out[kind] = None
+                    continue
+                status, body = fetch(self.ctx, str(media.get("url", "")), delay=self.pause)
+                if status in (429, 430, 431):
+                    raise Stop("ScreenScraper quota or rate limit reached")
+                if status != 200 or not body.startswith(PNG):
+                    raise Fail(f"ScreenScraper media download failed (HTTP {status}, not a PNG)")
+                spit(os.path.join(dirs[kind], key + ".png"), body)
+                out[kind] = body
+        except Stop as e:
+            self.stop = str(e)
+        return {kind: out.get(kind) for kind in dirs}
+
+    def pick(self, medias, name, kind=LABEL, prefer=None):
         tag = re.search(r"\(([^)]*)\)", name)
-        own = self.REGION.get(tag.group(1).split(",")[0].strip()) if tag else None
+        own = (self.REGION.get(tag.group(1).split(",")[0].strip()) if tag else None) or prefer
         same = [m for m in medias if m.get("type") == kind]
         # slot decodes PNG only: a media that says it is another format goes last
         same.sort(key=lambda m: str(m.get("format", "png")).lower() != "png")
@@ -294,8 +354,8 @@ class ScreenScraper:
 class Rom:
     """One ROM, hashed lazily. zip_crc comes free from a zip header, a loose file is read on demand."""
 
-    def __init__(self, stem, size, read, zip_crc=None):
-        self.stem, self.size, self.read, self.zip_crc = stem, size, read, zip_crc
+    def __init__(self, stem, size, read, zip_crc=None, path=None):
+        self.stem, self.size, self.read, self.zip_crc, self.path = stem, size, read, zip_crc, path
 
     def whole(self):
         if self.zip_crc is None:
@@ -327,11 +387,159 @@ def deinterleave(smd):
     return bytes(out)
 
 
+# ---- PlayStation discs -----------------------------------------------------------------------------
+
+SECTOR, RAW_SECTOR, PVD = 2048, 2352, 16
+SYNC = b"\x00" + b"\xff" * 10 + b"\x00"
+SERIAL = re.compile(r"([A-Za-z]{4})[_-]?(\d{3})\.?(\d{2})")
+DISC_TAG = re.compile(r"\(disc (\d+)(?: of \d+)?\)", re.I)
+SERIAL_REGION = {"SLUS": "us", "SCUS": "us", "SLES": "eu", "SCES": "eu", "SLPS": "jp", "SCPS": "jp", "SLPM": "jp"}
+
+
+def norm_serial(text):
+    """SYSTEM.CNF says SLUS_005.94 and PARAM.SFO SLUS00594; both become the Redump form SLUS-00594."""
+    m = SERIAL.search(text or "")
+    if not m or m.group(1).upper() not in SERIAL_REGION:
+        return None
+    return f"{m.group(1).upper()}-{m.group(2)}{m.group(3)}"
+
+
+def iso_serial(path):
+    """The boot file named in SYSTEM.CNF, read the way slot's ps1.rs reads it (raw 2352 or plain 2048 sectors)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(PVD * RAW_SECTOR)
+            raw = f.read(12) == SYNC
+
+            def sector(lba):
+                if raw:
+                    f.seek(lba * RAW_SECTOR + 15)
+                    at = lba * RAW_SECTOR + (24 if f.read(1) == b"\x02" else 16)
+                else:
+                    at = lba * SECTOR
+                f.seek(at)
+                data = f.read(SECTOR)
+                if len(data) != SECTOR:
+                    raise ValueError("short sector")
+                return data
+            pvd = sector(PVD)
+            if pvd[1:6] != b"CD001":
+                return None
+            lba, size = int.from_bytes(pvd[158:162], "little"), int.from_bytes(pvd[166:170], "little")
+            cnf = None
+            for n in range(min(4, -(-size // SECTOR))):
+                d, at = sector(lba + n), 0
+                while at < len(d) and d[at]:
+                    rec = d[at:at + d[at]]
+                    if rec[33:33 + rec[32]].split(b";")[0] == b"SYSTEM.CNF":
+                        cnf = int.from_bytes(rec[2:6], "little")
+                    at += d[at]
+            if cnf is None:
+                return None
+            for line in sector(cnf).decode("latin-1").splitlines():
+                if line.strip().upper().startswith("BOOT"):
+                    return norm_serial(re.split(r"[\\:/]", line)[-1].split(";")[0].strip())
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def pbp_serial(path):
+    """DISC_ID from the PARAM.SFO at the offset the PBP header gives (PSF key and data tables)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(40)
+            if head[:4] != b"\x00PBP":
+                return None
+            start, end = int.from_bytes(head[8:12], "little"), int.from_bytes(head[12:16], "little")
+            f.seek(start)
+            sfo = f.read(max(0, min(end - start, 65536)))
+        if sfo[:4] != b"\x00PSF":
+            return None
+        keys, data, count = (int.from_bytes(sfo[o:o + 4], "little") for o in (8, 12, 16))
+        for i in range(count):
+            e = sfo[20 + 16 * i:36 + 16 * i]
+            k = keys + int.from_bytes(e[0:2], "little")
+            if sfo[k:sfo.index(b"\x00", k)] == b"DISC_ID":
+                v = data + int.from_bytes(e[12:16], "little")
+                return norm_serial(sfo[v:v + int.from_bytes(e[4:8], "little")].split(b"\x00")[0].decode("latin-1"))
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def m3u_entries(path):
+    """The disc paths an .m3u names, relative to the .m3u's folder, # lines and blanks skipped (slot's ps1.rs)."""
+    base = os.path.dirname(path)
+    lines = slurp(path, "r").replace("\r", "\n").split("\n")
+    return [l if l.startswith(("/", "\\")) or l[1:3] in (":/", ":\\") else os.path.join(base, l)
+            for l in lines if l and not l.startswith("#")]
+
+
+def cue_track(path):
+    for line in slurp(path, "r").splitlines():
+        line = line.strip()
+        if line[:5].lower() == "file ":
+            rest = line[5:].strip()
+            name = rest[1:].split('"')[0] if rest.startswith('"') else rest.split()[0]
+            return os.path.join(os.path.dirname(path), name)
+    return None
+
+
+def file_crc(path):
+    c = 0
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            c = zlib.crc32(block, c)
+    return f"{c & 0xffffffff:08X}"
+
+
+def disc_ident(path, depth=0):
+    """{crc, size, romnom, serial} for the file that holds the game: an .m3u's first disc, a .cue's first track."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".m3u" and depth == 0:
+        first = next(iter(m3u_entries(path)), None)
+        return disc_ident(first, 1) if first and os.path.isfile(first) else None
+    if ext == ".cue":
+        track = cue_track(path)
+        return disc_ident(track, depth + 1) if track and os.path.isfile(track) else None
+    if not os.path.isfile(path):
+        return None
+    serial = pbp_serial(path) if ext == ".pbp" else iso_serial(path) if ext in (".bin", ".iso", ".img") else None
+    return {"crc": file_crc(path), "size": os.path.getsize(path), "romnom": os.path.basename(path), "serial": serial}
+
+
+def ps1_games(roms):
+    """(stem, rom) as slot shows them: discs an .m3u names are dropped, (Disc N) files without one become one game
+    named for the title without the tag, played from its lowest disc (slot's ps1::tidy and disc_tag)."""
+    named = set()
+    for r in roms:
+        if r.path and r.path.lower().endswith(".m3u"):
+            try:
+                named |= {os.path.normcase(os.path.abspath(p)).lower() for p in m3u_entries(r.path)}
+            except OSError:
+                pass
+    left = [r for r in roms if not (r.path and os.path.normcase(os.path.abspath(r.path)).lower() in named)]
+    groups = {}
+    for r in left:
+        m = DISC_TAG.search(r.stem)
+        if m and not (r.path or "").lower().endswith(".m3u"):
+            base = " ".join((r.stem[:m.start()] + " " + r.stem[m.end():]).split())
+            groups.setdefault(base, []).append((int(m.group(1)), r))
+    out, gone = [], set()
+    for base, discs in groups.items():
+        if len(discs) > 1:
+            discs.sort(key=lambda d: d[0])
+            out.append((base, discs[0][1]))
+            gone |= {id(r) for _, r in discs}
+    return [(r.stem, r) for r in left if id(r) not in gone] + out
+
+
 def loose_rom(path):
     def read():
         with open(path, "rb") as f:
             return f.read()
-    return Rom(os.path.splitext(os.path.basename(path))[0], os.path.getsize(path), read)
+    return Rom(os.path.splitext(os.path.basename(path))[0], os.path.getsize(path), read, path=path)
 
 
 def scan_card(card, system):
@@ -565,6 +773,61 @@ def process(ctx, system, roms, have, out, dat, args):
               f"{MEDIA[system]} box front. Rerun with --force --only {system} to replace them.")
 
 
+def process_ps1(ctx, roms, have, have_disc, out, args):
+    """Cover and disc for each PlayStation game. A game is skipped when both are on the card (unless --force)."""
+    stats = ctx.stats
+    tried = 0
+    for stem, rom in ps1_games(roms):
+        tag = f"PS1/{stem}"
+        if args.only_stem and nfc(stem) != nfc(args.only_stem):
+            continue
+        got = (f"{stem}.png".lower() in have, f"{stem}.png".lower() in have_disc)
+        if all(got) and not args.force:
+            stats["skipped"] += 1
+            continue
+        if args.limit and tried >= args.limit:
+            break
+        try:
+            ident = disc_ident(rom.path) if rom.path else None
+        except OSError as e:
+            ident = None
+            print(f"  error  {tag}: {e.strerror or e}")
+        if ident is None:
+            stats["unknown"] += 1
+            print(f"  unreadable disc  {tag} (no track file to identify)")
+            continue
+        tried += 1
+        stats["matched"] += 1
+        if not ident["serial"]:
+            print(f"  no serial  {tag}, matched by CRC {ident['crc']} and name")
+        prefer = SERIAL_REGION.get((ident["serial"] or "")[:4])
+        try:
+            media = ctx.ss.disc_media(ident["serial"] or ident["crc"], ident, stem, prefer)
+        except Fail as e:
+            stats["errors"] += 1
+            print(f"  error  {tag}: {e}")
+            continue
+        wrote = False
+        for (kind, sub), exists in zip(PS1_MEDIA, got):
+            body = media.get(kind)
+            if exists and not args.force:
+                continue
+            if body is None:
+                stats["missing"] += 1
+                why = f", ScreenScraper stopped: {ctx.ss.stop}" if ctx.ss.stop else ""
+                print(f"  missing  {tag} {kind} ({ident['serial'] or 'CRC ' + ident['crc']}{why})")
+                continue
+            stats["written"] += 1
+            wrote = True
+            if ctx.dry:
+                continue
+            dest = os.path.join(out, "Labels", "PS1", sub, stem + ".png")
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            spit(dest, body)
+        if not wrote and ctx.ss.stop:
+            break
+
+
 def summary(ctx, args):
     s = ctx.stats
     print("\n" + ("DRY RUN, nothing written. " if ctx.dry else "") + "Summary")
@@ -602,6 +865,7 @@ def run(args, ctx):
             if dev:
                 names = dev.names(f"{args.sd}/Games/{system}")
                 have_list = dev.names(f"{args.sd}/Labels/{system}")
+                disc_list = dev.names(f"{args.sd}/Labels/{system}/disc") if system == "PS1" else []
                 lib, bad = scan_library(args.library, system)
                 stems, roms = {}, []
                 for n in names:
@@ -615,7 +879,7 @@ def run(args, ctx):
                         print(f"  collision  {system}/{group[0]} has {len(group)} files, nothing written")
                     elif k in lib:
                         src = lib[k]
-                        roms.append(Rom(group[0], src.size, src.read, src.zip_crc))
+                        roms.append(Rom(group[0], src.size, src.read, src.zip_crc, src.path))
                     else:
                         ctx.stats["unknown"] += 1
                         print(f"  unknown CRC  {system}/{group[0]} (not in the library)")
@@ -628,9 +892,14 @@ def run(args, ctx):
                     print(f"  collision  {system}/{k} has two extensions, nothing written")
                 have_list = os.listdir(os.path.join(args.card, "Labels", system)) \
                     if os.path.isdir(os.path.join(args.card, "Labels", system)) else []
+                disc_dir = os.path.join(args.card, "Labels", system, "disc")
+                disc_list = os.listdir(disc_dir) if system == "PS1" and os.path.isdir(disc_dir) else []
                 print(f"{system}: {len(roms)} ROMs on the card")
             have = {n.lower() for n in have_list}
-            process(ctx, system, roms, have, root, dat, args)
+            if system == "PS1":
+                process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
+            else:
+                process(ctx, system, roms, have, root, dat, args)
             if dev and not ctx.dry and os.path.isdir(os.path.join(stage, "Labels", system)):
                 dev.push(os.path.join(stage, "Labels", system), f"{args.sd}/Labels/{system}")
         if ctx.shell:
@@ -671,7 +940,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

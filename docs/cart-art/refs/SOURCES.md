@@ -16,6 +16,7 @@ Public repo. Only images whose licence allows redistribution are committed; each
 | `md_jp.jpg` | `md_jp` | https://www.flickr.com/photos/98627683@N00/33758916372 | Bryan Ochalla | CC BY-SA 2.0 | Japanese Landstalker cart, front view. Attribution required, share-alike |
 | `genesis.jpg` | `md_west` (top cart) | https://www.flickr.com/photos/92418454@N00/8260127715 | Slipp D. Thompson | CC BY 2.0 | Sonic 3 Genesis cart above a Sonic & Knuckles cart. Attribution required |
 | `md_eu.jpg` | PAL label layout only | https://www.flickr.com/photos/49149363@N00/349275919 | Julia P (autumn_bliss) | CC BY-SA 2.0 | PAL carts beside a Mega Drive II, oblique and warm-lit; no measurement taken. Attribution required, share-alike |
+| `jewel_case.jpg` | PS1 jewel case (`jewel_us`, `jewel_eu`, `jewel_jp`, `jewel_double`) | https://commons.wikimedia.org/wiki/File:CD_Jewel_Case_(Front).jpg | DiscoA340 | CC0 | Empty black-tray jewel case, front on; tray colour and hinge band in docs/cart-art/PS1.md |
 
 ## Link-only (not downloaded, no free licence confirmed)
 
