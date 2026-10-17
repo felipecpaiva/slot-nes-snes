@@ -11,11 +11,11 @@ depends_on: [60-ps1-canvas-screen]
 Step 8. Multi-disc games cannot be finished without a swap (ADR 0067).
 
 ## Scope
-- [ ] Answer `SET_DISK_CONTROL_INTERFACE` (13), `GET_DISK_CONTROL_INTERFACE_VERSION` (57, answers 1) and `SET_DISK_CONTROL_EXT_INTERFACE` (58). Interface in `HostExtra`, `// SAFETY:` on every core call.
-- [ ] Swap: tray open, set index, tray close; roll back to the old index when refused or out of range (bently0602), toast on failure.
-- [ ] `Saves/PS1/<stem>.disc` written on swap; `set_initial_image` before `load_game` (tray, omega-zero).
-- [ ] State trailer for multi-disc games: `SLOTPSX1` plus u32 LE index, stripped and applied before `retro_unserialize`; no trailer loads on the current disc; unknown version refused.
-- [ ] A swap row: pick a menu home that does not widen `QuickRow::PLAY_SCREEN`; if none fits, ask the maintainer for a named test site.
+- [x] Answer `SET_DISK_CONTROL_INTERFACE` (13), `GET_DISK_CONTROL_INTERFACE_VERSION` (57, answers 1) and `SET_DISK_CONTROL_EXT_INTERFACE` (58). Interface in `HostExtra`, `// SAFETY:` on every core call.
+- [x] Swap: tray open, set index, tray close; roll back to the old index when refused or out of range (bently0602), toast on failure.
+- [x] `Saves/PS1/<stem>.disc` written on swap; `set_initial_image` before `load_game` (tray, omega-zero).
+- [x] State trailer for multi-disc games: `SLOTPSX1` plus u32 LE index, stripped and applied before `retro_unserialize`; no trailer loads on the current disc; unknown version refused.
+- [x] A swap row: pick a menu home that does not widen `QuickRow::PLAY_SCREEN`; if none fits, ask the maintainer for a named test site. Built as the SELECT+L2 chord, no test site needed (ADR 0067 amendment); a menu row stays open for the maintainer.
 
 ## Tests
 | ID | File | Asserts |
@@ -29,7 +29,7 @@ Step 8. Multi-disc games cannot be finished without a swap (ADR 0067).
 | State from before this patch | Loads on the current disc |
 
 ## Acceptance
-- [ ] Tests green with generated two-disc ISOs and HLE BIOS.
+- [x] Tests green with generated two-disc ISOs and HLE BIOS.
 
 ## Device check (RG34XXSP)
 A real multi-disc game swapped to disc 2, saved, quit and resumed on disc 2.
