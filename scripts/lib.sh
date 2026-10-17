@@ -56,3 +56,29 @@ base_repo() {
 		GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" \
 		git -C "$2" -c commit.gpgsign=false commit -q -m "base"
 }
+
+# True for pcsx_rearmed built with the ari64 dynarec (new_dynarec's ndrc_ symbols, no lightrec).
+is_ari64() {
+	syms="$(nm "$1" 2>/dev/null)" || {
+		echo "slot-nes-snes: nm cannot read $1" >&2
+		return 1
+	}
+	printf '%s\n' "$syms" | grep -q ' ndrc_get_addr_ht$' && ! printf '%s\n' "$syms" | grep -q ' lightrec_' || {
+		echo "slot-nes-snes: $1 is not the ari64 dynarec build" >&2
+		return 1
+	}
+}
+
+# True when an ELF needs only libc, libm, libdl and libpthread, at symbol versions GLIBC_2.17 or older,
+# the libraries the handheld's OS is known to have.
+needs_old_glibc_only() {
+	dyn="$(objdump -p "$1")" || return 1
+	extra="$(printf '%s\n' "$dyn" | awk '$1 == "NEEDED" { print $2 }' |
+		grep -v -x -e libc.so.6 -e libm.so.6 -e libdl.so.2 -e libpthread.so.0 || true)"
+	new="$(printf '%s\n' "$dyn" | grep -o 'GLIBC_[0-9][0-9.]*' | sort -u |
+		awk -F'[_.]' '$2 > 2 || ($2 == 2 && $3 > 17)' || true)"
+	[ -z "$extra$new" ] || {
+		echo "slot-nes-snes: $1 needs $(echo $extra $new)" >&2
+		return 1
+	}
+}

@@ -12,7 +12,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 
 - `slot-nes-snes-src-<release>.tar.gz`: the patched slot source (`slot/`, `work/slot` at the
   exported commit) plus this repository (`slot-nes-snes/`, with `patches/`). It does not hold
-  the gpSP, fceumm, snes9x, nestopia or snes9x2005_plus sources; those sit next to it in the same folder (below). It also does not
+  the gpSP, fceumm, snes9x, nestopia, snes9x2005_plus or pcsx_rearmed sources; those sit next to it in the same folder (below). It also does not
   hold slot's Rust crates: Cargo fetches them by `slot/Cargo.lock`, exactly as upstream does.
   A vendored-crates archive (`cargo vendor`) can be provided on request: open an issue.
   Every download in the build is listed with its check in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
@@ -20,6 +20,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `snes9x-src.tar.gz` and `snes9x-src.meta`: the same for snes9x.
 - `nestopia-src.tar.gz` and `nestopia-src.meta`: the same for nestopia.
 - `snes9x2005_plus-src.tar.gz` and `snes9x2005_plus-src.meta`: the same for snes9x2005_plus.
+- `pcsx_rearmed-src.tar.gz` and `pcsx_rearmed-src.meta`: the same for pcsx_rearmed.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 
@@ -220,6 +221,43 @@ the libretro C ABI, the zip an aggregate of separate works. This is our reading,
 The core is plain C and links only `libc` and `libm` on the device. The notice under snes9x names
 Genesis Plus GX too, and the release terms do not change: the zip was already never to be sold.
 
+## PCSX ReARMed
+
+Checked at commit `c8816799b50388e61cfe237fe2cdbb7d8175f20a` of libretro/pcsx_rearmed, the commit
+`SLOT_PIN` pins as `pcsx_rearmed_commit` (tarball sha256 `pcsx_rearmed_tarball_sha256`). It is built
+by `cores/pcsx_rearmed/build.sh` for PlayStation (ADR 0063) and ships with the PS1 platform (patch
+`0034-platform-ps1`, issue 58). Its licence, the root `COPYING` of that source copied verbatim and
+whole, is `licenses/pcsx_rearmed-GPL-2.0.txt`, which `scripts/dist-device.sh` copies into
+`System/licenses/` and `scripts/zip-check.sh` requires and compares byte for byte. The exact source
+ships with the core as `pcsx_rearmed-src.tar.gz`, with `pcsx_rearmed-src.meta` recording its sha256.
+
+**The pcsx_rearmed core we ship is GPL-2.0-or-later**, so it combines with slot's GPL-3.0-or-later
+directly, with no plugin-boundary stance needed.
+
+- `COPYING` is the GNU GPL version 2 text. `AUTHORS` names the PCSX, PCSX-df and PCSX-Reloaded
+  teams, Ari64 (the ARM dynarec), Exophase (the NEON GPU) and notaz.
+- Of the 245 `.c`, `.h` and `.S` files under `libpcsxcore/`, `plugins/` and `frontend/`, 161 say
+  "any later version" or "version 2 or later" (some dual GPL-2.0-or-later or LGPL-2.1-or-later at
+  the user's option), a few carry MIT, LGPL-2.1-or-later or BSD-3-Clause headers, and 72 carry no
+  licence text, which we treat as covered by `COPYING`, a judgement, not a quote. No file says version
+  2 only and none says version 3. Command, run in the unpacked source root: `find libpcsxcore plugins
+  frontend \( -name '*.c' -o -name '*.h' -o -name '*.S' \) -type f -exec grep -l -i 'any later
+  version\|version 2 or later\|v2 or later\|2.0-or-later\|2 or later' {} + | wc -l`.
+- Bundled under `deps/` and compiled into the core (from the link line of the pinned
+  `Makefile.libretro` build): libchdr (BSD-3-Clause, Romain Tisserand) with its LZMA SDK (public
+  domain), zstd (BSD or GPL-2.0, the user's choice) and miniz (the Unlicense), for CHD discs
+  (`HAVE_CHD=1`), and `libretro-common` (the RetroArch team's MIT text). lightrec (LGPL-2.1-or-later)
+  and GNU lightning (LGPL-3.0-or-later) are in the tarball but not compiled: they build only with
+  `DYNAREC=lightrec`, and our device build uses ari64 and the host build the interpreter.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The core is plain C and links only `libc`, `libdl` and `libpthread` (and `libm` where the linker
+  keeps it) at GLIBC_2.17 or older on the device, which `task core:device:pcsx_rearmed` checks.
+- No PlayStation BIOS is shipped or used in CI. The core falls back to its own HLE BIOS.
+
+The build recipe facts (the pin, `HAVE_PHYSICAL_CDROM=0`, `BUILTIN_GPU=neon`, CHD on, ari64 as the
+aarch64 default) come from bently0602/slot and oauramos/omega-zero, both GPL-3.0, and are credited in
+the commit that added the build.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
@@ -266,3 +304,13 @@ asset, and none ships in a release. Patch `0029-sms-box-art` regenerates `sms_ne
 Patch `0030-need-fullpath` follows two GPL-3.0 forks of slot, compatible with this patch set's
 GPL-3.0-or-later: the path-only load of AaronC1990/tray (the original path, not canonicalised)
 and the `SystemInfo` field order of bently0602/slot. Both are credited in the patch commit.
+
+Patch `0034-platform-ps1` draws on three of them. The playlist rules (a `.cue` or `.m3u` hides the
+discs it names, `(Disc N)` files become one game with a generated playlist) follow AaronC1990/tray
+and oauramos/omega-zero, and its test fixture, a PS-X EXE and an ISO9660 disc generated in the test,
+is ported from bently0602/slot's `crates/slot-retro/tests/pcsx.rs`. All three are GPL-3.0 and are
+credited in the patch commit.
+
+Patch `0035-ps1-options` answers pcsx_rearmed's declared option defaults, as oauramos/omega-zero
+does, after AaronC1990/tray found that pcsx renders on the emu thread unless its threaded-rendering
+key is answered. Both are credited in the patch commit.

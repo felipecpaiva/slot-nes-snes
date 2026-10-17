@@ -1,0 +1,2488 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 01:53:04 +0400
+Subject: [PATCH] platform-ps1
+
+PlayStation gets its own shelf, Games/PS1, on pcsx_rearmed alone, with every
+platform policy answered explicitly and its own Screen section (a Shader row
+on the retro list, stored in Config/ps1_shader.txt, and a Picture row,
+Actual by default, then Stretch, no Crop). Discs are .cue, .chd, .pbp and
+.m3u; a .bin is never a game. A playlist hides the discs it names, read the
+way pcsx reads it, and (Disc N) or (Disc N of M) files with no playlist
+become one game with a playlist written to Config/playlists/PS1. A playlist
+that names a missing disc or more than 8 discs is refused before the core
+sees it. The disc serial and its region are read from SYSTEM.CNF for the
+case art later. The shelf shows a placeholder GBA shape until the jewel
+cases land.
+
+The grouping and the playlist rules follow AaronC1990/tray and
+oauramos/omega-zero, and the generated PS-X EXE and ISO test fixture is
+ported from bently0602/slot (all GPL-3.0).
+---
+ crates/slot-store/src/core.rs                |  43 ++-
+ crates/slot-store/src/core_policy.rs         |  12 +-
+ crates/slot-store/src/lib.rs                 |   5 +-
+ crates/slot-store/src/platform.rs            |   5 +
+ crates/slot-store/src/platform_policy.rs     |  31 +-
+ crates/slot-store/src/ps1.rs                 | 322 +++++++++++++++++++
+ crates/slot-store/src/scan.rs                |   6 +
+ crates/slot-store/src/sega_shader.rs         |  51 ++-
+ crates/slot-store/tests/core_pairs.rs        |   4 +-
+ crates/slot-store/tests/ps1_platform.rs      | 103 ++++++
+ crates/slot-store/tests/ps1_scan.rs          | 221 +++++++++++++
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-ui/src/cart.rs                   |   7 +-
+ crates/slot-ui/src/quick_menu.rs             |  23 +-
+ crates/slot-ui/src/quick_retro.rs            |   1 +
+ crates/slot-ui/src/retro_cart.rs             |   4 +-
+ crates/slot-ui/src/shell.rs                  |   1 +
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot-ui/tests/quick_menu.rs           |   4 +-
+ crates/slot-ui/tests/quick_retro.rs          |   2 +-
+ crates/slot/src/app.rs                       |  54 +++-
+ crates/slot/src/core.rs                      |   3 +-
+ crates/slot/src/core_options_policy.rs       |  10 +-
+ crates/slot/src/emu.rs                       |   2 +-
+ crates/slot/src/lib.rs                       |   1 +
+ crates/slot/src/platform_video.rs            |   9 +-
+ crates/slot/src/ps1_load.rs                  |  14 +
+ crates/slot/src/retro_quick.rs               |  60 ++--
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/snes_input.rs                |   2 +-
+ crates/slot/tests/crop_overscan.rs           |   3 +-
+ crates/slot/tests/gpsp.rs                    |   2 +-
+ crates/slot/tests/ps1_common/mod.rs          | 137 ++++++++
+ crates/slot/tests/ps1_emu.rs                 | 144 +++++++++
+ crates/slot/tests/ps1_screen.rs              | 113 +++++++
+ crates/slot/tests/ps1_seat.rs                |  75 +++++
+ crates/slot/tests/sega_quick_shader.rs       |   4 +-
+ crates/slot/tests/snes_select.rs             |   2 +-
+ crates/slot/tests/system_picture.rs          |   2 +-
+ 39 files changed, 1381 insertions(+), 110 deletions(-)
+ create mode 100644 crates/slot-store/src/ps1.rs
+ create mode 100644 crates/slot-store/tests/ps1_platform.rs
+ create mode 100644 crates/slot-store/tests/ps1_scan.rs
+ create mode 100644 crates/slot/src/ps1_load.rs
+ create mode 100644 crates/slot/tests/ps1_common/mod.rs
+ create mode 100644 crates/slot/tests/ps1_emu.rs
+ create mode 100644 crates/slot/tests/ps1_screen.rs
+ create mode 100644 crates/slot/tests/ps1_seat.rs
+
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index d1e4290..15446ee 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -15,6 +15,7 @@ pub enum Core {
+     Nestopia,
+     Snes9x2005Plus,
+     GenesisPlusGx,
++    PcsxRearmed,
+ }
+ 
+ impl Core {
+@@ -29,6 +30,7 @@ impl Core {
+             Core::Nestopia => "nestopia",
+             Core::Snes9x2005Plus => "snes9x2005_plus",
+             Core::GenesisPlusGx => "genesis_plus_gx",
++            Core::PcsxRearmed => "pcsx_rearmed",
+         }
+     }
+ 
+@@ -45,6 +47,7 @@ impl Core {
+             Core::Nestopia => "Nestopia",
+             Core::Snes9x2005Plus => "Snes9x 2005+",
+             Core::GenesisPlusGx => "Genesis Plus GX",
++            Core::PcsxRearmed => "PCSX ReARMed",
+         }
+     }
+ 
+@@ -57,6 +60,7 @@ impl Core {
+             "nestopia" => Some(Core::Nestopia),
+             "snes9x2005_plus" => Some(Core::Snes9x2005Plus),
+             "genesis_plus_gx" => Some(Core::GenesisPlusGx),
++            "pcsx_rearmed" => Some(Core::PcsxRearmed),
+             _ => None,
+         }
+     }
+@@ -65,9 +69,12 @@ impl Core {
+         match self {
+             Core::Mgba => match platform {
+                 Platform::Gba | Platform::Gb | Platform::Gbc => true,
+-                Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+-                    false
+-                }
++                Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+@@ -77,7 +84,8 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md => false,
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+@@ -87,7 +95,8 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md => false,
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+             Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+@@ -97,13 +106,28 @@ impl Core {
+                 | Platform::Nes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md => false,
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+             Core::GenesisPlusGx => match platform {
+                 Platform::Gg | Platform::Sms | Platform::Md => true,
+-                Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => {
+-                    false
+-                }
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Ps1 => false,
++            },
++            Core::PcsxRearmed => match platform {
++                Platform::Ps1 => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md => false,
+             },
+         }
+     }
+@@ -114,6 +138,7 @@ impl Core {
+             Platform::Nes => Core::Fceumm,
+             Platform::Snes => Core::Snes9x,
+             Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
++            Platform::Ps1 => Core::PcsxRearmed,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 94d2d47..68faf87 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 7] = [
++    pub const EVERY: [Core; 8] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -10,6 +10,7 @@ impl Core {
+         Core::Nestopia,
+         Core::Snes9x2005Plus,
+         Core::GenesisPlusGx,
++        Core::PcsxRearmed,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -21,6 +22,7 @@ impl Core {
+             Core::Nestopia => "nestopia",
+             Core::Snes9x2005Plus => "snes9x_2005",
+             Core::GenesisPlusGx => "genesis_plus_gx",
++            Core::PcsxRearmed => "pcsx_rearmed",
+         }
+     }
+ 
+@@ -30,6 +32,7 @@ impl Core {
+             Core::Fceumm | Core::Nestopia => (Core::Fceumm, Core::Nestopia),
+             Core::Snes9x | Core::Snes9x2005Plus => (Core::Snes9x, Core::Snes9x2005Plus),
+             Core::GenesisPlusGx => (Core::GenesisPlusGx, Core::GenesisPlusGx),
++            Core::PcsxRearmed => (Core::PcsxRearmed, Core::PcsxRearmed),
+         }
+     }
+ 
+@@ -45,8 +48,10 @@ impl Core {
+                 | Platform::Nes
+                 | Platform::Snes
+                 | Platform::Sms
+-                | Platform::Md => (360, 240),
++                | Platform::Md
++                | Platform::Ps1 => (360, 240),
+             },
++            Core::PcsxRearmed => (640, 480),
+         }
+     }
+ 
+@@ -62,7 +67,8 @@ impl Core {
+             | Core::Snes9x
+             | Core::Nestopia
+             | Core::Snes9x2005Plus
+-            | Core::GenesisPlusGx => false,
++            | Core::GenesisPlusGx
++            | Core::PcsxRearmed => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 81c17cf..bbc93c7 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -10,6 +10,7 @@ pub mod ini;
+ pub mod nes;
+ mod platform;
+ mod platform_policy;
++pub mod ps1;
+ mod retro_shader;
+ mod ring;
+ mod scan;
+@@ -32,7 +33,9 @@ pub use platform::Platform;
+ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+-pub use sega_shader::{read_sega_shaders, write_sega_shaders, SegaShaders, SEGA_SHADERS_FILE};
++pub use sega_shader::{
++    read_sega_shaders, write_sega_shaders, SegaShaders, PS1_SHADER_FILE, SEGA_SHADERS_FILE,
++};
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+     read_slot_state, write_slot_state, Appearance, BezelPick, Recent, Shader, SlotState,
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 1371785..fc1379c 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -11,6 +11,7 @@ pub enum Platform {
+     Gg,
+     Sms,
+     Md,
++    Ps1,
+ }
+ 
+ impl Platform {
+@@ -26,6 +27,7 @@ impl Platform {
+             Platform::Gg => "Sega Game Gear",
+             Platform::Sms => "Sega Master System",
+             Platform::Md => "Sega Mega Drive",
++            Platform::Ps1 => "Sony PlayStation",
+         }
+     }
+ 
+@@ -39,6 +41,7 @@ impl Platform {
+             Platform::Gg => "GG",
+             Platform::Sms => "SMS",
+             Platform::Md => "MD",
++            Platform::Ps1 => "PS1",
+         }
+     }
+ 
+@@ -51,6 +54,7 @@ impl Platform {
+             Platform::Gg => &["gg"],
+             Platform::Sms => &["sms"],
+             Platform::Md => &["md", "gen", "bin"],
++            Platform::Ps1 => &["cue", "chd", "pbp", "m3u"],
+         }
+     }
+ 
+@@ -63,6 +67,7 @@ impl Platform {
+             Platform::Gg => (160, 144),
+             Platform::Sms => (256, 192),
+             Platform::Md => (320, 224),
++            Platform::Ps1 => (640, 480),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 970033d..05869d1 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -3,7 +3,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 8] = [
++    pub const SHELVES: [Platform; 9] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -12,6 +12,7 @@ impl Platform {
+         Platform::Gg,
+         Platform::Sms,
+         Platform::Md,
++        Platform::Ps1,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -21,21 +22,22 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => false,
++            | Platform::Md
++            | Platform::Ps1 => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+ 
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+-            Platform::Gba | Platform::Snes | Platform::Md => false,
++            Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 => false,
+             Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => true,
+         }
+     }
+ 
+     pub fn passes_xy_through(self) -> bool {
+         match self {
+-            Platform::Snes | Platform::Md => true,
++            Platform::Snes | Platform::Md | Platform::Ps1 => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -47,7 +49,7 @@ impl Platform {
+ 
+     pub fn select_x_toggles_picture(self) -> bool {
+         match self {
+-            Platform::Snes | Platform::Md => true,
++            Platform::Snes | Platform::Md | Platform::Ps1 => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -62,13 +64,18 @@ impl Platform {
+             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
+             Platform::Nes => Some((Core::Fceumm, Core::Nestopia)),
+             Platform::Snes => Some((Core::Snes9x, Core::Snes9x2005Plus)),
+-            Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Sms | Platform::Md => None,
++            Platform::Gb
++            | Platform::Gbc
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1 => None,
+         }
+     }
+ 
+     pub fn stretch_crops_height(self) -> bool {
+         match self {
+-            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg => false,
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => false,
+             Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => true,
+         }
+     }
+@@ -82,7 +89,8 @@ impl Platform {
+             | Platform::Gbc
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => (0, 0),
++            | Platform::Md
++            | Platform::Ps1 => (0, 0),
+         }
+     }
+ 
+@@ -91,7 +99,9 @@ impl Platform {
+             Platform::Gba => &Shader::GBA,
+             Platform::Gb | Platform::Gbc => &Shader::GB,
+             Platform::Gg => &Shader::GG,
+-            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => &Shader::RETRO,
++            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Ps1 => {
++                &Shader::RETRO
++            }
+         }
+     }
+ 
+@@ -104,7 +114,8 @@ impl Platform {
+             | Platform::Nes
+             | Platform::Snes
+             | Platform::Gg
+-            | Platform::Sms => false,
++            | Platform::Sms
++            | Platform::Ps1 => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/ps1.rs b/crates/slot-store/src/ps1.rs
+new file mode 100644
+index 0000000..b3d675c
+--- /dev/null
++++ b/crates/slot-store/src/ps1.rs
+@@ -0,0 +1,322 @@
++use std::collections::{BTreeMap, HashSet};
++use std::fs::File;
++use std::io::{Read, Seek, SeekFrom};
++use std::path::{Component, Path, PathBuf};
++
++use crate::atomic::atomic_write;
++use crate::scan::{listing, Cart};
++use crate::Platform;
++
++pub const PLAYLISTS_DIR: &str = "Config/playlists/PS1";
++pub const MAX_DISCS: usize = 8;
++
++const SECTOR: u64 = 2048;
++const RAW_SECTOR: u64 = 2352;
++const PVD_SECTOR: u64 = 16;
++const SYNC: [u8; 12] = [
++    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0,
++];
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum DiscRegion {
++    Us,
++    Eu,
++    Jp,
++}
++
++pub fn playlist(m3u: &Path) -> Option<Vec<PathBuf>> {
++    let bytes = std::fs::read(m3u)
++        .map_err(|e| eprintln!("slot: ps1: {}: {e}", m3u.display()))
++        .ok()?;
++    let base = m3u.parent().unwrap_or(Path::new(""));
++    Some(
++        String::from_utf8_lossy(&bytes)
++            .split('\n')
++            .map(|line| line.split('\r').next().unwrap_or(""))
++            .filter(|line| !line.is_empty() && !line.starts_with('#'))
++            .map(|line| disc_path(base, line))
++            .collect(),
++    )
++}
++
++fn disc_path(base: &Path, line: &str) -> PathBuf {
++    let b = line.as_bytes();
++    let absolute = matches!(b.first(), Some(b'/' | b'\\'))
++        || (b.get(1) == Some(&b':') && matches!(b.get(2), Some(b'/' | b'\\')));
++    if absolute {
++        PathBuf::from(line)
++    } else {
++        base.join(line)
++    }
++}
++
++pub fn playable_discs(m3u: &Path) -> Result<Vec<PathBuf>, String> {
++    let discs = playlist(m3u).ok_or_else(|| format!("{} is unreadable", m3u.display()))?;
++    if discs.is_empty() {
++        return Err(format!("{} names no disc", m3u.display()));
++    }
++    if discs.len() > MAX_DISCS {
++        return Err(format!(
++            "{} names {} discs, pcsx holds {MAX_DISCS}",
++            m3u.display(),
++            discs.len()
++        ));
++    }
++    match discs.iter().find(|d| !d.is_file()) {
++        Some(missing) => Err(format!(
++            "{} names {}, which is missing",
++            m3u.display(),
++            missing.display()
++        )),
++        None => Ok(discs),
++    }
++}
++
++pub fn disc_tag(stem: &str) -> Option<(String, u32)> {
++    let lower = stem.to_ascii_lowercase();
++    let mut from = 0;
++    while let Some(at) = lower.get(from..)?.find("(disc ") {
++        let open = from + at;
++        let digits = open + "(disc ".len();
++        let rest = lower.get(digits..)?;
++        let n_len = rest.bytes().take_while(u8::is_ascii_digit).count();
++        let after = rest.get(n_len..)?;
++        let close = if after.starts_with(')') {
++            Some(1)
++        } else {
++            after
++                .strip_prefix(" of ")
++                .map(|t| t.bytes().take_while(u8::is_ascii_digit).count())
++                .filter(|m| *m > 0)
++                .and_then(|m| after.get(4 + m..)?.starts_with(')').then_some(4 + m + 1))
++        };
++        if let (true, Some(close)) = (n_len > 0, close) {
++            let n = rest.get(..n_len)?.parse().ok()?;
++            let end = digits + n_len + close;
++            let base = format!("{} {}", stem.get(..open)?, stem.get(end..)?);
++            return Some((base.split_whitespace().collect::<Vec<_>>().join(" "), n));
++        }
++        from = open + 1;
++    }
++    None
++}
++
++pub fn title(stem: &str) -> Option<String> {
++    disc_tag(stem).map(|(base, _)| base)
++}
++
++fn same_file_key(p: &Path) -> String {
++    p.components()
++        .filter(|c| !matches!(c, Component::CurDir))
++        .collect::<PathBuf>()
++        .to_string_lossy()
++        .to_lowercase()
++}
++
++pub fn tidy(root: &Path, carts: &mut Vec<Cart>) {
++    let mut named = HashSet::new();
++    carts.retain(|c| {
++        if c.platform != Platform::Ps1 || !is_m3u(&c.rom) {
++            return true;
++        }
++        match playlist(&c.rom) {
++            Some(discs) => {
++                named.extend(discs.iter().map(|d| same_file_key(d)));
++                true
++            }
++            None => {
++                eprintln!("slot: ps1: skipping {}", c.rom.display());
++                false
++            }
++        }
++    });
++    carts.retain(|c| c.platform != Platform::Ps1 || !named.contains(&same_file_key(&c.rom)));
++
++    let mut groups: BTreeMap<String, Vec<(u32, usize)>> = BTreeMap::new();
++    for (i, c) in carts.iter().enumerate() {
++        if c.platform != Platform::Ps1 || is_m3u(&c.rom) {
++            continue;
++        }
++        if let Some((base, n)) = disc_tag(&c.stem) {
++            groups.entry(base).or_default().push((n, i));
++        }
++    }
++    let labels_dir = root.join("Labels").join(Platform::Ps1.dir_name());
++    let labels = listing(&labels_dir);
++    let mut gone = HashSet::new();
++    let mut grouped = Vec::new();
++    for (base, mut discs) in groups {
++        if discs.len() < 2 {
++            continue;
++        }
++        discs.sort();
++        let roms: Vec<&Path> = discs
++            .iter()
++            .filter_map(|(_, i)| carts.get(*i).map(|c| c.rom.as_path()))
++            .collect();
++        let Some(m3u) = write_playlist(root, &base, &roms) else {
++            continue;
++        };
++        let Some(first) = discs.first().and_then(|(_, i)| carts.get(*i)) else {
++            continue;
++        };
++        grouped.push(Cart {
++            platform: Platform::Ps1,
++            stem: base.clone(),
++            rom: m3u,
++            label: labels
++                .get(&format!("{base}.png").to_lowercase())
++                .map(|name| labels_dir.join(name))
++                .or_else(|| first.label.clone()),
++            title: String::new(),
++            code: String::new(),
++            shell: first.shell,
++        });
++        gone.extend(discs.iter().map(|(_, i)| *i));
++    }
++    *carts = std::mem::take(carts)
++        .into_iter()
++        .enumerate()
++        .filter(|(i, _)| !gone.contains(i))
++        .map(|(_, c)| c)
++        .chain(grouped)
++        .collect();
++}
++
++fn is_m3u(p: &Path) -> bool {
++    p.extension()
++        .and_then(|e| e.to_str())
++        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
++}
++
++fn write_playlist(root: &Path, base: &str, discs: &[&Path]) -> Option<PathBuf> {
++    let path = root.join(PLAYLISTS_DIR).join(format!("{base}.m3u"));
++    let mut text = String::new();
++    for disc in discs {
++        let disc = std::path::absolute(disc).unwrap_or_else(|_| disc.to_path_buf());
++        text.push_str(&disc.to_string_lossy());
++        text.push('\n');
++    }
++    if std::fs::read(&path).ok().as_deref() == Some(text.as_bytes()) {
++        return Some(path);
++    }
++    let written = path
++        .parent()
++        .map_or(Ok(()), std::fs::create_dir_all)
++        .and_then(|_| atomic_write(&path, text.as_bytes()));
++    match written {
++        Ok(()) => Some(path),
++        Err(e) => {
++            eprintln!("slot: ps1: could not write {}: {e}", path.display());
++            None
++        }
++    }
++}
++
++pub fn serial(disc: &Path) -> Option<String> {
++    let ext = disc.extension()?.to_str()?.to_ascii_lowercase();
++    match ext.as_str() {
++        "m3u" => serial(playlist(disc)?.first()?),
++        "cue" => serial_of_track(&first_track(disc)?),
++        "bin" | "iso" | "img" => serial_of_track(disc),
++        _ => None,
++    }
++}
++
++pub fn serial_region(serial: &str) -> Option<DiscRegion> {
++    match serial.get(..4)?.to_ascii_uppercase().as_str() {
++        "SLUS" | "SCUS" => Some(DiscRegion::Us),
++        "SLES" | "SCES" => Some(DiscRegion::Eu),
++        "SLPS" | "SCPS" | "SLPM" => Some(DiscRegion::Jp),
++        _ => None,
++    }
++}
++
++fn first_track(cue: &Path) -> Option<PathBuf> {
++    let text = std::fs::read_to_string(cue).ok()?;
++    let line = text
++        .lines()
++        .map(str::trim)
++        .find(|l| l.get(..5).is_some_and(|k| k.eq_ignore_ascii_case("file ")))?;
++    let rest = line.get(5..)?.trim();
++    let name = match rest.strip_prefix('"') {
++        Some(quoted) => quoted.split('"').next()?,
++        None => rest.split_whitespace().next()?,
++    };
++    Some(cue.parent().unwrap_or(Path::new("")).join(name))
++}
++
++struct Track {
++    file: File,
++    raw: bool,
++}
++
++impl Track {
++    fn open(path: &Path) -> Option<Track> {
++        let mut file = File::open(path).ok()?;
++        let mut sync = [0u8; 12];
++        file.seek(SeekFrom::Start(PVD_SECTOR * RAW_SECTOR)).ok()?;
++        let raw = file.read_exact(&mut sync).is_ok() && sync == SYNC;
++        Some(Track { file, raw })
++    }
++
++    fn sector(&mut self, lba: u64) -> Option<[u8; SECTOR as usize]> {
++        let at = if self.raw {
++            let mut mode = [0u8; 1];
++            self.file
++                .seek(SeekFrom::Start(lba * RAW_SECTOR + 15))
++                .ok()?;
++            self.file.read_exact(&mut mode).ok()?;
++            lba * RAW_SECTOR + if mode[0] == 2 { 24 } else { 16 }
++        } else {
++            lba * SECTOR
++        };
++        let mut data = [0u8; SECTOR as usize];
++        self.file.seek(SeekFrom::Start(at)).ok()?;
++        self.file.read_exact(&mut data).ok()?;
++        Some(data)
++    }
++}
++
++fn le32(b: &[u8], at: usize) -> Option<u32> {
++    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
++}
++
++fn serial_of_track(path: &Path) -> Option<String> {
++    let mut track = Track::open(path)?;
++    let pvd = track.sector(PVD_SECTOR)?;
++    if pvd.get(1..6)? != b"CD001" {
++        return None;
++    }
++    let root = pvd.get(156..)?;
++    let (lba, size) = (le32(root, 2)?, le32(root, 10)?);
++    let mut cnf = None;
++    for n in 0..u64::from(size.div_ceil(SECTOR as u32).min(4)) {
++        let dir = track.sector(u64::from(lba) + n)?;
++        let mut at = 0;
++        while let Some(&len) = dir.get(at) {
++            if len == 0 {
++                break;
++            }
++            let rec = dir.get(at..at + usize::from(len))?;
++            let name_len = usize::from(*rec.get(32)?);
++            let name = rec.get(33..33 + name_len)?;
++            if name.split(|b| *b == b';').next() == Some(b"SYSTEM.CNF") {
++                cnf = Some(le32(rec, 2)?);
++            }
++            at += usize::from(len);
++        }
++    }
++    let text = track.sector(u64::from(cnf?))?;
++    let text = String::from_utf8_lossy(&text);
++    let boot = text
++        .lines()
++        .find(|l| l.trim_start().to_ascii_uppercase().starts_with("BOOT"))?;
++    let file = boot
++        .rsplit(['\\', ':', '/'])
++        .next()?
++        .split(';')
++        .next()?
++        .trim();
++    (file.len() >= 4 && serial_region(file).is_some()).then(|| file.to_string())
++}
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 21ca97f..0bd625f 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -41,6 +41,11 @@ impl Cart {
+                     self.title = title;
+                 }
+             }
++            Platform::Ps1 => {
++                if let Some(title) = crate::ps1::title(&self.stem) {
++                    self.title = title;
++                }
++            }
+         }
+     }
+ }
+@@ -110,6 +115,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
+             });
+         }
+     }
++    crate::ps1::tidy(root, &mut carts);
+     carts.sort_by(|a, b| {
+         (a.platform as u8, sort_key(&a.stem)).cmp(&(b.platform as u8, sort_key(&b.stem)))
+     });
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index f92c0af..64c6a58 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -5,12 +5,14 @@ use crate::slot_state::{list_path, Shader};
+ use crate::Platform;
+ 
+ pub const SEGA_SHADERS_FILE: &str = "sega_shaders.txt";
++pub const PS1_SHADER_FILE: &str = "ps1_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+     pub gg: Shader,
+     pub sms: Shader,
+     pub md: Shader,
++    pub ps1: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -19,42 +21,59 @@ impl Default for SegaShaders {
+             gg: Shader::Off,
+             sms: Shader::Off,
+             md: Shader::Off,
++            ps1: Shader::Off,
+         }
+     }
+ }
+ 
+ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+     let mut s = SegaShaders::default();
+-    let text = std::fs::read_to_string(list_path(root, SEGA_SHADERS_FILE)).unwrap_or_default();
+-    for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+-        let (shader, platform) = match key.trim() {
+-            "gg" => (&mut s.gg, Platform::Gg),
+-            "sms" => (&mut s.sms, Platform::Sms),
+-            "md" => (&mut s.md, Platform::Md),
+-            other => {
+-                eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {other}");
+-                continue;
++    for file in [SEGA_SHADERS_FILE, PS1_SHADER_FILE] {
++        let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
++        for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
++            let (shader, platform) = match (file, key.trim()) {
++                (SEGA_SHADERS_FILE, "gg") => (&mut s.gg, Platform::Gg),
++                (SEGA_SHADERS_FILE, "sms") => (&mut s.sms, Platform::Sms),
++                (SEGA_SHADERS_FILE, "md") => (&mut s.md, Platform::Md),
++                (PS1_SHADER_FILE, "ps1") => (&mut s.ps1, Platform::Ps1),
++                (_, other) => {
++                    eprintln!("slot: {file}: ignoring {other}");
++                    continue;
++                }
++            };
++            match Shader::parse(value.trim()).filter(|v| platform.shader_choices().contains(v)) {
++                Some(v) => *shader = v,
++                None => eprintln!("slot: {file}: ignoring {key}={value}"),
+             }
+-        };
+-        match Shader::parse(value.trim()).filter(|v| platform.shader_choices().contains(v)) {
+-            Some(v) => *shader = v,
+-            None => eprintln!("slot: {SEGA_SHADERS_FILE}: ignoring {key}={value}"),
+         }
+     }
+     s
+ }
+ 
+ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+-    let path = list_path(root, SEGA_SHADERS_FILE);
+-    let text = format!(
++    let sega = format!(
+         "gg={}\nsms={}\nmd={}\n",
+         s.gg.name(),
+         s.sms.name(),
+         s.md.name()
+     );
++    let d = SegaShaders::default();
++    let sega_default = (s.gg, s.sms, s.md) == (d.gg, d.sms, d.md);
++    write_unless_unchanged(root, SEGA_SHADERS_FILE, &sega, sega_default)?;
++    let ps1 = format!("ps1={}\n", s.ps1.name());
++    write_unless_unchanged(root, PS1_SHADER_FILE, &ps1, s.ps1 == d.ps1)
++}
++
++fn write_unless_unchanged(
++    root: &Path,
++    file: &str,
++    text: &str,
++    is_default: bool,
++) -> std::io::Result<()> {
++    let path = list_path(root, file);
+     let unchanged = match std::fs::read(&path) {
+         Ok(old) => old == text.as_bytes(),
+-        Err(_) => *s == SegaShaders::default(),
++        Err(_) => is_default,
+     };
+     if unchanged {
+         return Ok(());
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index 8a6b3d2..0af6961 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_seven() {
++fn the_pinned_core_list_stays_two_while_every_lists_eight() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 7);
++    assert_eq!(Core::EVERY.len(), 8);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/ps1_platform.rs b/crates/slot-store/tests/ps1_platform.rs
+new file mode 100644
+index 0000000..2873d22
+--- /dev/null
++++ b/crates/slot-store/tests/ps1_platform.rs
+@@ -0,0 +1,103 @@
++mod common;
++
++use std::path::Path;
++
++use common::tmp_root;
++use slot_store::{
++    read_sega_shaders, read_slot_state, write_sega_shaders, write_slot_state, Core, Platform,
++    RetroShader, SegaShaders, Shader, SlotState, PS1_SHADER_FILE,
++};
++
++#[test]
++fn playstation_is_the_last_shelf_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES[8], Platform::Ps1);
++    assert_eq!(Platform::SHELVES.len(), 9);
++    assert_eq!(Platform::ALL.len(), 3);
++}
++
++#[test]
++fn playstation_has_its_own_name_folder_extensions_and_picture() {
++    assert_eq!(Platform::Ps1.name(), "Sony PlayStation");
++    assert_eq!(Platform::Ps1.dir_name(), "PS1");
++    for name in ["x.cue", "x.chd", "x.pbp", "x.m3u", "X.CUE"] {
++        assert!(Platform::Ps1.accepts(Path::new(name)), "{name}");
++    }
++    for name in ["x.bin", "x.iso", "x.img", "x.exe"] {
++        assert!(!Platform::Ps1.accepts(Path::new(name)), "{name}");
++    }
++    assert_eq!(Platform::Ps1.picture(), (640, 480));
++}
++
++#[test]
++fn playstation_hands_the_game_every_button_and_offers_no_crop() {
++    assert!(!Platform::Ps1.owns_shoulders());
++    assert!(Platform::Ps1.passes_xy_through());
++    assert!(Platform::Ps1.select_x_toggles_picture());
++    assert!(!Platform::Ps1.stretch_crops_height());
++    assert!(!Platform::Ps1.follows_frame_width());
++    assert!(!Platform::Ps1.has_gb_palettes());
++    assert_eq!(Platform::Ps1.overscan(), (0, 0));
++    assert_eq!(Platform::Ps1.picker_cores(), None);
++    assert_eq!(Platform::Ps1.shader_choices(), &Shader::RETRO);
++}
++
++#[test]
++fn playstation_runs_on_pcsx_rearmed_alone_on_a_640_by_480_canvas() {
++    assert_eq!(Core::default_for(Platform::Ps1), Core::PcsxRearmed);
++    assert_eq!(Core::EVERY[7], Core::PcsxRearmed);
++    for core in Core::EVERY {
++        assert_eq!(
++            core.runs(Platform::Ps1),
++            core == Core::PcsxRearmed,
++            "{core:?}"
++        );
++    }
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            Core::PcsxRearmed.runs(platform),
++            platform == Platform::Ps1,
++            "{platform:?}"
++        );
++    }
++    assert_eq!(Core::PcsxRearmed.canvas(Platform::Ps1), (640, 480));
++    assert_eq!(
++        Core::PcsxRearmed.pair(),
++        (Core::PcsxRearmed, Core::PcsxRearmed)
++    );
++    assert_eq!(Core::PcsxRearmed.option_prefix(), "pcsx_rearmed");
++    assert_eq!(Core::parse("pcsx_rearmed"), Some(Core::PcsxRearmed));
++    assert!(!Core::PcsxRearmed.has_colour_correction());
++}
++
++#[test]
++fn a_playstation_game_resumes_as_a_playstation_game() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Spyro the Dragon (USA)".into()),
++        cart_platform: Some(Platform::Ps1),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    assert!(text.lines().any(|l| l == "cart_platform=ps1"), "{text:?}");
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn the_playstation_shader_lives_in_its_own_file_and_leaves_the_sega_file_alone() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        ps1: Shader::Retro(RetroShader::CrtPi),
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config").join(PS1_SHADER_FILE)).expect("read"),
++        "ps1=crt-pi\n"
++    );
++    assert!(!d.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++    std::fs::write(d.path().join("Config").join(PS1_SHADER_FILE), "ps1=lcd3x\n").expect("write");
++    assert_eq!(read_sega_shaders(d.path()).ps1, Shader::Off);
++}
+diff --git a/crates/slot-store/tests/ps1_scan.rs b/crates/slot-store/tests/ps1_scan.rs
+new file mode 100644
+index 0000000..05e6e85
+--- /dev/null
++++ b/crates/slot-store/tests/ps1_scan.rs
+@@ -0,0 +1,221 @@
++use std::path::{Path, PathBuf};
++
++use slot_store::ps1::{disc_tag, playable_discs, playlist, title, PLAYLISTS_DIR};
++use slot_store::{scan, Cart, Platform};
++
++fn card() -> (tempfile::TempDir, PathBuf) {
++    let d = tempfile::tempdir().expect("tempdir");
++    let dir = d.path().join("Games/PS1");
++    std::fs::create_dir_all(&dir).expect("create dir");
++    (d, dir)
++}
++
++fn put(dir: &Path, name: &str, body: &str) -> PathBuf {
++    let p = dir.join(name);
++    std::fs::write(&p, body).expect("write");
++    p
++}
++
++fn cue_and_bin(dir: &Path, stem: &str) -> PathBuf {
++    put(dir, &format!("{stem}.bin"), "");
++    put(
++        dir,
++        &format!("{stem}.cue"),
++        &format!("FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n"),
++    )
++}
++
++fn ps1(root: &Path) -> Vec<Cart> {
++    scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == Platform::Ps1)
++        .collect()
++}
++
++fn stems(carts: &[Cart]) -> Vec<&str> {
++    carts.iter().map(|c| c.stem.as_str()).collect()
++}
++
++#[test]
++fn a_cue_is_the_game_and_its_bin_is_hidden() {
++    let (d, dir) = card();
++    let cue = cue_and_bin(&dir, "Vagrant Story (USA)");
++    let carts = ps1(d.path());
++    assert_eq!(stems(&carts), ["Vagrant Story (USA)"]);
++    assert_eq!(carts[0].rom, cue);
++}
++
++#[test]
++fn a_bin_alone_is_not_a_game() {
++    let (d, dir) = card();
++    put(&dir, "Lone.bin", "");
++    put(&dir, "Lone.iso", "");
++    assert!(ps1(d.path()).is_empty());
++}
++
++#[test]
++fn chd_pbp_and_m3u_are_games_and_mac_resource_files_are_not() {
++    let (d, dir) = card();
++    put(&dir, "A.chd", "");
++    put(&dir, "B.PBP", "");
++    put(&dir, "C.m3u", "");
++    put(&dir, "._A.chd", "");
++    assert_eq!(stems(&ps1(d.path())), ["A", "B", "C"]);
++}
++
++#[test]
++fn an_m3u_hides_the_discs_it_names() {
++    let (d, dir) = card();
++    cue_and_bin(&dir, "Parasite Eve (USA) (Disc 1)");
++    put(&dir, "Parasite Eve (USA) (Disc 2).chd", "");
++    let m3u = put(
++        &dir,
++        "Parasite Eve (USA).m3u",
++        "#EXTM3U\r\nParasite Eve (USA) (Disc 1).cue\r\n./Parasite Eve (USA) (Disc 2).chd\r\n",
++    );
++    let carts = ps1(d.path());
++    assert_eq!(stems(&carts), ["Parasite Eve (USA)"]);
++    assert_eq!(carts[0].rom, m3u);
++}
++
++#[test]
++fn m3u_lines_keep_their_spaces_like_pcsx_reads_them() {
++    let (_d, dir) = card();
++    let inner = cue_and_bin(&dir, "Final Fantasy VII (Disc 1)");
++    let m3u = put(
++        &dir,
++        "FF7.m3u",
++        "Final Fantasy VII (Disc 1).cue\nFinal Fantasy VII (Disc 1).cue \n",
++    );
++    let discs = playlist(&m3u).expect("readable");
++    assert_eq!(discs[0], inner);
++    assert_eq!(discs[1], dir.join("Final Fantasy VII (Disc 1).cue "));
++    assert!(
++        playable_discs(&m3u).is_err(),
++        "a trailing space names no file"
++    );
++}
++
++#[test]
++fn an_m3u_that_names_a_missing_disc_is_listed_and_refused_at_load() {
++    let (d, dir) = card();
++    cue_and_bin(&dir, "Here");
++    let m3u = put(&dir, "Two.m3u", "Here.cue\nGone.cue\n");
++    assert_eq!(stems(&ps1(d.path())), ["Two"]);
++    let err = playable_discs(&m3u).expect_err("a missing disc");
++    assert!(err.contains("Gone.cue"), "{err}");
++}
++
++#[test]
++fn an_m3u_over_eight_discs_is_refused_at_load() {
++    let (_d, dir) = card();
++    let mut lines = String::new();
++    for n in 1..=9 {
++        cue_and_bin(&dir, &format!("D{n}"));
++        lines.push_str(&format!("D{n}.cue\n"));
++    }
++    let m3u = put(&dir, "Nine.m3u", &lines);
++    let err = playable_discs(&m3u).expect_err("nine discs");
++    assert!(err.contains("9 discs"), "{err}");
++    let eight = put(&dir, "Eight.m3u", &lines[..lines.rfind("D9").expect("D9")]);
++    assert_eq!(playable_discs(&eight).expect("eight discs").len(), 8);
++}
++
++#[test]
++#[cfg(unix)]
++fn an_unreadable_m3u_is_skipped_and_its_discs_stay_listed() {
++    use std::os::unix::fs::PermissionsExt;
++    let (d, dir) = card();
++    cue_and_bin(&dir, "Disc");
++    let m3u = put(&dir, "Locked.m3u", "Disc.cue\n");
++    std::fs::set_permissions(&m3u, std::fs::Permissions::from_mode(0o000)).expect("chmod");
++    if std::fs::read(&m3u).is_ok() {
++        eprintln!("skipping: this user reads mode 000 files");
++        return;
++    }
++    assert_eq!(stems(&ps1(d.path())), ["Disc"]);
++}
++
++#[test]
++fn disc_n_files_without_a_playlist_become_one_game_with_a_generated_m3u() {
++    let (d, dir) = card();
++    let two = cue_and_bin(&dir, "Metal Gear Solid (USA) (Disc 2)");
++    let one = cue_and_bin(&dir, "Metal Gear Solid (USA) (Disc 1)");
++    let carts = ps1(d.path());
++    assert_eq!(stems(&carts), ["Metal Gear Solid (USA)"]);
++    let m3u = d
++        .path()
++        .join(PLAYLISTS_DIR)
++        .join("Metal Gear Solid (USA).m3u");
++    assert_eq!(carts[0].rom, m3u);
++    let abs = |p: &Path| std::path::absolute(p).expect("absolute");
++    assert_eq!(
++        std::fs::read_to_string(&m3u).expect("generated"),
++        format!("{}\n{}\n", abs(&one).display(), abs(&two).display())
++    );
++    assert_eq!(
++        playable_discs(&m3u).expect("playable"),
++        [abs(&one), abs(&two)]
++    );
++}
++
++#[test]
++fn disc_n_of_m_tags_group_too_and_a_lone_disc_stays_itself() {
++    let (d, dir) = card();
++    put(&dir, "Legend of Dragoon (Disc 1 of 2).chd", "");
++    put(&dir, "Legend of Dragoon (Disc 2 of 2).chd", "");
++    put(&dir, "Demo (Disc 1).chd", "");
++    let carts = ps1(d.path());
++    assert_eq!(stems(&carts), ["Demo (Disc 1)", "Legend of Dragoon"]);
++}
++
++#[test]
++fn a_generated_playlist_is_left_alone_when_it_has_not_changed() {
++    let (d, dir) = card();
++    put(&dir, "G (Disc 1).chd", "");
++    put(&dir, "G (Disc 2).chd", "");
++    ps1(d.path());
++    let m3u = d.path().join(PLAYLISTS_DIR).join("G.m3u");
++    let before = std::fs::metadata(&m3u)
++        .and_then(|m| m.modified())
++        .expect("mtime");
++    std::thread::sleep(std::time::Duration::from_millis(20));
++    ps1(d.path());
++    let after = std::fs::metadata(&m3u)
++        .and_then(|m| m.modified())
++        .expect("mtime");
++    assert_eq!(before, after);
++}
++
++#[test]
++fn a_user_playlist_wins_over_disc_n_grouping() {
++    let (d, dir) = card();
++    put(&dir, "Chrono Cross (USA) (Disc 1).chd", "");
++    put(&dir, "Chrono Cross (USA) (Disc 2).chd", "");
++    put(
++        &dir,
++        "Chrono Cross.m3u",
++        "Chrono Cross (USA) (Disc 1).chd\nChrono Cross (USA) (Disc 2).chd\n",
++    );
++    assert_eq!(stems(&ps1(d.path())), ["Chrono Cross"]);
++    assert!(!d.path().join(PLAYLISTS_DIR).exists());
++}
++
++#[test]
++fn the_title_drops_the_disc_tag_and_nothing_else() {
++    assert_eq!(
++        disc_tag("Final Fantasy VIII (Europe) (Disc 3) (En,Fr)"),
++        Some(("Final Fantasy VIII (Europe) (En,Fr)".to_string(), 3))
++    );
++    assert_eq!(disc_tag("X (disc 2 of 4)"), Some(("X".to_string(), 2)));
++    assert_eq!(disc_tag("Discworld (USA)"), None);
++    assert_eq!(disc_tag("X (Disc )"), None);
++    assert_eq!(disc_tag("X (Disc 1 of )"), None);
++    assert_eq!(title("Demo (Disc 1)").as_deref(), Some("Demo"));
++    let (d, dir) = card();
++    put(&dir, "Demo (Disc 1).chd", "");
++    let mut carts = ps1(d.path());
++    carts[0].read_header();
++    assert_eq!(carts[0].title, "Demo");
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index 168c27e..265680c 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -20,6 +20,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         gg: Shader::Retro(RetroShader::CrtPi),
+         sms: Shader::Grid,
+         md: Shader::Retro(RetroShader::Line),
++        ps1: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index b5b93f3..232e410 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -91,7 +91,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Snes
+         | Platform::Gg
+         | Platform::Sms
+-        | Platform::Md => None,
++        | Platform::Md
++        | Platform::Ps1 => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -172,7 +173,7 @@ const GB_SEATED_H: u32 = 259;
+ 
+ pub fn seated_box(platform: Platform) -> (u32, u32) {
+     match platform {
+-        Platform::Gba => (SEATED_W, SEATED_H),
++        Platform::Gba | Platform::Ps1 => (SEATED_W, SEATED_H),
+         Platform::Nes => (SEATED_W, NES_SEATED_H),
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+         Platform::Sms => (SEATED_W, SMS_SEATED_H),
+@@ -184,7 +185,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+ 
+ pub fn cart_box(platform: Platform) -> (u32, u32) {
+     let s = spec(match platform {
+-        Platform::Gba => Shape::Gba,
++        Platform::Gba | Platform::Ps1 => Shape::Gba,
+         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+         Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
+         Platform::Sms => return retro_box(RetroShell::Sega(SegaShell::Sms)),
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index f190c00..3f9a10d 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -61,10 +61,13 @@ pub enum QuickRow {
+     GgPicture,
+     SmsPicture,
+     MdPicture,
++    Ps1Shader,
++    ScreenPs1,
++    Ps1Picture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 55] = [
++    pub const ALL: [QuickRow; 58] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -120,6 +123,9 @@ impl QuickRow {
+         QuickRow::GgPicture,
+         QuickRow::SmsPicture,
+         QuickRow::MdPicture,
++        QuickRow::Ps1Shader,
++        QuickRow::ScreenPs1,
++        QuickRow::Ps1Picture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -138,7 +144,7 @@ impl QuickRow {
+         QuickRow::DateTime,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 8] = [
++    pub const SCREEN: [QuickRow; 9] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -147,6 +153,7 @@ impl QuickRow {
+         QuickRow::ScreenGg,
+         QuickRow::ScreenSms,
+         QuickRow::ScreenMd,
++        QuickRow::ScreenPs1,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -207,7 +214,8 @@ impl QuickRow {
+             | QuickRow::ScreenSnes
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+-            | QuickRow::ScreenMd => &QuickRow::SCREEN,
++            | QuickRow::ScreenMd
++            | QuickRow::ScreenPs1 => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -243,6 +251,7 @@ impl QuickRow {
+             QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
+             QuickRow::SmsShader | QuickRow::SmsPicture => &QuickRow::SCREEN_SMS,
+             QuickRow::MdShader | QuickRow::MdPicture => &QuickRow::SCREEN_MD,
++            QuickRow::Ps1Shader | QuickRow::Ps1Picture => &QuickRow::SCREEN_PS1,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -262,6 +271,7 @@ impl QuickRow {
+             QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
+             QuickRow::SmsShader | QuickRow::SmsPicture => Some(QuickRow::ScreenSms),
+             QuickRow::MdShader | QuickRow::MdPicture => Some(QuickRow::ScreenMd),
++            QuickRow::Ps1Shader | QuickRow::Ps1Picture => Some(QuickRow::ScreenPs1),
+             _ => None,
+         }
+     }
+@@ -299,6 +309,7 @@ impl QuickRow {
+             QuickRow::ScreenGg => Some(QuickRow::SCREEN_GG[0]),
+             QuickRow::ScreenSms => Some(QuickRow::SCREEN_SMS[0]),
+             QuickRow::ScreenMd => Some(QuickRow::SCREEN_MD[0]),
++            QuickRow::ScreenPs1 => Some(QuickRow::SCREEN_PS1[0]),
+             _ => None,
+         }
+     }
+@@ -367,14 +378,17 @@ impl QuickRow {
+             QuickRow::GgShader => "Shader",
+             QuickRow::SmsShader => "Shader",
+             QuickRow::MdShader => "Shader",
++            QuickRow::Ps1Shader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
++            QuickRow::ScreenPs1 => "PlayStation",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+-            | QuickRow::MdPicture => "Picture",
++            | QuickRow::MdPicture
++            | QuickRow::Ps1Picture => "Picture",
+         }
+     }
+ 
+@@ -400,6 +414,7 @@ impl QuickRow {
+                 | QuickRow::ScreenGg
+                 | QuickRow::ScreenSms
+                 | QuickRow::ScreenMd
++                | QuickRow::ScreenPs1
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 015ea51..d0f6c6c 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -8,6 +8,7 @@ impl QuickRow {
+     pub const SCREEN_GG: [QuickRow; 2] = [QuickRow::GgShader, QuickRow::GgPicture];
+     pub const SCREEN_SMS: [QuickRow; 2] = [QuickRow::SmsShader, QuickRow::SmsPicture];
+     pub const SCREEN_MD: [QuickRow; 2] = [QuickRow::MdShader, QuickRow::MdPicture];
++    pub const SCREEN_PS1: [QuickRow; 2] = [QuickRow::Ps1Shader, QuickRow::Ps1Picture];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index ae304b1..bf65309 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -185,7 +185,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+                 })
+                 .unwrap_or(SegaShell::Genesis),
+         )),
+-        Platform::Gba | Platform::Gb | Platform::Gbc => None,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ps1 => None,
+     }
+ }
+ 
+@@ -320,7 +320,7 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         Platform::Nes | Platform::Snes | Platform::Gg | Platform::Md => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+-        Platform::Gba | Platform::Gb | Platform::Gbc => sh,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ps1 => sh,
+     };
+     let top = src.get(..(sw as usize * rows as usize * 4))?;
+     cover_rgba(top, sw, rows, w, h)
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index 72bf679..11b1a85 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -93,6 +93,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+             crate::retro_shell::plastic_for(cart)
+         }
++        Platform::Ps1 => DEFAULT_SHELL,
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index 950bd47..f994f18 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index bd77ada..9831414 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -109,7 +109,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::PlayGameplay,
+             QuickRow::ScreenGba,
+             QuickRow::ScreenGbc,
+-            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd
++            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1
+         ]
+     );
+     for page in [
+diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
+index 490959f..1fdbe06 100644
+--- a/crates/slot-ui/tests/quick_retro.rs
++++ b/crates/slot-ui/tests/quick_retro.rs
+@@ -3,7 +3,7 @@ use slot_ui::QuickRow;
+ #[test]
+ fn nes_and_snes_follow_the_game_boys_and_the_sega_systems_close_the_screen_list() {
+     assert_eq!(
+-        QuickRow::SCREEN[3..],
++        QuickRow::SCREEN[3..8],
+         [
+             QuickRow::ScreenNes,
+             QuickRow::ScreenSnes,
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index d09b901..c36f3ce 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -934,6 +934,7 @@ impl App {
+             (QuickRow::Shader, Platform::Gg) => QuickRow::GgShader,
+             (QuickRow::Shader, Platform::Sms) => QuickRow::SmsShader,
+             (QuickRow::Shader, Platform::Md) => QuickRow::MdShader,
++            (QuickRow::Shader, Platform::Ps1) => QuickRow::Ps1Shader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -944,7 +945,8 @@ impl App {
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md,
++                | Platform::Md
++                | Platform::Ps1,
+             ) => QuickRow::GbaBezel,
+             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
+             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
+@@ -975,11 +977,13 @@ impl App {
+             QuickRow::GgShader => Some(shader_value(self.sega_shaders.gg)),
+             QuickRow::SmsShader => Some(shader_value(self.sega_shaders.sms)),
+             QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
++            QuickRow::Ps1Shader => Some(shader_value(self.sega_shaders.ps1)),
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+-            | QuickRow::MdPicture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::MdPicture
++            | QuickRow::Ps1Picture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -1027,6 +1031,7 @@ impl App {
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
++            | QuickRow::ScreenPs1
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -1062,7 +1067,8 @@ impl App {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => Vec::new(),
++            | Platform::Md
++            | Platform::Ps1 => Vec::new(),
+             Platform::Gb | Platform::Gbc => self
+                 .root()
+                 .map(|root| crate::bezel::list(root, platform))
+@@ -1089,7 +1095,8 @@ impl App {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => &mut self.state.bezel_gba,
++            | Platform::Md
++            | Platform::Ps1 => &mut self.state.bezel_gba,
+             Platform::Gb => &mut self.state.bezel_gb,
+             Platform::Gbc => &mut self.state.bezel_gbc,
+         }
+@@ -1102,7 +1109,8 @@ impl App {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => &self.state.bezel_gba,
++            | Platform::Md
++            | Platform::Ps1 => &self.state.bezel_gba,
+             Platform::Gb => &self.state.bezel_gb,
+             Platform::Gbc => &self.state.bezel_gbc,
+         };
+@@ -1764,6 +1772,7 @@ impl App {
+             Platform::Gg => self.sega_shaders.gg,
+             Platform::Sms => self.sega_shaders.sms,
+             Platform::Md => self.sega_shaders.md,
++            Platform::Ps1 => self.sega_shaders.ps1,
+         }
+     }
+ 
+@@ -1780,7 +1789,12 @@ impl App {
+             Platform::Gba => self.state.colour_correction_gba,
+             Platform::Gb => self.state.colour_correction_gb,
+             Platform::Gbc => self.state.colour_correction_gbc,
+-            Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => false,
++            Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1 => false,
+         }
+     }
+ 
+@@ -2162,7 +2176,8 @@ impl App {
+             | QuickRow::ScreenSnes
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+-            | QuickRow::ScreenMd => {
++            | QuickRow::ScreenMd
++            | QuickRow::ScreenPs1 => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2209,7 +2224,9 @@ impl App {
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+-            | QuickRow::MdPicture => {}
++            | QuickRow::MdPicture
++            | QuickRow::Ps1Shader
++            | QuickRow::Ps1Picture => {}
+         }
+     }
+ 
+@@ -2315,12 +2332,15 @@ impl App {
+             }
+             QuickRow::Theme => s.appearance = s.appearance.toggle(),
+             QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
+-            QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader => return,
++            QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader | QuickRow::Ps1Shader => {
++                return
++            }
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+-            | QuickRow::MdPicture => return,
++            | QuickRow::MdPicture
++            | QuickRow::Ps1Picture => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+@@ -2347,6 +2367,7 @@ impl App {
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
++            | QuickRow::ScreenPs1
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -2373,6 +2394,7 @@ impl App {
+             Platform::Gg => (&mut self.sega_shaders.gg, &Shader::GG[..]),
+             Platform::Sms => (&mut self.sega_shaders.sms, &Shader::RETRO[..]),
+             Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
++            Platform::Ps1 => (&mut self.sega_shaders.ps1, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -2427,9 +2449,12 @@ impl App {
+                 Platform::Gba => QuickRow::GbaColourCorrection,
+                 Platform::Gb => QuickRow::GbColourCorrection,
+                 Platform::Gbc => QuickRow::GbcColourCorrection,
+-                Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+-                    return false
+-                }
++                Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1 => return false,
+             };
+             self.change_setting(row, true);
+             let said = match self.colour_correction() {
+@@ -4760,7 +4785,8 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::Snes
+         | Platform::Gg
+         | Platform::Sms
+-        | Platform::Md => 0,
++        | Platform::Md
++        | Platform::Ps1 => 0,
+         Platform::Gb => 1,
+         Platform::Gbc => 2,
+     }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index c65ef9b..9124f8f 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -183,7 +183,8 @@ pub fn colour_option(
+         | Core::Snes9x
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+-        | Core::GenesisPlusGx => None,
++        | Core::GenesisPlusGx
++        | Core::PcsxRearmed => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 2130fbb..e1708e2 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -36,7 +36,12 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+     let overscan: &[&str] = match which {
+         Core::Fceumm => &FCEUMM_OVERSCAN,
+         Core::Nestopia => &NESTOPIA_OVERSCAN,
+-        Core::Mgba | Core::Gpsp | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx => &[],
++        Core::Mgba
++        | Core::Gpsp
++        | Core::Snes9x
++        | Core::Snes9x2005Plus
++        | Core::GenesisPlusGx
++        | Core::PcsxRearmed => &[],
+     };
+     for key in overscan {
+         core.set_option(key, "0");
+@@ -48,7 +53,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus => &[],
++        | Core::Snes9x2005Plus
++        | Core::PcsxRearmed => &[],
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index 99592f6..cc2e566 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -525,7 +525,7 @@ impl Worker {
+             rom.display(),
+             crate::boot_time::ms()
+         );
+-        if let Err(e) = core.load(&rom) {
++        if let Err(e) = crate::ps1_load::load(core.as_mut(), &rom) {
+             eprintln!("slot: {e}");
+             self.shared
+                 .state
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 3418862..cd3e255 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -38,6 +38,7 @@ pub mod panel_turn;
+ pub mod persist;
+ pub mod platform_video;
+ pub mod prefetch;
++pub mod ps1_load;
+ pub mod resample;
+ pub mod retro_quick;
+ pub mod rewind;
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 0aedb67..16b5b66 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -8,17 +8,20 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 5] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 6] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+     (QuickRow::SmsPicture, Platform::Sms),
+     (QuickRow::MdPicture, Platform::Md),
++    (QuickRow::Ps1Picture, Platform::Ps1),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+     match platform {
+-        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg => VideoMode::Actual,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => {
++            VideoMode::Actual
++        }
+         Platform::Nes | Platform::Snes => VideoMode::Crop,
+         Platform::Sms | Platform::Md => VideoMode::Stretch,
+     }
+@@ -123,7 +126,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 5]);
++pub struct SystemPictures([VideoMode; 6]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/ps1_load.rs b/crates/slot/src/ps1_load.rs
+new file mode 100644
+index 0000000..383fea8
+--- /dev/null
++++ b/crates/slot/src/ps1_load.rs
+@@ -0,0 +1,14 @@
++use std::path::Path;
++
++use slot_retro::{CoreError, RetroCore};
++
++pub fn load(core: &mut dyn RetroCore, rom: &Path) -> Result<(), CoreError> {
++    let playlist = rom
++        .extension()
++        .and_then(|e| e.to_str())
++        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"));
++    if playlist {
++        slot_store::ps1::playable_discs(rom).map_err(CoreError::Load)?;
++    }
++    core.load(rom)
++}
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 6c57691..83ea2fa 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -17,6 +17,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::GgShader => (&mut shaders.gg, Platform::Gg),
+         QuickRow::SmsShader => (&mut shaders.sms, Platform::Sms),
+         QuickRow::MdShader => (&mut shaders.md, Platform::Md),
++        QuickRow::Ps1Shader => (&mut shaders.ps1, Platform::Ps1),
+         _ => return false,
+     };
+     *shader = shader.step(platform.shader_choices(), right);
+@@ -30,32 +31,35 @@ pub fn hidden_in_game(
+ ) -> Option<&'static [QuickRow]> {
+     match platform {
+         Platform::Gba | Platform::Gb | Platform::Gbc => None,
+-        Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+-            Some(match (framed, single) {
+-                (true, false) => &[QuickRow::ColourCorrection, QuickRow::Palette],
+-                (true, true) => &[
+-                    QuickRow::ColourCorrection,
+-                    QuickRow::Palette,
+-                    QuickRow::ExitGame,
+-                ],
+-                (false, false) => &[
+-                    QuickRow::ColourCorrection,
+-                    QuickRow::Palette,
+-                    QuickRow::Bezel,
+-                ],
+-                (false, true) => &[
+-                    QuickRow::ColourCorrection,
+-                    QuickRow::Palette,
+-                    QuickRow::Bezel,
+-                    QuickRow::ExitGame,
+-                ],
+-            })
+-        }
++        Platform::Nes
++        | Platform::Snes
++        | Platform::Gg
++        | Platform::Sms
++        | Platform::Md
++        | Platform::Ps1 => Some(match (framed, single) {
++            (true, false) => &[QuickRow::ColourCorrection, QuickRow::Palette],
++            (true, true) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::ExitGame,
++            ],
++            (false, false) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::Bezel,
++            ],
++            (false, true) => &[
++                QuickRow::ColourCorrection,
++                QuickRow::Palette,
++                QuickRow::Bezel,
++                QuickRow::ExitGame,
++            ],
++        }),
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 4] {
+-    let mut seen = [false; 4];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 5] {
++    let mut seen = [false; 5];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -63,29 +67,31 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 4] {
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+             Platform::Md => 3,
++            Platform::Ps1 => 4,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 4] = [
++const SYSTEM_ROWS: [&[QuickRow]; 5] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+     &[QuickRow::ScreenMd],
++    &[QuickRow::ScreenPs1],
+ ];
+ 
+ pub fn hidden_on_shelf(
+     own_wallpaper: bool,
+     framed: bool,
+-    systems: [bool; 4],
++    systems: [bool; 5],
+ ) -> Option<&'static [QuickRow]> {
+-    if systems == [true; 4] {
++    if systems == [true; 5] {
+         return None;
+     }
+     static TABLE: OnceLock<Vec<Vec<QuickRow>>> = OnceLock::new();
+-    let table = TABLE.get_or_init(|| (0..64).map(hidden_for).collect());
++    let table = TABLE.get_or_init(|| (0..128).map(hidden_for).collect());
+     let key = systems.iter().enumerate().fold(
+         usize::from(own_wallpaper) | usize::from(framed) << 1,
+         |k, (i, on)| k | usize::from(*on) << (i + 2),
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index f725803..83364c9 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 44] = [
++pub const DIRS: [&str; 48] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -15,6 +15,7 @@ pub const DIRS: [&str; 44] = [
+     "Games/GG",
+     "Games/SMS",
+     "Games/MD",
++    "Games/PS1",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -25,6 +26,7 @@ pub const DIRS: [&str; 44] = [
+     "Labels/GG",
+     "Labels/SMS",
+     "Labels/MD",
++    "Labels/PS1",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -34,6 +36,7 @@ pub const DIRS: [&str; 44] = [
+     "Saves/GG",
+     "Saves/SMS",
+     "Saves/MD",
++    "Saves/PS1",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -43,6 +46,7 @@ pub const DIRS: [&str; 44] = [
+     "States/GG",
+     "States/SMS",
+     "States/MD",
++    "States/PS1",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index e3ad04e..0db0051 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -5,7 +5,7 @@ use crate::video_mode::VideoMode;
+ impl VideoMode {
+     pub fn flipped(self, platform: Platform) -> VideoMode {
+         match (platform, self) {
+-            (Platform::Snes | Platform::Md, mode) => mode.stepped(platform, true),
++            (Platform::Snes | Platform::Md | Platform::Ps1, mode) => mode.stepped(platform, true),
+             (
+                 Platform::Gba
+                 | Platform::Gb
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index 4a89aee..cb5edca 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -76,7 +76,8 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+             | Platform::Gbc
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => &[Stretch, Actual],
++            | Platform::Md
++            | Platform::Ps1 => &[Stretch, Actual],
+         };
+         assert_eq!(picture_choices(platform), want, "{platform:?}");
+     }
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index 081028b..16e2f91 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/ps1_common/mod.rs b/crates/slot/tests/ps1_common/mod.rs
+new file mode 100644
+index 0000000..cf79739
+--- /dev/null
++++ b/crates/slot/tests/ps1_common/mod.rs
+@@ -0,0 +1,137 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++pub const SECTORS: usize = 64;
++pub const RED_W: usize = 320;
++pub const RED_H: usize = 240;
++
++pub fn pcsx_rearmed() -> Option<PathBuf> {
++    crate::core_common::require_core("pcsx_rearmed")
++}
++
++pub fn executable() -> Vec<u8> {
++    let mut exe = vec![0; 6144];
++    exe[..8].copy_from_slice(b"PS-X EXE");
++    for (offset, value) in [
++        (0x10, 0x8001_0000u32),
++        (0x18, 0x8001_0000),
++        (0x1c, 4096),
++        (0x30, 0x801f_fff0),
++    ] {
++        exe[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
++    }
++    let mut code = vec![0x3c08_1f80u32, 0x3508_1810];
++    for (value, port) in [
++        (0, 4),
++        (0x0300_0000, 4),
++        (0x0800_0001, 4),
++        (0x06c6_0260, 4),
++        (0x0704_2018, 4),
++        (0xe100_0000, 0),
++        (0xe300_0000, 0),
++        (0xe403_bd3f, 0),
++        (0xe500_0000, 0),
++        (0x0200_00ff, 0),
++        (0, 0),
++        (0x00f0_0140, 0),
++    ] {
++        code.extend([
++            0x3c09_0000 | (value >> 16),
++            0x3529_0000 | (value & 0xffff),
++            0xad09_0000 | port,
++        ]);
++    }
++    let pc = 0x8001_0000 + code.len() as u32 * 4;
++    code.extend([0x0800_0000 | ((pc >> 2) & 0x03ff_ffff), 0]);
++    for (i, word) in code.iter().enumerate() {
++        exe[2048 + i * 4..2052 + i * 4].copy_from_slice(&word.to_le_bytes());
++    }
++    exe
++}
++
++fn directory(name: &[u8], sector: u32, size: u32, is_dir: bool) -> Vec<u8> {
++    let len = (33 + name.len() + 1) & !1;
++    let mut rec = vec![0; len];
++    rec[0] = len as u8;
++    rec[2..6].copy_from_slice(&sector.to_le_bytes());
++    rec[6..10].copy_from_slice(&sector.to_be_bytes());
++    rec[10..14].copy_from_slice(&size.to_le_bytes());
++    rec[14..18].copy_from_slice(&size.to_be_bytes());
++    rec[25] = if is_dir { 2 } else { 0 };
++    rec[28] = 1;
++    rec[31] = 1;
++    rec[32] = name.len() as u8;
++    rec[33..33 + name.len()].copy_from_slice(name);
++    rec
++}
++
++pub fn iso(boot: &str) -> Vec<u8> {
++    let exe = executable();
++    let cnf = format!("BOOT = cdrom:\\{boot};1\r\nTCB = 4\r\nEVENT = 10\r\nSTACK = 801ffff0\r\n");
++    let mut iso = vec![0; SECTORS * 2048];
++    let pvd = &mut iso[16 * 2048..17 * 2048];
++    pvd[0] = 1;
++    pvd[1..6].copy_from_slice(b"CD001");
++    pvd[6] = 1;
++    pvd[40..72].fill(b' ');
++    pvd[40..49].copy_from_slice(b"SLOT_TEST");
++    pvd[80..84].copy_from_slice(&(SECTORS as u32).to_le_bytes());
++    pvd[84..88].copy_from_slice(&(SECTORS as u32).to_be_bytes());
++    pvd[128..130].copy_from_slice(&2048u16.to_le_bytes());
++    pvd[130..132].copy_from_slice(&2048u16.to_be_bytes());
++    let root_rec = directory(&[0], 20, 2048, true);
++    pvd[156..156 + root_rec.len()].copy_from_slice(&root_rec);
++    let mut at = 20 * 2048;
++    for rec in [
++        root_rec,
++        directory(&[1], 20, 2048, true),
++        directory(b"SYSTEM.CNF;1", 21, cnf.len() as u32, false),
++        directory(format!("{boot};1").as_bytes(), 22, exe.len() as u32, false),
++    ] {
++        iso[at..at + rec.len()].copy_from_slice(&rec);
++        at += rec.len();
++    }
++    iso[21 * 2048..21 * 2048 + cnf.len()].copy_from_slice(cnf.as_bytes());
++    iso[22 * 2048..22 * 2048 + exe.len()].copy_from_slice(&exe);
++    iso
++}
++
++pub fn raw(iso: &[u8]) -> Vec<u8> {
++    let mut out = Vec::with_capacity(iso.len() / 2048 * 2352);
++    for (lba, sector) in iso.chunks(2048).enumerate() {
++        let at = lba + 150;
++        let bcd = |v: usize| (((v / 10) << 4) | (v % 10)) as u8;
++        out.extend([
++            0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0,
++        ]);
++        out.extend([bcd(at / 4500), bcd(at / 75 % 60), bcd(at % 75), 2]);
++        out.extend([0u8; 8]);
++        out.extend(sector);
++        out.extend([0u8; 280]);
++    }
++    out
++}
++
++pub fn disc(dir: &Path, stem: &str) -> PathBuf {
++    disc_booting(dir, stem, "PSX.EXE")
++}
++
++pub fn disc_booting(dir: &Path, stem: &str, boot: &str) -> PathBuf {
++    std::fs::create_dir_all(dir).expect("disc dir");
++    std::fs::write(dir.join(format!("{stem}.bin")), iso(boot)).expect("write bin");
++    let cue = dir.join(format!("{stem}.cue"));
++    std::fs::write(
++        &cue,
++        format!("FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE1/2048\n    INDEX 01 00:00:00\n"),
++    )
++    .expect("write cue");
++    cue
++}
++
++pub fn red(video: &[u8]) -> usize {
++    video
++        .chunks_exact(4)
++        .filter(|p| p[2] > 200 && p[1] < 10 && p[0] < 10)
++        .count()
++}
+diff --git a/crates/slot/tests/ps1_emu.rs b/crates/slot/tests/ps1_emu.rs
+new file mode 100644
+index 0000000..69a1675
+--- /dev/null
++++ b/crates/slot/tests/ps1_emu.rs
+@@ -0,0 +1,144 @@
++mod common;
++mod core_common;
++mod ps1_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use ps1_common::{disc, disc_booting, pcsx_rearmed, raw, red, RED_H, RED_W};
++use slot::core::open_core_for_palette;
++use slot_retro::{ButtonMask, RetroCore};
++use slot_store::ps1::{serial, serial_region, DiscRegion};
++use slot_store::{Core, Platform};
++
++const PCSX_STATE_BYTES: usize = 0x44_0000;
++
++fn opened(dylib: PathBuf, root: &Path) -> Box<dyn RetroCore> {
++    let mut core = open_core_for_palette(
++        root,
++        Core::PcsxRearmed,
++        Platform::Ps1,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    core.set_option("pcsx_rearmed_bios", "HLE");
++    core
++}
++
++fn run(core: &mut dyn RetroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++fn red_box_at_the_centre(video: &[u8]) {
++    let (x0, y0) = ((640 - RED_W) / 2, (480 - RED_H) / 2);
++    for (y, x) in [(y0, x0), (y0 + RED_H - 1, x0 + RED_W - 1)] {
++        let at = (y * 640 + x) * 4;
++        assert!(video[at + 2] > 200 && video[at] < 10, "({x}, {y})");
++    }
++    assert_eq!(red(video), RED_W * RED_H);
++}
++
++#[test]
++fn a_generated_disc_boots_on_pcsx_with_hle_and_draws_on_the_640_by_480_canvas() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let cue = disc(&d.path().join("Games/PS1"), "Red");
++    let mut core = opened(dylib, d.path());
++    core.load(&cue).expect("pcsx refused the generated disc");
++    run(core.as_mut(), 30);
++    assert_eq!(core.canvas(), (640, 480));
++    assert_eq!(core.frame_width(), RED_W as u32);
++    red_box_at_the_centre(core.video_xrgb8888());
++}
++
++#[test]
++fn a_two_disc_playlist_loads_through_the_ps1_guard_and_plays_disc_one() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let dir = d.path().join("Games/PS1");
++    disc(&dir, "Game (Disc 1)");
++    disc(&dir, "Game (Disc 2)");
++    let m3u = dir.join("Game.m3u");
++    std::fs::write(&m3u, "Game (Disc 1).cue\nGame (Disc 2).cue\n").expect("write m3u");
++    let mut core = opened(dylib, d.path());
++    slot::ps1_load::load(core.as_mut(), &m3u).expect("the playlist was refused");
++    run(core.as_mut(), 30);
++    red_box_at_the_centre(core.video_xrgb8888());
++}
++
++#[test]
++fn a_playlist_the_guard_refuses_never_reaches_the_core() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let dir = d.path().join("Games/PS1");
++    disc(&dir, "Only");
++    let missing = dir.join("Missing.m3u");
++    std::fs::write(&missing, "Only.cue\nNot There.cue\n").expect("write m3u");
++    let nine = dir.join("Nine.m3u");
++    std::fs::write(&nine, "Only.cue\n".repeat(9)).expect("write m3u");
++    for m3u in [missing, nine] {
++        let mut core = opened(dylib.clone(), d.path());
++        let err = slot::ps1_load::load(core.as_mut(), &m3u).expect_err("refused");
++        assert!(err.to_string().contains(&*m3u.to_string_lossy()), "{err}");
++        run(core.as_mut(), 2);
++        assert_eq!(red(core.video_xrgb8888()), 0, "{}", m3u.display());
++    }
++}
++
++#[test]
++fn a_ps1_state_is_the_cores_fixed_size_and_comes_back() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let cue = disc(&d.path().join("Games/PS1"), "State");
++    let mut core = opened(dylib, d.path());
++    core.load(&cue).expect("load");
++    run(core.as_mut(), 20);
++    let state = core.serialize().expect("serialize");
++    assert_eq!(state.len(), PCSX_STATE_BYTES);
++    run(core.as_mut(), 5);
++    core.unserialize(&state).expect("unserialize");
++    run(core.as_mut(), 2);
++    red_box_at_the_centre(core.video_xrgb8888());
++}
++
++#[test]
++fn the_disc_serial_and_region_are_read_from_system_cnf() {
++    let d = tempfile::tempdir().expect("tempdir");
++    let cue = disc_booting(d.path(), "Cooked", "SLUS_007.08");
++    assert_eq!(serial(&cue).as_deref(), Some("SLUS_007.08"));
++    assert_eq!(serial_region("SLUS_007.08"), Some(DiscRegion::Us));
++    let bin = d.path().join("Raw.bin");
++    std::fs::write(&bin, raw(&ps1_common::iso("SLES_012.34"))).expect("write raw");
++    assert_eq!(serial(&bin).as_deref(), Some("SLES_012.34"));
++    let m3u = d.path().join("Pal.m3u");
++    std::fs::write(&m3u, "Raw.bin\n").expect("write m3u");
++    assert_eq!(serial(&m3u).as_deref(), Some("SLES_012.34"));
++    for (s, want) in [
++        ("SCUS_944.26", DiscRegion::Us),
++        ("SCES_000.01", DiscRegion::Eu),
++        ("SLPS_000.01", DiscRegion::Jp),
++        ("SCPS_100.01", DiscRegion::Jp),
++        ("SLPM_860.01", DiscRegion::Jp),
++    ] {
++        assert_eq!(serial_region(s), Some(want), "{s}");
++    }
++    assert_eq!(serial_region("PSX.EXE"), None);
++    assert_eq!(serial(&disc(d.path(), "Homebrew")), None);
++    assert_eq!(serial(&d.path().join("Nothing.chd")), None);
++}
+diff --git a/crates/slot/tests/ps1_screen.rs b/crates/slot/tests/ps1_screen.rs
+new file mode 100644
+index 0000000..8e6ff49
+--- /dev/null
++++ b/crates/slot/tests/ps1_screen.rs
+@@ -0,0 +1,113 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::VideoMode;
++use slot_input::{Action, Btn};
++use slot_store::{Platform, Shader, PS1_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_disc() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(root.path().join("Games/PS1/Spyro.chd"), [0u8; 16]).expect("write disc");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_playstation(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenPs1.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenPs1));
++    press(app, Btn::A);
++}
++
++#[test]
++fn playstation_closes_the_screen_list_and_opens_its_own_section() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenPs1));
++    assert_eq!(QuickRow::ScreenPs1.label(), "PlayStation");
++    assert!(QuickRow::ScreenPs1.opens());
++    assert_eq!(QuickRow::ScreenPs1.child(), Some(QuickRow::Ps1Shader));
++    assert_eq!(
++        QuickRow::SCREEN_PS1,
++        [QuickRow::Ps1Shader, QuickRow::Ps1Picture]
++    );
++    for row in QuickRow::SCREEN_PS1 {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenPs1));
++    }
++    assert!(!QuickRow::PLAY_SCREEN.contains(&QuickRow::Ps1Shader));
++}
++
++#[test]
++fn the_playstation_row_shows_only_on_a_card_with_playstation_games() {
++    let (_root, mut app) = card_with_a_disc();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenPs1));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let app_without = boot(root.path());
++    assert!(app_without.hidden_rows().contains(&QuickRow::ScreenPs1));
++    open_playstation(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Ps1Shader));
++}
++
++#[test]
++fn the_playstation_picture_starts_actual_and_offers_stretch_but_no_crop() {
++    assert_eq!(default_video_mode(Platform::Ps1), VideoMode::Actual);
++    assert_eq!(
++        picture_choices(Platform::Ps1),
++        [VideoMode::Stretch, VideoMode::Actual]
++    );
++    let (root, mut app) = card_with_a_disc();
++    open_playstation(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Ps1Picture));
++    assert_eq!(
++        app.quick_value(QuickRow::Ps1Picture),
++        Some(QuickValue::Actual)
++    );
++    for want in [VideoMode::Stretch, VideoMode::Actual, VideoMode::Stretch] {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        assert_eq!(
++            app.quick_value(QuickRow::Ps1Picture),
++            Some(want.quick_value())
++        );
++        assert_eq!(system_picture(root.path(), Platform::Ps1), want);
++    }
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "ps1 = stretch\n"
++    );
++}
++
++#[test]
++fn the_playstation_shader_walks_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_disc();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_playstation(&mut app);
++    assert_eq!(app.quick_value(QuickRow::Ps1Shader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(slot_store::read_sega_shaders(root.path()).ps1);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(PS1_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}
+diff --git a/crates/slot/tests/ps1_seat.rs b/crates/slot/tests/ps1_seat.rs
+new file mode 100644
+index 0000000..2d92095
+--- /dev/null
++++ b/crates/slot/tests/ps1_seat.rs
+@@ -0,0 +1,75 @@
++mod common;
++mod core_common;
++mod ps1_common;
++mod real_seat;
++
++use std::path::Path;
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed, red, RED_H, RED_W};
++use slot::app::Phase;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::{Core, Platform};
++
++const STEM: &str = "Ape Escape";
++const PCSX_STATE_BYTES: u64 = 0x44_0000;
++
++fn seated(dylib: &Path) -> tempfile::TempDir {
++    let discs = tempfile::tempdir().expect("tempdir");
++    let cue = disc(discs.path(), STEM);
++    let root = real_seat::rooted(Platform::Ps1, STEM, &cue, dylib);
++    std::fs::copy(
++        discs.path().join(format!("{STEM}.bin")),
++        root.path().join("Games/PS1").join(format!("{STEM}.bin")),
++    )
++    .expect("copy bin");
++    disc(&root.path().join("Games/PS1"), "Zzz");
++    root
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++fn resume_bytes(root: &Path) -> Option<u64> {
++    let dir = root.join("States/PS1/pcsx_rearmed").join(STEM);
++    std::fs::read_dir(dir)
++        .ok()?
++        .filter_map(|e| e.ok()?.metadata().ok())
++        .map(|m| m.len())
++        .max()
++}
++
++#[test]
++fn a_ps1_disc_plays_a_whole_session_on_its_640_by_480_canvas_and_saves_on_eject() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().core(), Core::PcsxRearmed);
++    assert_eq!(session.app().playing_platform(), Platform::Ps1);
++    let emu = session.emu().expect("no core in the slot");
++    let frame = emu.latest_frame().expect("nothing was published");
++    assert_eq!(frame.len(), 640 * 480 * 4);
++    assert_eq!(red(&frame), RED_W * RED_H);
++    drop(frame);
++    eject(&mut session);
++    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
++    while resume_bytes(root.path()).is_none_or(|n| n < PCSX_STATE_BYTES) {
++        assert!(
++            std::time::Instant::now() < deadline,
++            "no resume state on eject"
++        );
++        session.update(1.0 / 60.0);
++        std::thread::sleep(std::time::Duration::from_millis(5));
++    }
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index 1ca87ec..f10bf72 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -94,9 +94,9 @@ fn every_card_mix_hides_exactly_the_absent_systems_and_upstreams_rows() {
+     use slot::retro_quick::hidden_on_shelf;
+     for own in [true, false] {
+         for framed in [true, false] {
+-            assert_eq!(hidden_on_shelf(own, framed, [true; 4]), None);
++            assert_eq!(hidden_on_shelf(own, framed, [true; 5]), None);
+             for key in 0..15u8 {
+-                let systems = [0, 1, 2, 3].map(|i| key & 1 << i != 0);
++                let systems = [0, 1, 2, 3, 4].map(|i| key & 1 << i != 0);
+                 let hidden = hidden_on_shelf(own, framed, systems).expect("a hidden list");
+                 assert_eq!(hidden.contains(&QuickRow::WallpaperTint), !own);
+                 assert_eq!(hidden.contains(&QuickRow::GbaBezel), !framed);
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 72e8b74..a0b1eff 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -253,7 +253,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+     for platform in Platform::SHELVES {
+         let (from_actual, from_stretch, from_crop) = match platform {
+             Platform::Snes => (Crop, Actual, Stretch),
+-            Platform::Md => (Stretch, Actual, Stretch),
++            Platform::Md | Platform::Ps1 => (Stretch, Actual, Stretch),
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 5198379..04bd990 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -154,7 +154,7 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+         );
+         let walk: &[VideoMode] = match platform {
+             Platform::Nes | Platform::Snes => &[Stretch, Actual, Crop],
+-            Platform::Gg => &[Stretch, Actual],
++            Platform::Gg | Platform::Ps1 => &[Stretch, Actual],
+             Platform::Sms | Platform::Md => &[Actual, Stretch],
+             Platform::Gba | Platform::Gb | Platform::Gbc => &[],
+         };
