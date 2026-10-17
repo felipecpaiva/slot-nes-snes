@@ -63,6 +63,9 @@ PS1 games are discs, so there is no cart label. ADR 0014 bans screenshots, not c
   images. ScreenScraper asks for a crc, md5 or sha1 and the size with every call, so the disc file's
   CRC32, size and name are sent, with `serialnum` when the serial is readable (a `.cue`'s first
   track, a `.pbp`'s PARAM.SFO; not a `.chd`). The serial format ScreenScraper expects is not
-  documented; the tool sends the Redump form `SLUS-00594`, unverified against the live API. Images
+  documented; the tool sends the Redump form `SLUS-00594`, and `romtype=iso` (the documentation's
+example sends `rom`; the values come from `romTypesListe.php`), both unverified against the live
+API. A disc's CRC is kept in the cache by path, size and mtime, so a rerun never reads a disc
+twice, and a dry run or a run without credentials reads none. Images
   are cached by serial, or by CRC when there is none, not by a dat CRC, because discs are in no
   No-Intro dat. Tests use fakes only; the live API was not called.

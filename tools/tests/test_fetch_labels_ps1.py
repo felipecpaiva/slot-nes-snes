@@ -227,6 +227,20 @@ class Ps1(unittest.TestCase):
         self.assertEqual(stats["written"], 2)
         self.assertEqual(self.http.jeu_params(), [])
 
+    def test_a_disc_is_read_once_and_not_at_all_in_a_dry_run_or_without_credentials(self):
+        self.put("Ape Escape (USA).chd", b"MComprHD")
+        reads = []
+        real = fl.file_crc
+        fl.file_crc = lambda p: reads.append(p) or real(p)
+        self.addCleanup(setattr, fl, "file_crc", real)
+        self.run_tool(["--dry-run"])
+        self.run_tool([], env={})
+        self.assertEqual(reads, [])
+        self.run_tool([], Http((200, json.dumps({"response": {"jeu": {"medias": []}}}).encode(), None)))
+        self.run_tool([])
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(self.http.jeu_params()), 0)
+
     def test_no_disc_scan_is_missing_never_a_screenshot(self):
         jeu = {"response": {"jeu": {"medias": [m for m in JEU["response"]["jeu"]["medias"]
                                                if m["type"] != "support-2D"]}}}

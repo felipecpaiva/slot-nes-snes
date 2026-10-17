@@ -494,19 +494,37 @@ def file_crc(path):
     return f"{c & 0xffffffff:08X}"
 
 
-def disc_ident(path, depth=0):
+def crc_cache(ctx, hash_new):
+    """A disc's CRC32, kept under the cache dir by path, size and mtime so a rerun never reads a disc
+    twice. hash_new False only answers from that cache (a dry run, or nothing could be fetched)."""
+    def crc_of(path):
+        st = os.stat(path)
+        key = f"{zlib.crc32(os.path.abspath(path).encode()) & 0xffffffff:08X}-{st.st_size}-{int(st.st_mtime)}"
+        p = os.path.join(ctx.cache, "crc", "PS1", key)
+        if os.path.isfile(p):
+            return slurp(p, "r").strip()
+        if not hash_new:
+            return None
+        crc = file_crc(path)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        spit(p, crc, "w")
+        return crc
+    return crc_of
+
+
+def disc_ident(path, crc_of=file_crc, depth=0):
     """{crc, size, romnom, serial} for the file that holds the game: an .m3u's first disc, a .cue's first track."""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".m3u" and depth == 0:
         first = next(iter(m3u_entries(path)), None)
-        return disc_ident(first, 1) if first and os.path.isfile(first) else None
+        return disc_ident(first, crc_of, 1) if first and os.path.isfile(first) else None
     if ext == ".cue":
         track = cue_track(path)
-        return disc_ident(track, depth + 1) if track and os.path.isfile(track) else None
+        return disc_ident(track, crc_of, depth + 1) if track and os.path.isfile(track) else None
     if not os.path.isfile(path):
         return None
     serial = pbp_serial(path) if ext == ".pbp" else iso_serial(path) if ext in (".bin", ".iso", ".img") else None
-    return {"crc": file_crc(path), "size": os.path.getsize(path), "romnom": os.path.basename(path), "serial": serial}
+    return {"crc": crc_of(path), "size": os.path.getsize(path), "romnom": os.path.basename(path), "serial": serial}
 
 
 def ps1_games(roms):
@@ -777,6 +795,7 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
     """Cover and disc for each PlayStation game. A game is skipped when both are on the card (unless --force)."""
     stats = ctx.stats
     tried = 0
+    crc_of = crc_cache(ctx, ctx.ss.ready and not ctx.dry)
     for stem, rom in ps1_games(roms):
         tag = f"PS1/{stem}"
         if args.only_stem and nfc(stem) != nfc(args.only_stem):
@@ -788,7 +807,7 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
         if args.limit and tried >= args.limit:
             break
         try:
-            ident = disc_ident(rom.path) if rom.path else None
+            ident = disc_ident(rom.path, crc_of) if rom.path else None
         except OSError as e:
             ident = None
             print(f"  error  {tag}: {e.strerror or e}")
@@ -799,10 +818,14 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
         tried += 1
         stats["matched"] += 1
         if not ident["serial"]:
-            print(f"  no serial  {tag}, matched by CRC {ident['crc']} and name")
+            print(f"  no serial  {tag}, matched by CRC {ident['crc'] or '(not hashed in this run)'} and name")
         prefer = SERIAL_REGION.get((ident["serial"] or "")[:4])
+        key = ident["serial"] or ident["crc"]
         try:
-            media = ctx.ss.disc_media(ident["serial"] or ident["crc"], ident, stem, prefer)
+            if key:
+                media = ctx.ss.disc_media(key, ident, stem, prefer)
+            else:
+                media = {kind: b"" if ctx.dry else None for kind, _ in PS1_MEDIA}
         except Fail as e:
             stats["errors"] += 1
             print(f"  error  {tag}: {e}")
@@ -815,7 +838,7 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
             if body is None:
                 stats["missing"] += 1
                 why = f", ScreenScraper stopped: {ctx.ss.stop}" if ctx.ss.stop else ""
-                print(f"  missing  {tag} {kind} ({ident['serial'] or 'CRC ' + ident['crc']}{why})")
+                print(f"  missing  {tag} {kind} ({ident['serial'] or 'CRC ' + (ident['crc'] or 'not hashed')}{why})")
                 continue
             stats["written"] += 1
             wrote = True
