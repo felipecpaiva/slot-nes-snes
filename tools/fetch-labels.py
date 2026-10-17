@@ -5,6 +5,7 @@ PlayStation the front cover and the disc label.
     python3 tools/fetch-labels.py --card /Volumes/SLOT                       # a mounted card
     python3 tools/fetch-labels.py --device --library ~/ROMS                  # SD card stays in the device, over adb
     python3 tools/fetch-labels.py --device --library ~/ROMS --only GBA --limit 5 --dry-run
+    python3 tools/fetch-labels.py --device --library ~/ROMS --by-name --report by-name.tsv
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
@@ -27,12 +28,23 @@ Label sources, in order, per ROM:
      serialnum) plus the CRC32 and size of the disc file and its name (romnom); a .chd has no readable serial
      and goes by CRC and name. An .m3u stands for its first disc, the discs it names are skipped, and
      (Disc N) files with no playlist are one game under the stem slot gives them (Labels/PS1/<title>.png).
-  A ROM with neither is reported as missing. (libretro Named_Logos on a generated ground needs image code
+  3. --by-name (opt in), for a ROM the CRC path leaves without a label (unknown CRC, no art, or with --device
+     not in --library): first a sibling, a label already on the card (or written earlier in this run) whose
+     stem has the same title_key (tags, a GBA release number, The, accents and punctuation dropped); the one
+     sharing most regions, then the cleanest dump ([!] best, [b] [h] [p] [t] [f] last) is copied, with its
+     cart_shell.txt line when the regions agree. With --device the sibling comes from this run's stage, the
+     cache, or adb pull into the cache. No network. Else ScreenScraper jeuRecherche.php by the bare title,
+     taken only when exactly one game has a name (any region) with the same title_key; otherwise "no
+     confident match" and nothing is written. The media are the ones the CRC path takes. A dry run uses only
+     cached answers. --report <file> writes a TSV row per ROM: system, stem, outcome, source (sibling stem
+     or ss:<game id>).
+  A ROM with no source is reported as missing. (libretro Named_Logos on a generated ground needs image code
   beyond the standard library, so that fallback is not implemented.)
 The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
 box) and caches it itself (art.rs, retro_cart.rs, label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
 """
 import argparse
+import csv
 import json
 import os
 import shlex
@@ -252,6 +264,25 @@ class ScreenScraper:
         if per_min:
             self.pause = 60.0 / per_min
 
+    def spend(self):
+        """One more request, or Stop when the account's daily quota is spent."""
+        if not self.started:
+            self.begin()
+        if self.left is not None and self.asked >= self.left:
+            raise Stop("ScreenScraper daily quota spent")
+        self.asked += 1
+
+    def download(self, media, png):
+        """A picked media's PNG, written to png (the cache). Never prints the URL."""
+        status, body = fetch(self.ctx, str(media.get("url", "")), delay=self.pause)
+        if status in (429, 430, 431):
+            raise Stop("ScreenScraper quota or rate limit reached")
+        if status != 200 or not body.startswith(PNG):
+            raise Fail(f"ScreenScraper media download failed (HTTP {status}, not a PNG)")
+        os.makedirs(os.path.dirname(png), exist_ok=True)
+        spit(png, body)
+        return body
+
     def label(self, system, crc, name, size):
         kind = MEDIA.get(system, LABEL)
         # a box is cached apart from the label scans, so a scan cached before ADR 0057 is never served as a box
@@ -264,11 +295,7 @@ class ScreenScraper:
         if self.ctx.dry:
             return b""
         try:
-            if not self.started:
-                self.begin()
-            if self.left is not None and self.asked >= self.left:
-                raise Stop("ScreenScraper daily quota spent")
-            self.asked += 1
+            self.spend()
             data = self.call("jeuInfos.php", crc=crc, systemeid=SYSTEMS[system][3], romnom=name + ".bin",
                              romtaille=size or "")
             medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
@@ -277,13 +304,7 @@ class ScreenScraper:
             if not media:
                 spit(none, b"")
                 return None
-            status, body = fetch(self.ctx, str(media.get("url", "")), delay=self.pause)
-            if status in (429, 430, 431):
-                raise Stop("ScreenScraper quota or rate limit reached")
-            if status != 200 or not body.startswith(PNG):
-                raise Fail(f"ScreenScraper media download failed (HTTP {status}, not a PNG)")
-            spit(png, body)
-            return body
+            return self.download(media, png)
         except Stop as e:
             self.stop = str(e)
             return None
@@ -307,11 +328,7 @@ class ScreenScraper:
         if self.ctx.dry:
             return {kind: out.get(kind, b"") for kind in dirs}
         try:
-            if not self.started:
-                self.begin()
-            if self.left is not None and self.asked >= self.left:
-                raise Stop("ScreenScraper daily quota spent")
-            self.asked += 1
+            self.spend()
             params = dict(crc=ident["crc"], systemeid=SYSTEMS["PS1"][3], romtype="iso", romnom=ident["romnom"],
                           romtaille=ident["size"])
             if ident["serial"]:
@@ -325,16 +342,51 @@ class ScreenScraper:
                     spit(os.path.join(dirs[kind], key + ".none"), b"")
                     out[kind] = None
                     continue
-                status, body = fetch(self.ctx, str(media.get("url", "")), delay=self.pause)
-                if status in (429, 430, 431):
-                    raise Stop("ScreenScraper quota or rate limit reached")
-                if status != 200 or not body.startswith(PNG):
-                    raise Fail(f"ScreenScraper media download failed (HTTP {status}, not a PNG)")
-                spit(os.path.join(dirs[kind], key + ".png"), body)
-                out[kind] = body
+                out[kind] = self.download(media, os.path.join(dirs[kind], key + ".png"))
         except Stop as e:
             self.stop = str(e)
         return {kind: out.get(kind) for kind in dirs}
+
+    def search(self, system, key, query, prefer, ask=True):
+        """(game id, {kind: bytes or None}) for a title no CRC found, by jeuRecherche.php (recherche: the name).
+        A game is taken only when exactly one game id in the reply has a name (any region) whose title_key is
+        key; otherwise the id is "" (no confident match). Answers are cached by title, media by game id.
+        None when not asked: no credentials, stopped, a dry run, or ask False, with nothing cached."""
+        kinds = [k for k, _ in PS1_MEDIA] if system == "PS1" else [MEDIA.get(system, LABEL)]
+        d = os.path.join(self.ctx.cache, "ss", system, "name")
+        idf = os.path.join(d, key + ".id")
+        files = lambda gid: {k: os.path.join(d, k, gid + ".png") for k in kinds}
+        if os.path.isfile(idf):
+            gid = slurp(idf, "r").strip()
+            return gid, {k: slurp(p) if os.path.isfile(p) else None for k, p in files(gid).items()} if gid else {}
+        if not self.ready or self.stop or self.ctx.dry or not ask:
+            return None
+        try:
+            self.spend()
+            data = self.call("jeuRecherche.php", systemeid=SYSTEMS[system][3], recherche=query)
+            games = [g for g in ((data or {}).get("response") or {}).get("jeux") or [] if isinstance(g, dict)
+                     and str((g.get("systeme") or {}).get("id", SYSTEMS[system][3])) == str(SYSTEMS[system][3])
+                     and any(isinstance(n, dict) and title_key(str(n.get("text", "")), system) == key
+                             for n in g.get("noms") or [])]
+            ids = {str(g.get("id", "")) for g in games}
+            os.makedirs(d, exist_ok=True)
+            if len(ids) != 1 or not next(iter(ids)):
+                spit(idf, "", "w")
+                return "", {}
+            game, gid = games[0], ids.pop()
+            if "medias" not in game:
+                self.spend()
+                game = ((self.call("jeuInfos.php", gameid=gid, systemeid=SYSTEMS[system][3]) or {})
+                        .get("response", {}).get("jeu") or {})
+            out = {}
+            for k, p in files(gid).items():
+                media = self.pick(game.get("medias") or [], "", k, prefer)
+                out[k] = self.download(media, p) if media else None
+            spit(idf, gid, "w")
+            return gid, out
+        except Stop as e:
+            self.stop = str(e)
+            return None
 
     def pick(self, medias, name, kind=LABEL, prefer=None):
         tag = re.search(r"\(([^)]*)\)", name)
@@ -675,6 +727,167 @@ def merge_shell(text, new, force):
     return text, added, kept
 
 
+# ---- labels by name (--by-name) --------------------------------------------------------------------
+
+def bare_title(stem, system=None):
+    """The title words of a GoodTools or No-Intro name: no [..] or (..) groups, and for GBA no leading
+    GoodGBA release number (0468 - ...). Other systems keep it: 1943 - The Battle of Midway is a title."""
+    t = re.sub(r"^\d{4}\s+-\s+", "", nfc(stem)) if system == "GBA" else nfc(stem)
+    return " ".join(re.sub(r"\[[^\]]*\]?|\([^)]*\)?", " ", t).split())
+
+
+def title_key(stem, system=None):
+    """bare_title with a leading The or a GoodTools ", The" dropped, accents folded, lowercase letters and
+    digits only, so Brett Hull Hockey 95 (JUE) [b1] and Brett Hull Hockey '95 meet."""
+    t = re.sub(r"^the\s+|,\s*the(?=\s*(?:$|[-:]))", "", bare_title(stem, system), flags=re.I)
+    t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+
+REGION_WORDS = {"USA", "Europe", "Japan", "World", "Brazil", "Korea", "Asia", "Australia"}
+
+
+def region_tags(stem):
+    """The regions a name carries: regions() reads GoodTools J, U, E; W is World here only, since
+    regions() mirrors slot's own nes.rs reading."""
+    r = regions(stem)
+    return (r | {"World"} if "W" in r else r) & REGION_WORDS
+
+
+def dump_rank(stem):
+    """2 for a verified [!] dump, 1 for a plain one, 0 for a bad dump, hack, pirate, trainer, fix or translation."""
+    return 0 if re.search(r"\[[bhptf]", stem, re.I) else 2 if "[!]" in stem else 1
+
+
+def pick_sibling(stem, names):
+    """The label file name to copy: most shared regions, then the cleanest dump, then by name."""
+    own = region_tags(stem)
+    return min(names, key=lambda n: (-len(own & region_tags(n)), -dump_rank(n), n))
+
+
+def note_label(ctx, system, sub, stem):
+    """Record a label that is now on the card (or will be, in a dry run) so a later ROM can copy it."""
+    ctx.labels.setdefault(sub, set()).add(f"{stem}.png".lower())
+    if not sub:
+        ctx.sib.setdefault(title_key(stem, system), []).append(stem + ".png")
+
+
+def sibling_png(ctx, system, sub, fname, root, args):
+    """A label already on the card: read off the card, or this run's stage, or (--device) the cache, or
+    pulled from the device into the cache (never into the stage, which is pushed whole)."""
+    local = os.path.join(root, "Labels", system, sub, fname)
+    if os.path.isfile(local):
+        return slurp(local)
+    if not ctx.dev:
+        return None
+    stem = os.path.splitext(fname)[0]
+    rom = ctx.lib.get(nfc(stem))
+    if rom and not sub and system != "PS1":
+        crc = resolve(system, rom, ctx.dat, ctx.art)
+        kind = MEDIA.get(system, LABEL)
+        for p in ([os.path.join(ctx.cache, "art", ctx.art[crc])] if crc in ctx.art else []) + \
+                ([os.path.join(ctx.cache, "ss", system, *([kind] if kind != LABEL else []), crc + ".png")] if crc else []):
+            if os.path.isfile(p):
+                return slurp(p)
+    pulled = os.path.join(ctx.cache, "device", system, sub, fname)
+    if not os.path.isfile(pulled):
+        os.makedirs(os.path.dirname(pulled), exist_ok=True)
+        rc, _ = ctx.dev.run("pull", "/".join(x for x in (args.sd, "Labels", system, sub, fname) if x), pulled)
+        if rc != 0 or not os.path.isfile(pulled):
+            return None
+    return slurp(pulled)
+
+
+def shell_value(ctx, args, stem):
+    """The cart_shell.txt value for stem: this run's, else the existing file's (read once)."""
+    if stem in ctx.shell:
+        return ctx.shell[stem]
+    if ctx.shell_have is None:
+        text = ""
+        if ctx.dev:
+            if "cart_shell.txt" in ctx.dev.names(f"{args.sd}/Labels"):
+                local = os.path.join(ctx.stage, "cart_shell.have")
+                rc, _ = ctx.dev.run("pull", f"{args.sd}/Labels/cart_shell.txt", local)
+                text = slurp(local, "r") if rc == 0 and os.path.isfile(local) else ""
+        elif os.path.isfile(os.path.join(args.card, "Labels", "cart_shell.txt")):
+            text = slurp(os.path.join(args.card, "Labels", "cart_shell.txt"), "r")
+        ctx.shell_have = {nfc(e[0]): e[1] for e in map(shell_entry, text.splitlines()) if e}
+    return ctx.shell_have.get(nfc(stem))
+
+
+def by_name(ctx, system, left, root, args):
+    """For each (stem, subs) the CRC path left without a label: copy a same-title sibling's label, else ask
+    ScreenScraper by name. subs are the Labels sub-folders still missing ('' and, for PS1, 'disc')."""
+    stats, asked = ctx.stats, 0
+    pairs = {sub: kind for kind, sub in PS1_MEDIA} if system == "PS1" else {"": MEDIA.get(system, LABEL)}
+
+    def put(stem, sub, body):
+        if not ctx.dry:
+            dest = os.path.join(root, "Labels", system, sub, stem + ".png")
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            spit(dest, body)
+        note_label(ctx, system, sub, stem)
+
+    def error(stem, e):
+        stats["errors"] += 1
+        ctx.report.append((system, stem, "error", str(e)))
+        print(f"  error  {system}/{stem}: {e}")
+    for stem, subs in left:
+        tag, key, own = f"{system}/{stem}", title_key(stem, system), region_tags(stem)
+        names = [n for n in ctx.sib.get(key, []) if n.lower() != f"{stem}.png".lower()]
+        if key and names:
+            best = pick_sibling(stem, names)
+            sib, wrote = os.path.splitext(best)[0], False
+            for sub in subs:
+                if sub and best.lower() not in ctx.labels.get(sub, set()):
+                    continue
+                try:
+                    body = b"" if ctx.dry else sibling_png(ctx, system, sub, best, root, args)
+                except (Fail, OSError) as e:
+                    body = None
+                    print(f"  could not read sibling {system}/{best}: {e}")
+                if body is not None and (ctx.dry or body.startswith(PNG)):
+                    put(stem, sub, body)
+                    wrote = True
+            if wrote:
+                value = shell_value(ctx, args, sib) if system in ("NES", "SNES", "MD") else None
+                if value and (not own or own & region_tags(sib)):
+                    ctx.shell[stem] = value
+                stats["sibling"] += 1
+                ctx.report.append((system, stem, "sibling", sib))
+                print(f"  matched by sibling  {tag} <- {sib}")
+                continue
+        before, prefer = ctx.ss.asked, next((ScreenScraper.REGION[r] for r in ScreenScraper.REGION if r in own), None)
+        try:
+            found = ctx.ss.search(system, key, bare_title(stem, system), prefer,
+                                  ask=not (args.limit and asked >= args.limit)) if key else ("", {})
+        except (Fail, OSError) as e:
+            error(stem, e)
+            continue
+        finally:
+            asked += ctx.ss.asked > before
+        if found is None:
+            why = "dry run" if ctx.dry else ctx.ss.stop or ("no SS_DEVID/SS_DEVPASSWORD" if not ctx.ss.ready
+                                                              else f"--limit {args.limit}")
+            stats["name_skipped"] += 1
+            ctx.report.append((system, stem, "not searched", why))
+            print(f"  not searched by name  {tag} ({why})")
+            continue
+        gid, media = found
+        if not gid:
+            stats["no_match"] += 1
+            ctx.report.append((system, stem, "no confident match", ""))
+            print(f"  no confident match  {tag}")
+            continue
+        got = [sub for sub in subs if media.get(pairs[sub])]
+        for sub in got:
+            put(stem, sub, media[pairs[sub]])
+        outcome = "name" if got else "name, no art"
+        stats["by_name" if got else "name_no_art"] += 1
+        ctx.report.append((system, stem, outcome, f"ss:{gid}"))
+        print(f"  matched by {outcome}  {tag} (ScreenScraper game {gid})")
+
+
 # ---- adb ---------------------------------------------------------------------------------------
 
 def adb_runner():
@@ -725,6 +938,9 @@ class Ctx:
         self.cache = cache_dir(self.env)
         self.stats, self.art, self.ss, self.art_off = Counter(), {}, ScreenScraper(self), None
         self.shell, self.warned = {}, 0
+        # --by-name state: per system label listings and title index, and the run's report rows
+        self.labels, self.sib, self.lib, self.dat, self.dev, self.stage = {}, {}, {}, None, None, None
+        self.shell_have, self.report = None, []
 
 
 def get_label(ctx, system, crc, rom, name):
@@ -744,7 +960,8 @@ def get_label(ctx, system, crc, rom, name):
 
 
 def process(ctx, system, roms, have, out, dat, args):
-    stats, tried, kept = ctx.stats, 0, 0
+    """Labels by CRC. Returns the (stem, subs) left without one, for the --by-name pass."""
+    stats, tried, kept, left = ctx.stats, 0, 0, []
     for rom in roms:
         stem, tag = rom.stem, f"{system}/{rom.stem}"
         if args.only_stem and nfc(stem) != nfc(args.only_stem):
@@ -753,10 +970,12 @@ def process(ctx, system, roms, have, out, dat, args):
             stats["skipped"] += 1
             kept += 1
             continue
-        crc = resolve(system, rom, dat, ctx.art)
+        # a ROM with no read is on the device but not in --library (only passed in with --by-name)
+        crc = resolve(system, rom, dat, ctx.art) if rom.read else dat.by_name.get(nfc(stem))
         if crc is None:
             stats["unknown"] += 1
-            print(f"  unknown CRC  {tag}")
+            print(f"  unknown CRC  {tag}" + ("" if rom.read else " (not in the library)"))
+            left.append((stem, [""]))
             continue
         if args.limit and tried >= args.limit:
             break
@@ -776,8 +995,10 @@ def process(ctx, system, roms, have, out, dat, args):
             stats["missing"] += 1
             why = f", ScreenScraper stopped: {ctx.ss.stop}" if ctx.ss.stop else ""
             print(f"  missing  {tag} (CRC {crc}{', ' + name if name else ''}{why})")
+            left.append((stem, [""]))
             continue
         stats["written"] += 1
+        note_label(ctx, system, "", stem)
         word = shell_word(system, stem, name)
         if word:
             ctx.shell[stem] = f"{word} {SHELL_COLOUR[word]} solid"
@@ -789,12 +1010,12 @@ def process(ctx, system, roms, have, out, dat, args):
     if kept and system in MEDIA:
         print(f"  kept {kept} existing {system} label(s); any fetched before ADR 0057 is a cart scan, not the "
               f"{MEDIA[system]} box front. Rerun with --force --only {system} to replace them.")
+    return left
 
 
 def process_ps1(ctx, roms, have, have_disc, out, args):
     """Cover and disc for each PlayStation game. A game is skipped when both are on the card (unless --force)."""
-    stats = ctx.stats
-    tried = 0
+    stats, tried, left = ctx.stats, 0, []
     crc_of = crc_cache(ctx, ctx.ss.ready and not ctx.dry)
     for stem, rom in ps1_games(roms):
         tag = f"PS1/{stem}"
@@ -814,6 +1035,7 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
         if ident is None:
             stats["unknown"] += 1
             print(f"  unreadable disc  {tag} (no track file to identify)")
+            left.append((stem, [sub for (_, sub), g in zip(PS1_MEDIA, got) if args.force or not g]))
             continue
         tried += 1
         stats["matched"] += 1
@@ -830,7 +1052,7 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
             stats["errors"] += 1
             print(f"  error  {tag}: {e}")
             continue
-        wrote = False
+        wrote, lack = False, []
         for (kind, sub), exists in zip(PS1_MEDIA, got):
             body = media.get(kind)
             if exists and not args.force:
@@ -839,16 +1061,21 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
                 stats["missing"] += 1
                 why = f", ScreenScraper stopped: {ctx.ss.stop}" if ctx.ss.stop else ""
                 print(f"  missing  {tag} {kind} ({ident['serial'] or 'CRC ' + (ident['crc'] or 'not hashed')}{why})")
+                lack.append(sub)
                 continue
             stats["written"] += 1
+            note_label(ctx, "PS1", sub, stem)
             wrote = True
             if ctx.dry:
                 continue
             dest = os.path.join(out, "Labels", "PS1", sub, stem + ".png")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             spit(dest, body)
+        if lack:
+            left.append((stem, lack))
         if not wrote and ctx.ss.stop:
             break
+    return left
 
 
 def summary(ctx, args):
@@ -859,6 +1086,11 @@ def summary(ctx, args):
                        ("unknown", "unknown CRC"), ("errors", "errors"), ("collisions", "stem collisions"),
                        ("shell_added", "cart_shell lines added"), ("shell_kept", "cart_shell lines kept")]:
         print(f"  {label:<26}{s[key]}")
+    if args.by_name:
+        for key, label in [("sibling", "matched by sibling"), ("by_name", "matched by name"),
+                           ("name_no_art", "matched by name, no art"), ("no_match", "no confident match"),
+                           ("name_skipped", "not searched by name")]:
+            print(f"  {label:<26}{s[key]}")
     for why in (ctx.art_off, ctx.ss.stop):
         if why:
             print(f"  stopped early: {why}. Rerun to resume.")
@@ -877,6 +1109,7 @@ def run(args, ctx):
         print("note: no art host index and no SS_DEVID/SS_DEVPASSWORD, so nothing can be fetched.")
     stage = tempfile.mkdtemp(prefix="fetch-labels-") if dev else None
     root = stage or args.card
+    ctx.dev, ctx.stage = dev, stage
     try:
         for system in systems:
             try:
@@ -903,6 +1136,8 @@ def run(args, ctx):
                     elif k in lib:
                         src = lib[k]
                         roms.append(Rom(group[0], src.size, src.read, src.zip_crc, src.path))
+                    elif args.by_name:
+                        roms.append(Rom(group[0], 0, None))  # no CRC, but the sibling and name passes need none
                     else:
                         ctx.stats["unknown"] += 1
                         print(f"  unknown CRC  {system}/{group[0]} (not in the library)")
@@ -918,11 +1153,18 @@ def run(args, ctx):
                 disc_dir = os.path.join(args.card, "Labels", system, "disc")
                 disc_list = os.listdir(disc_dir) if system == "PS1" and os.path.isdir(disc_dir) else []
                 print(f"{system}: {len(roms)} ROMs on the card")
+                lib = {}
             have = {n.lower() for n in have_list}
+            ctx.labels, ctx.sib, ctx.lib, ctx.dat = {"": set(have), "disc": {n.lower() for n in disc_list}}, {}, lib, dat
+            for n in have_list:
+                if n.lower().endswith(".png") and not n.startswith("."):
+                    ctx.sib.setdefault(title_key(n[:-4], system), []).append(n)
             if system == "PS1":
-                process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
+                left = process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
             else:
-                process(ctx, system, roms, have, root, dat, args)
+                left = process(ctx, system, roms, have, root, dat, args)
+            if args.by_name:
+                by_name(ctx, system, left, root, args)
             if dev and not ctx.dry and os.path.isdir(os.path.join(stage, "Labels", system)):
                 dev.push(os.path.join(stage, "Labels", system), f"{args.sd}/Labels/{system}")
         if ctx.shell:
@@ -931,6 +1173,11 @@ def run(args, ctx):
         if stage:
             shutil.rmtree(stage, ignore_errors=True)
     summary(ctx, args)
+    if args.report:
+        with open(args.report, "w", encoding="utf-8", newline="") as f:
+            csv.writer(f, delimiter="\t", lineterminator="\n").writerows(
+                [("system", "stem", "outcome", "source"), *ctx.report])
+        print(f"  report: {len(ctx.report)} row(s) in {args.report}")
     return ctx.stats
 
 
@@ -967,6 +1214,9 @@ def main(argv=None, ctx=None):
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
+    ap.add_argument("--by-name", action="store_true",
+                    help="a ROM still without a label copies a same-title sibling's, else is searched by name")
+    ap.add_argument("--report", help="write a TSV of the --by-name outcomes (system, stem, outcome, source)")
     args = ap.parse_args(argv)
     if bool(args.card) == args.device:
         ap.error("give exactly one of --card or --device")
