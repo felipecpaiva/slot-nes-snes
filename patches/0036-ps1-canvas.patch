@@ -1,0 +1,968 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 10:21:46 +0400
+Subject: [PATCH] ps1-canvas
+
+PlayStation frames fill the 640x480 canvas: each column reads its source
+column from a map rebuilt only when the frame width changes, so 320 and 640
+are exact and 256 and 512 drop no column, and 240-line frames have their
+rows doubled by copying the row above. The fill is its own path, chosen by
+Platform::fills_canvas through HostExtra; copy_centred, shared with gpSP,
+is untouched. On the host the fill takes under 0.1 ms a frame in a release
+build.
+
+Actual shows the 4:3 picture 1:1 at 640x480 in the middle of the 720x480
+panel: the source rect reaches past the texture and the game and retro
+shaders draw black there. Every 3:2 canvas keeps the whole texture, so no
+other system changes. Stretch fills the panel. The polaroid fits a 4:3
+thumbnail between black bars instead of cropping it, and a 3:2 thumbnail
+fits exactly as before.
+---
+ crates/slot-gfx/src/pipeline/retro.rs    |   1 +
+ crates/slot-gfx/src/shaders.rs           |   1 +
+ crates/slot-gfx/tests/ps1_pipeline.rs    |  75 +++++++
+ crates/slot-retro/src/canvas.rs          | 262 +++++++++++++++++++++++
+ crates/slot-retro/src/libretro.rs        |   6 +-
+ crates/slot-store/src/platform_policy.rs |  14 ++
+ crates/slot-ui/src/art_fit.rs            |  69 ++++++
+ crates/slot-ui/src/lib.rs                |   1 +
+ crates/slot-ui/src/polaroids.rs          |   4 +-
+ crates/slot/src/core.rs                  |   3 +
+ crates/slot/src/video_mode.rs            |  16 +-
+ crates/slot/tests/ps1_canvas.rs          | 159 ++++++++++++++
+ crates/slot/tests/ps1_common/mod.rs      |  25 ++-
+ crates/slot/tests/ps1_emu.rs             |  15 +-
+ crates/slot/tests/ps1_options.rs         |   4 +-
+ crates/slot/tests/ps1_seat.rs            |   4 +-
+ 16 files changed, 639 insertions(+), 20 deletions(-)
+ create mode 100644 crates/slot-gfx/tests/ps1_pipeline.rs
+ create mode 100644 crates/slot-ui/src/art_fit.rs
+ create mode 100644 crates/slot/tests/ps1_canvas.rs
+
+diff --git a/crates/slot-gfx/src/pipeline/retro.rs b/crates/slot-gfx/src/pipeline/retro.rs
+index 3d99536..0ce9ba0 100644
+--- a/crates/slot-gfx/src/pipeline/retro.rs
++++ b/crates/slot-gfx/src/pipeline/retro.rs
+@@ -305,6 +305,7 @@ void main() {
+     } else {
+         c = sharp(uv, 1.0 / texel_per_px);
+     }
++    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) c = vec3(0.0);
+     FRAG_COLOR = vec4(c * u_bright, 1.0);
+ }
+ "#;
+diff --git a/crates/slot-gfx/src/shaders.rs b/crates/slot-gfx/src/shaders.rs
+index fb6eef4..320f3db 100644
+--- a/crates/slot-gfx/src/shaders.rs
++++ b/crates/slot-gfx/src/shaders.rs
+@@ -111,6 +111,7 @@ void main() {
+         vec3 xfactors = (4.0 + sin(angle.x + offsets)) / 5.0;
+         c *= yfactor * xfactors;
+     }
++    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) c = vec3(0.0);
+     FRAG_COLOR = vec4(c * u_bright, 1.0);
+ }
+ "#;
+diff --git a/crates/slot-gfx/tests/ps1_pipeline.rs b/crates/slot-gfx/tests/ps1_pipeline.rs
+new file mode 100644
+index 0000000..3a70c17
+--- /dev/null
++++ b/crates/slot-gfx/tests/ps1_pipeline.rs
+@@ -0,0 +1,75 @@
++#![cfg(target_os = "macos")]
++
++use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_H, OUT_W, WHOLE_TEXTURE};
++use std::sync::{Mutex, MutexGuard, PoisonError};
++
++static GL: Mutex<()> = Mutex::new(());
++
++const ACTUAL: [f32; 4] = [-40.0 / 640.0, 0.0, 720.0 / 640.0, 1.0];
++
++const EFFECTS: [ScreenEffect; 9] = [
++    ScreenEffect::None,
++    ScreenEffect::Grid,
++    ScreenEffect::Dot,
++    ScreenEffect::Retro(0),
++    ScreenEffect::Retro(1),
++    ScreenEffect::Retro(2),
++    ScreenEffect::Retro(3),
++    ScreenEffect::Retro(4),
++    ScreenEffect::Retro(5),
++];
++
++fn compositor() -> Option<(MutexGuard<'static, ()>, HeadlessSurface, Compositor)> {
++    let guard = GL.lock().unwrap_or_else(PoisonError::into_inner);
++    let surface = HeadlessSurface::new().ok()?;
++    let compositor = Compositor::new(&surface).expect("the compositor and its shaders build");
++    Some((guard, surface, compositor))
++}
++
++fn drawn(c: &mut Compositor, effect: ScreenEffect, src_rect: [f32; 4]) -> Vec<u8> {
++    c.set_game_canvas(640, 480);
++    c.set_game_source_rect(src_rect);
++    c.set_picture(WHOLE_TEXTURE);
++    c.set_screen_effect(effect);
++    c.set_screen_power(1.0);
++    c.begin_frame(slot_gfx::Layout::Framed);
++    c.upload_game(&vec![255; 640 * 480 * 4]);
++    c.draw_game();
++    c.read_frame()
++}
++
++fn lit(frame: &[u8], x: usize, y: usize) -> u8 {
++    let at = (y * OUT_W as usize + x) * 4;
++    frame[at..at + 3].iter().copied().max().unwrap_or(0)
++}
++
++#[test]
++fn actual_draws_black_bars_40_pixels_wide_beside_the_ps1_picture_with_every_shader() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    for effect in EFFECTS {
++        let frame = drawn(&mut c, effect, ACTUAL);
++        for y in [0, OUT_H as usize / 2, OUT_H as usize - 1] {
++            for x in [0, 39, 680, 719] {
++                assert_eq!(lit(&frame, x, y), 0, "{effect:?} ({x}, {y})");
++            }
++            for x in [42, 360, 677] {
++                assert!(lit(&frame, x, y) > 0, "{effect:?} ({x}, {y})");
++            }
++        }
++    }
++}
++
++#[test]
++fn stretch_draws_the_ps1_canvas_across_the_whole_panel() {
++    let Some((_g, _s, mut c)) = compositor() else {
++        return;
++    };
++    let frame = drawn(&mut c, ScreenEffect::None, WHOLE_TEXTURE);
++    for y in 0..OUT_H as usize {
++        for x in 0..OUT_W as usize {
++            assert_eq!(lit(&frame, x, y), 255, "({x}, {y})");
++        }
++    }
++}
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index 1c8281c..11b39f6 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -18,6 +18,9 @@ pub struct HostExtra {
+     pub av_enable: c_int,
+     pub answers_av: bool,
+     pub frame: (u32, u32),
++    pub fills: bool,
++    pub columns: Vec<u16>,
++    pub columns_for: u32,
+ }
+ 
+ impl Default for HostExtra {
+@@ -28,6 +31,9 @@ impl Default for HostExtra {
+             av_enable: AV_VIDEO_AND_AUDIO,
+             answers_av: false,
+             frame: (0, 0),
++            fills: false,
++            columns: Vec::new(),
++            columns_for: 0,
+         }
+     }
+ }
+@@ -112,6 +118,72 @@ pub fn bgrx_from_rgb565(p: u16) -> [u8; 4] {
+     ]
+ }
+ 
++pub unsafe fn copy_frame(
++    video: &mut [u8],
++    canvas: (u32, u32),
++    src: *const u8,
++    size: (u32, u32),
++    pitch: usize,
++    rgb565: bool,
++) {
++    let p = EXTRA.with(|e| e.get());
++    // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
++    match unsafe { p.as_mut() } {
++        Some(extra) if extra.fills => fill(extra, video, canvas, src, size, pitch, rgb565),
++        _ => copy_centred(video, canvas, src, size, pitch, rgb565),
++    }
++}
++
++pub unsafe fn fill(
++    extra: &mut HostExtra,
++    video: &mut [u8],
++    canvas: (u32, u32),
++    src: *const u8,
++    (width, height): (u32, u32),
++    pitch: usize,
++    rgb565: bool,
++) {
++    extra.frame = (width, height);
++    let (canvas_w, canvas_h) = (canvas.0 as usize, canvas.1 as usize);
++    let (w, h) = (width as usize, height as usize);
++    if video.len() != canvas_w * canvas_h * 4 || w == 0 || h == 0 {
++        eprintln!(
++            "slot: canvas: cannot fill a {canvas_w}x{canvas_h} canvas of {} bytes from {w}x{h}, frame dropped",
++            video.len()
++        );
++        return;
++    }
++    if extra.columns_for != width || extra.columns.len() != canvas_w {
++        extra.columns = (0..canvas_w).map(|x| (x * w / canvas_w) as u16).collect();
++        extra.columns_for = width;
++    }
++    let stride = canvas_w * 4;
++    let mut last = usize::MAX;
++    for y in 0..canvas_h {
++        let row = y * stride;
++        let from_y = y * h / canvas_h;
++        if from_y == last {
++            video.copy_within(row - stride..row, row);
++            continue;
++        }
++        last = from_y;
++        let from = src.add(from_y * pitch);
++        let out = &mut video[row..row + stride];
++        if rgb565 {
++            for (px, &x) in out.chunks_exact_mut(4).zip(&extra.columns) {
++                let p = ptr::read_unaligned((from as *const u16).add(x as usize));
++                px.copy_from_slice(&bgrx_from_rgb565(p));
++            }
++        } else {
++            for (px, &x) in out.chunks_exact_mut(4).zip(&extra.columns) {
++                px.copy_from_slice(&ptr::read_unaligned(
++                    (from as *const [u8; 4]).add(x as usize),
++                ));
++            }
++        }
++    }
++}
++
+ pub unsafe fn copy_centred(
+     video: &mut [u8],
+     canvas: (u32, u32),
+@@ -444,4 +516,194 @@ mod tests {
+         }
+         assert_eq!(bound_canvas(), None);
+     }
++
++    fn numbered(w: usize, h: usize) -> Vec<u8> {
++        let mut frame = Vec::with_capacity(w * h * 4);
++        for y in 0..h {
++            for x in 0..w {
++                frame.extend_from_slice(&[x as u8, (x >> 8) as u8, y as u8, (y >> 8) as u8]);
++            }
++        }
++        frame
++    }
++
++    fn filled(extra: &mut HostExtra, frame: &[u8], size: (u32, u32), rgb565: bool) -> Vec<u8> {
++        let pitch = size.0 as usize * if rgb565 { 2 } else { 4 };
++        let mut video = vec![0u8; 640 * 480 * 4];
++        // SAFETY: frame holds size.1 rows of pitch bytes each.
++        unsafe {
++            fill(
++                extra,
++                &mut video,
++                (640, 480),
++                frame.as_ptr(),
++                size,
++                pitch,
++                rgb565,
++            )
++        };
++        video
++    }
++
++    fn source_of(video: &[u8], x: usize, y: usize) -> (usize, usize) {
++        let p = &video[(y * 640 + x) * 4..(y * 640 + x) * 4 + 4];
++        (
++            p[0] as usize | (p[1] as usize) << 8,
++            p[2] as usize | (p[3] as usize) << 8,
++        )
++    }
++
++    fn every_ps1_size() -> [(u32, u32); 8] {
++        [
++            (256, 240),
++            (320, 240),
++            (368, 240),
++            (384, 240),
++            (512, 240),
++            (640, 240),
++            (320, 480),
++            (640, 480),
++        ]
++    }
++
++    #[test]
++    fn every_ps1_frame_size_fills_the_whole_640_by_480_canvas_left_to_right_top_to_bottom() {
++        for (w, h) in every_ps1_size() {
++            let mut extra = HostExtra::default();
++            let video = filled(&mut extra, &numbered(w as usize, h as usize), (w, h), false);
++            assert_eq!(source_of(&video, 0, 0), (0, 0), "{w}x{h}");
++            assert_eq!(
++                source_of(&video, 639, 479),
++                (w as usize - 1, h as usize - 1),
++                "{w}x{h}"
++            );
++            let mut seen = vec![false; w as usize];
++            for x in 0..640 {
++                let (sx, _) = source_of(&video, x, 0);
++                assert_eq!(sx, x * w as usize / 640, "{w}x{h} column {x}");
++                seen[sx] = true;
++            }
++            assert!(seen.iter().all(|s| *s), "{w}x{h} dropped a column");
++            assert_eq!(extra.frame, (w, h));
++        }
++    }
++
++    #[test]
++    fn a_320_by_240_frame_is_an_exact_2x() {
++        let mut extra = HostExtra::default();
++        let video = filled(&mut extra, &numbered(320, 240), (320, 240), false);
++        for y in 0..480 {
++            for x in 0..640 {
++                assert_eq!(source_of(&video, x, y), (x / 2, y / 2), "({x}, {y})");
++            }
++        }
++    }
++
++    #[test]
++    fn a_640_by_480_frame_passes_one_to_one() {
++        let mut extra = HostExtra::default();
++        let frame = numbered(640, 480);
++        assert_eq!(filled(&mut extra, &frame, (640, 480), false), frame);
++    }
++
++    #[test]
++    fn a_frame_larger_than_the_canvas_is_thinned_and_never_written_past_it() {
++        let mut extra = HostExtra::default();
++        let video = filled(&mut extra, &numbered(1024, 960), (1024, 960), false);
++        assert_eq!(video.len(), 640 * 480 * 4);
++        assert_eq!(source_of(&video, 639, 479), (1022, 958));
++    }
++
++    #[test]
++    fn a_size_change_leaves_nothing_of_the_last_frame() {
++        let mut extra = HostExtra::default();
++        filled(&mut extra, &white(640, 480), (640, 480), false);
++        let small = vec![7u8; 256 * 240 * 4];
++        let video = filled(&mut extra, &small, (256, 240), false);
++        assert!(video.iter().all(|b| *b == 7));
++        let video = filled(&mut extra, &white(512, 240), (512, 240), false);
++        assert!(video.iter().all(|b| *b == 0xff));
++    }
++
++    #[test]
++    fn an_rgb565_frame_fills_converted_exactly_as_upstream_converts() {
++        let mut extra = HostExtra::default();
++        let frame: Vec<u8> = (0..320 * 240)
++            .flat_map(|i| ((i * 2654435761u64 as usize) as u16).to_le_bytes())
++            .collect();
++        let video = filled(&mut extra, &frame, (320, 240), true);
++        for (y, x) in [(0, 0), (1, 1), (240, 333), (479, 639)] {
++            let at = (y / 2 * 320 + x / 2) * 2;
++            let p = u16::from_le_bytes([frame[at], frame[at + 1]]);
++            assert_eq!(
++                video[(y * 640 + x) * 4..(y * 640 + x) * 4 + 4],
++                bgrx_from_rgb565(p),
++                "({x}, {y})"
++            );
++        }
++    }
++
++    #[test]
++    fn a_zero_sized_frame_is_dropped() {
++        let mut extra = HostExtra::default();
++        let video = filled(&mut extra, &[], (0, 240), true);
++        assert!(video.iter().all(|b| *b == 0));
++    }
++
++    #[test]
++    fn filling_640_by_480_from_a_full_rgb565_frame_takes_well_under_a_frame_on_the_host() {
++        let mut extra = HostExtra::default();
++        let frame = vec![0x5au8; 640 * 480 * 2];
++        let mut video = vec![0u8; 640 * 480 * 4];
++        let mut best = std::time::Duration::MAX;
++        for _ in 0..10 {
++            let start = std::time::Instant::now();
++            // SAFETY: frame holds 480 rows of 1280 bytes, 640 RGB565 pixels each.
++            unsafe {
++                fill(
++                    &mut extra,
++                    &mut video,
++                    (640, 480),
++                    frame.as_ptr(),
++                    (640, 480),
++                    1280,
++                    true,
++                )
++            };
++            best = best.min(start.elapsed());
++        }
++        assert!(
++            best < std::time::Duration::from_millis(16),
++            "best fill took {best:?}"
++        );
++    }
++
++    #[test]
++    fn copy_frame_fills_only_when_the_extra_asks_for_it() {
++        let frame = white(320, 240);
++        for (fills, lit_corner) in [(true, true), (false, false)] {
++            let mut extra = HostExtra {
++                canvas: (640, 480),
++                fills,
++                ..HostExtra::default()
++            };
++            let mut video = vec![0u8; 640 * 480 * 4];
++            {
++                let _g = ExtraGuard::bind(&mut extra);
++                // SAFETY: frame holds 240 rows of 1280 bytes, 320 XRGB8888 pixels each.
++                unsafe {
++                    copy_frame(
++                        &mut video,
++                        (640, 480),
++                        frame.as_ptr(),
++                        (320, 240),
++                        1280,
++                        false,
++                    )
++                };
++            }
++            assert_eq!(video[..3] == [0xff; 3], lit_corner, "fills {fills}");
++            assert_eq!(extra.frame, (320, 240));
++        }
++    }
+ }
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index 94be764..b64e3d1 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -323,7 +323,7 @@ unsafe extern "C" fn video_refresh(
+     }
+     with_host(|h| {
+         if let Some(size) = canvas::bound_canvas().filter(|c| *c != (GBA_W, GBA_H)) {
+-            canvas::copy_centred(
++            canvas::copy_frame(
+                 &mut h.video,
+                 size,
+                 data as *const u8,
+@@ -437,6 +437,10 @@ impl LibretroCore {
+         self.host.video = vec![0; w as usize * h as usize * 4];
+     }
+ 
++    pub fn fill_canvas(&mut self) {
++        self.extra.fills = true;
++    }
++
+     pub fn answer_av(&mut self) {
+         self.extra.answers_av = true;
+     }
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index c1e4edd..fea6c42 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -132,4 +132,18 @@ impl Platform {
+             | Platform::Md => true,
+         }
+     }
++
++    pub fn fills_canvas(self) -> bool {
++        match self {
++            Platform::Ps1 => true,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md => false,
++        }
++    }
+ }
+diff --git a/crates/slot-ui/src/art_fit.rs b/crates/slot-ui/src/art_fit.rs
+new file mode 100644
+index 0000000..58cc5be
+--- /dev/null
++++ b/crates/slot-ui/src/art_fit.rs
+@@ -0,0 +1,69 @@
++use std::path::Path;
++
++use crate::art::{cover_rgba, decode_png_bytes};
++
++pub fn contain(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
++    let bytes = std::fs::read(path).ok()?;
++    let (src, sw, sh) = decode_png_bytes(&bytes)?;
++    contain_rgba(&src, sw, sh, w, h)
++}
++
++pub fn contain_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8>> {
++    if sw == 0 || sh == 0 || w == 0 || h == 0 {
++        return None;
++    }
++    let (wide, tall) = (sw as u64 * h as u64, sh as u64 * w as u64);
++    let (fw, fh) = if wide > tall {
++        (w, ((tall / sw as u64) as u32).max(1))
++    } else {
++        (((wide / sh as u64) as u32).max(1), h)
++    };
++    let fitted = cover_rgba(src, sw, sh, fw, fh)?;
++    if (fw, fh) == (w, h) {
++        return Some(fitted);
++    }
++    let mut out = [0, 0, 0, 255].repeat((w * h) as usize);
++    let (ox, oy) = (((w - fw) / 2) as usize, ((h - fh) / 2) as usize);
++    for (y, row) in fitted.chunks_exact(fw as usize * 4).enumerate() {
++        let at = ((oy + y) * w as usize + ox) * 4;
++        out.get_mut(at..at + row.len())?.copy_from_slice(row);
++    }
++    Some(out)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn white(w: u32, h: u32) -> Vec<u8> {
++        vec![255; (w * h * 4) as usize]
++    }
++
++    #[test]
++    fn a_three_by_two_thumb_fills_the_photo_exactly_as_cover_does() {
++        let src: Vec<u8> = (0..240 * 160 * 4).map(|i| (i * 7 % 251) as u8).collect();
++        assert_eq!(
++            contain_rgba(&src, 240, 160, 240, 160),
++            cover_rgba(&src, 240, 160, 240, 160)
++        );
++        let nes: Vec<u8> = (0..360 * 240 * 4).map(|i| (i * 3 % 241) as u8).collect();
++        assert_eq!(
++            contain_rgba(&nes, 360, 240, 240, 160),
++            cover_rgba(&nes, 360, 240, 240, 160)
++        );
++    }
++
++    #[test]
++    fn a_four_by_three_thumb_keeps_its_whole_picture_between_black_bars() {
++        let out = contain_rgba(&white(640, 480), 640, 480, 240, 160).expect("fit");
++        let px = |x: usize, y: usize| &out[(y * 240 + x) * 4..(y * 240 + x) * 4 + 4];
++        for y in [0, 80, 159] {
++            assert_eq!(px(0, y), [0, 0, 0, 255]);
++            assert_eq!(px(12, y), [0, 0, 0, 255]);
++            assert_eq!(px(13, y), [255; 4]);
++            assert_eq!(px(225, y), [255; 4]);
++            assert_eq!(px(226, y), [0, 0, 0, 255]);
++            assert_eq!(px(239, y), [0, 0, 0, 255]);
++        }
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index f5d6604..855a94d 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -1,4 +1,5 @@
+ mod art;
++mod art_fit;
+ pub use art::cover;
+ mod bitmaps;
+ pub use bitmaps::{
+diff --git a/crates/slot-ui/src/polaroids.rs b/crates/slot-ui/src/polaroids.rs
+index 66cb87b..ab18346 100644
+--- a/crates/slot-ui/src/polaroids.rs
++++ b/crates/slot-ui/src/polaroids.rs
+@@ -2,7 +2,7 @@ use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
+ use slot_power::Battery;
+ use slot_store::{parse_stamp, StateEntry};
+ 
+-use crate::art;
++use crate::art_fit;
+ use crate::footer::{draw_corners, Printed};
+ use crate::hud::{PLATE, PLATE_H};
+ use crate::plate::{hint_quad, hint_row, hint_width, Hint, HINT_GAP, HINT_H, TITLE_H, TITLE_W};
+@@ -29,7 +29,7 @@ pub struct PhotoFace {
+ }
+ 
+ pub fn photo_face(entry: &StateEntry) -> PhotoFace {
+-    let rgba = art::cover(&entry.thumb, PHOTO_W, PHOTO_H).unwrap_or_else(|| {
++    let rgba = art_fit::contain(&entry.thumb, PHOTO_W, PHOTO_H).unwrap_or_else(|| {
+         std::iter::repeat_n(
+             [BLANK[0], BLANK[1], BLANK[2], 255],
+             (PHOTO_W * PHOTO_H) as usize,
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 9124f8f..a0e2293 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -106,6 +106,9 @@ fn open_named(
+             Ok(mut opened) => {
+                 let (w, h) = core.canvas(platform);
+                 opened.set_canvas(w, h);
++                if platform.fills_canvas() {
++                    opened.fill_canvas();
++                }
+                 if !Core::ALL.contains(&core) {
+                     opened.answer_av();
+                 }
+diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
+index 3bb96dd..96d8837 100644
+--- a/crates/slot/src/video_mode.rs
++++ b/crates/slot/src/video_mode.rs
+@@ -1,6 +1,6 @@
+ use std::path::Path;
+ 
+-use slot_gfx::WHOLE_TEXTURE;
++use slot_gfx::{OUT_H, OUT_W, WHOLE_TEXTURE};
+ use slot_store::{ini, Platform};
+ 
+ pub const VIDEO_MODE_FILE: &str = "Config/video_mode.txt";
+@@ -50,7 +50,10 @@ pub fn source_rect(
+     mode: VideoMode,
+ ) -> [f32; 4] {
+     let (canvas_w, canvas_h) = canvas;
+-    if mode == VideoMode::Actual || (w, h) == canvas {
++    if mode == VideoMode::Actual {
++        return actual_rect(canvas);
++    }
++    if (w, h) == canvas {
+         return WHOLE_TEXTURE;
+     }
+     let x = canvas_w.saturating_sub(w) / 2;
+@@ -70,3 +73,12 @@ pub fn source_rect(
+         h as f32 / canvas_h as f32,
+     ]
+ }
++
++fn actual_rect((canvas_w, canvas_h): (u32, u32)) -> [f32; 4] {
++    let panel_w = canvas_h * OUT_W / OUT_H;
++    if canvas_w == 0 || panel_w <= canvas_w {
++        return WHOLE_TEXTURE;
++    }
++    let w = panel_w as f32 / canvas_w as f32;
++    [(1.0 - w) / 2.0, 0.0, w, 1.0]
++}
+diff --git a/crates/slot/tests/ps1_canvas.rs b/crates/slot/tests/ps1_canvas.rs
+new file mode 100644
+index 0000000..0ad72fd
+--- /dev/null
++++ b/crates/slot/tests/ps1_canvas.rs
+@@ -0,0 +1,159 @@
++mod common;
++mod core_common;
++mod ps1_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use ps1_common::{disc_in_mode, pcsx_rearmed, red, MODE_256, MODE_320, MODE_512};
++use slot::core::open_core_for_palette;
++use slot::platform_video::shown;
++use slot::video_mode::{source_rect, VideoMode};
++use slot_gfx::WHOLE_TEXTURE;
++use slot_retro::{ButtonMask, RetroCore};
++use slot_store::{Core, Platform, StateEntry};
++
++fn opened(dylib: PathBuf, root: &Path) -> Box<dyn RetroCore> {
++    let mut core = open_core_for_palette(
++        root,
++        Core::PcsxRearmed,
++        Platform::Ps1,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    core.set_option("pcsx_rearmed_bios", "HLE");
++    core
++}
++
++fn played_in_mode(mode: u32) -> Option<(u32, Vec<u8>)> {
++    let dylib = pcsx_rearmed()?;
++    let d = common::tmp_root_with_real_carts(&[]);
++    let cue = disc_in_mode(&d.path().join("Games/PS1"), "Mode", mode);
++    let mut core = opened(dylib, d.path());
++    core.load(&cue).expect("pcsx refused the generated disc");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++    Some((core.frame_width(), core.video_xrgb8888().to_vec()))
++}
++
++fn red_columns(video: &[u8], y: usize) -> usize {
++    red(&video[y * 640 * 4..(y + 1) * 640 * 4])
++}
++
++fn ps1_rect(mode: VideoMode) -> [f32; 4] {
++    source_rect(
++        Platform::Ps1,
++        shown(Platform::Ps1, 320, mode),
++        Core::PcsxRearmed.canvas(Platform::Ps1),
++        mode,
++    )
++}
++
++#[test]
++fn the_ps1_canvas_is_640_by_480_and_only_ps1_fills_it() {
++    assert_eq!(Core::PcsxRearmed.canvas(Platform::Ps1), (640, 480));
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            platform.fills_canvas(),
++            platform == Platform::Ps1,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn a_320_wide_ps1_frame_is_doubled_both_ways_to_fill_the_canvas() {
++    let _g = core_lock();
++    let Some((width, video)) = played_in_mode(MODE_320) else {
++        return;
++    };
++    assert_eq!(width, 320);
++    assert_eq!(red(&video), 640 * 480);
++}
++
++#[test]
++fn a_256_wide_ps1_frame_is_stretched_across_all_640_columns() {
++    let _g = core_lock();
++    let Some((width, video)) = played_in_mode(MODE_256) else {
++        return;
++    };
++    assert_eq!(width, 256);
++    assert_eq!(red(&video), 640 * 480);
++}
++
++#[test]
++fn a_512_wide_ps1_frame_is_resampled_to_640_columns() {
++    let _g = core_lock();
++    let Some((width, video)) = played_in_mode(MODE_512) else {
++        return;
++    };
++    assert_eq!(width, 512);
++    for y in [0, 240, 479] {
++        assert_eq!(red_columns(&video, y), 320 * 640 / 512, "row {y}");
++    }
++}
++
++#[test]
++fn actual_shows_the_ps1_picture_one_to_one_between_two_40_pixel_bars() {
++    let [x, y, w, h] = ps1_rect(VideoMode::Actual);
++    assert_eq!([y, h], [0.0, 1.0]);
++    assert_eq!((x * 640.0, w * 640.0), (-40.0, 720.0));
++}
++
++#[test]
++fn stretch_draws_the_whole_ps1_canvas_across_the_panel_with_no_bars() {
++    assert_eq!(ps1_rect(VideoMode::Stretch), WHOLE_TEXTURE);
++}
++
++#[test]
++fn actual_on_every_three_by_two_canvas_is_still_the_whole_texture() {
++    for (core, platform) in [
++        (Core::Mgba, Platform::Gba),
++        (Core::Mgba, Platform::Gb),
++        (Core::Fceumm, Platform::Nes),
++        (Core::Snes9x, Platform::Snes),
++        (Core::GenesisPlusGx, Platform::Gg),
++        (Core::GenesisPlusGx, Platform::Md),
++    ] {
++        let canvas = core.canvas(platform);
++        assert_eq!(
++            source_rect(platform, platform.picture(), canvas, VideoMode::Actual),
++            WHOLE_TEXTURE,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn the_ps1_picture_is_the_whole_canvas() {
++    assert_eq!(Platform::Ps1.picture(), (640, 480));
++    assert_eq!(
++        slot::platform_video::picture(Platform::Ps1, 512),
++        (640, 480)
++    );
++}
++
++#[test]
++fn a_ps1_polaroid_keeps_the_whole_four_by_three_picture() {
++    let d = tempfile::tempdir().expect("tempdir");
++    let thumb = d.path().join("2026-10-17_12-00-00.png");
++    let white = vec![0xffu8; 640 * 480 * 4];
++    let png = slot::thumb::png_sized(&white, 640, 480).expect("png");
++    std::fs::write(&thumb, png).expect("write thumb");
++    let face = slot_ui::photo_face(&StateEntry {
++        stamp: "2026-10-17_12-00-00".into(),
++        state: d.path().join("2026-10-17_12-00-00.state"),
++        thumb,
++    });
++    assert_eq!((face.w, face.h), (slot_ui::PHOTO_W, slot_ui::PHOTO_H));
++    let px = |x: usize, y: usize| &face.rgba[(y * 240 + x) * 4..(y * 240 + x) * 4 + 3];
++    for y in [0, 159] {
++        assert_eq!(px(12, y), [0, 0, 0], "row {y}");
++        assert_eq!(px(13, y), [0xff; 3], "row {y}");
++        assert_eq!(px(225, y), [0xff; 3], "row {y}");
++        assert_eq!(px(226, y), [0, 0, 0], "row {y}");
++    }
++}
+diff --git a/crates/slot/tests/ps1_common/mod.rs b/crates/slot/tests/ps1_common/mod.rs
+index cf79739..50e5d04 100644
+--- a/crates/slot/tests/ps1_common/mod.rs
++++ b/crates/slot/tests/ps1_common/mod.rs
+@@ -10,7 +10,15 @@ pub fn pcsx_rearmed() -> Option<PathBuf> {
+     crate::core_common::require_core("pcsx_rearmed")
+ }
+ 
++pub const MODE_320: u32 = 0x0800_0001;
++pub const MODE_256: u32 = 0x0800_0000;
++pub const MODE_512: u32 = 0x0800_0002;
++
+ pub fn executable() -> Vec<u8> {
++    executable_in_mode(MODE_320)
++}
++
++pub fn executable_in_mode(mode: u32) -> Vec<u8> {
+     let mut exe = vec![0; 6144];
+     exe[..8].copy_from_slice(b"PS-X EXE");
+     for (offset, value) in [
+@@ -25,7 +33,7 @@ pub fn executable() -> Vec<u8> {
+     for (value, port) in [
+         (0, 4),
+         (0x0300_0000, 4),
+-        (0x0800_0001, 4),
++        (mode, 4),
+         (0x06c6_0260, 4),
+         (0x0704_2018, 4),
+         (0xe100_0000, 0),
+@@ -67,7 +75,10 @@ fn directory(name: &[u8], sector: u32, size: u32, is_dir: bool) -> Vec<u8> {
+ }
+ 
+ pub fn iso(boot: &str) -> Vec<u8> {
+-    let exe = executable();
++    iso_of(boot, executable())
++}
++
++pub fn iso_of(boot: &str, exe: Vec<u8>) -> Vec<u8> {
+     let cnf = format!("BOOT = cdrom:\\{boot};1\r\nTCB = 4\r\nEVENT = 10\r\nSTACK = 801ffff0\r\n");
+     let mut iso = vec![0; SECTORS * 2048];
+     let pvd = &mut iso[16 * 2048..17 * 2048];
+@@ -118,8 +129,16 @@ pub fn disc(dir: &Path, stem: &str) -> PathBuf {
+ }
+ 
+ pub fn disc_booting(dir: &Path, stem: &str, boot: &str) -> PathBuf {
++    disc_of(dir, stem, iso(boot))
++}
++
++pub fn disc_in_mode(dir: &Path, stem: &str, mode: u32) -> PathBuf {
++    disc_of(dir, stem, iso_of("PSX.EXE", executable_in_mode(mode)))
++}
++
++pub fn disc_of(dir: &Path, stem: &str, iso: Vec<u8>) -> PathBuf {
+     std::fs::create_dir_all(dir).expect("disc dir");
+-    std::fs::write(dir.join(format!("{stem}.bin")), iso(boot)).expect("write bin");
++    std::fs::write(dir.join(format!("{stem}.bin")), iso).expect("write bin");
+     let cue = dir.join(format!("{stem}.cue"));
+     std::fs::write(
+         &cue,
+diff --git a/crates/slot/tests/ps1_emu.rs b/crates/slot/tests/ps1_emu.rs
+index 69a1675..8fda371 100644
+--- a/crates/slot/tests/ps1_emu.rs
++++ b/crates/slot/tests/ps1_emu.rs
+@@ -5,7 +5,7 @@ mod ps1_common;
+ use std::path::{Path, PathBuf};
+ 
+ use common::core_lock;
+-use ps1_common::{disc, disc_booting, pcsx_rearmed, raw, red, RED_H, RED_W};
++use ps1_common::{disc, disc_booting, pcsx_rearmed, raw, red, RED_W};
+ use slot::core::open_core_for_palette;
+ use slot_retro::{ButtonMask, RetroCore};
+ use slot_store::ps1::{serial, serial_region, DiscRegion};
+@@ -33,13 +33,12 @@ fn run(core: &mut dyn RetroCore, frames: usize) {
+     }
+ }
+ 
+-fn red_box_at_the_centre(video: &[u8]) {
+-    let (x0, y0) = ((640 - RED_W) / 2, (480 - RED_H) / 2);
+-    for (y, x) in [(y0, x0), (y0 + RED_H - 1, x0 + RED_W - 1)] {
++fn red_fills_the_canvas(video: &[u8]) {
++    for (y, x) in [(0, 0), (479, 639)] {
+         let at = (y * 640 + x) * 4;
+         assert!(video[at + 2] > 200 && video[at] < 10, "({x}, {y})");
+     }
+-    assert_eq!(red(video), RED_W * RED_H);
++    assert_eq!(red(video), 640 * 480);
+ }
+ 
+ #[test]
+@@ -55,7 +54,7 @@ fn a_generated_disc_boots_on_pcsx_with_hle_and_draws_on_the_640_by_480_canvas()
+     run(core.as_mut(), 30);
+     assert_eq!(core.canvas(), (640, 480));
+     assert_eq!(core.frame_width(), RED_W as u32);
+-    red_box_at_the_centre(core.video_xrgb8888());
++    red_fills_the_canvas(core.video_xrgb8888());
+ }
+ 
+ #[test]
+@@ -73,7 +72,7 @@ fn a_two_disc_playlist_loads_through_the_ps1_guard_and_plays_disc_one() {
+     let mut core = opened(dylib, d.path());
+     slot::ps1_load::load(core.as_mut(), &m3u).expect("the playlist was refused");
+     run(core.as_mut(), 30);
+-    red_box_at_the_centre(core.video_xrgb8888());
++    red_fills_the_canvas(core.video_xrgb8888());
+ }
+ 
+ #[test]
+@@ -114,7 +113,7 @@ fn a_ps1_state_is_the_cores_fixed_size_and_comes_back() {
+     run(core.as_mut(), 5);
+     core.unserialize(&state).expect("unserialize");
+     run(core.as_mut(), 2);
+-    red_box_at_the_centre(core.video_xrgb8888());
++    red_fills_the_canvas(core.video_xrgb8888());
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/ps1_options.rs b/crates/slot/tests/ps1_options.rs
+index cbaac09..03aae53 100644
+--- a/crates/slot/tests/ps1_options.rs
++++ b/crates/slot/tests/ps1_options.rs
+@@ -6,7 +6,7 @@ mod real_seat;
+ use std::path::{Path, PathBuf};
+ 
+ use common::core_lock;
+-use ps1_common::{disc, pcsx_rearmed, red, RED_H, RED_W};
++use ps1_common::{disc, pcsx_rearmed, red};
+ use slot::app::Phase;
+ use slot::core::{apply_core_options, open_core_for_palette};
+ use slot::core_options_policy::answers_declared_defaults;
+@@ -228,7 +228,7 @@ fn with_no_bios_on_the_card_auto_falls_back_to_hle_and_the_disc_boots() {
+     for _ in 0..60 {
+         core.run_frame(ButtonMask::default());
+     }
+-    assert_eq!(red(core.video_xrgb8888()), RED_W * RED_H);
++    assert_eq!(red(core.video_xrgb8888()), 640 * 480);
+ }
+ 
+ fn seated(dylib: &Path, platform: Platform) -> tempfile::TempDir {
+diff --git a/crates/slot/tests/ps1_seat.rs b/crates/slot/tests/ps1_seat.rs
+index 2d92095..bbd617a 100644
+--- a/crates/slot/tests/ps1_seat.rs
++++ b/crates/slot/tests/ps1_seat.rs
+@@ -6,7 +6,7 @@ mod real_seat;
+ use std::path::Path;
+ 
+ use common::core_lock;
+-use ps1_common::{disc, pcsx_rearmed, red, RED_H, RED_W};
++use ps1_common::{disc, pcsx_rearmed, red};
+ use slot::app::Phase;
+ use slot::session::Session;
+ use slot_input::{Btn, RawEvent};
+@@ -60,7 +60,7 @@ fn a_ps1_disc_plays_a_whole_session_on_its_640_by_480_canvas_and_saves_on_eject(
+     let emu = session.emu().expect("no core in the slot");
+     let frame = emu.latest_frame().expect("nothing was published");
+     assert_eq!(frame.len(), 640 * 480 * 4);
+-    assert_eq!(red(&frame), RED_W * RED_H);
++    assert_eq!(red(&frame), 640 * 480);
+     drop(frame);
+     eject(&mut session);
+     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

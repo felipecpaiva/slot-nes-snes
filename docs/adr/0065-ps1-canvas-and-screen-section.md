@@ -44,3 +44,22 @@ gets its own Screen filter section.
   `Platform::Ps1` goes into (b) and (e) by the standing rule of ADR 0055. Issue 60 lists the exact
   lines. CONTRIBUTING.md is updated in that patch, not before.
 - `QuickRow::PLAY_SCREEN` stays pinned, so the in-game Screen page gains no PS1 row (as ADR 0061).
+
+## Amendment (2026-10-17, issue 60 build)
+
+- The Screen row that opens the section is labelled **"PlayStation"** (`QuickRow::ScreenPs1`), the
+  token named test site (g) allows.
+- The fill is its own path (`canvas::fill`), chosen by `Platform::fills_canvas` through a
+  `HostExtra` flag, never by the canvas size. Each canvas column reads source column
+  `x * width / 640` from a map rebuilt only when the width changes, and each canvas row reads
+  source row `y * height / 480`, a repeated row being one copy of the row above. 320 and 640 are
+  exact; 256 and 512 repeat columns in a 3-2 and 1-1-1-2 pattern and drop none. The whole canvas
+  is written every frame, so a size change leaves no border to clear. `copy_centred`, shared with
+  gpSP, is untouched.
+- Actual is drawn by widening the source rect past the texture (`[-40/640, 0, 720/640, 1]`, from
+  the canvas height and the 3:2 panel), and the game and retro fragment shaders draw black where
+  the source falls outside the texture. That is one line in upstream `shaders.rs`. Every 3:2
+  canvas keeps the whole-texture rect, so nothing else changes. Stretch is the whole texture.
+- Thumbnails are the 640x480 canvas, so they are 4:3. The polaroid fits the thumbnail inside its
+  3:2 photo between black bars instead of cropping it; a 3:2 thumbnail fits exactly as before.
+
