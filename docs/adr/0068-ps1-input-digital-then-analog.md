@@ -51,3 +51,27 @@ and 0x02/0x05.
 - An L2 or R2 still held when the game is ejected is let go to the core first, so the eject save
   does not record a held trigger.
 
+
+## Amendment (2026-10-17, issue 65 build: v2 done)
+
+- **Sticks:** `input/sticks.rs` maps the four ABS codes to left X, left Y, right X and right Y,
+  drops the deadzone (32) and scales -4096..4096 to -32767..32767. Each stick event publishes all
+  four axes to one `AtomicU64` in slot-retro (`analog.rs`), not the button `AtomicU16`. The core
+  latches it once per frame. The hat and the button word are unchanged.
+- **Map:** the default is left 0x02/0x03, right 0x04/0x05, first two axes left as Linux orders
+  them. It is unverified: the spike's pairs 0x03/0x04 and 0x02/0x05 were what its tool assumed,
+  not what it measured. `Config/sticks.txt` overrides it (`left_x=0x03`, a leading minus inverts,
+  `deadzone=`, `range=`), and `scripts/stick-check.sh` prints the right file from the device.
+  Runtime detection cannot work: nothing in the events says which stick moved.
+- **Only a plugged core sees the sticks.** mGBA asks for `RETRO_DEVICE_ANALOG` too, so answering it
+  for every core would change GBA. `analog_pad(Core)` plugs a pad for pcsx only; every other core
+  gets centre, and a test runs mGBA and gpSP byte-identical with the sticks pushed.
+- **DualShock always, no per-game toggle.** pcsx's DualShock starts in digital mode (id 0x41), so
+  digital games see a standard pad. Games that switch it (Ape Escape) or pcsx's
+  `dualshock_init_analog` list get analog. Others switch with L1+R1+SELECT, pcsx's declared default
+  combo, answered under ADR 0064. ADR 0008 rules out the quick-menu row a toggle would need.
+- **L3 and R3 wait.** The key bitmap has no BTN_THUMBL or BTN_THUMBR. 0x139 and 0x13c are
+  reported and unmapped, and may be the stick clicks. The check script prints the codes; they are
+  mapped once the device confirms them.
+- **Rumble:** event1 reports FF_RUMBLE. pcsx's DualShock rumble (`pcsx_rearmed_vibration`, enabled)
+  reaches slot's existing `Rumble` path, so it buzzes when the Rumble row is on. Needs a device check.

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Every row of NES_TITLES and SNES_TITLES (crates/slot-ui/src/retro_shell.rs) names the VARIANTS.md row that
-# cites it in its `source` field (the Sega plastics, which have no title rows, are sampled in docs/cart-art/SEGA.md); that row must exist in docs/cart-art/VARIANTS.md, carry a URL, and begin with
+# cites it in its `source` field (the Sega plastics, which have no title rows, are sampled in docs/cart-art/SEGA.md, the PS1 jewel tray in docs/cart-art/PS1.md); that row must exist in docs/cart-art/VARIANTS.md, carry a URL, and begin with
 # the row's own title. The hex of the row's plastic (RETRO_BLACK is DUAL_MODE_SHELL in shell.rs) must appear in
 # VARIANTS.md section 7 on a line that names the row's title. Every plastic colour must have a sampling record.
 # Any orphan or mismatch fails the run.
@@ -12,6 +12,7 @@ tree="${SLOT_TREE:-$root/build/slot}"
 src="$tree/crates/slot-ui/src/retro_shell.rs"
 doc="$root/docs/cart-art/VARIANTS.md"
 sega="$root/docs/cart-art/SEGA.md"
+ps1="$root/docs/cart-art/PS1.md"
 
 [ -f "$src" ] || {
 	echo "slot-nes-snes: $src is missing, run task build or set SLOT_TREE" >&2
@@ -98,10 +99,10 @@ $records
 EOF2
 
 for hex in $(sed -n 's/.*solid(\[\(0x[0-9a-f]*\), \(0x[0-9a-f]*\), \(0x[0-9a-f]*\)\]).*/\1\2\3/p' "$src" | sed 's/0x//g') $black_hex; do
-	if grep -qi "#$hex" "$doc" "$sega"; then
-		echo "ok: #$hex is recorded in VARIANTS.md or SEGA.md"
+	if grep -qi "#$hex" "$doc" "$sega" "$ps1"; then
+		echo "ok: #$hex is recorded in VARIANTS.md, SEGA.md or PS1.md"
 	else
-		echo "ORPHAN: colour #$hex has no sampling record in VARIANTS.md or SEGA.md"
+		echo "ORPHAN: colour #$hex has no sampling record in VARIANTS.md, SEGA.md or PS1.md"
 		fail=1
 	fi
 done

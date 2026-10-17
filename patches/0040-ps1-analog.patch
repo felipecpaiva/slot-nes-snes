@@ -1,0 +1,787 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 14:24:31 +0400
+Subject: [PATCH] ps1-analog
+
+---
+ crates/slot-retro/src/analog.rs             |  65 +++++
+ crates/slot-retro/src/canvas.rs             |  14 +-
+ crates/slot-retro/src/lib.rs                |   2 +
+ crates/slot-retro/src/libretro.rs           |  18 +-
+ crates/slot-retro/src/libretro/env_tests.rs |  66 +++++
+ crates/slot/src/core_options_policy.rs      |  16 ++
+ crates/slot/src/input/device.rs             |  24 +-
+ crates/slot/src/input/mod.rs                |   1 +
+ crates/slot/src/input/sticks.rs             | 261 ++++++++++++++++++++
+ crates/slot/tests/ps1_analog.rs             | 118 +++++++++
+ 10 files changed, 578 insertions(+), 7 deletions(-)
+ create mode 100644 crates/slot-retro/src/analog.rs
+ create mode 100644 crates/slot/src/input/sticks.rs
+ create mode 100644 crates/slot/tests/ps1_analog.rs
+
+diff --git a/crates/slot-retro/src/analog.rs b/crates/slot-retro/src/analog.rs
+new file mode 100644
+index 0000000..17cb8d5
+--- /dev/null
++++ b/crates/slot-retro/src/analog.rs
+@@ -0,0 +1,65 @@
++use std::ffi::c_uint;
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use crate::canvas::with_extra;
++
++pub const DEVICE_ANALOG: c_uint = 5;
++pub const DUALSHOCK: c_uint = (2 << 8) | DEVICE_ANALOG;
++
++static STICKS: AtomicU64 = AtomicU64::new(0);
++
++pub fn publish_sticks(axes: [i16; 4]) {
++    STICKS.store(pack(axes), Ordering::Relaxed);
++}
++
++pub fn published_sticks() -> [i16; 4] {
++    unpack(STICKS.load(Ordering::Relaxed))
++}
++
++fn pack(axes: [i16; 4]) -> u64 {
++    axes.iter()
++        .rev()
++        .fold(0, |acc, &v| (acc << 16) | u64::from(v as u16))
++}
++
++fn unpack(packed: u64) -> [i16; 4] {
++    std::array::from_fn(|i| (packed >> (16 * i)) as u16 as i16)
++}
++
++pub fn answer(port: c_uint, index: c_uint, id: c_uint) -> i16 {
++    with_extra(|e| {
++        e.asked_for_analog = true;
++        let axes = e.sticks.filter(|_| port == 0)?;
++        let axis = match (index, id) {
++            (0, 0) => 0,
++            (0, 1) => 1,
++            (1, 0) => 2,
++            (1, 1) => 3,
++            _ => return None,
++        };
++        axes.get(axis).copied()
++    })
++    .flatten()
++    .unwrap_or(0)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn the_four_axes_unpack_as_they_were_packed() {
++        for axes in [
++            [0, 0, 0, 0],
++            [32767, -32767, 1, -1],
++            [-32768, 32767, -12345, 23456],
++        ] {
++            assert_eq!(unpack(pack(axes)), axes);
++        }
++    }
++
++    #[test]
++    fn the_dualshock_is_libretro_analog_subclass_one() {
++        assert_eq!(DUALSHOCK, 0x205);
++    }
++}
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index 6bc842d..ba7c018 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -4,7 +4,7 @@ use std::marker::PhantomData;
+ use std::ptr;
+ 
+ use crate::core::{AvInfo, GBA_H, GBA_W};
+-use crate::ffi::SystemAvInfo;
++use crate::ffi::{SystemAvInfo, DEVICE_JOYPAD};
+ use crate::libretro::discs::DiscDrive;
+ 
+ pub const SET_SYSTEM_AV_INFO: c_uint = 32;
+@@ -23,6 +23,9 @@ pub struct HostExtra {
+     pub columns: Vec<u16>,
+     pub columns_for: u32,
+     pub discs: DiscDrive,
++    pub port_device: c_uint,
++    pub sticks: Option<[i16; 4]>,
++    pub asked_for_analog: bool,
+ }
+ 
+ impl Default for HostExtra {
+@@ -37,11 +40,20 @@ impl Default for HostExtra {
+             columns: Vec::new(),
+             columns_for: 0,
+             discs: DiscDrive::default(),
++            port_device: DEVICE_JOYPAD,
++            sticks: None,
++            asked_for_analog: false,
+         }
+     }
+ }
+ 
+ impl HostExtra {
++    pub fn latch_sticks(&mut self) {
++        if let Some(axes) = &mut self.sticks {
++            *axes = crate::analog::published_sticks();
++        }
++    }
++
+     pub fn skip_video(&mut self, skip: bool) {
+         self.av_enable = if skip {
+             AV_AUDIO_ONLY
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 6729703..84bf25f 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -1,3 +1,4 @@
++mod analog;
+ mod canvas;
+ mod core;
+ mod ffi;
+@@ -7,6 +8,7 @@ mod mock;
+ mod rumble;
+ mod turbo_mode;
+ 
++pub use analog::{publish_sticks, published_sticks, DUALSHOCK};
+ pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ pub use ffi::{
+     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index ac25603..e404277 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ 
+ use libloading::Library;
+ 
++use crate::analog;
+ use crate::canvas::{self, ExtraGuard, HostExtra};
+ use crate::core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ use crate::ffi::*;
+@@ -386,7 +387,10 @@ unsafe extern "C" fn audio_batch(data: *const i16, frames: usize) -> usize {
+ 
+ unsafe extern "C" fn input_poll() {}
+ 
+-unsafe extern "C" fn input_state(port: c_uint, device: c_uint, _index: c_uint, id: c_uint) -> i16 {
++unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
++    if device == analog::DEVICE_ANALOG {
++        return analog::answer(port, index, id);
++    }
+     if device != DEVICE_JOYPAD {
+         return 0;
+     }
+@@ -450,6 +454,15 @@ impl LibretroCore {
+         self.extra.answers_av = true;
+     }
+ 
++    pub fn plug_analog(&mut self, device: c_uint) {
++        self.extra.port_device = device;
++        self.extra.sticks = Some([0; 4]);
++    }
++
++    pub fn asked_for_analog(&self) -> bool {
++        self.extra.asked_for_analog
++    }
++
+     pub fn reported_system_dir(&self) -> String {
+         self.host.system_dir.to_string_lossy().into_owned()
+     }
+@@ -648,7 +661,7 @@ impl RetroCore for LibretroCore {
+             fps: av.timing.fps,
+             sample_rate: av.timing.sample_rate,
+         };
+-        unsafe { (self.api.set_controller_port_device)(0, DEVICE_JOYPAD) };
++        unsafe { (self.api.set_controller_port_device)(0, self.extra.port_device) };
+         Ok(())
+     }
+ 
+@@ -661,6 +674,7 @@ impl RetroCore for LibretroCore {
+             return;
+         }
+         self.host.inputs = [p1.0, p2.0];
++        self.extra.latch_sticks();
+         let _a = Active::bind(&mut self.host);
+         let _e = ExtraGuard::bind(&mut self.extra);
+         unsafe { (self.api.run)() };
+diff --git a/crates/slot-retro/src/libretro/env_tests.rs b/crates/slot-retro/src/libretro/env_tests.rs
+index ad17846..f7bda5a 100644
+--- a/crates/slot-retro/src/libretro/env_tests.rs
++++ b/crates/slot-retro/src/libretro/env_tests.rs
+@@ -122,3 +122,69 @@ fn the_env_command_numbers_are_the_libretro_ones() {
+     assert_eq!(canvas::SET_GEOMETRY, 37);
+     assert_eq!(canvas::GET_AUDIO_VIDEO_ENABLE, 47 | 0x10000);
+ }
++
++fn analog(port: c_uint, index: c_uint, id: c_uint) -> i16 {
++    // SAFETY: input_state reads only its arguments and the extra state bound on this thread.
++    unsafe { input_state(port, analog::DEVICE_ANALOG, index, id) }
++}
++
++fn every_axis() -> [i16; 4] {
++    [
++        analog(0, 0, 0),
++        analog(0, 0, 1),
++        analog(0, 1, 0),
++        analog(0, 1, 1),
++    ]
++}
++
++#[test]
++fn a_plugged_pad_answers_the_sticks_latched_for_the_frame() {
++    let mut extra = HostExtra {
++        sticks: Some([0; 4]),
++        ..HostExtra::default()
++    };
++    crate::analog::publish_sticks([100, -200, 300, -400]);
++    extra.latch_sticks();
++    crate::analog::publish_sticks([1, 2, 3, 4]);
++    assert_eq!(bound(&mut extra, every_axis), [100, -200, 300, -400]);
++    extra.latch_sticks();
++    crate::analog::publish_sticks([0; 4]);
++    assert_eq!(bound(&mut extra, every_axis), [1, 2, 3, 4]);
++}
++
++#[test]
++fn only_port_0_and_the_two_sticks_have_values() {
++    let mut extra = HostExtra {
++        sticks: Some([100, -200, 300, -400]),
++        ..HostExtra::default()
++    };
++    let stray = || {
++        [
++            analog(1, 0, 0),
++            analog(1, 1, 1),
++            analog(0, 2, 0),
++            analog(0, 0, 2),
++        ]
++    };
++    assert_eq!(bound(&mut extra, stray), [0; 4]);
++}
++
++#[test]
++fn an_unplugged_core_that_asks_for_analog_gets_centre_and_is_seen_asking() {
++    let mut extra = HostExtra::default();
++    extra.latch_sticks();
++    assert_eq!(extra.sticks, None);
++    assert!(!extra.asked_for_analog);
++    assert_eq!(bound(&mut extra, every_axis), [0; 4]);
++    assert!(extra.asked_for_analog);
++}
++
++#[test]
++fn analog_with_no_extra_bound_is_centre() {
++    assert_eq!(every_axis(), [0; 4]);
++}
++
++#[test]
++fn the_port_device_is_the_joypad_until_a_pad_is_plugged() {
++    assert_eq!(HostExtra::default().port_device, DEVICE_JOYPAD);
++}
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 7db7a03..12a3d23 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -97,4 +97,20 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+     for (key, value) in fixed {
+         core.set_option(key, value);
+     }
++    if let Some(device) = analog_pad(which) {
++        core.plug_analog(device);
++    }
++}
++
++pub fn analog_pad(which: Core) -> Option<u32> {
++    match which {
++        Core::PcsxRearmed => Some(slot_retro::DUALSHOCK),
++        Core::Mgba
++        | Core::Gpsp
++        | Core::Fceumm
++        | Core::Snes9x
++        | Core::Nestopia
++        | Core::Snes9x2005Plus
++        | Core::GenesisPlusGx => None,
++    }
+ }
+diff --git a/crates/slot/src/input/device.rs b/crates/slot/src/input/device.rs
+index 4b0c5e8..974371a 100644
+--- a/crates/slot/src/input/device.rs
++++ b/crates/slot/src/input/device.rs
+@@ -9,6 +9,7 @@ use slot_input::{Btn, InputSource, Millis, RawEvent};
+ use super::evdev::{
+     decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
+ };
++use super::sticks::{read_stick_map, StickMap, Sticks};
+ use super::trace;
+ 
+ const DEV: &str = "/dev/input";
+@@ -33,7 +34,14 @@ impl DeviceInput {
+     pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
+         let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
+         let target = std::env::var("BASEOS_TARGET").ok();
+-        DeviceInput::open_traced(dev, sys, menu_dpad_display(target.as_deref()), trace)
++        let sticks = read_stick_map(root);
++        DeviceInput::open_traced(
++            dev,
++            sys,
++            menu_dpad_display(target.as_deref()),
++            trace,
++            sticks,
++        )
+     }
+ 
+     fn open_traced(
+@@ -41,6 +49,7 @@ impl DeviceInput {
+         sys: &Path,
+         menu_dpad_display: bool,
+         trace: Option<Arc<Trace>>,
++        sticks: StickMap,
+     ) -> Self {
+         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
+         for node in pick_devices(dev, sys) {
+@@ -55,7 +64,7 @@ impl DeviceInput {
+             let trace = trace.clone();
+             let spawned = std::thread::Builder::new()
+                 .name(format!("slot-input-{name}"))
+-                .spawn(move || read_node(&node, &queue, trace.as_deref()));
++                .spawn(move || read_node(&node, &queue, trace.as_deref(), sticks));
+             if let Err(e) = spawned {
+                 eprintln!("slot: input {name}: {e}");
+             }
+@@ -94,12 +103,13 @@ fn quicken_poll(sys: &Path, node: &Path) {
+     }
+ }
+ 
+-fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
++fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, map: StickMap) {
+     let label = node
+         .file_name()
+         .map(|n| n.to_string_lossy().into_owned())
+         .unwrap_or_else(|| node.display().to_string());
+     let mut hat = Hat::default();
++    let mut sticks = Sticks::new(map);
+     let mut file = match File::open(node) {
+         Ok(f) => f,
+         Err(e) => {
+@@ -127,7 +137,13 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
+                 crate::latency::read();
+             }
+             match ev.kind {
+-                EV_ABS => events.extend(hat.feed(ev)),
++                EV_ABS => {
++                    sticks
++                        .feed(ev)
++                        .into_iter()
++                        .for_each(slot_retro::publish_sticks);
++                    events.extend(hat.feed(ev))
++                }
+                 _ => events.extend(to_raw(ev)),
+             }
+         }
+diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
+index 35ad46b..33bc57d 100644
+--- a/crates/slot/src/input/mod.rs
++++ b/crates/slot/src/input/mod.rs
+@@ -7,6 +7,7 @@ mod keys;
+ mod mask;
+ #[cfg(feature = "host")]
+ mod pad;
++pub mod sticks;
+ pub mod trace;
+ 
+ pub use device::DeviceInput;
+diff --git a/crates/slot/src/input/sticks.rs b/crates/slot/src/input/sticks.rs
+new file mode 100644
+index 0000000..bf4efd4
+--- /dev/null
++++ b/crates/slot/src/input/sticks.rs
+@@ -0,0 +1,261 @@
++use std::path::{Path, PathBuf};
++
++use super::evdev::{Ev, EV_ABS};
++
++pub const STICKS_FILE: &str = "sticks.txt";
++
++const KEYS: [&str; 4] = ["left_x", "left_y", "right_x", "right_y"];
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub struct Axis {
++    pub code: u16,
++    pub inverted: bool,
++}
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub struct StickMap {
++    pub axes: [Axis; 4],
++    pub deadzone: i32,
++    pub range: i32,
++}
++
++impl Default for StickMap {
++    fn default() -> Self {
++        let axis = |code| Axis {
++            code,
++            inverted: false,
++        };
++        StickMap {
++            axes: [axis(0x02), axis(0x03), axis(0x04), axis(0x05)],
++            deadzone: 32,
++            range: 4096,
++        }
++    }
++}
++
++pub fn sticks_file(root: &Path) -> PathBuf {
++    root.join("Config").join(STICKS_FILE)
++}
++
++pub fn read_stick_map(root: &Path) -> StickMap {
++    let path = sticks_file(root);
++    match std::fs::read_to_string(&path) {
++        Ok(text) => {
++            let map = parse_stick_map(&text);
++            eprintln!("slot: sticks: {}: {map:?}", path.display());
++            map
++        }
++        Err(_) => StickMap::default(),
++    }
++}
++
++pub fn parse_stick_map(text: &str) -> StickMap {
++    let mut map = StickMap::default();
++    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
++        let Some((key, value)) = line.split_once('=') else {
++            eprintln!("slot: sticks: ignoring {line:?}");
++            continue;
++        };
++        let (key, value) = (key.trim(), value.trim());
++        let known = match KEYS.iter().position(|k| *k == key) {
++            Some(i) => parse_axis(value).map(|axis| map.axes[i] = axis),
++            None if key == "deadzone" => parse_number(value)
++                .filter(|v| (0..4096).contains(v))
++                .map(|v| map.deadzone = v),
++            None if key == "range" => parse_number(value)
++                .filter(|v| (1..=65535).contains(v))
++                .map(|v| map.range = v),
++            None => None,
++        };
++        if known.is_none() {
++            eprintln!("slot: sticks: ignoring {line:?}");
++        }
++    }
++    if map.deadzone >= map.range {
++        eprintln!(
++            "slot: sticks: deadzone {} is not below range {}, using the defaults",
++            map.deadzone, map.range
++        );
++        let d = StickMap::default();
++        map.deadzone = d.deadzone;
++        map.range = d.range;
++    }
++    map
++}
++
++fn parse_axis(value: &str) -> Option<Axis> {
++    let (inverted, code) = match value.strip_prefix('-') {
++        Some(rest) => (true, rest),
++        None => (false, value),
++    };
++    let code = u16::try_from(parse_number(code)?).ok()?;
++    Some(Axis { code, inverted })
++}
++
++fn parse_number(value: &str) -> Option<i32> {
++    match value.strip_prefix("0x") {
++        Some(hex) => i32::from_str_radix(hex, 16).ok(),
++        None => value.parse().ok(),
++    }
++}
++
++pub fn scale(value: i32, deadzone: i32, range: i32) -> i16 {
++    let magnitude = value.unsigned_abs().min(range as u32) as i64;
++    let deadzone = i64::from(deadzone);
++    if magnitude <= deadzone {
++        return 0;
++    }
++    let out = (magnitude - deadzone) * 32767 / (i64::from(range) - deadzone);
++    (out * i64::from(value.signum())) as i16
++}
++
++pub struct Sticks {
++    map: StickMap,
++    axes: [i16; 4],
++}
++
++impl Sticks {
++    pub fn new(map: StickMap) -> Self {
++        Sticks { map, axes: [0; 4] }
++    }
++
++    pub fn feed(&mut self, ev: Ev) -> Option<[i16; 4]> {
++        if ev.kind != EV_ABS {
++            return None;
++        }
++        let i = self.map.axes.iter().position(|a| a.code == ev.code)?;
++        let axis = self.map.axes.get(i)?;
++        let value = if axis.inverted { -ev.value } else { ev.value };
++        let now = scale(value, self.map.deadzone, self.map.range);
++        let slot = self.axes.get_mut(i)?;
++        if *slot == now {
++            return None;
++        }
++        *slot = now;
++        Some(self.axes)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn abs(code: u16, value: i32) -> Ev {
++        Ev {
++            kind: EV_ABS,
++            code,
++            value,
++        }
++    }
++
++    #[test]
++    fn a_value_inside_the_deadzone_reads_as_centre() {
++        for v in [-32, -1, 0, 1, 32] {
++            assert_eq!(scale(v, 32, 4096), 0, "{v}");
++        }
++    }
++
++    #[test]
++    fn full_travel_reaches_the_libretro_limits_and_never_passes_them() {
++        assert_eq!(scale(4096, 32, 4096), 32767);
++        assert_eq!(scale(-4096, 32, 4096), -32767);
++        assert_eq!(scale(9000, 32, 4096), 32767);
++        assert_eq!(scale(i32::MIN, 32, 4096), -32767);
++        assert_eq!(scale(i32::MAX, 32, 4096), 32767);
++    }
++
++    #[test]
++    fn travel_past_the_deadzone_starts_from_zero_and_grows_evenly() {
++        assert_eq!(scale(33, 32, 4096), 8);
++        assert_eq!(scale(2064, 32, 4096), 16383);
++        assert_eq!(scale(-2064, 32, 4096), -16383);
++        let mut last = 0;
++        for v in 33..=4096 {
++            let now = scale(v, 32, 4096);
++            assert!(now >= last, "{v}");
++            last = now;
++        }
++    }
++
++    #[test]
++    fn no_file_gives_z_and_rx_for_the_left_stick_and_ry_and_rz_for_the_right() {
++        let root = tempfile::tempdir().expect("tempdir");
++        let map = read_stick_map(root.path());
++        assert_eq!(map, StickMap::default());
++        let codes: Vec<u16> = map.axes.iter().map(|a| a.code).collect();
++        assert_eq!(codes, [0x02, 0x03, 0x04, 0x05]);
++        assert!(map.axes.iter().all(|a| !a.inverted));
++        assert_eq!((map.deadzone, map.range), (32, 4096));
++    }
++
++    #[test]
++    fn the_file_names_each_axis_and_a_leading_minus_inverts_it() {
++        let map = parse_stick_map(
++            "left_x=0x03\nleft_y=-0x04\n right_x = 2 \nright_y=-5\ndeadzone=100\nrange=4000\n",
++        );
++        let axes: Vec<(u16, bool)> = map.axes.iter().map(|a| (a.code, a.inverted)).collect();
++        assert_eq!(axes, [(3, false), (4, true), (2, false), (5, true)]);
++        assert_eq!((map.deadzone, map.range), (100, 4000));
++    }
++
++    #[test]
++    fn a_bad_line_keeps_the_default_for_that_line_only() {
++        let map = parse_stick_map("left_x=banana\nnonsense\nup=3\nrange=0\nright_y=0x10\n");
++        let d = StickMap::default();
++        assert_eq!(map.axes[0], d.axes[0]);
++        assert_eq!(map.range, d.range);
++        assert_eq!(map.axes[3].code, 0x10);
++    }
++
++    #[test]
++    fn a_deadzone_at_or_past_the_range_falls_back_to_both_defaults() {
++        let map = parse_stick_map("deadzone=500\nrange=400\n");
++        assert_eq!((map.deadzone, map.range), (32, 4096));
++    }
++
++    #[test]
++    fn each_mapped_axis_lands_in_its_own_slot() {
++        let mut sticks = Sticks::new(StickMap::default());
++        assert_eq!(sticks.feed(abs(0x02, 4096)), Some([32767, 0, 0, 0]));
++        assert_eq!(sticks.feed(abs(0x03, -4096)), Some([32767, -32767, 0, 0]));
++        assert_eq!(
++            sticks.feed(abs(0x04, 4096)),
++            Some([32767, -32767, 32767, 0])
++        );
++        assert_eq!(
++            sticks.feed(abs(0x05, -4096)),
++            Some([32767, -32767, 32767, -32767])
++        );
++    }
++
++    #[test]
++    fn an_inverted_axis_flips_its_sign() {
++        let mut sticks = Sticks::new(parse_stick_map("left_y=-0x03"));
++        assert_eq!(sticks.feed(abs(0x03, 4096)), Some([0, -32767, 0, 0]));
++    }
++
++    #[test]
++    fn the_hat_keys_and_unmapped_axes_never_move_a_stick() {
++        let mut sticks = Sticks::new(StickMap::default());
++        for ev in [
++            abs(0x10, 1),
++            abs(0x11, -1),
++            abs(0x00, 4096),
++            Ev {
++                kind: 0x01,
++                code: 0x02,
++                value: 1,
++            },
++        ] {
++            assert_eq!(sticks.feed(ev), None, "{ev:?}");
++        }
++    }
++
++    #[test]
++    fn jitter_inside_the_deadzone_publishes_nothing() {
++        let mut sticks = Sticks::new(StickMap::default());
++        for v in [5, -12, 32, 0, -32] {
++            assert_eq!(sticks.feed(abs(0x02, v)), None, "{v}");
++        }
++    }
++}
+diff --git a/crates/slot/tests/ps1_analog.rs b/crates/slot/tests/ps1_analog.rs
+new file mode 100644
+index 0000000..735948c
+--- /dev/null
++++ b/crates/slot/tests/ps1_analog.rs
+@@ -0,0 +1,118 @@
++mod common;
++mod core_common;
++mod ps1_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed, red};
++use slot::core::{apply_core_options, open_core_for_palette};
++use slot::core_options_policy::analog_pad;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore, DUALSHOCK};
++use slot_store::{Core, Platform};
++
++fn run_after_load(core: &mut dyn RetroCore, cue: &Path) {
++    core.load(cue).expect("load");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++fn pcsx_on_a_disc(dylib: &Path, slot_options: bool) -> LibretroCore {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let cue = disc(&d.path().join("Games/PS1"), "Ape");
++    let mut core = LibretroCore::open_with(dylib, d.path(), d.path()).expect("open pcsx");
++    if slot_options {
++        apply_core_options(
++            &mut core,
++            Core::PcsxRearmed,
++            Platform::Ps1,
++            "auto",
++            false,
++            false,
++            None,
++        );
++    }
++    run_after_load(&mut core, &cue);
++    core
++}
++
++#[test]
++fn only_pcsx_gets_an_analog_pad_and_it_is_the_dualshock() {
++    for which in Core::EVERY {
++        let want = (which == Core::PcsxRearmed).then_some(DUALSHOCK);
++        assert_eq!(analog_pad(which), want, "{which:?}");
++    }
++}
++
++#[test]
++fn pcsx_asks_for_the_sticks_once_slot_plugs_the_dualshock() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    assert!(pcsx_on_a_disc(&dylib, true).asked_for_analog());
++}
++
++#[test]
++fn pcsx_on_its_standard_pad_never_asks_for_the_sticks() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    assert!(!pcsx_on_a_disc(&dylib, false).asked_for_analog());
++}
++
++#[test]
++fn a_ps1_game_still_boots_and_draws_with_the_dualshock_plugged() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let cue = disc(&d.path().join("Games/PS1"), "Ape");
++    let mut core = open_core_for_palette(
++        d.path(),
++        Core::PcsxRearmed,
++        Platform::Ps1,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    run_after_load(core.as_mut(), &cue);
++    assert_eq!(red(core.video_xrgb8888()), 640 * 480);
++}
++
++fn gba_frames_with_sticks(which: Core, dylib: &Path, sticks: [i16; 4]) -> (Vec<u8>, Vec<u8>) {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let rom = d.path().join("Games/GBA/Sticks.gba");
++    std::fs::write(&rom, common::gba_rom()).expect("write rom");
++    let mut core = LibretroCore::open_with(dylib, d.path(), d.path()).expect("open");
++    apply_core_options(&mut core, which, Platform::Gba, "auto", false, false, None);
++    slot_retro::publish_sticks(sticks);
++    core.load(&rom).expect("load");
++    for _ in 0..60 {
++        core.run_frame(ButtonMask::default());
++    }
++    slot_retro::publish_sticks([0; 4]);
++    let state = core.serialize().expect("serialize");
++    (core.video_xrgb8888().to_vec(), state)
++}
++
++#[test]
++fn gba_cores_run_the_same_frames_whatever_the_sticks_say() {
++    let _g = core_lock();
++    for which in [Core::Mgba, Core::Gpsp] {
++        let Some(dylib) = core_common::require_core(which.as_str()) else {
++            continue;
++        };
++        let centred = gba_frames_with_sticks(which, &dylib, [0; 4]);
++        let pushed = gba_frames_with_sticks(which, &dylib, [32767, -32767, 32767, -32767]);
++        assert!(centred.0 == pushed.0, "{which:?} frame");
++        // gpsp saves its cart clock (wall time) in the state, so two runs a second apart differ there.
++        if which == Core::Mgba {
++            assert!(centred.1 == pushed.1, "{which:?} state");
++        }
++    }
++}

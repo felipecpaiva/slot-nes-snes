@@ -37,3 +37,35 @@ PS1 games are discs, so there is no cart label. ADR 0014 bans screenshots, not c
 - Two fetched images per game (cover and disc). `tools/fetch-labels.py` gains a PS1 route.
 - Case colours and outlines need cited sources and a blind render check, like the cart art.
 - This is the biggest UI item (L). It does not block the PS1 playing patches.
+
+## Amendment, 2026-10-17: what was built (patch 0039-ps1-cases)
+
+- Four generated neutrals in `crates/slot-ui/assets/retro/`, from `examples/retro_neutrals.rs`
+  with the ADR 0054 lighting: `jewel_us`, `jewel_eu`, `jewel_jp` and `jewel_double`
+  (360 x 317, the cited 142 x 125 mm case), plus `disc_neutral.png` (360 x 360). The nine cart
+  neutrals are byte identical when the example is rerun. Outlines, wells and colours are cited in
+  [docs/cart-art/PS1.md](../cart-art/PS1.md); the tray black #1f1f1f is sampled from a CC0 photo.
+- US and EU are the same mould: no front-visible difference was found, so the region style shows
+  only on the Japanese case, as the obi strip over the cover's left edge. Its width is an estimate
+  until the blind render check.
+- The double case is drawn as a second case behind the front one (the source describes a chubby
+  case as about two cases thick). Every PS1 case shares one box, as ADR 0056 does per platform.
+- The cover (`Labels/PS1/<stem>.png`) is fitted whole on its edge colour (`box_contain`, ADR 0057)
+  in a square well. No cover gives a plain case with the title.
+- Region: file name tags, then the `SYSTEM.CNF` serial, then US. Double: an `.m3u` of two or more
+  discs. The pick is cached per disc file.
+- Insert: `SlotChrome` hands PS1 to `disc_insert.rs` (one upstream line). The lid swings open at
+  the shelf spot over the black tray, then the disc travels along upstream's insert path into the
+  slot while the case fades; eject runs it backwards. The disc face (`support-2D` at
+  `Labels/PS1/disc/<stem>.png`, else the title colour with the title printed) is built as the
+  cart's interior and reaches the slot through `Shelf::behind`.
+- `tools/fetch-labels.py` PS1 route: one `jeuInfos.php` call per game (system 57) fetches both
+  images. ScreenScraper asks for a crc, md5 or sha1 and the size with every call, so the disc file's
+  CRC32, size and name are sent, with `serialnum` when the serial is readable (a `.cue`'s first
+  track, a `.pbp`'s PARAM.SFO; not a `.chd`). The serial format ScreenScraper expects is not
+  documented; the tool sends the Redump form `SLUS-00594`, and `romtype=iso` (the documentation's
+example sends `rom`; the values come from `romTypesListe.php`), both unverified against the live
+API. A disc's CRC is kept in the cache by path, size and mtime, so a rerun never reads a disc
+twice, and a dry run or a run without credentials reads none. Images
+  are cached by serial, or by CRC when there is none, not by a dat CRC, because discs are in no
+  No-Intro dat. Tests use fakes only; the live API was not called.
