@@ -62,8 +62,11 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
   `draw_row(canvas, ..)`); fix them in the patch that adds the test.
 - Run the bare upstream suite once first. v1.7.0 fails two frame-hash tests in
   `slot-gfx/tests/layout.rs` on the M5 Max with no patch applied (ADR 0045).
-- `task diffsurface` keys reasons by context and ordinal, so a new hunk shifts the reasons of
-  every later hunk under the same context. Reread every row of a file whose hunk count changed.
+- `task diffsurface` keys reasons by file, context, first upstream line and a hash of the hunk's
+  changed lines. After a rebase moves the lines, a reason follows its hunk by that hash when the
+  hunk did not change, or by one offset shared by at least two hunks of its context; anything else
+  comes back as `TODO: explain (ambiguous, one of: ...)`. Pick the right reason for each such row,
+  and still reread every row of a file whose hunk count changed.
 - New upstream tests can pin our behaviour: `runahead.rs` compares the sound in the ring of two
   runs and caught that the audio prefill depended on when the worker first saw Normal.
 - The harness script drives upstream's UI, so a release that moves menus breaks it in both
