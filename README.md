@@ -58,7 +58,7 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
   that runs in Master System mode (256x192) is cropped to the 240x160 Game Gear canvas. Interlace
   mode 2 (Sonic 2 two-player) uses the core's single-field blend. Sega bezels use the GBA bezel
   choice, like NES and SNES.
-- PlayStation (planned): no rewind and no fast-forward gesture (L2 and R2 belong to the game), and analog-only games wait for the v2 analog work.
+- PlayStation (planned): no rewind and no fast-forward gesture (L2 and R2 belong to the game). The pad is a DualShock with both sticks, but which physical stick is left is not verified yet (`sh scripts/stick-check.sh` writes `Config/sticks.txt`), and L3 and R3 are not mapped.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.
 
