@@ -1,0 +1,438 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 10:51:05 +0400
+Subject: [PATCH] ps1-input
+
+PlayStation games get all four shoulder buttons. owns_shoulders already
+answers false for PS1, so L1 and R1 go to the game as on SNES and Mega
+Drive, and a new owns_triggers policy with the same polarity answers false
+for PS1 only: L2 and R2 then reach the core as libretro ids 12 and 13
+instead of starting rewind and fast-forward. Every other system keeps the
+rewind and fast-forward triggers.
+
+Fast-forward moves to SELECT+R2, which turns it on with one press and off
+with the next and never reaches the game, whichever button is let go
+first; it is latched, so ejecting stops it. SELECT+X still flips the
+picture, SELECT alone still reaches the game once the chord window closes,
+and an L2 or R2 still held at eject is let go before the eject save. The
+face buttons follow position: Cross on B, Circle on A, Square on Y and
+Triangle on X, with turbo passing X and Y through.
+
+Handing the triggers to the game follows gmaster1998/slot.ps1's toggle
+(GPL-3.0).
+---
+ crates/slot-input/src/gesture.rs         |  12 +-
+ crates/slot-input/src/gesture/ps1.rs     |  22 +++-
+ crates/slot-input/tests/ps1_gesture.rs   |  93 +++++++++++++++-
+ crates/slot-retro/src/core.rs            |   2 +
+ crates/slot-store/src/platform_policy.rs |  14 +++
+ crates/slot/src/input/mask.rs            |   2 +
+ crates/slot/src/session.rs               |   8 ++
+ crates/slot/tests/ps1_input.rs           | 134 +++++++++++++++++++++++
+ 8 files changed, 281 insertions(+), 6 deletions(-)
+ create mode 100644 crates/slot/tests/ps1_input.rs
+
+diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
+index 56709c6..315a3fe 100644
+--- a/crates/slot-input/src/gesture.rs
++++ b/crates/slot-input/src/gesture.rs
+@@ -90,6 +90,7 @@ pub struct Gestures {
+     rewinding: bool,
+     video_mode_chord: bool,
+     disc_chord: bool,
++    triggers_to_game: bool,
+ }
+ 
+ fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
+@@ -185,6 +186,9 @@ impl Gestures {
+             self.chord_held |= bit;
+             return vec![action];
+         }
++        if let Some(out) = self.ps1_down(b, now) {
++            return out;
++        }
+         let chord = self
+             .ps1_chord(chord(b))
+             .filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
+@@ -203,8 +207,8 @@ impl Gestures {
+             }
+             Btn::Lid => vec![Action::LidClose],
+             Btn::VolUp | Btn::VolDown => self.volume_press(b, now),
+-            Btn::L2 => self.rewind_start(),
+-            Btn::R2 => self.ff_down(now),
++            Btn::L2 if !self.triggers_to_game => self.rewind_start(),
++            Btn::R2 if !self.triggers_to_game => self.ff_down(now),
+             _ => {
+                 let mut out = self.hand_over_select(now);
+                 out.push(Action::GbaDown(b));
+@@ -226,8 +230,8 @@ impl Gestures {
+             Btn::Power => self.power_up(),
+             Btn::Lid => vec![Action::LidOpen],
+             Btn::VolUp | Btn::VolDown => self.volume_release(b),
+-            Btn::L2 => self.rewind_stop(),
+-            Btn::R2 => self.ff_up(now),
++            Btn::L2 if !self.triggers_to_game => self.rewind_stop(),
++            Btn::R2 if !self.triggers_to_game => self.ff_up(now),
+             _ => vec![Action::GbaUp(b)],
+         }
+     }
+diff --git a/crates/slot-input/src/gesture/ps1.rs b/crates/slot-input/src/gesture/ps1.rs
+index e90b726..8091f49 100644
+--- a/crates/slot-input/src/gesture/ps1.rs
++++ b/crates/slot-input/src/gesture/ps1.rs
+@@ -1,14 +1,34 @@
+-use super::{Action, Gestures};
++use super::{chord, Action, Gestures};
++use crate::{Btn, Millis};
+ 
+ impl Gestures {
+     pub fn set_disc_chord(&mut self, on: bool) {
+         self.disc_chord = on;
+     }
+ 
++    pub fn set_triggers_to_game(&mut self, on: bool) {
++        self.triggers_to_game = on;
++    }
++
+     pub(super) fn ps1_chord(&self, chord: Option<(u16, Action)>) -> Option<(u16, Action)> {
+         match chord {
+             Some((bit, Action::PalettePrev)) if self.disc_chord => Some((bit, Action::DiscNext)),
+             other => other,
+         }
+     }
++
++    pub(super) fn ps1_down(&mut self, b: Btn, now: Millis) -> Option<Vec<Action>> {
++        if !self.triggers_to_game || b != Btn::R2 || !self.chording(now) {
++            return None;
++        }
++        let (bit, _) = chord(b)?;
++        self.mark_chorded();
++        self.chord_held |= bit;
++        if self.ff_on {
++            return Some(self.ff_clear());
++        }
++        self.ff_on = true;
++        self.ff_latched = true;
++        Some(vec![Action::FfStart])
++    }
+ }
+diff --git a/crates/slot-input/tests/ps1_gesture.rs b/crates/slot-input/tests/ps1_gesture.rs
+index 1f9060d..eeb2ac0 100644
+--- a/crates/slot-input/tests/ps1_gesture.rs
++++ b/crates/slot-input/tests/ps1_gesture.rs
+@@ -1,4 +1,4 @@
+-use slot_input::{Action, Btn, Gestures, RawEvent};
++use slot_input::{Action, Btn, Gestures, RawEvent, SELECT_CHORD_MS};
+ 
+ fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
+     let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
+@@ -28,3 +28,94 @@ fn select_l2_still_steps_the_palette_back_everywhere_else() {
+         [Action::PalettePrev]
+     );
+ }
++
++fn press(g: &mut Gestures, b: Btn, at: u64) -> Vec<Action> {
++    let mut out = g.feed(RawEvent::Down(b), at);
++    out.extend(g.feed(RawEvent::Up(b), at + 50));
++    out
++}
++
++fn ps1_with_triggers() -> Gestures {
++    let mut g = ps1();
++    g.set_triggers_to_game(true);
++    g
++}
++
++#[test]
++fn every_shoulder_and_trigger_reaches_the_ps1_game() {
++    let mut g = ps1_with_triggers();
++    for b in [Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++        assert_eq!(
++            press(&mut g, b, 1000),
++            [Action::GbaDown(b), Action::GbaUp(b)],
++            "{b:?}"
++        );
++    }
++}
++
++#[test]
++fn l2_and_r2_still_rewind_and_fast_forward_on_gba() {
++    let mut g = Gestures::new();
++    assert_eq!(
++        press(&mut g, Btn::L2, 1000),
++        [Action::RewindStart, Action::RewindStop]
++    );
++    assert_eq!(
++        press(&mut g, Btn::R2, 2000),
++        [Action::FfStart, Action::FfStop]
++    );
++}
++
++#[test]
++fn select_r2_toggles_fast_forward_on_ps1_and_never_reaches_the_game() {
++    let mut g = ps1_with_triggers();
++    assert_eq!(select_with(&mut g, Btn::R2), [Action::FfStart]);
++    assert!(g.ff_latched());
++    let mut off = g.feed(RawEvent::Down(Btn::Select), 3000);
++    off.extend(g.feed(RawEvent::Down(Btn::R2), 3020));
++    off.extend(g.feed(RawEvent::Up(Btn::R2), 3100));
++    off.extend(g.feed(RawEvent::Up(Btn::Select), 3120));
++    off.extend(g.tick(4000));
++    assert_eq!(off, [Action::FfStop]);
++}
++
++#[test]
++fn letting_go_of_select_before_r2_still_keeps_r2_from_the_game() {
++    let mut g = ps1_with_triggers();
++    let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
++    out.extend(g.feed(RawEvent::Down(Btn::R2), 1020));
++    out.extend(g.feed(RawEvent::Up(Btn::Select), 1100));
++    out.extend(g.feed(RawEvent::Up(Btn::R2), 1120));
++    out.extend(g.tick(2000));
++    assert_eq!(out, [Action::FfStart]);
++}
++
++#[test]
++fn the_ps1_fast_forward_stops_when_the_game_goes() {
++    let mut g = ps1_with_triggers();
++    select_with(&mut g, Btn::R2);
++    assert_eq!(g.drop_ff_latch(), [Action::FfStop]);
++}
++
++#[test]
++fn select_x_flips_the_ps1_picture() {
++    assert_eq!(
++        select_with(&mut ps1_with_triggers(), Btn::X),
++        [Action::VideoModeToggle]
++    );
++}
++
++#[test]
++fn select_alone_reaches_the_ps1_game_once_the_chord_window_closes() {
++    let mut g = ps1_with_triggers();
++    assert!(g.feed(RawEvent::Down(Btn::Select), 1000).is_empty());
++    assert!(g.tick(1000 + SELECT_CHORD_MS - 1).is_empty());
++    assert_eq!(
++        g.tick(1000 + SELECT_CHORD_MS),
++        [Action::GbaDown(Btn::Select)]
++    );
++    assert_eq!(
++        g.feed(RawEvent::Up(Btn::Select), 2000),
++        [Action::GbaUp(Btn::Select)]
++    );
++}
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index ec927a1..da02b2e 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -24,6 +24,8 @@ impl ButtonMask {
+     pub const X: u16 = 1 << 9;
+     pub const L: u16 = 1 << 10;
+     pub const R: u16 = 1 << 11;
++    pub const L2: u16 = 1 << 12;
++    pub const R2: u16 = 1 << 13;
+ 
+     pub fn without_turbo(self) -> ButtonMask {
+         ButtonMask(self.0 & !(Self::X | Self::Y))
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 1896363..6215838 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -160,4 +160,18 @@ impl Platform {
+             | Platform::Md => false,
+         }
+     }
++
++    pub fn owns_triggers(self) -> bool {
++        match self {
++            Platform::Ps1 => false,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md => true,
++        }
++    }
+ }
+diff --git a/crates/slot/src/input/mask.rs b/crates/slot/src/input/mask.rs
+index 9c03b8a..327bbc4 100644
+--- a/crates/slot/src/input/mask.rs
++++ b/crates/slot/src/input/mask.rs
+@@ -44,6 +44,8 @@ fn bit(btn: Btn) -> Option<u16> {
+         Btn::Y => ButtonMask::Y,
+         Btn::L1 => ButtonMask::L,
+         Btn::R1 => ButtonMask::R,
++        Btn::L2 => ButtonMask::L2,
++        Btn::R2 => ButtonMask::R2,
+         Btn::Start => ButtonMask::START,
+         Btn::Select => ButtonMask::SELECT,
+         _ => return None,
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index eb75d95..3d5e3a1 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -209,6 +209,12 @@ impl Session {
+             Action::FfStart if !menu_open => self.fast = true,
+             Action::FfStop => self.fast = false,
+             Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
++            Action::Eject if !self.app.playing_platform().owns_triggers() => {
++                for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
++                    self.pad.apply(Action::GbaUp(b));
++                }
++                self.sync_pad();
++            }
+             _ => {}
+         }
+         let menu = self.overlaid();
+@@ -518,6 +524,8 @@ impl Session {
+         self.gestures
+             .set_video_mode_chord(platform.select_x_toggles_picture());
+         self.gestures.set_disc_chord(platform.swaps_discs());
++        self.gestures
++            .set_triggers_to_game(!platform.owns_triggers());
+         self.app.set_snapshot(Box::new(emu.snapshot()));
+         self.emu = Some(emu);
+     }
+diff --git a/crates/slot/tests/ps1_input.rs b/crates/slot/tests/ps1_input.rs
+new file mode 100644
+index 0000000..aea0df6
+--- /dev/null
++++ b/crates/slot/tests/ps1_input.rs
+@@ -0,0 +1,134 @@
++mod common;
++mod core_common;
++mod ps1_common;
++mod real_seat;
++
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed};
++use slot::app::Phase;
++use slot::input::Pad;
++use slot::session::Session;
++use slot::video_mode::VideoMode;
++use slot_input::{Action, Btn, RawEvent};
++use slot_retro::{ButtonMask, TurboMode};
++use slot_store::Platform;
++
++const STEM: &str = "Tekken";
++
++fn playing() -> Option<(tempfile::TempDir, Session)> {
++    let dylib = pcsx_rearmed()?;
++    let discs = tempfile::tempdir().expect("tempdir");
++    let cue = disc(discs.path(), STEM);
++    let root = real_seat::rooted(Platform::Ps1, STEM, &cue, &dylib);
++    std::fs::copy(
++        discs.path().join(format!("{STEM}.bin")),
++        root.path().join("Games/PS1").join(format!("{STEM}.bin")),
++    )
++    .expect("copy bin");
++    disc(&root.path().join("Games/PS1"), "Zzz");
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn input_of(session: &Session) -> u16 {
++    session.emu().expect("no core in the slot").input().0
++}
++
++#[test]
++fn the_ps1_face_buttons_go_to_the_core_by_position() {
++    for (btn, bit, pad) in [
++        (Btn::B, ButtonMask::B, "Cross"),
++        (Btn::A, ButtonMask::A, "Circle"),
++        (Btn::Y, ButtonMask::Y, "Square"),
++        (Btn::X, ButtonMask::X, "Triangle"),
++    ] {
++        let mut p = Pad::default();
++        p.apply(Action::GbaDown(btn));
++        assert_eq!(p.mask().0, bit, "{pad}");
++    }
++}
++
++#[test]
++fn l2_and_r2_are_the_libretro_ids_12_and_13() {
++    for (btn, id) in [(Btn::L2, 12), (Btn::R2, 13)] {
++        let mut p = Pad::default();
++        p.apply(Action::GbaDown(btn));
++        assert_eq!(p.mask().0, 1 << id, "{btn:?}");
++        p.apply(Action::GbaUp(btn));
++        assert_eq!(p.mask().0, 0, "{btn:?}");
++    }
++}
++
++#[test]
++fn only_ps1_hands_the_triggers_to_the_game_and_its_turbo_passes_through() {
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            platform.owns_triggers(),
++            platform != Platform::Ps1,
++            "{platform:?}"
++        );
++    }
++    assert!(!Platform::Ps1.owns_shoulders());
++    assert_eq!(
++        TurboMode::from_flags(Platform::Ps1.passes_xy_through(), true),
++        TurboMode::PassThrough
++    );
++}
++
++#[test]
++fn l1_r1_l2_and_r2_reach_the_ps1_core() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    for (btn, bit) in [
++        (Btn::L1, ButtonMask::L),
++        (Btn::R1, ButtonMask::R),
++        (Btn::L2, ButtonMask::L2),
++        (Btn::R2, ButtonMask::R2),
++    ] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
++
++#[test]
++fn select_x_flips_the_ps1_picture_and_never_reaches_the_game() {
++    let _g = core_lock();
++    let Some((root, mut session)) = playing() else {
++        return;
++    };
++    assert!(session.app().source_rect()[0] < 0.0, "Actual has its bars");
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    session.feed([RawEvent::Down(Btn::X)], 5016);
++    assert_eq!(input_of(&session), 0);
++    session.feed([RawEvent::Up(Btn::X)], 5100);
++    session.feed([RawEvent::Up(Btn::Select)], 5116);
++    assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(
++        slot::platform_video::video_mode_for(root.path(), STEM, Platform::Ps1),
++        VideoMode::Stretch
++    );
++}
++
++#[test]
++fn an_l2_held_through_the_eject_is_let_go_before_the_game_is_saved() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    session.feed([RawEvent::Down(Btn::L2)], 5000);
++    assert_eq!(input_of(&session), ButtonMask::L2);
++    session.feed([RawEvent::Down(Btn::Menu)], 5100);
++    session.feed([], 6200);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while !matches!(session.app().phase(), Phase::Ejecting { .. }) {
++        assert!(Instant::now() < deadline, "holding Menu did not eject");
++        session.update(1.0 / 60.0);
++    }
++    assert_eq!(input_of(&session), 0);
++}
