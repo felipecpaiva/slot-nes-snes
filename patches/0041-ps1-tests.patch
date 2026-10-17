@@ -1,0 +1,269 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 17 Oct 2026 18:56:11 +0400
+Subject: [PATCH] ps1-tests
+
+The PS1 memory card survives a restart byte for byte: a 128 KB card on
+the SD card reaches pcsx at boot, comes back out on eject, and is the
+card the next session's game sees. A GBA game played after a PS1 game
+gets the same input (triggers, Select+X, pass-through) and the same
+picture (source rect, frame width, 240x160 frame) as a GBA-only run.
+ps1_analog forces pcsx_rearmed_bios=HLE like the other direct-core tests.
+---
+ crates/slot/tests/ps1_analog.rs   |   1 +
+ crates/slot/tests/ps1_card.rs     |  72 ++++++++++++++
+ crates/slot/tests/ps1_then_gba.rs | 154 ++++++++++++++++++++++++++++++
+ 3 files changed, 227 insertions(+)
+ create mode 100644 crates/slot/tests/ps1_card.rs
+ create mode 100644 crates/slot/tests/ps1_then_gba.rs
+
+diff --git a/crates/slot/tests/ps1_analog.rs b/crates/slot/tests/ps1_analog.rs
+index 735948c..288e969 100644
+--- a/crates/slot/tests/ps1_analog.rs
++++ b/crates/slot/tests/ps1_analog.rs
+@@ -33,6 +33,7 @@ fn pcsx_on_a_disc(dylib: &Path, slot_options: bool) -> LibretroCore {
+             None,
+         );
+     }
++    core.set_option("pcsx_rearmed_bios", "HLE");
+     run_after_load(&mut core, &cue);
+     core
+ }
+diff --git a/crates/slot/tests/ps1_card.rs b/crates/slot/tests/ps1_card.rs
+new file mode 100644
+index 0000000..4362b6e
+--- /dev/null
++++ b/crates/slot/tests/ps1_card.rs
+@@ -0,0 +1,72 @@
++mod common;
++mod core_common;
++mod ps1_common;
++mod real_seat;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed};
++use slot::app::Phase;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++
++const STEM: &str = "Spyro";
++const CARD_BYTES: usize = 128 * 1024;
++
++fn seated(dylib: &Path) -> tempfile::TempDir {
++    let discs = tempfile::tempdir().expect("tempdir");
++    let cue = disc(discs.path(), STEM);
++    let root = real_seat::rooted(Platform::Ps1, STEM, &cue, dylib);
++    std::fs::copy(
++        discs.path().join(format!("{STEM}.bin")),
++        root.path().join("Games/PS1").join(format!("{STEM}.bin")),
++    )
++    .expect("copy bin");
++    disc(&root.path().join("Games/PS1"), "Zzz");
++    root
++}
++
++fn card_file(root: &Path) -> PathBuf {
++    root.join("Saves/PS1").join(format!("{STEM}.sav"))
++}
++
++fn card_in_the_core(session: &Session) -> Option<Vec<u8>> {
++    session
++        .emu()
++        .expect("no core in the slot")
++        .snapshot()
++        .save_ram()
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++#[test]
++fn the_128_kb_memory_card_comes_back_byte_for_byte_after_a_restart() {
++    let _g = core_lock();
++    let Some(dylib) = pcsx_rearmed() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let card: Vec<u8> = (0..CARD_BYTES).map(|i| (i * 7 % 251) as u8).collect();
++    std::fs::write(card_file(root.path()), &card).expect("write card");
++
++    let mut first = real_seat::play(root.path(), true);
++    assert!(card_in_the_core(&first) == Some(card.clone()), "first boot");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(card_file(root.path())).expect("read card") == card);
++
++    let second = real_seat::play(root.path(), true);
++    assert!(card_in_the_core(&second) == Some(card), "after the restart");
++}
+diff --git a/crates/slot/tests/ps1_then_gba.rs b/crates/slot/tests/ps1_then_gba.rs
+new file mode 100644
+index 0000000..c20efe0
+--- /dev/null
++++ b/crates/slot/tests/ps1_then_gba.rs
+@@ -0,0 +1,154 @@
++mod common;
++mod core_common;
++mod ps1_common;
++mod real_seat;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use ps1_common::{disc, pcsx_rearmed};
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(20);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn booted(pcsx: &Path, mgba: &Path) -> Rig {
++        let discs = tempfile::tempdir().expect("tempdir");
++        let cue = disc(discs.path(), "Aaa");
++        let root = real_seat::rooted(Platform::Ps1, "Aaa", &cue, pcsx);
++        std::fs::copy(
++            discs.path().join("Aaa.bin"),
++            root.path().join("Games/PS1/Aaa.bin"),
++        )
++        .expect("copy bin");
++        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
++        std::os::unix::fs::symlink(
++            std::fs::canonicalize(mgba).expect("core path"),
++            root.path().join("System").join(dylib_name(Core::Mgba)),
++        )
++        .expect("link core");
++        let mut sink = StubSink::draining();
++        sink.open(32_768).expect("the stub refused to open");
++        Rig {
++            session: Session::boot_with(root.path().to_path_buf(), Box::new(sink)),
++            root,
++            now: 0,
++        }
++    }
++
++    fn playing(&mut self, what: &str) {
++        self.until(what, |s| {
++            matches!(s.app().phase(), Phase::Playing { .. }) && s.frames_published() >= 10
++        });
++    }
++
++    fn gba(after_ps1: bool) -> Option<Rig> {
++        let pcsx = pcsx_rearmed()?;
++        let mgba = core_common::require_core("mgba")?;
++        let mut r = Rig::booted(&pcsx, &mgba);
++        if after_ps1 {
++            r.tap(Btn::R1);
++            r.tap(Btn::A);
++            r.playing("the ps1 disc to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Ps1);
++            r.feed(RawEvent::Down(Btn::Menu));
++            r.until("the eject", |s| !s.has_core());
++            r.feed(RawEvent::Up(Btn::Menu));
++            r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++            r.tap(Btn::L1);
++        }
++        r.tap(Btn::A);
++        r.playing("the gba cart to seat");
++        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
++        Some(r)
++    }
++
++    fn input(&mut self) -> Vec<u16> {
++        let mut seen = vec![u16::from(
++            self.session.emu().expect("core").passes_through(),
++        )];
++        for btn in [Btn::A, Btn::B, Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++            self.feed(RawEvent::Down(btn));
++            seen.push(self.pad());
++            self.feed(RawEvent::Up(btn));
++            seen.push(self.pad());
++        }
++        self.feed(RawEvent::Down(Btn::Select));
++        self.feed(RawEvent::Down(Btn::X));
++        seen.push(self.pad() & ButtonMask::X);
++        self.feed(RawEvent::Up(Btn::X));
++        self.feed(RawEvent::Up(Btn::Select));
++        seen.push(u16::from(
++            self.root.path().join("Config/video_mode.txt").exists(),
++        ));
++        seen
++    }
++
++    fn picture(&self) -> ([f32; 4], u32, usize) {
++        let emu = self.session.emu().expect("core");
++        let frame = emu.latest_frame().expect("nothing was published").len();
++        (self.session.app().source_rect(), emu.frame_width(), frame)
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_ps1_game_gets_the_same_input_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(mut alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.input();
++    drop(alone);
++    let mut after = Rig::gba(true).expect("cores");
++    assert_eq!(after.input(), want);
++}
++
++#[test]
++fn a_gba_game_after_a_ps1_game_gets_the_same_picture_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.picture();
++    assert_eq!(want.2, 240 * 160 * 4);
++    drop(alone);
++    let after = Rig::gba(true).expect("cores");
++    assert_eq!(after.picture(), want);
++}

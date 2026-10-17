@@ -129,6 +129,35 @@ session as the others, on the same governor.
 - These are 2-minute runs, not the 10-minute gate. Not measured: a resume after more than 3 s of pause still
   reopens the device (one ~251 ms stall), and whether the speaker buzzes during long in-game silence.
 
+## PlayStation (pcsx_rearmed)
+
+PS1 real-play gate from issue 63, on the ari64 dynarec build of pcsx_rearmed that `task core:device`
+ships (the host tests run the interpreter, so they say nothing about speed on the H700). Two titles,
+3 minutes each, scripted input, one run:
+
+1. `task deploy:device`. Note the zip version.
+2. `task perf:play PLATFORM=ps1 MINUTES=3 RUNS=1` plays `CTR - Crash Team Racing (USA)` (pair
+   `ps1-pcsx_rearmed-heavy`, 3D racing with music).
+3. `CORE=pcsx_rearmed PLATFORM=ps1 STEM='Spyro the Dragon (USA)' PAIR=ps1-pcsx_rearmed-light MINUTES=3 RUNS=1 sh scripts/auto-play.sh`
+   plays Spyro (`task perf:play` does not pass `PAIR`). The stems must match the card's file names
+   without `.chd`, `.cue`, `.pbp` or `.m3u`; a wrong one prints "skipped".
+4. Read `docs/perf/<date>/play/play-eval.md` and fill one row per title below. Fail a title on any of:
+   starved or dropped above 0; a present above 1.5x the period after the first window; `ft_p99_worst`
+   above 1.1x `ft_p50_med`; `crash` above 0; a session that did not end cleanly; or
+   `grep -c panicked docs/perf/<date>/play/ps1-*.log` above 0 (`parse_log` does not count panics).
+
+These are 3-minute runs, not the 10-minute criterion 4. A pass here is the go to run the 10 minutes.
+
+| Title | Core | Starved / dropped in 3 min | p50 / p99 / max present ms | Crash or panic lines | Clean eject | CPU governor | Date | Zip version |
+|---|---|---|---|---|---|---|---|---|
+| CTR - Crash Team Racing | pcsx_rearmed | 0 / 0 | 16.79 / 17.69 / 24.06 (61.44 in the first window) | 0 / 0 | yes | performance | 2026-10-17 | v1.7.0-ns.0 (main 96248fb) |
+| Spyro the Dragon | pcsx_rearmed | 0 / 0 | 16.79 / 19.07 / 25.67 (152.78 in the first window, 35.14 on eject) | 0 / 0 | yes | performance | 2026-10-17 | v1.7.0-ns.0 (main 96248fb) |
+
+CTR passes. Spyro misses two limits by a small margin, with no audio cost: one window's p99 is 19.07
+ms (1.14x the median, limit 1.1x) and one present is 25.67 ms (1.53x the period, limit 1.5x). Every
+other window's p99 is 17.3 to 17.8 ms. The 35.14 ms present is the eject at the end of the run. Likely
+a level load (CD read) under the scripted input; to confirm with the 10-minute run.
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

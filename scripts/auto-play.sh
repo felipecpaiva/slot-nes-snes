@@ -11,7 +11,7 @@
 #   task perf:play CORE=mgba PLATFORM=gba STEM='<name on the card>' MINUTES=1 RUNS=1    one custom pair
 #   sh scripts/auto-play.sh selftest                 local checks, no device
 #   sh scripts/auto-play.sh eval [YYYY-MM-DD]        rebuild play-eval.md from saved logs, no device
-# Env: CORE PLATFORM(gba|gb|gbc|nes|snes|gg|sms|md) STEM (card file name, extension optional) PAIR (id for a custom pair)
+# Env: CORE PLATFORM(gba|gb|gbc|nes|snes|gg|sms|md|ps1) STEM (card file name, extension optional) PAIR (id for a custom pair)
 #   MINUTES=10 RUNS=3 SD=/mnt/sdcard ADB=adb DATE=<today> NODE_KEYS=/dev/input/eventN NODE_HAT=/dev/input/eventN
 #
 # How the input gets in: slot reads every /dev/input/event* node that has buttons (no EVIOCGRAB). Writing a
@@ -64,7 +64,21 @@ gbc-mgba-card|gbc|mgba|Legend of Zelda, The - Link's Awakening DX (U) (V1.2) [C]
 md-genesis_plus_gx-heavy|md|genesis_plus_gx|Virtua Racing (USA)
 md-genesis_plus_gx-light|md|genesis_plus_gx|Sonic The Hedgehog (USA, Europe)
 sms-genesis_plus_gx-light|sms|genesis_plus_gx|Alex Kidd in Miracle World (USA, Europe, Brazil) (Rev 1)
-gg-genesis_plus_gx-light|gg|genesis_plus_gx|Sonic Chaos (USA, Europe)"
+gg-genesis_plus_gx-light|gg|genesis_plus_gx|Sonic Chaos (USA, Europe)
+ps1-pcsx_rearmed-heavy|ps1|pcsx_rearmed|CTR - Crash Team Racing (USA)"
+
+# STEM without a known cart or disc extension, so "Name.chd" and "Name" pick the same files on the card.
+stem_of() {
+	case "$1" in
+	*.[gG][bB][aA] | *.[gG][bB][cC] | *.[nN][eE][sS] | *.[sS][fF][cC] | *.[sS][mM][cC] | *.[zZ][iI][pP] | *.[gG][gG] | *.[sS][mM][sS] | *.[mM][dD] | *.[gG][eE][nN] | *.[bB][iI][nN] | *.[cC][hH][dD] | *.[cC][uU][eE] | *.[pP][bB][pP] | *.[mM]3[uU]) printf '%s' "${1%.*}" ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+
+# The default pairs on core $1 and platform $2 (either empty for all).
+default_pairs() {
+	printf '%s\n' "$pairs" | awk -F'|' -v c="$1" -v p="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')" '(c == "" || $3 == c) && (p == "" || $2 == p)'
+}
 
 # One struct input_event as a printf format string: aarch64, 16 bytes of zero timeval, u16 type, u16 code,
 # i32 value, little endian, 24 bytes. ev TYPE CODE VALUE
@@ -189,6 +203,14 @@ selftest() {
 	rm -f "$f"
 	want="boot_ms 900.0;insert_ms 600.5;summary 1;starved 40;dropped 3;trace_starved_max 12;trace_dropped_max 0;lat_med 20;lat_p99 30;lat_max 30;lat_n 2;pace_missed 2;pace_early 1;pace_work_med 9.5;pace_work_max 9.5;pace_period_med 16.7;ft_p50_med 16.78;ft_p99_worst 17.1;ft_max 20;crash 0;"
 	[ "$got" = "$want" ] || die "selftest: parse_log gave $got"
+	for f in 'Spyro the Dragon (USA).chd' 'Spyro the Dragon (USA).CUE' 'Spyro the Dragon (USA).m3u' 'Spyro the Dragon (USA).pbp' 'Spyro the Dragon (USA)'; do
+		[ "$(stem_of "$f")" = 'Spyro the Dragon (USA)' ] || die "selftest: stem_of $f is $(stem_of "$f")"
+	done
+	[ "$(stem_of 'Super Mario Bros. (World)')" = 'Super Mario Bros. (World)' ] || die "selftest: stem_of cut a title at its dot"
+	got="$(default_pairs "" PS1)"
+	[ "$got" = 'ps1-pcsx_rearmed-heavy|ps1|pcsx_rearmed|CTR - Crash Team Racing (USA)' ] || die "selftest: PLATFORM=ps1 picks $got"
+	[ "$(default_pairs pcsx_rearmed "")" = "$got" ] || die "selftest: CORE=pcsx_rearmed picks another pair"
+	[ "$(default_pairs "" "" | wc -l | tr -d ' ')" = 18 ] || die "selftest: the default pairs are not 18"
 	echo "selftest ok"
 }
 
@@ -211,13 +233,11 @@ case "$MINUTES$RUNS" in *[!0-9]* | "") die "MINUTES and RUNS must be whole numbe
 # Choose the pairs.
 if [ -n "$STEM" ]; then
 	[ -n "$CORE" ] && [ -n "$PLATFORM" ] || die "a custom STEM needs CORE and PLATFORM"
-	case "$STEM" in
-	*.[gG][bB][aA] | *.[gG][bB][cC] | *.[nN][eE][sS] | *.[sS][fF][cC] | *.[sS][mM][cC] | *.[zZ][iI][pP] | *.[gG][gG] | *.[sS][mM][sS] | *.[mM][dD] | *.[gG][eE][nN] | *.[bB][iI][nN]) STEM="${STEM%.*}" ;;
-	esac
+	STEM="$(stem_of "$STEM")"
 	pl="$(printf '%s' "$PLATFORM" | tr '[:upper:]' '[:lower:]')"
 	sel="${PAIR:-$pl-$CORE-custom}|$pl|$CORE|$STEM"
 else
-	sel="$(printf '%s\n' "$pairs" | awk -F'|' -v c="$CORE" -v p="$(printf '%s' "$PLATFORM" | tr '[:upper:]' '[:lower:]')" '(c == "" || $3 == c) && (p == "" || $2 == p)')"
+	sel="$(default_pairs "$CORE" "$PLATFORM")"
 	[ -n "$sel" ] || die "no default pair matches CORE='$CORE' PLATFORM='$PLATFORM'"
 fi
 
