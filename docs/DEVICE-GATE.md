@@ -150,8 +150,13 @@ These are 3-minute runs, not the 10-minute criterion 4. A pass here is the go to
 
 | Title | Core | Starved / dropped in 3 min | p50 / p99 / max present ms | Crash or panic lines | Clean eject | CPU governor | Date | Zip version |
 |---|---|---|---|---|---|---|---|---|
-| CTR - Crash Team Racing | pcsx_rearmed | | | | | | | |
-| Spyro the Dragon | pcsx_rearmed | | | | | | | |
+| CTR - Crash Team Racing | pcsx_rearmed | 0 / 0 | 16.79 / 17.69 / 24.06 (61.44 in the first window) | 0 / 0 | yes | performance | 2026-10-17 | v1.7.0-ns.0 (main 96248fb) |
+| Spyro the Dragon | pcsx_rearmed | 0 / 0 | 16.79 / 19.07 / 25.67 (152.78 in the first window, 35.14 on eject) | 0 / 0 | yes | performance | 2026-10-17 | v1.7.0-ns.0 (main 96248fb) |
+
+CTR passes. Spyro misses two limits by a small margin, with no audio cost: one window's p99 is 19.07
+ms (1.14x the median, limit 1.1x) and one present is 25.67 ms (1.53x the period, limit 1.5x). Every
+other window's p99 is 17.3 to 17.8 ms. The 35.14 ms present is the eject at the end of the run. Likely
+a level load (CD read) under the scripted input; to confirm with the 10-minute run.
 
 ## Core bench on the device (test carts)
 
