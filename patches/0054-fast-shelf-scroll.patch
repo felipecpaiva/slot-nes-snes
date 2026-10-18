@@ -1,0 +1,502 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:26:10 +0400
+Subject: [PATCH] fast-shelf-scroll
+
+Holding Left or Right on a shelf of 60 or more carts moves 3 carts per
+repeat after 30 repeats (about 2 s). While it is fast the row is kept
+within one cart of the selection so it never runs off the screen, and the
+cart face loader stops waiting for visible faces: carts still loading
+draw as their label-coloured placeholder. Once a fast hold is let go and
+the row has settled, the device logs `slot: fast scroll:` with the frame
+count, p50, p99 and max frame time (the release and settle frames
+included), the panel period, and the frames that showed a placeholder or
+an empty row.
+
+Adapted from marghost/slot_modded efe32cd and 0fce212, which take it from
+stevolarn/slot, GPL-3.0.
+---
+ crates/slot-ui/src/shelf.rs               |   5 +-
+ crates/slot-ui/src/shelf/fast.rs          |  28 +++++
+ crates/slot-ui/tests/shelf_fast_scroll.rs | 105 ++++++++++++++++++
+ crates/slot/src/app.rs                    |   3 +-
+ crates/slot/src/app/fast_scroll.rs        |  23 ++++
+ crates/slot/src/device_app.rs             |   5 +
+ crates/slot/src/fast_scroll_trace.rs      |  73 +++++++++++++
+ crates/slot/src/lib.rs                    |   1 +
+ crates/slot/tests/fast_scroll.rs          | 125 ++++++++++++++++++++++
+ 9 files changed, 366 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot-ui/src/shelf/fast.rs
+ create mode 100644 crates/slot-ui/tests/shelf_fast_scroll.rs
+ create mode 100644 crates/slot/src/app/fast_scroll.rs
+ create mode 100644 crates/slot/src/fast_scroll_trace.rs
+ create mode 100644 crates/slot/tests/fast_scroll.rs
+
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index 03572c8..08465a2 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -13,6 +13,8 @@ use crate::retro_shadows::published;
+ use crate::silhouette::GbShell;
+ use crate::slot_chrome::{draw_empty_slot, MOUTH_H};
+ 
++mod fast;
++
+ const SIDE_SCALE: f32 = 0.78;
+ const SIDE_ALPHA: f32 = 1.0;
+ 
+@@ -352,7 +354,7 @@ impl Shelf {
+         if now < due {
+             return;
+         }
+-        self.step(by);
++        self.step(by * self.stride());
+         self.held = Some((by, now + repeat_gap(fired), fired + 1));
+     }
+ 
+@@ -426,6 +428,7 @@ impl Shelf {
+         let accel = -2.0 * OMEGA * self.vel - OMEGA * OMEGA * (self.scroll - self.scroll_target());
+         self.vel += accel * dt;
+         self.scroll += self.vel * dt;
++        self.leash();
+     }
+ 
+     pub fn draw(
+diff --git a/crates/slot-ui/src/shelf/fast.rs b/crates/slot-ui/src/shelf/fast.rs
+new file mode 100644
+index 0000000..a1f3d26
+--- /dev/null
++++ b/crates/slot-ui/src/shelf/fast.rs
+@@ -0,0 +1,28 @@
++use super::Shelf;
++
++const FAST_AFTER: usize = 30;
++const LONG_SHELF: usize = 60;
++const FAST_STRIDE: i32 = 3;
++const LEASH: f32 = 1.0;
++
++impl Shelf {
++    pub fn fast(&self) -> bool {
++        matches!(self.held, Some((_, _, fired)) if fired >= FAST_AFTER)
++            && self.carts.len() >= LONG_SHELF
++    }
++
++    pub(super) fn stride(&self) -> i32 {
++        match self.fast() {
++            true => FAST_STRIDE,
++            false => 1,
++        }
++    }
++
++    pub(super) fn leash(&mut self) {
++        if !self.fast() {
++            return;
++        }
++        let target = self.scroll_target();
++        self.scroll = self.scroll.clamp(target - LEASH, target + LEASH);
++    }
++}
+diff --git a/crates/slot-ui/tests/shelf_fast_scroll.rs b/crates/slot-ui/tests/shelf_fast_scroll.rs
+new file mode 100644
+index 0000000..7be704a
+--- /dev/null
++++ b/crates/slot-ui/tests/shelf_fast_scroll.rs
+@@ -0,0 +1,105 @@
++use slot_store::{Cart, Platform};
++use slot_ui::{Canvas, Shelf};
++
++fn shelf_with(n: usize) -> Shelf {
++    Shelf::new(
++        (0..n)
++            .map(|i| Cart {
++                platform: Platform::Gba,
++                stem: format!("Game {i:03}"),
++                rom: format!("Games/GBA/Game {i:03}.gba").into(),
++                label: None,
++                code: String::new(),
++                shell: None,
++                title: format!("GAME {i:03}"),
++            })
++            .collect(),
++    )
++}
++
++fn hold_for(s: &mut Shelf, frames: u64) {
++    s.hold_right(0);
++    for f in 1..=frames {
++        s.tick(f * 1000 / 60);
++        s.update(1.0 / 60.0);
++    }
++}
++
++fn repeat_at(fired: usize) -> u64 {
++    400 + (0..fired).map(slot_ui::repeat_gap).sum::<u64>()
++}
++
++fn draws_a_cart(s: &Shelf) -> bool {
++    let mut out = Vec::new();
++    s.draw_row(Canvas::FRAMED, None, 0.0, 0.0, 1.0, &mut out);
++    !out.is_empty()
++}
++
++#[test]
++fn the_first_thirty_repeats_move_one_cart_each() {
++    let mut s = shelf_with(100);
++    s.hold_right(0);
++    for fired in 0..30 {
++        s.tick(repeat_at(fired));
++    }
++    assert_eq!(s.index, 31);
++    assert!(s.fast());
++}
++
++#[test]
++fn the_thirty_first_repeat_on_a_long_shelf_moves_three_carts() {
++    let mut s = shelf_with(100);
++    s.hold_right(0);
++    for fired in 0..31 {
++        s.tick(repeat_at(fired));
++    }
++    assert_eq!(s.index, 34);
++}
++
++#[test]
++fn a_shelf_under_sixty_carts_never_moves_more_than_one_a_step() {
++    let mut s = shelf_with(59);
++    s.hold_right(0);
++    for fired in 0..40 {
++        s.tick(repeat_at(fired));
++    }
++    assert_eq!(s.index, 41);
++    assert!(!s.fast());
++}
++
++#[test]
++fn a_new_press_after_fast_scroll_starts_at_one_cart_again() {
++    let mut s = shelf_with(100);
++    s.hold_right(0);
++    for fired in 0..35 {
++        s.tick(repeat_at(fired));
++    }
++    s.release_right();
++    assert!(!s.fast());
++    let at = s.index;
++    s.hold_right(10_000);
++    assert_eq!(s.index, at + 1);
++}
++
++#[test]
++fn ten_seconds_of_fast_scroll_never_leave_the_row_empty() {
++    let mut s = shelf_with(700);
++    s.hold_right(0);
++    for f in 1..=600u64 {
++        s.tick(f * 1000 / 60);
++        s.update(1.0 / 60.0);
++        assert!(draws_a_cart(&s), "frame {f}: no cart on screen");
++    }
++    assert!(s.fast());
++}
++
++#[test]
++fn letting_go_of_fast_scroll_settles_on_the_selected_cart() {
++    let mut s = shelf_with(700);
++    hold_for(&mut s, 300);
++    s.release_right();
++    for _ in 0..600 {
++        s.update(1.0 / 60.0);
++    }
++    assert!((s.scroll - s.scroll_target()).abs() < 1e-3);
++}
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index c957e25..30f5dba 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,4 +1,5 @@
+ mod battery_warn;
++mod fast_scroll;
+ mod ps1_discs;
+ mod silent_start;
+ mod start_guard;
+@@ -1584,7 +1585,7 @@ impl App {
+             .map(|(shelf, index)| FaceWant {
+                 shelf,
+                 index,
+-                on_screen: shelf == self.shelf_at && screen.contains(&index),
++                on_screen: shelf == self.shelf_at && screen.contains(&index) && !here.fast(),
+             })
+             .collect()
+     }
+diff --git a/crates/slot/src/app/fast_scroll.rs b/crates/slot/src/app/fast_scroll.rs
+new file mode 100644
+index 0000000..f67a674
+--- /dev/null
++++ b/crates/slot/src/app/fast_scroll.rs
+@@ -0,0 +1,23 @@
++use crate::fast_scroll_trace::FastView;
++
++use super::{App, Phase};
++
++const SETTLED: f32 = 0.05;
++
++impl App {
++    pub fn fast_scroll_view(&self) -> Option<FastView> {
++        let shelf = self.shelf();
++        let fast = shelf.fast();
++        let settling = (shelf.scroll - shelf.scroll_target()).abs() > SETTLED;
++        if !matches!(self.phase, Phase::Shelf) || !(fast || settling) {
++            return None;
++        }
++        let mut out = Vec::new();
++        shelf.draw_row(self.canvas(), None, 0.0, 0.0, 1.0, &mut out);
++        Some(FastView {
++            fast,
++            placeholder: shelf.on_screen().iter().any(|i| shelf.face(*i).is_none()),
++            empty: out.is_empty(),
++        })
++    }
++}
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index 67e1656..6b238bf 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -149,6 +149,7 @@ pub fn run() {
+     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+     let mut frame_trace = slot::frame_trace::FrameTrace::new();
+     let mut doze = slot::doze_rest::DozeRest::new();
++    let mut fast_scroll = slot::fast_scroll_trace::FastScrollTrace::new();
+     loop {
+         let dozing = !frontend.rebuilding_labels() && slot::doze_rest::rests(frontend.app());
+         if let Some(line) = doze.step(dozing, Instant::now()) {
+@@ -186,6 +187,10 @@ pub fn run() {
+         }
+         let swap_took = swap.elapsed();
+         slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
++        let view = frontend.app().fast_scroll_view();
++        if let Some(line) = fast_scroll.frame(view, Instant::now(), pacer.period) {
++            eprintln!("{line}");
++        }
+         let dropped = pacer.swapped(work, swap_took > Duration::from_millis(1));
+         if slot::latency::tracing() {
+             frames += 1;
+diff --git a/crates/slot/src/fast_scroll_trace.rs b/crates/slot/src/fast_scroll_trace.rs
+new file mode 100644
+index 0000000..3a38d74
+--- /dev/null
++++ b/crates/slot/src/fast_scroll_trace.rs
+@@ -0,0 +1,73 @@
++use std::time::{Duration, Instant};
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub struct FastView {
++    pub fast: bool,
++    pub placeholder: bool,
++    pub empty: bool,
++}
++
++#[derive(Default)]
++pub struct FastScrollTrace {
++    last: Option<Instant>,
++    open: bool,
++    frames: Vec<f64>,
++    placeholders: u32,
++    empty: u32,
++}
++
++impl FastScrollTrace {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    pub fn frame(
++        &mut self,
++        view: Option<FastView>,
++        now: Instant,
++        period: Duration,
++    ) -> Option<String> {
++        let since = self.last.replace(now).map(|last| now - last);
++        let was_open = self.open;
++        match view {
++            Some(view) if view.fast || was_open => {
++                self.open = true;
++                if let (true, Some(since)) = (was_open, since) {
++                    self.frames.push(since.as_secs_f64() * 1e3);
++                }
++                self.placeholders += u32::from(view.placeholder);
++                self.empty += u32::from(view.empty);
++                None
++            }
++            _ if was_open => {
++                self.open = false;
++                self.finish(period)
++            }
++            _ => None,
++        }
++    }
++
++    fn finish(&mut self, period: Duration) -> Option<String> {
++        if self.frames.is_empty() {
++            return None;
++        }
++        self.frames.sort_by(f64::total_cmp);
++        let n = self.frames.len();
++        let at = |q: f64| {
++            let i = ((n as f64 * q).ceil() as usize).clamp(1, n) - 1;
++            self.frames.get(i).copied().unwrap_or_default()
++        };
++        let line = format!(
++            "slot: fast scroll: {n} frames, p50 {:.2} p99 {:.2} max {:.2} ms, period {:.2} ms, {} with a placeholder, {} empty",
++            at(0.5),
++            at(0.99),
++            at(1.0),
++            period.as_secs_f64() * 1e3,
++            self.placeholders,
++            self.empty
++        );
++        self.frames.clear();
++        (self.placeholders, self.empty) = (0, 0);
++        Some(line)
++    }
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 82c22ff..6768ae4 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -24,6 +24,7 @@ pub mod doze_rest;
+ pub mod drc;
+ pub mod emu;
+ pub mod face_builder;
++pub mod fast_scroll_trace;
+ pub mod frame_trace;
+ pub mod frames;
+ pub mod frontend;
+diff --git a/crates/slot/tests/fast_scroll.rs b/crates/slot/tests/fast_scroll.rs
+new file mode 100644
+index 0000000..527c8f7
+--- /dev/null
++++ b/crates/slot/tests/fast_scroll.rs
+@@ -0,0 +1,125 @@
++mod common;
++
++use std::time::{Duration, Instant};
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::fast_scroll_trace::{FastScrollTrace, FastView};
++use slot_input::{Action, Btn};
++
++const PERIOD: Duration = Duration::from_micros(16_720);
++
++fn long_shelf() -> (tempfile::TempDir, App) {
++    let stems: Vec<String> = (0..70).map(|i| format!("Game {i:03}")).collect();
++    let stems: Vec<&str> = stems.iter().map(String::as_str).collect();
++    let root = tmp_root_with_real_carts(&stems);
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn hold_right(app: &mut App, frames: usize) {
++    app.apply(Action::GbaDown(Btn::Right));
++    for _ in 0..frames {
++        app.update(1.0 / 60.0);
++    }
++}
++
++fn view(fast: bool, placeholder: bool) -> Option<FastView> {
++    Some(FastView {
++        fast,
++        placeholder,
++        empty: false,
++    })
++}
++
++#[test]
++fn a_shelf_held_into_fast_scroll_waits_on_no_cart_face() {
++    let (_root, mut app) = long_shelf();
++    hold_right(&mut app, 180);
++    let wants = app.face_wants();
++    assert!(!wants.is_empty());
++    assert!(wants.iter().all(|w| !w.on_screen), "{wants:?}");
++}
++
++#[test]
++fn a_shelf_at_rest_still_waits_on_its_visible_faces() {
++    let (_root, app) = long_shelf();
++    assert!(app.face_wants().iter().any(|w| w.on_screen));
++}
++
++#[test]
++fn fast_scroll_shows_placeholders_and_never_an_empty_board() {
++    let (_root, mut app) = long_shelf();
++    hold_right(&mut app, 180);
++    assert_eq!(
++        app.fast_scroll_view(),
++        Some(FastView {
++            fast: true,
++            placeholder: true,
++            empty: false
++        })
++    );
++}
++
++#[test]
++fn a_shelf_at_rest_has_no_fast_scroll_view() {
++    let (_root, app) = long_shelf();
++    assert_eq!(app.fast_scroll_view(), None);
++}
++
++#[test]
++fn the_trace_prints_one_line_once_the_row_has_settled() {
++    let mut trace = FastScrollTrace::new();
++    let t0 = Instant::now();
++    let at = |i: u32| t0 + Duration::from_millis(17) * i;
++    assert_eq!(trace.frame(None, at(0), PERIOD), None);
++    for i in 1..=60 {
++        assert_eq!(trace.frame(view(true, i % 2 == 0), at(i), PERIOD), None);
++    }
++    for i in 61..=99 {
++        assert_eq!(trace.frame(view(false, false), at(i), PERIOD), None);
++    }
++    let stall = at(99) + Duration::from_millis(40);
++    assert_eq!(trace.frame(view(false, true), stall, PERIOD), None);
++    assert_eq!(
++        trace
++            .frame(None, stall + Duration::from_millis(17), PERIOD)
++            .as_deref(),
++        Some("slot: fast scroll: 99 frames, p50 17.00 p99 40.00 max 40.00 ms, period 16.72 ms, 31 with a placeholder, 0 empty")
++    );
++}
++
++#[test]
++fn a_settling_row_without_fast_scroll_prints_nothing() {
++    let mut trace = FastScrollTrace::new();
++    let t0 = Instant::now();
++    for i in 0..10u32 {
++        let at = t0 + Duration::from_millis(17) * i;
++        assert_eq!(trace.frame(view(false, true), at, PERIOD), None);
++    }
++    assert_eq!(
++        trace.frame(None, t0 + Duration::from_millis(170), PERIOD),
++        None
++    );
++}
++
++#[test]
++fn a_shelf_just_let_go_of_fast_scroll_still_reports_while_it_settles() {
++    let (_root, mut app) = long_shelf();
++    hold_right(&mut app, 180);
++    app.apply(Action::GbaUp(Btn::Right));
++    app.update(1.0 / 60.0);
++    assert_eq!(app.fast_scroll_view().map(|v| v.fast), Some(false));
++}
++
++#[test]
++fn the_trace_is_silent_without_fast_scroll() {
++    let mut trace = FastScrollTrace::new();
++    let t0 = Instant::now();
++    for i in 0..10u32 {
++        assert_eq!(
++            trace.frame(None, t0 + Duration::from_millis(17) * i, PERIOD),
++            None
++        );
++    }
++}
