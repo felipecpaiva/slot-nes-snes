@@ -1197,6 +1197,9 @@ def by_name(ctx, system, left, root, args):
         before, cur["subs"] = ctx.ss.asked, subs
         try:
             one(stem, subs, crc)
+        except Stop as e:  # quota or refusal mid-search: stop asking, like the CRC path; the next run resumes
+            ctx.ss.stop = str(e)
+            done(stem, "not searched", ctx.ss.stop)
         except (Fail, OSError) as e:
             done(stem, "error", str(e))
         finally:
