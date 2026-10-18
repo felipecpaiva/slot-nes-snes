@@ -438,6 +438,24 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
 
+### Phase 11: WonderSwan (planned, not shipped)
+
+Tracking issue 91, children 92 to 99, ADR 0086, plan in docs/research/wswan-plan.md. One core, Beetle
+Cygne (`mednafen_wswan`) pinned at `4b01295`, one shelf `Games/WS` for WonderSwan and Color, no
+BIOS, no core picker. The platform patches wait for the upstream 1.8.0 base.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0086 and the issues |
+| 2 | 92, done | Core build, pin and licence |
+| 3 | 97, core half done | Generated-cart tests: boot, 224x144 and 144x224 pictures, 60.38 and 75.47 fps, states, the SELECT trap, save RAM (patch 0053) |
+| 4 | 93 | `Platform::Ws`, shelf, scan, footer reader, explicit policy, `.sav` saves; joins dist and zip-check |
+| 5 | 94 | Core options set on every load: 60 Hz mode, rotation from the footer, keymap off |
+| 6 | 95 | 240x160 canvas at 3x (horizontal) or 360x240 at 2x (vertical), WonderSwan Screen section with Shader, Picture and Refresh (60 Hz default, Native) |
+| 7 | 96 | X and Y pads: shoulder modifiers on horizontal games, turned maps and the SELECT flip on vertical ones |
+| 8 | 98 | Black and clear carts, labels for ScreenScraper ids 45 and 46 |
+| 9 | 99 | Device gate, both Refresh values |
+
 ### Phase 6+: deferred (non-blocking)
 
 - Famicom Disk System variant and core support (needs a BIOS and a different save model).
