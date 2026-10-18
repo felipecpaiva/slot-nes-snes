@@ -1,7 +1,8 @@
 # Suspend-to-RAM on lid close: probe, design and upstream draft (plan only, no code)
 
-Date: 2026-10-18. Status: plan for the maintainer. Nothing here is implemented. The maintainer decides
-after running the probes in section 3. If it goes ahead it needs a new ADR that supersedes
+Date: 2026-10-18. Status: **stopped. The read-only probe failed on the RG34XXSP on 2026-10-18 (P4: no
+power-key wake source), so ADR 0033 stands.** See section 3, "Result". The rest is kept as the design
+if a later BaseOS exposes lid wake. Nothing here is implemented. If it goes ahead it needs a new ADR that supersedes
 [ADR 0033](../adr/0033-keep-upstream-lid-timeout.md) (and amends [ADR 0078](../adr/0078-rest-while-dozing.md)),
 and an upstream discussion first (ADR 0047), because Brandon is reworking lid power-off right now.
 
@@ -104,6 +105,22 @@ What decides it:
   may be the wrong one here), whether P9 shows `hallkey` flipping 1 to 0 to 1 and a matching raw line,
   and whether P7 shows `8821cs` (the fork's 1.1 s `mmc2: error -110` wake stall came from its SDIO card).
 - If any required node is missing: stop. Suspend is not possible on this BaseOS; ADR 0033 stands.
+
+### Result on the RG34XXSP, 2026-10-18
+
+| Probe | Read | Verdict |
+|---|---|---|
+| P1 `os_sleep` | exists, empty | present, but not the `16` the forks expect |
+| P1 `hallkey` | `1` (lid open) | present |
+| P1 `current_now` | absent | no live current; battery work needs 1% ticks |
+| P2 `/sys/power/state` | `freeze mem`, no `mem_sleep` file | `mem` offered |
+| P3 rtc | `rtc1` = `sunxi-rtc`, has `wakealarm` | present (jgraving's hardcoded `rtc0` would be the wrong rtc here) |
+| P4 `*pek*/power/wakeup` | nothing found | **fail**: no power-key wake source, so the lid cannot be armed as a wake source the way suprsomething does |
+
+Per the stop rule above: **the probe failed on P4, `current_now` is absent, and ADR 0033 stands.** No
+write test is to be run. Revisit only if a BaseOS update exposes a lid or power-key wake source (rerun
+P1 to P4 first). A POWER-only, RTC-timed suspend in the style of jgraving would not need P4, but it was
+never in scope (it loses lid wake, the point of this plan) and would need its own decision.
 
 The write tests (manual suspend by RTC alarm, lid wake, wake time, current per segment, our systems,
 stress, lid.sh conflict) are already written as steps 1 to 7 of fork-suprsomething.md section 9. They
