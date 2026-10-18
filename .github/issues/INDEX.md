@@ -71,3 +71,4 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [66](66-pal-pacing.md) | Pace PAL titles at 50 Hz on NES, Master System, Mega Drive and PS1 | 8 | video | feature | M | 56-ps1-tracking |
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
+| [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
