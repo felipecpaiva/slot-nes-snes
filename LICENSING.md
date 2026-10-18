@@ -349,3 +349,13 @@ credited in the patch commits.
 
 Patch `0052-crash-guard` takes only the idea of oauramos/omega-zero commit be6eb11 (keep a game whose
 start crashed on the shelf, with a notice); no code is copied. Credited in the patch commit and ADR 0084.
+
+Patch `0053-cpu-governor` follows pvaibhav/slot commits
+[ad7ce10](https://github.com/pvaibhav/slot/commit/ad7ce10) and
+[320ac44](https://github.com/pvaibhav/slot/commit/320ac44) (schedutil written to every cpufreq policy),
+as a user option rather than a launcher change; no code was copied. Patch `0054-fast-shelf-scroll`
+reimplements the fast scroll of marghost/slot_modded commits
+[efe32cd](https://github.com/marghost/slot_modded/commit/efe32cd) and
+[0fce212](https://github.com/marghost/slot_modded/commit/0fce212), which adapt stevolarn/slot; the
+leash and the non-blocking face loader are ours. All three forks are GPL-3.0 and are credited in the
+patch commits.
