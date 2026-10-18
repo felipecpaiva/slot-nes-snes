@@ -342,7 +342,5 @@ and ports marghost's tests for them. Patch `0051-doze-rest` reimplements the sta
 marghost/slot_modded commit [b1f9e24](https://github.com/marghost/slot_modded/commit/b1f9e24),
 which adapts suprsomething/slot.advance commit
 [bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0052-silent-start-hud`
-follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a) and patch
-`0053-start-closes-picker` jgraving/slot commit
-[e047d17](https://github.com/jgraving/slot/commit/e047d17). All three forks are GPL-3.0 and are
+follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a). All three forks are GPL-3.0 and are
 credited in the patch commits.

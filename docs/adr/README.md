@@ -97,4 +97,4 @@ the patch set looks the way it does.
 | [0078](0078-rest-while-dozing.md) | Stop drawing while dozing | Accepted. Amends 0033. Drop when upstream lands (0047) | 2026-10-18 |
 | [0079](0079-favourite-removal-confirm-upstream-only.md) | Confirm favourite removal with a second Y: upstream only | Accepted (not carried) | 2026-10-18 |
 | [0080](0080-volume-hud-on-a-silent-start.md) | Show the volume HUD when a game starts muted or at zero | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
-| [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
