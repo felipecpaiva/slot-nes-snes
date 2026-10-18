@@ -46,10 +46,11 @@ same thing with `-- <flags>`.
    `backup.json` (what is where), the battery saves copied (`Saves/<SYS>/<stem>.sav`, `.srm`, PS1
    `.disc`), every `States/<SYS>/<core>/<stem>/` folder moved (all cores: GBA can have both `mgba` and
    `gpsp`), the old ROM moved. Then the new ROM is written under the same name.
-7. **Library** (the Mac): the old file, loose or zipped, and RetroArch's `<stem>.state*` files next to
-   it are moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so the handheld
-   frontend never lists a backup as a game), the `.srm` copied; the new ROM goes in under the same name
-   (a zip keeps its zip name and member name).
+7. **Library** (the muOS card mounted on the Mac): only the ROM changes. The old file, loose or
+   zipped, is moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so muOS never lists
+   a backup as a game) and the new ROM goes in under the same name (a zip keeps its zip name and member
+   name). RetroArch's own `<stem>.state*` and `.srm` files there are left alone: that card belongs to
+   muOS. A one-line note says its old states may not work with the new version.
 8. **Record** the new version, CRC32, date and backup paths in
    `~/.config/slot-nes-snes/hacks-state.json`.
 

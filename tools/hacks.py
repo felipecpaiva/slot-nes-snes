@@ -35,8 +35,9 @@ Any mismatch refuses. Then, on the card (ADR 0082):
   - the new ROM is written under the SAME file name, so labels, cart_shell, video_mode, selected_core,
     favourites, recents and the shelf memory stay attached.
 The library copy gets the same: the old file (loose or zip, rewritten under the same zip and member name)
-and RetroArch's <stem>.state* files next to it are moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/, the
-.srm copied. Nothing is deleted anywhere.
+is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/. The library is the muOS card: its RetroArch
+<stem>.state* and .srm files are left alone (a note says old states there may not load). Nothing is
+deleted anywhere.
 --rollback <id> moves the current ROM, saves and states into a new backup and copies the newest update
 backup back, on the card and in the library.
 """
@@ -408,8 +409,8 @@ def card_items(card, system, stem, rom):
 
 
 def library_items(lib, system, stem):
-    """[(path, how, zip member or None)]: the library copies of stem (loose or zipped) and RetroArch's
-    <stem>.state* files next to them move, its .srm is copied."""
+    """[(path, "move", zip member or None)]: the library copies of stem, loose or zipped. Only the ROM: the
+    library is the muOS card, and its RetroArch saves and states are its own (ADR 0082)."""
     folder, exts = os.path.join(lib, fl.SYSTEMS[system][0]), fl.SYSTEMS[system][1]
     out, key = [], fl.nfc(stem)
     for n in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
@@ -428,11 +429,12 @@ def library_items(lib, system, stem):
                 m = None
             if m:
                 out.append((p, "move", m))
-        elif fl.nfc(n).startswith(key + ".state"):
-            out.append((p, "move", None))
-        elif fl.nfc(n) == key + ".srm":
-            out.append((p, "copy", None))
     return out
+
+
+def library_states(lib, system, stem):
+    folder, key = os.path.join(lib, fl.SYSTEMS[system][0]), fl.nfc(stem)
+    return [n for n in (os.listdir(folder) if os.path.isdir(folder) else []) if fl.nfc(n).startswith(key + ".state")]
 
 
 def find_base(lib, system, crc):
@@ -761,6 +763,8 @@ def cmd_update(ctx, reg, ids, args, card):
         elif saves == "unknown":
             print("  note: save compatibility across versions is unknown; the .sav stays in place and is backed up.")
         print("  all state folders move to the backup: slot must never load an old version's snapshot")
+        if library_states(args.library, h["system"], os.path.splitext(h["card"])[0]):
+            print("  note: the library card's own RetroArch states are left alone; they may not work with the new version")
         if args.dry_run:
             print("  DRY RUN, nothing written")
             continue

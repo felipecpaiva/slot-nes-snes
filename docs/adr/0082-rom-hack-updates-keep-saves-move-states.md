@@ -31,7 +31,9 @@ state, into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, along with the 
 while the game is seated, and refuses on any CRC mismatch, before it writes anything. When the
 registry says saves do not carry over, the `.sav` still stays (the user decides) with a loud warning.
 Nothing is deleted: rollback moves the current files into a new backup and copies the old ones back.
-The library copy on the Mac gets the same treatment, with its backups outside `ROMS/`.
+The library copy (the muOS card mounted on the Mac) gets only its ROM replaced, with the old ROM backed
+up outside `ROMS/`. Its RetroArch `.state*` and `.srm` files are muOS's and are left alone, with a note
+that old states there may not load: only the slot card's states are moved aside.
 
 ## Consequences
 

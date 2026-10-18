@@ -321,13 +321,14 @@ class Update(Base):
             "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.state", "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.png",
             "States/GBA/mgba/Hack (v1)/resume.state", "States/GBA/gpsp/Hack (v1)/resume.state"]))
         self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
-        # the library: same zip and member name, RetroArch's state moved, its .srm kept
+        # the library: same zip and member name; RetroArch's state and .srm left alone
         with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
             self.assertEqual(z.read(self.STEM + ".gba"), NEW)
-        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".state.auto")))
-        self.assertTrue(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".srm")))
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".state.auto")), b"ra")
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".srm")), b"ra-save")
+        self.assertIn("may not work with the new version", out)
         lb = os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "GBA", self.STEM, label)
-        self.assertEqual(sorted(os.listdir(lb)), ["Hack (v1).srm", "Hack (v1).state.auto", "Hack (v1).zip", "backup.json"])
+        self.assertEqual(sorted(os.listdir(lb)), ["Hack (v1).zip", "backup.json"])
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
         self.assertEqual((state["hack"]["version"], state["hack"]["crc32"]), ("2", hk.crc_hex(NEW)))
         # a second run finds nothing to do
