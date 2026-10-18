@@ -3,7 +3,7 @@
 - Status: Accepted. Amends [0061](0061-per-system-picture-row.md) (a fourth row in the Master System section)
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [issue 69](../../.github/issues/69-sms-region.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), patches/0048-sms-region.patch
+- Related: [issue 69](../../.github/issues/69-sms-region.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), patches/0047-sms-region.patch
 
 ## Context
 

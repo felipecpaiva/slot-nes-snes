@@ -1,6 +1,6 @@
 # 0075. Carry upstream 3b6349c, a backlight floor of 8/255, until the 1.8.0 rebase
 
-- Status: Accepted. Backport, drop on the 1.8.0 rebase (0047)
+- Status: Done. Dropped on the rebase onto upstream main 1b20432, which ships 3b6349c ([ADR 0083](0083-rebase-to-slot-main-1b20432.md)); site (i) retired
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0021](0021-reference-device-rg34xxsp.md), [ADR 0047](0047-upstream-first-fixes.md), [ADR 0013](0013-five-named-test-sites.md), patch `patches/0047-backlight-floor.patch`, upstream [3b6349c](https://github.com/BrandonKowalski/slot/commit/3b6349c) (issue #100), [fork review](../research/fork-review-2026-10-18.md)

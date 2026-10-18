@@ -4,7 +4,7 @@ Date: Mon, 12 Oct 2026 21:56:51 +0400
 Subject: [PATCH] input
 
 ---
- crates/slot-input/src/gesture.rs         |  10 +-
+ crates/slot-input/src/gesture.rs         |   9 +
  crates/slot-retro/src/lib.rs             |   2 +
  crates/slot-retro/src/turbo_mode.rs      |  28 +++
  crates/slot-retro/tests/snes_turbo.rs    |  35 +++
@@ -12,39 +12,45 @@ Subject: [PATCH] input
  crates/slot-store/tests/snes_platform.rs |   5 +-
  crates/slot/src/app.rs                   |   1 +
  crates/slot/src/emu.rs                   |  23 +-
+ crates/slot/src/input/mask.rs            |   4 +
+ crates/slot/src/input/mod.rs             |   1 +
+ crates/slot/src/input/raw_buttons.rs     |  32 +++
  crates/slot/src/lib.rs                   |   1 +
- crates/slot/src/session.rs               |   3 +
+ crates/slot/src/session.rs               |   8 +-
  crates/slot/src/snes_input.rs            |  13 ++
  crates/slot/tests/input_common/mod.rs    |  27 +++
  crates/slot/tests/select_x_gba.rs        | 106 +++++++++
  crates/slot/tests/snes_emu_input.rs      | 117 ++++++++++
+ crates/slot/tests/snes_raw_buttons.rs    |  29 +++
  crates/slot/tests/snes_select.rs         | 263 +++++++++++++++++++++++
  crates/slot/tests/snes_shoulders.rs      |  30 +++
  crates/slot/tests/snes_then_gba.rs       | 121 +++++++++++
- 17 files changed, 793 insertions(+), 10 deletions(-)
+ 21 files changed, 863 insertions(+), 10 deletions(-)
  create mode 100644 crates/slot-retro/src/turbo_mode.rs
  create mode 100644 crates/slot-retro/tests/snes_turbo.rs
+ create mode 100644 crates/slot/src/input/raw_buttons.rs
  create mode 100644 crates/slot/src/snes_input.rs
  create mode 100644 crates/slot/tests/input_common/mod.rs
  create mode 100644 crates/slot/tests/select_x_gba.rs
  create mode 100644 crates/slot/tests/snes_emu_input.rs
+ create mode 100644 crates/slot/tests/snes_raw_buttons.rs
  create mode 100644 crates/slot/tests/snes_select.rs
  create mode 100644 crates/slot/tests/snes_shoulders.rs
  create mode 100644 crates/slot/tests/snes_then_gba.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index 5396cac..11532a7 100644
+index 462f580..8b0af99 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -48,6 +48,7 @@ pub enum Action {
-     PowerOff,
-     LidClose,
-     LidOpen,
+@@ -51,6 +51,7 @@ pub enum Action {
+     MenuChordDown(Btn),
+     MenuChordUp(Btn),
+     RepairCard,
 +    VideoModeToggle,
  }
  
- #[derive(Copy, Clone, Default)]
-@@ -84,6 +85,7 @@ pub struct Gestures {
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+@@ -108,6 +109,7 @@ pub struct Gestures {
      r2_refused: bool,
      r2_last_release: Option<Millis>,
      rewinding: bool,
@@ -52,8 +58,8 @@ index 5396cac..11532a7 100644
  }
  
  fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
-@@ -105,6 +107,10 @@ impl Gestures {
-         self.menu_dpad_display = enabled;
+@@ -155,6 +157,10 @@ impl Gestures {
+         !self.menu_eject_fired && (self.menu_down_at.is_some() || self.menu_chorded)
      }
  
 +    pub fn set_video_mode_chord(&mut self, on: bool) {
@@ -63,24 +69,16 @@ index 5396cac..11532a7 100644
      pub fn ff_latched(&self) -> bool {
          self.ff_latched
      }
-@@ -175,7 +181,8 @@ impl Gestures {
-             self.chord_held |= bit;
-             return vec![action];
-         }
--        if let (true, Some((bit, action))) = (self.chording(now), chord(b)) {
-+        let chord = chord(b).filter(|c| self.video_mode_chord || c.1 != Action::VideoModeToggle);
-+        if let (true, Some((bit, action))) = (self.chording(now), chord) {
-             self.mark_chorded();
-             self.chord_held |= bit;
-             return vec![action];
-@@ -452,6 +459,7 @@ fn chord(b: Btn) -> Option<(u16, Action)> {
-         Btn::Up | Btn::Down | Btn::Left | Btn::Right => display_chord(b)?,
-         Btn::L1 => (16, Action::LoadState),
-         Btn::R1 => (32, Action::SaveState),
-+        Btn::X => (8192, Action::VideoModeToggle),
-         Btn::Y => (64, Action::ColourCorrectionToggle),
-         Btn::L2 => (128, Action::PalettePrev),
-         Btn::R2 => (256, Action::PaletteNext),
+@@ -233,6 +239,9 @@ impl Gestures {
+         if self.chording(now) {
+             let action = match b {
+                 Btn::VolUp | Btn::VolDown => Some(Action::MuteToggle),
++                Btn::X if self.video_mode_chord => self
++                    .shortcut(Some(Mod::Select), b)
++                    .or(Some(Action::VideoModeToggle)),
+                 _ => self.shortcut(Some(Mod::Select), b),
+             };
+             if let Some(action) = action {
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
 index 8cffa8c..04b98d0 100644
 --- a/crates/slot-retro/src/lib.rs
@@ -217,11 +215,11 @@ index 2ea6532..fba322b 100644
 +    assert!(Platform::Nes.owns_shoulders());
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 70b535b..86e02fe 100644
+index 2ffe57b..114383b 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1884,6 +1884,7 @@ impl App {
-                 Action::GbaDown(Btn::R1) if self.slot_owns_the_shoulders() => {
+@@ -2284,6 +2284,7 @@ impl App {
+                 {
                      self.set_picture(VideoMode::Actual)
                  }
 +                Action::VideoModeToggle => self.set_picture(self.video_mode.flipped(self.platform)),
@@ -229,19 +227,19 @@ index 70b535b..86e02fe 100644
                  Action::GameMenu => self.game_menu_shortcut(),
                  Action::QuickMenu => self.tap_in_game_menu(Some(QuickRow::PLAY[0])),
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index fa55d4c..34d518c 100644
+index ab979a0..25b624f 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
  
  use crate::cable::{self, Cable};
  use slot_retro::{
--    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
-+    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
+-    ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
++    ButtonMask, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
  };
- use slot_store::RUN_AHEAD_MAX;
  
-@@ -92,6 +92,7 @@ struct Shared {
+ use crate::audio::Ring;
+@@ -91,6 +91,7 @@ struct Shared {
      rewind: AtomicBool,
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
@@ -249,7 +247,7 @@ index fa55d4c..34d518c 100644
      recording: AtomicBool,
      stop: AtomicBool,
      volume: AtomicU8,
-@@ -161,6 +162,7 @@ impl EmuHandle {
+@@ -159,6 +160,7 @@ impl EmuHandle {
              rewind: AtomicBool::new(false),
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
@@ -257,7 +255,7 @@ index fa55d4c..34d518c 100644
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
              volume: AtomicU8::new(100),
-@@ -367,6 +369,14 @@ impl EmuHandle {
+@@ -354,6 +356,14 @@ impl EmuHandle {
          self.shared.rewind.store(on, Ordering::Relaxed);
      }
  
@@ -272,7 +270,7 @@ index fa55d4c..34d518c 100644
      pub fn set_turbo(&self, on: bool) {
          self.shared.turbo.store(on, Ordering::Relaxed);
      }
-@@ -683,10 +693,13 @@ impl Worker {
+@@ -661,10 +671,13 @@ impl Worker {
                  loop {
                      ran += 1;
                      let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -290,11 +288,76 @@ index fa55d4c..34d518c 100644
                      turbo_frame = turbo_frame.wrapping_add(1);
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
+diff --git a/crates/slot/src/input/mask.rs b/crates/slot/src/input/mask.rs
+index 80659de..d1b2a0b 100644
+--- a/crates/slot/src/input/mask.rs
++++ b/crates/slot/src/input/mask.rs
+@@ -42,6 +42,10 @@ impl Pad {
+         ButtonMask(bits)
+     }
+ 
++    pub fn holds(&self, b: Btn) -> bool {
++        self.held.contains(&b)
++    }
++
+     pub fn clear(&mut self) {
+         self.held.clear();
+         self.chorded.clear();
+diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
+index 3b0808d..6f918df 100644
+--- a/crates/slot/src/input/mod.rs
++++ b/crates/slot/src/input/mod.rs
+@@ -8,6 +8,7 @@ mod keys;
+ mod mask;
+ #[cfg(feature = "host")]
+ mod pad;
++mod raw_buttons;
+ pub mod trace;
+ 
+ pub use bind::{btn_device, carousel_action, device_btn, shortcut_table};
+diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
+new file mode 100644
+index 0000000..3ea03f6
+--- /dev/null
++++ b/crates/slot/src/input/raw_buttons.rs
+@@ -0,0 +1,32 @@
++use slot_input::Btn;
++use slot_retro::ButtonMask;
++use slot_store::{Controls, GameButton, Platform};
++
++use super::bind::btn_device;
++use super::mask::Pad;
++
++fn raw_buttons(platform: Platform) -> Vec<(Btn, u16)> {
++    let mut raw = Vec::new();
++    if platform.passes_xy_through() {
++        raw.extend([(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)]);
++    }
++    raw
++}
++
++fn bound_to_game(controls: &Controls, b: Btn) -> bool {
++    GameButton::ALL.into_iter().any(|g| {
++        controls
++            .game(g)
++            .is_some_and(|x| x.modifier.is_none() && Some(x.button) == btn_device(b))
++    })
++}
++
++impl Pad {
++    pub fn mask_for(&self, controls: &Controls, platform: Platform) -> ButtonMask {
++        let raw = raw_buttons(platform)
++            .into_iter()
++            .filter(|(b, _)| self.holds(*b) && !bound_to_game(controls, *b))
++            .fold(0, |bits, (_, bit)| bits | bit);
++        ButtonMask(self.mask(controls).0 | raw)
++    }
++}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index bfabc3a..a40c58e 100644
+index 8dbe21d..1d536b1 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -39,6 +39,7 @@ pub mod resample;
+@@ -40,6 +40,7 @@ pub mod resample;
  pub mod rewind;
  pub mod root;
  pub mod session;
@@ -303,19 +366,31 @@ index bfabc3a..a40c58e 100644
  pub mod thumb;
  pub mod thumb_sized;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 95d5738..6629b31 100644
+index 93faab5..9396d7f 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -499,6 +499,9 @@ impl Session {
+@@ -218,7 +218,10 @@ impl Session {
+             self.pad.apply(Action::GbaUp(btn));
+         }
+         if let Some(emu) = &self.emu {
+-            emu.set_input(self.pad.mask(&self.app.controls()));
++            emu.set_input(
++                self.pad
++                    .mask_for(&self.app.controls(), self.app.playing_platform()),
++            );
+         }
+     }
+ 
+@@ -563,6 +566,9 @@ impl Session {
          };
          emu.set_volume(self.app.output_volume());
          emu.set_driven(self.driven);
-+        emu.set_pass_through(platform.passes_xy_through());
++        emu.set_pass_through(loaded.platform.passes_xy_through());
 +        self.gestures
-+            .set_video_mode_chord(platform.select_x_toggles_picture());
++            .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
          self.app.set_snapshot(Box::new(emu.snapshot()));
          self.emu = Some(emu);
-     }
+         true
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
 new file mode 100644
 index 0000000..d023b24
@@ -370,7 +445,7 @@ index 0000000..e382d1e
 +}
 diff --git a/crates/slot/tests/select_x_gba.rs b/crates/slot/tests/select_x_gba.rs
 new file mode 100644
-index 0000000..d9c9691
+index 0000000..370f337
 --- /dev/null
 +++ b/crates/slot/tests/select_x_gba.rs
 @@ -0,0 +1,106 @@
@@ -386,17 +461,17 @@ index 0000000..d9c9691
 +
 +const EXPECTED: [(&str, u16); 13] = [
 +    ("select down", 0),
-+    ("x down in the chord window", 516),
++    ("x down in the chord window", 4),
 +    ("x up", 4),
 +    ("select up", 4),
 +    ("settle", 0),
 +    ("select down again", 0),
 +    ("select held past the chord window", 4),
-+    ("x down after the window", 516),
++    ("x down after the window", 4),
 +    ("x up after the window", 4),
 +    ("select up after the window", 0),
 +    ("settle again", 0),
-+    ("x alone down", 512),
++    ("x alone down", 0),
 +    ("x alone up", 0),
 +];
 +
@@ -603,9 +678,44 @@ index 0000000..1f315a7
 +        }
 +    }
 +}
+diff --git a/crates/slot/tests/snes_raw_buttons.rs b/crates/slot/tests/snes_raw_buttons.rs
+new file mode 100644
+index 0000000..e75af3f
+--- /dev/null
++++ b/crates/slot/tests/snes_raw_buttons.rs
+@@ -0,0 +1,29 @@
++use slot::input::Pad;
++use slot_input::{Action, Btn};
++use slot_retro::ButtonMask;
++use slot_store::{Binding, Controls, Device, GameButton, Platform};
++
++fn x_held() -> Pad {
++    let mut pad = Pad::default();
++    pad.apply(Action::GbaDown(Btn::X));
++    pad
++}
++
++#[test]
++fn an_unbound_x_reaches_a_snes_game() {
++    let mask = x_held().mask_for(&Controls::default(), Platform::Snes);
++    assert_eq!(mask.0, ButtonMask::X);
++}
++
++#[test]
++fn an_unbound_x_never_reaches_a_gba_game() {
++    let mask = x_held().mask_for(&Controls::default(), Platform::Gba);
++    assert_eq!(mask.0, 0);
++}
++
++#[test]
++fn x_bound_to_a_presses_only_a_on_snes() {
++    let mut c = Controls::default();
++    c.set_game(GameButton::A, Binding::plain(Device::X));
++    assert_eq!(x_held().mask_for(&c, Platform::Snes).0, ButtonMask::A);
++}
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
 new file mode 100644
-index 0000000..ac402fd
+index 0000000..19c01c4
 --- /dev/null
 +++ b/crates/slot/tests/snes_select.rs
 @@ -0,0 +1,263 @@
@@ -834,12 +944,12 @@ index 0000000..ac402fd
 +}
 +
 +#[test]
-+fn select_and_x_on_nes_leave_the_picture_alone_and_x_goes_down() {
++fn select_and_x_on_nes_leave_the_picture_alone_and_x_stays_unbound() {
 +    let mut r = rig(Platform::Nes);
 +    r.chord(Btn::X);
 +    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
 +    assert_eq!(r.picture(), slot::video_mode::VideoMode::Actual);
-+    assert_eq!(r.ever & ButtonMask::X, ButtonMask::X);
++    assert_eq!(r.ever & ButtonMask::X, 0);
 +}
 +
 +#[test]
@@ -910,7 +1020,7 @@ index 0000000..e53e33b
 +}
 diff --git a/crates/slot/tests/snes_then_gba.rs b/crates/slot/tests/snes_then_gba.rs
 new file mode 100644
-index 0000000..2f1d629
+index 0000000..8124b7c
 --- /dev/null
 +++ b/crates/slot/tests/snes_then_gba.rs
 @@ -0,0 +1,121 @@
@@ -1003,7 +1113,7 @@ index 0000000..2f1d629
 +
 +    r.feed(RawEvent::Down(Btn::Select));
 +    r.feed(RawEvent::Down(Btn::X));
-+    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X, "X never reached");
++    assert_eq!(r.pad() & ButtonMask::X, 0, "X reached the GBA game unbound");
 +    r.feed(RawEvent::Up(Btn::X));
 +    r.feed(RawEvent::Up(Btn::Select));
 +    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
@@ -1012,7 +1122,7 @@ index 0000000..2f1d629
 +    r.now += 300;
 +    r.session.feed([], r.now);
 +    r.feed(RawEvent::Down(Btn::X));
-+    assert_eq!(r.pad() & ButtonMask::X, ButtonMask::X);
++    assert_eq!(r.pad() & ButtonMask::X, 0);
 +    r.feed(RawEvent::Up(Btn::X));
 +    assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
 +}

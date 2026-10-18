@@ -3,7 +3,7 @@
 - Status: Accepted. Drop when the upstream PR lands (0047). Amends [0033](0033-keep-upstream-lid-timeout.md) (the doze loop only)
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0033](0033-keep-upstream-lid-timeout.md), [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0051-doze-rest.patch`, patch `0015-frame-trace`, [fork review](../research/fork-review-2026-10-18.md), marghost/slot_modded [b1f9e24](https://github.com/marghost/slot_modded/commit/b1f9e24), suprsomething/slot.advance [bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6), upstream PR text in [docs/contributions/upstream-doze-rest-pr.md](../contributions/upstream-doze-rest-pr.md)
+- Related: [ADR 0033](0033-keep-upstream-lid-timeout.md), [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0050-doze-rest.patch`, patch `0015-frame-trace`, [fork review](../research/fork-review-2026-10-18.md), marghost/slot_modded [b1f9e24](https://github.com/marghost/slot_modded/commit/b1f9e24), suprsomething/slot.advance [bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6), upstream PR text in [docs/contributions/upstream-doze-rest-pr.md](../contributions/upstream-doze-rest-pr.md)
 
 ## Context
 

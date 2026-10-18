@@ -59,7 +59,7 @@ and only with `--by-name`.
   none when several do. Else the ScreenScraper `wheel` of the game the name pass (or an `ss:` alias) found.
   A hack (`[h..]` or "hack" in the name) never takes its parent's logo by itself: a `sibling:<stem>` alias
   names the title to look up, an `ss:<id>` alias the game. Translations, bad dumps and the like do.
-- **Label.** The slot-ui example `logo_label` (patch `0049-logo-label`) draws it at the size slot draws
+- **Label.** The slot-ui example `logo_label` (patch `0048-logo-label`) draws it at the size slot draws
   that system's label (`label_size`, so NES or Famicom, SNES or SFC by the name), the ground's hue being the
   one slot gives the game's text label. Build it once with `task labels:logo-tool`
   (`build/slot/target/release/examples/logo_label`; `SLOT_LOGO_LABEL` overrides the path).

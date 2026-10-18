@@ -4,6 +4,7 @@ Date: Mon, 12 Oct 2026 12:40:57 +0400
 Subject: [PATCH] platform-nes
 
 ---
+ crates/slot-store/src/bindings.rs        |  2 +-
  crates/slot-store/src/core.rs            |  4 +--
  crates/slot-store/src/platform.rs        |  5 +++
  crates/slot-store/src/platform_policy.rs |  8 +++--
@@ -16,17 +17,30 @@ Subject: [PATCH] platform-nes
  crates/slot-ui/src/cart.rs               |  6 ++--
  crates/slot-ui/src/shell.rs              |  1 +
  crates/slot-ui/tests/chrome.rs           |  2 +-
- crates/slot/src/app.rs                   | 18 +++++-----
+ crates/slot/src/app.rs                   | 20 ++++++-----
  crates/slot/src/root.rs                  |  6 +++-
  crates/slot/tests/nes_dist.rs            | 42 ++++++++++++++++++++++++
  crates/slot/tests/nes_palette.rs         | 28 ++++++++++++++++
- 16 files changed, 176 insertions(+), 21 deletions(-)
+ 17 files changed, 178 insertions(+), 23 deletions(-)
  create mode 100644 crates/slot-store/tests/nes_platform.rs
  create mode 100644 crates/slot-store/tests/nes_scan.rs
  create mode 100644 crates/slot-store/tests/nes_state.rs
  create mode 100644 crates/slot/tests/nes_dist.rs
  create mode 100644 crates/slot/tests/nes_palette.rs
 
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 46268c3..95ef188 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -205,7 +205,7 @@ impl GameButton {
+     pub fn of(platform: Platform) -> &'static [GameButton] {
+         match platform {
+             Platform::Gba => &GameButton::ALL,
+-            Platform::Gb | Platform::Gbc => &GameButton::ALL[..8],
++            Platform::Gb | Platform::Gbc | Platform::Nes => &GameButton::ALL[..8],
+         }
+     }
+ 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
 index 51f6ab7..727973c 100644
 --- a/crates/slot-store/src/core.rs
@@ -148,10 +162,10 @@ index f479047..2d6d3a7 100644
          let entries = match std::fs::read_dir(&dir) {
              Ok(d) => d,
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index e6cee09..fd351ba 100644
+index d0eb46b..1aa79b0 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -602,7 +602,7 @@ fn recent_value(value: &str) -> Option<Recent> {
+@@ -610,7 +610,7 @@ fn recent_value(value: &str) -> Option<Recent> {
  }
  
  fn platform_value(value: &str) -> Option<Platform> {
@@ -161,10 +175,10 @@ index e6cee09..fd351ba 100644
          .find(|p| value.eq_ignore_ascii_case(p.dir_name()))
  }
 diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
-index e5b5a0b..4829662 100644
+index 73ac56f..1fe26e9 100644
 --- a/crates/slot-store/tests/durability.rs
 +++ b/crates/slot-store/tests/durability.rs
-@@ -426,7 +426,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
+@@ -423,7 +423,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
      let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
      for (line, want) in [
          ("cart_platform=\n", None),
@@ -317,10 +331,10 @@ index f028af5..e02c011 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6e4f985..a4eb528 100644
+index 55acee4..04caa81 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -422,7 +422,7 @@ pub struct FaceWant {
+@@ -456,7 +456,7 @@ pub struct FaceWant {
  fn shelves_of(carts: Vec<Cart>) -> Vec<(Rack, Shelf)> {
      let mut rows: Vec<(Rack, Vec<Cart>)> = [Rack::Recents, Rack::Favorites]
          .into_iter()
@@ -329,7 +343,7 @@ index 6e4f985..a4eb528 100644
          .map(|r| (r, Vec::new()))
          .collect();
      for cart in carts {
-@@ -947,8 +947,8 @@ impl App {
+@@ -1051,8 +1051,8 @@ impl App {
  
      pub fn bezel_files(&self, platform: Platform) -> Vec<String> {
          match platform {
@@ -340,7 +354,7 @@ index 6e4f985..a4eb528 100644
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
                  .unwrap_or_default(),
-@@ -969,7 +969,7 @@ impl App {
+@@ -1073,7 +1073,7 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
@@ -349,7 +363,7 @@ index 6e4f985..a4eb528 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -977,7 +977,7 @@ impl App {
+@@ -1081,7 +1081,7 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
@@ -358,7 +372,7 @@ index 6e4f985..a4eb528 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -1616,7 +1616,7 @@ impl App {
+@@ -1976,7 +1976,7 @@ impl App {
      pub fn screen_shader(&self) -> Shader {
          match self.playing_platform() {
              Platform::Gba => self.state.shader_gba,
@@ -367,7 +381,7 @@ index 6e4f985..a4eb528 100644
              Platform::Gbc => self.state.shader_gbc,
          }
      }
-@@ -1634,6 +1634,7 @@ impl App {
+@@ -1994,6 +1994,7 @@ impl App {
              Platform::Gba => self.state.colour_correction_gba,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
@@ -375,7 +389,7 @@ index 6e4f985..a4eb528 100644
          }
      }
  
-@@ -2181,7 +2182,7 @@ impl App {
+@@ -2684,7 +2685,7 @@ impl App {
          }
          let (shader, choices) = match self.playing_platform() {
              Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
@@ -384,7 +398,7 @@ index 6e4f985..a4eb528 100644
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
          };
          *shader = shader.step(choices, right);
-@@ -2235,6 +2236,7 @@ impl App {
+@@ -2738,6 +2739,7 @@ impl App {
                  Platform::Gba => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
@@ -392,7 +406,16 @@ index 6e4f985..a4eb528 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -4550,7 +4552,7 @@ fn draw_menu_rows(
+@@ -3129,7 +3131,7 @@ impl App {
+         }
+         let lit = match self.playing_platform() {
+             Platform::Gb => [0x9b, 0xa5, 0x82],
+-            Platform::Gba | Platform::Gbc => [0xe6, 0xe4, 0xda],
++            Platform::Gba | Platform::Gbc | Platform::Nes => [0xe6, 0xe4, 0xda],
+         };
+         let k = (self.blank_s / BLANK_WARM_S).min(1.0);
+         let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
+@@ -5292,7 +5294,7 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {

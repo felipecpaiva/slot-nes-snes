@@ -15,7 +15,7 @@ and it runs about 20% fast. Many SMS games were released only in Europe. The mai
 manual override on 2026-10-18.
 
 ## Scope
-- [x] An ADR first (ADR 0076, patch 0048): a fourth row in the Master System Screen section, a per-system setting outside
+- [x] An ADR first (ADR 0076, patch 0047): a fourth row in the Master System Screen section, a per-system setting outside
   `slot.state` (ADR 0051, 0061 pattern), and the option mapping below.
 - [x] A **Region** row in `QuickRow::SCREEN_SMS`: Auto / Japan / USA / Europe, Auto by default. Stored
   per system in its own `Config/` file (for example `Config/region.txt`, `sms = europe`) through

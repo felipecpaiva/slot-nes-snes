@@ -12,6 +12,7 @@
 | mGBA source | upstream `cores/mgba/build.sh`, `git fetch` of one commit | git commit id `MGBA_COMMIT` (SHA-1 content addressed) |
 | Task linux arm64 tarball | `scripts/fetch-task.sh` | sha256 `task_linux_arm64_sha256` in `SLOT_PIN`, checked before extraction |
 | gpSP device source tarball | upstream `core:gpsp` (curl, no checksum) | sha256 `gpsp_tarball_sha256` in `SLOT_PIN`, checked by `scripts/dist-device.sh` on the vendor copy and the dist copy right after upstream's run; failure removes the dist tree and the gpSP cache. Upstream deletes its cached copy before downloading and its skip check cannot be met from outside, so the check runs after the download, before anything is packaged |
+| exfatprogs release tarball (for `System/fsck.exfat`, shipped with its source) | upstream `fsck:exfat` (curl), built static in the device box | sha256 `EXFATPROGS_SHA256` in upstream's taskfile, checked by upstream with `shasum -c` before the build, and again by `scripts/zip-check.sh` on the shipped copy |
 | gpSP host dylib (buildbot nightly) | upstream `core:gpsp:host` | sha256 `gpsp_host_sha256_<arch>` via `scripts/core-host.sh`. Host only, never shipped |
 | Rust crates | Cargo, from `Cargo.lock` | the checksums in `Cargo.lock`, same as upstream |
 | `rust:1-bullseye` image | `scripts/device-sh.sh`, upstream's device builds | none: a floating tag. Known, accepted gap, also upstream's |

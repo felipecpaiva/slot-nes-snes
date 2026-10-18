@@ -1,6 +1,7 @@
-# slot NES/SNES: patch set over pinned slot v1.7.0, phased build plan (RG34XXSP reference)
+# slot NES/SNES: patch set over pinned slot main 1b20432, phased build plan (RG34XXSP reference)
 
-> Built against slot v1.6.0 (`9d7c795`) and rebased onto v1.7.0 (`34ac380`) on 2026-10-15, ADR 0038.
+> Built against slot v1.6.0 (`9d7c795`), rebased onto v1.7.0 (`34ac380`) on 2026-10-15 (ADR 0038) and
+> onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083).
 > Version numbers below follow `SLOT_PIN`; the phase history is unchanged.
 
 ## Plan changelog
@@ -15,6 +16,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 4 | Phased rollout | Phase 7 (Sega on Genesis Plus GX, patches 0024 to 0028) added |
 | 5 | Spec, Phased rollout | PS1 brought into scope as Phase 8 (ADRs 0063 to 0069, issues 56 to 68), planned, not shipped; PAL pacing moved from deferred to issue 66 |
 | 6 | Spec (Out of scope), Phase 6+ | PAL 50 Hz pacing leaves the out-of-scope and deferred lists: issue 66, patch 0043, ADR 0071 |
+| 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -412,7 +414,7 @@ Done on the host: every test with `SLOT_REQUIRE_CORES=1`, real-core boot, canvas
 trip, input, Stretch and shader tests per system. Open: the device gate (heavy Mega Drive titles,
 `task perf:play` rows), a second core per system, a harness leg for a Sega cart then GBA.
 
-### Phase 8: PlayStation (planned, not shipped)
+### Phase 8: PlayStation (shipped)
 
 Tracking issue 56, children 57 to 65, ADRs 0063 to 0069, research in docs/research/ps1-plan.md
 and docs/research/ps1-spike.md (device spike passed on 2026-10-16). One core, pcsx_rearmed pinned

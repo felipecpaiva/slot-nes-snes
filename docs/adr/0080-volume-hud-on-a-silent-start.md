@@ -3,7 +3,7 @@
 - Status: Accepted. Drop when the upstream PR lands (0047)
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0052-silent-start-hud.patch`, [fork review](../research/fork-review-2026-10-18.md), jgraving/slot [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a), upstream PR text in [docs/contributions/upstream-silent-start-hud-pr.md](../contributions/upstream-silent-start-hud-pr.md)
+- Related: [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0051-silent-start-hud.patch`, [fork review](../research/fork-review-2026-10-18.md), jgraving/slot [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a), upstream PR text in [docs/contributions/upstream-silent-start-hud-pr.md](../contributions/upstream-silent-start-hud-pr.md)
 
 ## Context
 

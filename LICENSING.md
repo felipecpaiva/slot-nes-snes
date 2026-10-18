@@ -23,6 +23,8 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `pcsx_rearmed-src.tar.gz` and `pcsx_rearmed-src.meta`: the same for pcsx_rearmed.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
+- `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
+  `System/fsck.exfat`, which upstream slot ships for its SD card repair (SELECT+START), as slot ships them.
 
 **Rebuilding `System/slot`.** Build the `slot/` tree in the main tarball as upstream does, with
 Cargo and the network: Cargo fetches the crates by `Cargo.lock`. Without the network that works
@@ -329,18 +331,18 @@ marghost/slot_modded commit 88af60a, and patch `0046-switcher-up-down` takes Up 
 state switcher from suprsomething/slot.advance commit 2fe9876. Both forks are GPL-3.0 and are
 credited in the patch commits.
 
-Patch `0049-logo-label` adds `crates/slot-ui/examples/logo_label.rs`, a port of cloudwithax/unslot's
+Patch `0048-logo-label` adds `crates/slot-ui/examples/logo_label.rs`, a port of cloudwithax/unslot's
 `crates/slot-ui/src/scraped.rs` ([0b0f3a3](https://github.com/cloudwithax/unslot/commit/0b0f3a307da447d8d048425ab8e70a9fc4aeab43),
 GPL-3.0), which is itself a Rust port of the Logo Only style of Brandon Kowalski's Cart Studio
 (github.com/BrandonKowalski/slot-cart-studio, GPL-3.0-or-later). Both are credited in the file and the
 patch commit. No logo ships: `tools/fetch-labels.py` downloads them at user time.
 
-Patch `0050-battery-low` reimplements the Battery Low banners of marghost/slot_modded commit
+Patch `0049-battery-low` reimplements the Battery Low banners of marghost/slot_modded commit
 [1706a16](https://github.com/marghost/slot_modded/commit/1706a16), which adapts
 suprsomething/slot.advance commit [d495461](https://github.com/suprsomething/slot.advance/commit/d495461),
-and ports marghost's tests for them. Patch `0051-doze-rest` reimplements the standby loop of
+and ports marghost's tests for them. Patch `0050-doze-rest` reimplements the standby loop of
 marghost/slot_modded commit [b1f9e24](https://github.com/marghost/slot_modded/commit/b1f9e24),
 which adapts suprsomething/slot.advance commit
-[bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0052-silent-start-hud`
+[bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0051-silent-start-hud`
 follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a). All three forks are GPL-3.0 and are
 credited in the patch commits.

@@ -44,10 +44,10 @@ index 1d001d3..970033d 100644
          match self {
              Platform::Gba => &Shader::GBA,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 6e835d4..f190c00 100644
+index 719174f..45fb016 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -437,6 +437,7 @@ pub enum QuickValue {
+@@ -664,6 +664,7 @@ pub enum QuickValue {
      Retro(slot_store::RetroShader),
      Stretch,
      Actual,
@@ -55,7 +55,7 @@ index 6e835d4..f190c00 100644
  }
  
  impl QuickValue {
-@@ -466,6 +467,7 @@ impl QuickValue {
+@@ -707,6 +708,7 @@ impl QuickValue {
              QuickValue::Retro(s) => Self::ALL.len() + s.index(),
              QuickValue::Stretch => Self::ALL.len() + slot_store::RetroShader::ALL.len(),
              QuickValue::Actual => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 1,
@@ -63,7 +63,7 @@ index 6e835d4..f190c00 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -493,6 +495,7 @@ impl QuickValue {
+@@ -739,6 +741,7 @@ impl QuickValue {
              QuickValue::Retro(s) => s.label(),
              QuickValue::Stretch => "Stretch",
              QuickValue::Actual => "Actual",
@@ -108,10 +108,10 @@ index 53277cb..0d62155 100644
      for (i, v) in every.iter().enumerate() {
          assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6a61fb2..d09b901 100644
+index 217c2fb..28650c5 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1134,7 +1134,7 @@ impl App {
+@@ -1232,7 +1232,7 @@ impl App {
      }
  
      pub fn shown_game_bezel(&self) -> Option<TexId> {
@@ -120,7 +120,7 @@ index 6a61fb2..d09b901 100644
              return None;
          }
          self.game_bezel
-@@ -1515,7 +1515,7 @@ impl App {
+@@ -1625,7 +1625,7 @@ impl App {
      pub fn source_rect(&self) -> [f32; 4] {
          video_mode::source_rect(
              self.platform,
@@ -129,16 +129,16 @@ index 6a61fb2..d09b901 100644
              self.core.canvas(self.platform),
              self.video_mode,
          )
-@@ -2025,7 +2025,7 @@ impl App {
-             Phase::Inserting { .. } if action == Action::Eject => self.eject(),
-             Phase::Playing { .. } => match action {
-                 Action::GbaDown(Btn::L1) if self.slot_owns_the_shoulders() => {
+@@ -2412,7 +2412,7 @@ impl App {
+                 Action::GbaDown(Btn::L1)
+                     if self.slot_owns_the_shoulders() && !self.bound_to_game(Btn::L1) =>
+                 {
 -                    self.set_picture(VideoMode::Stretch)
 +                    self.set_picture(self.video_mode.stretched(self.platform))
                  }
-                 Action::GbaDown(Btn::R1) if self.slot_owns_the_shoulders() => {
-                     self.set_picture(VideoMode::Actual)
-@@ -2219,7 +2219,7 @@ impl App {
+                 Action::GbaDown(Btn::R1)
+                     if self.slot_owns_the_shoulders() && !self.bound_to_game(Btn::R1) =>
+@@ -2666,7 +2666,7 @@ impl App {
              self.save_sega_shaders();
              return;
          }
@@ -544,7 +544,7 @@ index eadf7be..9b8f446 100644
      assert_ne!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
      assert!(!root.path().join(VIDEO_MODE_FILE).exists());
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index 1269b0e..72e8b74 100644
+index 942e235..de25516 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -202,21 +202,21 @@ fn select_and_y_still_flip_colour_correction_on_a_gba_cart() {
@@ -579,7 +579,7 @@ index 1269b0e..72e8b74 100644
      assert_eq!(r.ever & ButtonMask::X, 0, "X was sent to the game");
  }
  
-@@ -235,10 +235,7 @@ fn select_and_x_on_nes_leave_the_picture_alone_and_x_goes_down() {
+@@ -235,10 +235,7 @@ fn select_and_x_on_nes_leave_the_picture_alone_and_x_stays_unbound() {
      let mut r = rig(Platform::Nes);
      r.chord(Btn::X);
      assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
@@ -588,7 +588,7 @@ index 1269b0e..72e8b74 100644
 -        slot::video_mode::VideoMode::Stretch
 -    );
 +    assert_eq!(r.picture(Platform::Nes), slot::video_mode::VideoMode::Crop);
-     assert_eq!(r.ever & ButtonMask::X, ButtonMask::X);
+     assert_eq!(r.ever & ButtonMask::X, 0);
  }
  
 @@ -252,19 +249,21 @@ fn l1_on_nes_still_stretches_the_picture() {
@@ -618,7 +618,7 @@ index 1269b0e..72e8b74 100644
  }
  
 diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
-index e71a8ec..5198379 100644
+index a8813f8..53fbd50 100644
 --- a/crates/slot/tests/system_picture.rs
 +++ b/crates/slot/tests/system_picture.rs
 @@ -21,14 +21,14 @@ const SECTIONS: [(QuickRow, QuickRow, QuickRow, Platform, QuickValue); 5] = [

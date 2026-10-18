@@ -41,7 +41,9 @@ Goal: one session per upstream release, conflicts only in `app.rs` and `frontend
    game, pick a core, fast-forward and rewind; `task readout:device` for starve lines.
    Walk `docs/DEVICE-GATE.md` for anything the rebase touched.
 7. **Release.** Set `VERSION` to `ns.1`, commit `patches/`, `SLOT_PIN` and `VERSION`,
-   tag `vNEW-ns.1`, add a row to the log below.
+   tag `<SLOT_PIN tag>-ns.1` (`vNEW-ns.1` on an upstream release; `main-<short sha>-ns.1` when the
+   base is an untagged upstream commit, ADR 0083), add a row to the log below. `release.yml` takes
+   both forms and refuses a tag that is not SLOT_PIN's tag plus `VERSION`.
 
 ## Log
 
@@ -50,6 +52,7 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
 | Date | From | To | Time taken | Conflicting files |
 |---|---|---|---|---|
 | 2026-10-15 | v1.6.0 | v1.7.0 | one session, device steps pending (no tag yet) | cart.rs, app.rs, quick_menu.rs, shelf.rs, board.rs, silhouette.rs, art.rs, lib.rs (slot-ui), slot_state.rs, durability.rs, platform_policy.rs, pipeline.rs, emu.rs, frontend.rs, video_mode.rs, gesture.rs, root.rs, alsa.rs, render_shelves.rs, retro_pipeline.rs, retro_cart.rs |
+| 2026-10-18 | v1.7.0 | main 1b20432 (no 1.8.0 tag yet) | one session, device steps pending (no tag) | libretro.rs, emu.rs, lib.rs (slot), gesture.rs, gesture/ps1.rs, snes_select.rs, frontend.rs, quick_menu.rs (slot-ui src and tests), app.rs, pipeline.rs, retro_quick.rs, sega_quick_shader.rs, session.rs, mask.rs, lib.rs (slot-ui), device.rs, input/mod.rs |
 
 ## Lessons
 
@@ -74,3 +77,12 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
   Screen lists the platforms, a MENU tap opens the in-game menu (the emulator is held, so it is
   not "running"), and the worker locks later after an insert (the composite rig, which cannot
   see the lock, retries its first tick until it lands).
+- main 1b20432 (ADR 0083): upstream's remapping builds the game mask only from its 10 `GameButton`s,
+  so buttons our systems need beyond them (X, Y, L2, R2) went dead without a compile error. After a
+  release that touches input, run every system's input tests before resolving the next conflict.
+- Upstream now returns `Vec<QuickRow>` from `hidden_rows` and `in_game_hidden`; our tests call
+  `position(&...)` and `shown(&...)`, and our hidden-row helpers return the rows to add, not a list.
+- main 1b20432: the harness drives ticks far faster than real time, and upstream's sinc resampler
+  panics when the measured tick rate makes the sound ratio tiny; `frame_dump.rs` spaces ticks 2 ms
+  apart. The core now opens on its own thread, joined by an update, so any harness wait for a
+  loading core must keep updating.

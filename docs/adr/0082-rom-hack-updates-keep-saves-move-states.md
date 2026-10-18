@@ -4,7 +4,7 @@
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: `tools/hacks.py`, `tools/hacks.json`, [docs/HACKS.md](../HACKS.md); slot code read at patch
-  `0052-silent-start-hud`: `crates/slot-store/src/ring.rs`, `crates/slot/src/persist.rs`,
+  `0051-silent-start-hud`: `crates/slot-store/src/ring.rs`, `crates/slot/src/persist.rs`,
   `crates/slot/src/ps1_load.rs`, `crates/slot-store/src/slot_state.rs`, `crates/slot-store/src/shelf_carts.rs`
 
 ## Context

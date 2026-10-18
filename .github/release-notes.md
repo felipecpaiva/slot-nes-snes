@@ -1,4 +1,5 @@
-NES and SNES shelves for [slot](https://github.com/BrandonKowalski/slot) v1.6.0 on the Anbernic
+NES and SNES shelves for [slot](https://github.com/BrandonKowalski/slot) (the base is in the tag: a slot
+release, or `main-<commit>` before upstream tags it) on the Anbernic
 H700 handhelds (tested on the RG34XXSP). Games/NES and Games/SNES sit beside the GBA, GB and GBC
 shelves.
 

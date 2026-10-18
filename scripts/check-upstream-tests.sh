@@ -114,27 +114,13 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		continue ;;
 	crates/slot-ui/tests/quick_menu.rs)
 		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?\]$'
-		opens='^            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$'
+		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
-			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?(\])$/$1$4/; s/^(            QuickRow::ScreenGb), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$/$1/' "$ours/$f" >"$tmp/x" &&
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?(\])$/$1$4/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems and PlayStation after Game Boy in the Screen labels and the rows that open pages)"
 		else
 			fail "$f differs beyond the NES, SNES, Sega and PlayStation tokens in the Screen labels and the rows that open pages"
-		fi
-		continue ;;
-	crates/slot-power/tests/device.rs)
-		l1='^    assert!\(\(40\.\.=90\)\.contains\(&mid\), "step 5 of 9 wrote \{mid\} of 255"\);$'
-		l2='^fn step_one_is_the_dimmest_value_the_rg34xx_lights\(\) \{$'
-		l3='^    assert_eq!\(brightness\(&d\), 8\);$'
-		l4='^    assert_eq!\(wrote, \[0, 8, 14, 30, 52, 81, 117, 157, 204, 255\]\);$'
-		if [ "$(grep -cE "$l1" "$ours/$f")" = 1 ] && [ "$(grep -cE "$l2" "$ours/$f")" = 1 ] &&
-			[ "$(grep -cE "$l3" "$ours/$f")" = 1 ] && [ "$(grep -cE "$l4" "$ours/$f")" = 1 ] &&
-			perl -pe 's/^(    assert!\(\(40\.\.=)90(\)\.contains\(&mid\), "step 5 of 9 wrote \{mid\} of 255"\);)$/${1}80$2/; s/^fn step_one_is_the_dimmest_value_the_rg34xx_lights\(\) \{$/fn step_one_is_the_dimmest_lit_value() {/; s/^(    assert_eq!\(brightness\(&d\), )8(\);)$/${1}1$2/; s/^(    assert_eq!\(wrote, \[0, )8, 14, 30, 52, 81, 117, 157, 204(, 255\]\);)$/${1}1, 8, 23, 47, 77, 113, 155, 202$2/' "$ours/$f" >"$tmp/x" &&
-			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exception (the four test lines of upstream 3b6349c, backlight floor)"
-		else
-			fail "$f differs beyond the four test lines of upstream 3b6349c"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;

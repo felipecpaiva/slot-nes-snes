@@ -86,7 +86,7 @@ for g in "$d"/Games/*; do
 done
 
 # System/ holds exactly this set: upstream's dist output plus our core and licence files.
-req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
+req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so"
 for f in $req; do
@@ -94,8 +94,10 @@ for f in $req; do
 done
 mc="$(slot_var MGBA_COMMIT)"
 gc="$(slot_var GPSP_COMMIT)"
-[ -n "$mc" ] && [ -n "$gc" ] || bad "no MGBA_COMMIT or GPSP_COMMIT in build/slot/taskfile.yml, run task build"
-ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh slotlink.sh slot
+ev="$(slot_var EXFATPROGS_VERSION)"
+[ -n "$mc" ] && [ -n "$gc" ] && [ -n "$ev" ] || bad "no MGBA_COMMIT, GPSP_COMMIT or EXFATPROGS_VERSION in build/slot/taskfile.yml, run task build"
+ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
+licenses/exfatprogs-GPL-2.0.txt licenses/exfatprogs-$ev.tar.gz
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so
 licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/retro-shaders.txt licenses/cores.sha256
@@ -186,6 +188,11 @@ done
 
 [ -x "$sys/slot" ] || bad "System/slot is missing or not executable"
 [ ! -f "$sys/slot" ] || aarch64 "$sys/slot"
+[ ! -f "$sys/fsck.exfat" ] || aarch64 "$sys/fsck.exfat"
+es="$(slot_var EXFATPROGS_SHA256)"
+f="$lic/exfatprogs-$ev.tar.gz"
+[ ! -f "$f" ] || [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$es" ] ||
+	bad "System/licenses/exfatprogs-$ev.tar.gz is not the source upstream pins (EXFATPROGS_SHA256)"
 
 for f in "$sys"/*_libretro.*; do
 	[ -e "$f" ] || continue

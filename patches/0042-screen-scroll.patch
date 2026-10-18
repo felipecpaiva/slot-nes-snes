@@ -4,87 +4,26 @@ Date: Sun, 18 Oct 2026 09:17:52 +0400
 Subject: [PATCH] screen-scroll
 
 ---
- crates/slot-ui/src/lib.rs                 |   4 +-
- crates/slot-ui/src/quick_menu.rs          |  35 +++++-
+ crates/slot-ui/src/quick_menu.rs          |   1 +
  crates/slot-ui/tests/screen_scroll.rs     |  29 +++++
- crates/slot/tests/render_screen_scroll.rs | 125 ++++++++++++++++++++++
- crates/slot/tests/render_sega_quick.rs    |   4 +-
- 5 files changed, 188 insertions(+), 9 deletions(-)
+ crates/slot/tests/render_screen_scroll.rs | 126 ++++++++++++++++++++++
+ crates/slot/tests/render_sega_quick.rs    |   6 +-
+ 4 files changed, 159 insertions(+), 3 deletions(-)
  create mode 100644 crates/slot-ui/tests/screen_scroll.rs
  create mode 100644 crates/slot/tests/render_screen_scroll.rs
 
-diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index dc071cb..bb7f811 100644
---- a/crates/slot-ui/src/lib.rs
-+++ b/crates/slot-ui/src/lib.rs
-@@ -90,8 +90,8 @@ pub use ps1_case::{
- };
- pub use quick_menu::{
-     draw_menu_ground, quick_caret_face, quick_label_face, quick_legend_faces, quick_pointer_face,
--    quick_row_top, quick_value_face, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, QUICK_EDGE,
--    QUICK_LABEL_X, QUICK_PITCH,
-+    quick_row_top, quick_row_top_at, quick_value_face, quick_window, QuickMenu, QuickMenuFaces,
-+    QuickRow, QuickValue, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH, QUICK_VISIBLE,
- };
- pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
- pub use refusal::Refusal;
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 3f9a10d..258f493 100644
+index 0ed731f..dfb6bef 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -722,8 +722,10 @@ impl QuickMenu<'_> {
-             .map(|l| l[1].1)
-             .max()
-             .unwrap_or(0);
--        for row in self.row.shown(self.hidden) {
--            let y = quick_row_top(row, self.hidden) + TYPE_DROP;
-+        let shown = self.row.shown(self.hidden);
-+        let (start, len) = quick_window(self.row, self.hidden);
-+        for row in shown.into_iter().skip(start).take(len) {
-+            let y = quick_row_top_at(row, self.row, self.hidden) + TYPE_DROP;
-             let lit = row == self.row;
-             if let Some(&(tex, w, h)) = faces.labels.get(row.index()).map(|l| &l[lit as usize]) {
-                 let x = match row.centred() {
-@@ -806,13 +808,36 @@ pub fn draw_menu_ground(canvas: Canvas, ground: Option<TexId>, out: &mut Vec<Dra
-     }
+@@ -1220,6 +1220,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
+         &QuickRow::CONTROLS[..],
+         &QuickRow::SHORTCUTS,
+         &QuickRow::GENERAL,
++        &QuickRow::SCREEN,
+     ]
+     .contains(&page)
  }
- 
--pub fn quick_row_top(row: QuickRow, hidden: &[QuickRow]) -> f32 {
--    let rows = QUICK_PITCH * row.shown(hidden).len() as f32;
-+pub const QUICK_VISIBLE: usize = 6;
-+
-+fn scrolls(page: &[QuickRow]) -> bool {
-+    [&QuickRow::GENERAL[..], &QuickRow::SCREEN].contains(&page)
-+}
-+
-+pub fn quick_window(selected: QuickRow, hidden: &[QuickRow]) -> (usize, usize) {
-+    let count = selected.shown(hidden).len();
-+    if !scrolls(selected.page()) || count <= QUICK_VISIBLE {
-+        return (0, count);
-+    }
-+    let at = selected.position(hidden);
-+    let start = at
-+        .saturating_sub(QUICK_VISIBLE / 2)
-+        .min(count - QUICK_VISIBLE);
-+    (start, QUICK_VISIBLE)
-+}
-+
-+pub fn quick_row_top_at(row: QuickRow, selected: QuickRow, hidden: &[QuickRow]) -> f32 {
-+    let (start, len) = quick_window(selected, hidden);
-+    let rows = QUICK_PITCH * len as f32;
-     let top = match row.page() == QuickRow::PLAY_SCREEN {
-         true => LEGEND_Y - PANEL_GAP - rows,
-         false => (LEGEND_Y - rows) / 2.0,
-     };
--    top + QUICK_PITCH * row.position(hidden) as f32
-+    top + QUICK_PITCH * (row.position(hidden) as f32 - start as f32)
-+}
-+
-+pub fn quick_row_top(row: QuickRow, hidden: &[QuickRow]) -> f32 {
-+    quick_row_top_at(row, row, hidden)
- }
- 
- fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
 diff --git a/crates/slot-ui/tests/screen_scroll.rs b/crates/slot-ui/tests/screen_scroll.rs
 new file mode 100644
 index 0000000..4acf987
@@ -122,10 +61,10 @@ index 0000000..4acf987
 +}
 diff --git a/crates/slot/tests/render_screen_scroll.rs b/crates/slot/tests/render_screen_scroll.rs
 new file mode 100644
-index 0000000..e0eb388
+index 0000000..505cbf2
 --- /dev/null
 +++ b/crates/slot/tests/render_screen_scroll.rs
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,126 @@
 +#![cfg(target_os = "macos")]
 +
 +mod common;
@@ -142,6 +81,7 @@ index 0000000..e0eb388
 +use tempfile::TempDir;
 +
 +const LEGEND_TOP: usize = 427;
++const FOOTER_EDGE: usize = 424;
 +
 +struct Script(VecDeque<Vec<RawEvent>>);
 +
@@ -178,7 +118,7 @@ index 0000000..e0eb388
 +}
 +
 +fn rows_where(px: &[u8], ink: impl Fn(&[u8]) -> bool) -> Vec<usize> {
-+    (0..LEGEND_TOP)
++    (0..FOOTER_EDGE)
 +        .filter(|y| {
 +            (0..OUT_W as usize).any(|x| {
 +                let i = (y * OUT_W as usize + x) * 4;
@@ -203,12 +143,12 @@ index 0000000..e0eb388
 +    tap(&mut f, &mut input, Btn::Menu);
 +    tap(&mut f, &mut input, Btn::Down);
 +    tap(&mut f, &mut input, Btn::A);
-+    assert_eq!(QuickRow::ScreenGba.shown(f.app().hidden_rows()).len(), 9);
++    assert_eq!(QuickRow::ScreenGba.shown(&f.app().hidden_rows()).len(), 9);
 +    f.compose(&mut c);
 +    let px = c.read_frame();
 +    let rows = rows_where(&px, |p| p.iter().all(|c| *c > 0x70));
 +    assert!(rows[0] > 0, "the first row is cut at the top");
-+    let below = (LEGEND_TOP - 8..LEGEND_TOP)
++    let below = (FOOTER_EDGE - 8..FOOTER_EDGE)
 +        .filter(|y| rows.contains(y))
 +        .count();
 +    assert_eq!(below, 0, "a row runs into the legend");
@@ -230,13 +170,13 @@ index 0000000..e0eb388
 +    tap(&mut f, &mut input, Btn::Down);
 +    tap(&mut f, &mut input, Btn::A);
 +    let hidden = f.app().hidden_rows();
-+    for _ in 0..QuickRow::ScreenPs1.position(hidden) {
++    for _ in 0..QuickRow::ScreenPs1.position(&hidden) {
 +        tap(&mut f, &mut input, Btn::Down);
 +    }
 +    assert_eq!(f.app().quick_menu(), Some(QuickRow::ScreenPs1));
 +    f.compose(&mut c);
 +    let px = c.read_frame();
-+    let top = quick_row_top_at(QuickRow::ScreenPs1, QuickRow::ScreenPs1, hidden) as usize;
++    let top = quick_row_top_at(QuickRow::ScreenPs1, QuickRow::ScreenPs1, &hidden) as usize;
 +    assert!(
 +        top + QUICK_PITCH as usize <= LEGEND_TOP,
 +        "PlayStation sits at y {top}"
@@ -252,7 +192,7 @@ index 0000000..e0eb388
 +    );
 +}
 diff --git a/crates/slot/tests/render_sega_quick.rs b/crates/slot/tests/render_sega_quick.rs
-index e254c8a..50e3a5c 100644
+index e254c8a..09f028f 100644
 --- a/crates/slot/tests/render_sega_quick.rs
 +++ b/crates/slot/tests/render_sega_quick.rs
 @@ -10,7 +10,7 @@ use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
@@ -264,9 +204,12 @@ index e254c8a..50e3a5c 100644
  
  struct Script(VecDeque<Vec<RawEvent>>);
  
-@@ -81,7 +81,7 @@ fn the_full_screen_list_of_eight_systems_fits_between_the_top_and_the_legend() {
+@@ -79,9 +79,9 @@ fn the_full_screen_list_of_eight_systems_fits_between_the_top_and_the_legend() {
+         let i = (y * OUT_W as usize + x) * 4;
+         px[i..i + 3].iter().all(|c| *c > 0x70)
      };
-     let rows: Vec<usize> = (0..427).filter(|y| (x0..360).any(|x| ink(x, *y))).collect();
+-    let rows: Vec<usize> = (0..427).filter(|y| (x0..360).any(|x| ink(x, *y))).collect();
++    let rows: Vec<usize> = (0..424).filter(|y| (x0..360).any(|x| ink(x, *y))).collect();
      let bands = rows.windows(2).filter(|w| w[1] > w[0] + 1).count() + 1;
 -    assert!(bands >= 8, "only {bands} ink bands for eight rows");
 +    assert_eq!(bands, QUICK_VISIBLE, "eight rows scroll in a window");

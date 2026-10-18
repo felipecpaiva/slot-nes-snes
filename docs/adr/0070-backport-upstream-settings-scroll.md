@@ -1,6 +1,6 @@
 # 0070. Scroll the Screen page with a backport of upstream's settings-page scrolling
 
-- Status: Accepted. Backport, drop on the 1.8.0 rebase (0047)
+- Status: Accepted. Shrunk on the rebase onto upstream main 1b20432 to `&QuickRow::SCREEN` in upstream's `scrolls()` ([ADR 0083](0083-rebase-to-slot-main-1b20432.md))
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0047](0047-upstream-first-fixes.md), [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md), [ADR 0055](0055-sega-tokens-at-named-test-sites.md), [ADR 0065](0065-ps1-canvas-and-screen-section.md), patch `patches/0042-screen-scroll.patch`, upstream [e1bfb2b](https://github.com/BrandonKowalski/slot/commit/e1bfb2b) and [2c82294](https://github.com/BrandonKowalski/slot/commit/2c82294)

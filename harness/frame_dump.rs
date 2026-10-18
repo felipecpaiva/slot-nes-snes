@@ -4,7 +4,7 @@ use std::process::exit;
 use std::time::{Duration, Instant};
 
 use slot::app::{App, Phase};
-use slot::audio::{AudioSink, StubSink, GBA_HZ};
+use slot::audio::{AudioSink, StubSink, OUTPUT_HZ};
 use slot::frontend::Frontend;
 use slot::label_cache;
 use slot::session::Session;
@@ -29,6 +29,9 @@ const LABEL_TIMEOUT: Duration = Duration::from_secs(60);
 const LOCK_AFTER: Duration = Duration::from_millis(23);
 const LOCK_BEFORE: Duration = Duration::from_micros(24500);
 const TICK_GAP: Duration = Duration::from_millis(22);
+// Since upstream 5dc5b83 the sound ratio follows the measured tick rate; ticks under about 0.5 ms
+// apart make the sinc resampler skip past its history and panic in both trees, so ticks are spaced.
+const MIN_TICK: Duration = Duration::from_millis(2);
 
 fn die(why: &str) -> ! {
     eprintln!("frame_dump: {why}");
@@ -137,6 +140,7 @@ impl InputSource for Scripted {
 trait Rig {
     fn settling(&self) -> bool;
     fn advance(&mut self, input: &mut Scripted, now: Millis);
+    fn poll_core(&mut self, now: Millis);
     fn step(&self) -> bool;
     fn locked(&self) -> bool {
         true
@@ -159,7 +163,7 @@ fn present() -> Duration {
 
 fn sink() -> Box<dyn AudioSink> {
     let mut sink = StubSink::draining();
-    if let Err(e) = sink.open(GBA_HZ) {
+    if let Err(e) = sink.open(OUTPUT_HZ) {
         die(&format!("audio: {e}"));
     }
     Box::new(sink)
@@ -194,6 +198,11 @@ impl Rig for CoreRig {
         let events = input.poll(now);
         self.session.feed(events, now);
         self.session.update(DT);
+    }
+
+    fn poll_core(&mut self, now: Millis) {
+        self.session.feed([], now);
+        self.session.update(0.0);
     }
 
     fn step(&self) -> bool {
@@ -335,6 +344,10 @@ impl Rig for CompositeRig {
         self.frontend.advance_at(input, now, DT);
     }
 
+    fn poll_core(&mut self, now: Millis) {
+        self.frontend.advance_at(&mut Scripted(Vec::new()), now, 0.0);
+    }
+
     fn step(&self) -> bool {
         self.frontend.step_emulator(present(), STEP_TIMEOUT)
     }
@@ -390,7 +403,6 @@ impl Rig for CompositeRig {
 
 fn running(app: &App) -> bool {
     matches!(app.phase(), Phase::Playing { .. })
-        && app.power_menu().is_none()
         && !app.game_menu_open()
         && app.in_game_menu().is_none()
         && !app.shutting_down()
@@ -434,11 +446,15 @@ struct Run<R: Rig> {
 impl<R: Rig> Run<R> {
     fn frame(&mut self) {
         let began = Instant::now();
+        // Since upstream a1c3314 the core opens on its own thread and is joined by an update, so
+        // the wait polls with a zero-length update and no input at the last frame's time.
+        let last = (self.frame as f64 * 1000.0 / FPS) as Millis;
         while self.rig.settling() {
             if began.elapsed() > CORE_TIMEOUT {
                 die("the core never finished loading");
             }
             std::thread::sleep(Duration::from_millis(1));
+            self.rig.poll_core(last);
         }
         let began = Instant::now();
         self.frame += 1;
@@ -470,6 +486,9 @@ impl<R: Rig> Run<R> {
                         late(&format!("slept too long to lock at frame {}", self.frame));
                     }
                 }
+            }
+            if let Some(gap) = self.stepped.map(|last| last.elapsed()) {
+                std::thread::sleep(MIN_TICK.saturating_sub(gap));
             }
             let mut stepped = self.rig.step();
             // The composite rig cannot see the lock (frame_dump builds in the upstream tree, which

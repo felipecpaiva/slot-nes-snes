@@ -16,10 +16,10 @@ Subject: [PATCH] system-picture
  create mode 100644 crates/slot/tests/system_picture.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 40df3d2..6e835d4 100644
+index 3ef18f0..719174f 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -56,10 +56,15 @@ pub enum QuickRow {
+@@ -92,10 +92,15 @@ pub enum QuickRow {
      ScreenGg,
      ScreenSms,
      ScreenMd,
@@ -31,12 +31,12 @@ index 40df3d2..6e835d4 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 50] = [
-+    pub const ALL: [QuickRow; 55] = [
+-    pub const ALL: [QuickRow; 82] = [
++    pub const ALL: [QuickRow; 87] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -110,6 +115,11 @@ impl QuickRow {
+@@ -178,6 +183,11 @@ impl QuickRow {
          QuickRow::ScreenGg,
          QuickRow::ScreenSms,
          QuickRow::ScreenMd,
@@ -47,8 +47,8 @@ index 40df3d2..6e835d4 100644
 +        QuickRow::MdPicture,
      ];
  
-     pub const MAIN: [QuickRow; 4] = [
-@@ -228,11 +238,11 @@ impl QuickRow {
+     pub const MAIN: [QuickRow; 5] = [
+@@ -352,11 +362,11 @@ impl QuickRow {
              QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
                  &QuickRow::PLAY_SCREEN
              }
@@ -65,10 +65,10 @@ index 40df3d2..6e835d4 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -247,11 +257,11 @@ impl QuickRow {
-             QuickRow::Wallpaper => Some(QuickRow::General),
-             QuickRow::PlayScreen => Some(QuickRow::Settings),
-             QuickRow::Shader => Some(QuickRow::PlayScreen),
+@@ -375,11 +385,11 @@ impl QuickRow {
+             QuickRow::Theme => Some(QuickRow::General),
+             QuickRow::ControlsShelf => Some(QuickRow::Controls),
+             QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
 -            QuickRow::NesShader => Some(QuickRow::ScreenNes),
 -            QuickRow::SnesShader => Some(QuickRow::ScreenSnes),
 -            QuickRow::GgShader => Some(QuickRow::ScreenGg),
@@ -82,7 +82,7 @@ index 40df3d2..6e835d4 100644
              _ => None,
          }
      }
-@@ -360,6 +370,11 @@ impl QuickRow {
+@@ -527,6 +537,11 @@ impl QuickRow {
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
@@ -94,16 +94,16 @@ index 40df3d2..6e835d4 100644
          }
      }
  
-@@ -420,6 +435,8 @@ pub enum QuickValue {
-     Medium,
-     High,
+@@ -647,6 +662,8 @@ pub enum QuickValue {
+     Min15,
+     Min30,
      Retro(slot_store::RetroShader),
 +    Stretch,
 +    Actual,
  }
  
  impl QuickValue {
-@@ -447,6 +464,8 @@ impl QuickValue {
+@@ -688,6 +705,8 @@ impl QuickValue {
      pub fn index(self) -> usize {
          match self {
              QuickValue::Retro(s) => Self::ALL.len() + s.index(),
@@ -112,9 +112,9 @@ index 40df3d2..6e835d4 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -472,6 +491,8 @@ impl QuickValue {
-             QuickValue::Medium => "45%",
-             QuickValue::High => "65%",
+@@ -718,6 +737,8 @@ impl QuickValue {
+             QuickValue::Min15 => "15 min",
+             QuickValue::Min30 => "30 min",
              QuickValue::Retro(s) => s.label(),
 +            QuickValue::Stretch => "Stretch",
 +            QuickValue::Actual => "Actual",
@@ -224,10 +224,10 @@ index edf4a4d..53277cb 100644
          assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
      }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 243e595..6a61fb2 100644
+index 5dbea58..217c2fb 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -410,6 +410,7 @@ pub struct App {
+@@ -444,6 +444,7 @@ pub struct App {
      shelf_carts: Vec<(String, Recent)>,
      frame_w: u32,
      sega_shaders: slot_store::SegaShaders,
@@ -235,7 +235,7 @@ index 243e595..6a61fb2 100644
      rested: Option<(usize, usize)>,
  }
  
-@@ -559,6 +560,7 @@ impl App {
+@@ -622,6 +623,7 @@ impl App {
              shelf_carts: Vec::new(),
              frame_w: 0,
              sega_shaders: slot_store::SegaShaders::default(),
@@ -243,15 +243,15 @@ index 243e595..6a61fb2 100644
              rested: None,
          }
      }
-@@ -573,6 +575,7 @@ impl App {
-         app.state = read_slot_state(root);
+@@ -639,6 +641,7 @@ impl App {
+         app.controls = read_controls(root);
          app.shelf_carts = slot_store::read_shelf_carts(root);
          app.sega_shaders = slot_store::read_sega_shaders(root);
 +        app.pictures = crate::platform_video::SystemPictures::read(root);
          app.restock_recents();
          app.restock_favorites();
          for at in 0..app.shelves.len() {
-@@ -972,6 +975,11 @@ impl App {
+@@ -1036,6 +1039,11 @@ impl App {
              QuickRow::GgShader => Some(shader_value(self.sega_shaders.gg)),
              QuickRow::SmsShader => Some(shader_value(self.sega_shaders.sms)),
              QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
@@ -261,9 +261,9 @@ index 243e595..6a61fb2 100644
 +            | QuickRow::SmsPicture
 +            | QuickRow::MdPicture => self.pictures.get(row).map(VideoMode::quick_value),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
              QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
-             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
-@@ -2196,7 +2204,12 @@ impl App {
+@@ -2643,7 +2651,12 @@ impl App {
              | QuickRow::SnesShader
              | QuickRow::GgShader
              | QuickRow::SmsShader
@@ -277,7 +277,7 @@ index 243e595..6a61fb2 100644
          }
      }
  
-@@ -2206,6 +2219,12 @@ impl App {
+@@ -2653,6 +2666,12 @@ impl App {
              self.save_sega_shaders();
              return;
          }
@@ -290,7 +290,7 @@ index 243e595..6a61fb2 100644
          if row == QuickRow::Palette {
              let to = match right {
                  true => self.state.gb_palette.next(),
-@@ -2297,6 +2316,11 @@ impl App {
+@@ -2757,6 +2776,11 @@ impl App {
              QuickRow::Theme => s.appearance = s.appearance.toggle(),
              QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
              QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader => return,
@@ -409,7 +409,7 @@ index 48edaba..85c3506 100644
 +    }
  }
 diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
-index ef0ca2b..73995f4 100644
+index 3ff0f93..29b083a 100644
 --- a/crates/slot/tests/quick_retro_shader.rs
 +++ b/crates/slot/tests/quick_retro_shader.rs
 @@ -107,13 +107,19 @@ fn a_card_with_no_nes_or_snes_carts_keeps_the_upstream_platform_list() {
@@ -435,7 +435,7 @@ index ef0ca2b..73995f4 100644
          assert_eq!(app.quick_menu(), Some(console), "{console:?}");
 diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
 new file mode 100644
-index 0000000..e71a8ec
+index 0000000..a8813f8
 --- /dev/null
 +++ b/crates/slot/tests/system_picture.rs
 @@ -0,0 +1,304 @@
@@ -517,11 +517,11 @@ index 0000000..e71a8ec
 +
 +fn open_section(app: &mut App, console: QuickRow) {
 +    app.apply(Action::QuickMenu);
-+    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
 +        press(app, Btn::Down);
 +    }
 +    press(app, Btn::A);
-+    for _ in 0..console.position(app.hidden_rows()) {
++    for _ in 0..console.position(&app.hidden_rows()) {
 +        press(app, Btn::Down);
 +    }
 +    assert_eq!(app.quick_menu(), Some(console));
