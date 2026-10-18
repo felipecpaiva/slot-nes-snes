@@ -73,3 +73,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
 | [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
+| [70](70-ngp-tracking.md) | NeoGeo Pocket: NGP and Pocket Color on Beetle NeoPop, built the NES and SNES way | 9 | device | tracking | L | 56-ps1-tracking |
+| [71](71-ngp-core-build.md) | Build Beetle NeoPop from a pinned commit for host and device and record its licence | 9 | cores | feature | S | 70-ngp-tracking |
+| [72](72-platform-ngp.md) | Add Platform::Ngp with its own shelf, scan and explicit policy | 9 | platform | feature | M | 71-ngp-core-build |
+| [73](73-ngp-options.md) | Set the NGP core options and answer NeoPop's declared defaults | 9 | cores | feature | S | 72-platform-ngp |
+| [74](74-ngp-canvas-screen.md) | Give NGP a 240x160 canvas and its own Screen section with Shader and Picture rows | 9 | video | feature | S | 73-ngp-options |
+| [75](75-ngp-flash-saves.md) | Keep NGP cart flash safe: core save dir, atomic publish, flush by reload | 9 | platform | feature | M | 72-platform-ngp |
+| [76](76-ngp-input.md) | Map the NGP A, B and Option buttons | 9 | input | feature | S | 72-platform-ngp |
+| [77](77-ngp-tests.md) | Test NGP with a generated cart that paints and writes flash | 9 | tests | test | S | 71-ngp-core-build |
+| [78](78-ngp-carts.md) | Draw NGP carts (mono and Color shells) and fetch their labels | 9 | ui-art | feature | M | 72-platform-ngp |
+| [79](79-ngp-device-gate.md) | NGP device gate on the RG34XXSP | 9 | device | chore | S | 74-ngp-canvas-screen, 75-ngp-flash-saves, 76-ngp-input |

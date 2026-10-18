@@ -1,0 +1,266 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:25:47 +0400
+Subject: [PATCH] ngp-core-tests
+
+Beetle NeoPop (NeoGeo Pocket and Pocket Color) runs on the generic
+libretro host before any NGP platform code exists. A generated 64 KB
+Pocket Color cart boots with no BIOS and paints a 160x152 picture in the
+middle of the 240x160 buffer at about 60.25 fps and 44.1 kHz, and its
+state round-trips.
+
+The cart flash is the new save shape: NeoPop gives the frontend no
+SAVE_RAM and writes <name>.flash into the save dir slot hands it
+(Saves/) only when the game unloads, and only after the game wrote
+flash. A cart that issues the flash command keeps its byte across a
+restart through that dir, and a save state alone brings the flash back
+with no .flash file.
+
+The cart header recipe (SNK header, start address, colour byte, jr t,-2
+spin) follows nelynes/slotPlus's ngp_core.rs, commit a8eae4c
+(https://github.com/nelynes/slotPlus/commit/a8eae4c, GPL-3.0). The paint
+and flash command code is new.
+---
+ crates/slot/tests/ngp_core.rs | 233 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 233 insertions(+)
+ create mode 100644 crates/slot/tests/ngp_core.rs
+
+diff --git a/crates/slot/tests/ngp_core.rs b/crates/slot/tests/ngp_core.rs
+new file mode 100644
+index 0000000..ae194c7
+--- /dev/null
++++ b/crates/slot/tests/ngp_core.rs
+@@ -0,0 +1,233 @@
++// Beetle NeoPop (NeoGeo Pocket and Pocket Color) on the generic libretro host, before any NGP platform
++// code exists (issues 71 and 77, ADR 0083). The synthetic cart follows nelynes/slotPlus's ngp_core.rs
++// (https://github.com/nelynes/slotPlus/commit/a8eae4c, GPL-3.0): the SNK header, the start address at
++// 0x1c, the colour byte at 0x23 and a `jr t,-2` spin. The paint and flash-command code is ours.
++mod common;
++mod core_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++const ROM_START: usize = 0x20_0000;
++const FLASH_AT: usize = 0x20_f000;
++const MARK: u8 = 0x5a;
++// FlashFileHeader (8 bytes), one FlashFileBlockHeader (6, padded to 8), then the 256-byte block.
++const FLASH_LEN: usize = 8 + 8 + 256;
++const RED: u16 = 0x000f;
++
++fn ld24(addr: usize, byte: u8) -> [u8; 6] {
++    // LD (n24),#: the 24-bit memory prefix 0xf2, the address low byte first, DST LD.B #, the byte.
++    let [a0, a1, a2, _] = (addr as u32).to_le_bytes();
++    [0xf2, a0, a1, a2, 0x00, byte]
++}
++
++fn ldw16(addr: u16, word: u16) -> [u8; 6] {
++    // LD.W (n16),#: the 16-bit memory prefix 0xf1, the address, DST LD.W #, the word.
++    let [a0, a1] = addr.to_le_bytes();
++    let [w0, w1] = word.to_le_bytes();
++    [0xf1, a0, a1, 0x02, w0, w1]
++}
++
++/// A 64 KB Pocket Color cart that paints the whole screen red (the background and out-of-window
++/// palette entries), optionally writes `MARK` to cart flash at `FLASH_AT` through the AA/55/A0
++/// command, then spins.
++fn cart(dir: &Path, stem: &str, write_flash: bool) -> PathBuf {
++    let mut rom = vec![0u8; 0x10000];
++    rom[..28].copy_from_slice(b"COPYRIGHT BY SNK CORPORATION");
++    rom[0x1c..0x20].copy_from_slice(&(ROM_START as u32 + 0x40).to_le_bytes());
++    rom[0x23] = 0x10;
++    rom[0x24..0x30].copy_from_slice(b"SLOT NGP    ");
++    let mut code = Vec::new();
++    code.extend(ldw16(0x83e0, RED));
++    code.extend(ldw16(0x83f0, RED));
++    if write_flash {
++        code.extend(ld24(0x20_5555, 0xaa));
++        code.extend(ld24(0x20_2aaa, 0x55));
++        code.extend(ld24(0x20_5555, 0xa0));
++        code.extend(ld24(FLASH_AT, MARK));
++    }
++    code.extend([0x68, 0xfe]);
++    rom[0x40..0x40 + code.len()].copy_from_slice(&code);
++    let path = dir.join(format!("{stem}.ngc"));
++    std::fs::write(&path, rom).unwrap();
++    path
++}
++
++/// The core opened the way slot opens every core today: BIOS/ as the system dir and Saves/ as the
++/// save dir (`slot::core::open_named`).
++fn neopop(root: &Path) -> Option<LibretroCore> {
++    let dylib = require_core("mednafen_ngp")?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    Some(
++        LibretroCore::open_with(
++            &dylib,
++            &slot::root::bios_dir(root),
++            &slot::root::saves_dir(root),
++        )
++        .expect("open Beetle NeoPop"),
++    )
++}
++
++fn flash_file(root: &Path, stem: &str) -> PathBuf {
++    slot::root::saves_dir(root).join(format!("{stem}.flash"))
++}
++
++fn assert_holds_mark(flash: &Path) {
++    let bytes = std::fs::read(flash).expect("no .flash file");
++    assert_eq!(bytes.len(), FLASH_LEN, "{} bytes", bytes.len());
++    assert_eq!(&bytes[..2], &0x0053u16.to_le_bytes(), "flash id");
++    assert_eq!(&bytes[2..4], &1u16.to_le_bytes(), "block count");
++    assert_eq!(
++        &bytes[8..12],
++        &(FLASH_AT as u32).to_le_bytes(),
++        "block address"
++    );
++    assert_eq!(bytes[16], MARK);
++    assert!(bytes[17..].iter().all(|&b| b == 0));
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn a_neogeo_pocket_cart_boots_with_no_bios_and_draws_160_by_152_in_the_middle_of_240_by_160() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", false))
++        .expect("Beetle NeoPop refused the cart");
++    play(&mut core, 30);
++    let av = core.av_info();
++    assert!((60.0..60.5).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), 240 * 160 * 4);
++    let (left, top) = ((240 - 160) / 2, (160 - 152) / 2);
++    for y in 0..160 {
++        for x in 0..240 {
++            let at = (y * 240 + x) * 4;
++            let px = &video[at..at + 3];
++            if (left..left + 160).contains(&x) && (top..top + 152).contains(&y) {
++                assert!(
++                    px[2] > 200 && px[1] < 60 && px[0] < 60,
++                    "({x}, {y}) is {px:?}"
++                );
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++#[test]
++fn a_neogeo_pocket_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", false)).unwrap();
++    play(&mut core, 5);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn neopop_gives_the_frontend_no_save_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Flash", true)).unwrap();
++    play(&mut core, 30);
++    assert_eq!(core.save_ram(), None);
++}
++
++#[test]
++fn neopop_writes_the_cart_flash_into_slots_save_dir_only_when_the_game_unloads() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Flash", true)).unwrap();
++    play(&mut core, 30);
++    assert!(
++        !flash_file(d.path(), "Flash").exists(),
++        "written before unload"
++    );
++    drop(core);
++    assert_holds_mark(&flash_file(d.path(), "Flash"));
++}
++
++#[test]
++fn a_cart_that_never_writes_flash_leaves_no_flash_file() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", false)).unwrap();
++    play(&mut core, 30);
++    drop(core);
++    assert!(!flash_file(d.path(), "Paint").exists());
++}
++
++#[test]
++fn the_cart_flash_survives_a_restart_through_slots_save_dir() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let rom = cart(d.path(), "Flash", true);
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&rom).unwrap();
++    play(&mut core, 30);
++    drop(core);
++    let flash = flash_file(d.path(), "Flash");
++    assert_holds_mark(&flash);
++
++    // Second boot: load and unload without running a frame, so the game never writes flash itself.
++    // The file comes back only if the core read the flash back into the cart at load.
++    let mut core = neopop(d.path()).unwrap();
++    core.load(&rom).unwrap();
++    std::fs::remove_file(&flash).unwrap();
++    drop(core);
++    assert_holds_mark(&flash);
++}
++
++#[test]
++fn a_state_carries_the_cart_flash_with_no_flash_file() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let rom = cart(d.path(), "Flash", true);
++    let Some(mut core) = neopop(d.path()) else {
++        return;
++    };
++    core.load(&rom).unwrap();
++    play(&mut core, 30);
++    let state = core.serialize().unwrap();
++    drop(core);
++    let flash = flash_file(d.path(), "Flash");
++    std::fs::remove_file(&flash).unwrap();
++
++    // A power cut loses the unload write; the resume state alone must bring the flash back.
++    let mut core = neopop(d.path()).unwrap();
++    core.load(&rom).unwrap();
++    core.unserialize(&state).unwrap();
++    drop(core);
++    assert_holds_mark(&flash);
++}

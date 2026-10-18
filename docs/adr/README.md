@@ -100,3 +100,4 @@ the patch set looks the way it does.
 | [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
 | [0082](0082-rom-hack-updates-keep-saves-move-states.md) | A ROM hack update keeps the name and the battery save, and moves every save state away | Accepted | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |
+| [0090](0090-ngp-on-beetle-neopop.md) | Bring NeoGeo Pocket and Pocket Color into scope on pinned Beetle NeoPop, built the NES and SNES way | Accepted. Amends 0002 | 2026-10-18 |
