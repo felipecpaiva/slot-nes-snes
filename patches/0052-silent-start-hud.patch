@@ -1,0 +1,189 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 13:19:06 +0400
+Subject: [PATCH] silent-start-hud
+
+When a game starts with the device muted or at zero volume, the volume
+HUD shows once as play begins, so a silent game is not taken for a
+broken core. Not while the cart is loading, and not again on a wake
+from a doze; the next insert shows it again. From jgraving/slot
+12f7b3a (GPL-3.0),
+https://github.com/jgraving/slot/commit/12f7b3a
+---
+ crates/slot/src/app.rs              |   2 +
+ crates/slot/src/app/silent_start.rs |  17 ++++
+ crates/slot/tests/silent_start.rs   | 122 ++++++++++++++++++++++++++++
+ 3 files changed, 141 insertions(+)
+ create mode 100644 crates/slot/src/app/silent_start.rs
+ create mode 100644 crates/slot/tests/silent_start.rs
+
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9776d6e..4606dbf 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,5 +1,6 @@
+ mod battery_warn;
+ mod ps1_discs;
++mod silent_start;
+ 
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+@@ -2736,6 +2737,7 @@ impl App {
+             if seated.is_none() {
+                 self.link_loaded = None;
+             }
++            self.show_silent_start();
+             self.record_cart(seated);
+         }
+         self.step_screen(dt);
+diff --git a/crates/slot/src/app/silent_start.rs b/crates/slot/src/app/silent_start.rs
+new file mode 100644
+index 0000000..e8e0a6a
+--- /dev/null
++++ b/crates/slot/src/app/silent_start.rs
+@@ -0,0 +1,17 @@
++use slot_ui::HudKind;
++
++use super::{App, Phase};
++
++impl App {
++    pub(super) fn show_silent_start(&mut self) {
++        if !matches!(self.phase, Phase::Playing { .. }) || self.output_volume() > 0 {
++            return;
++        }
++        let now = self.now();
++        self.hud.show(HudKind::Volume, 0, self.muted(), now);
++    }
++
++    pub fn hud_visible(&self) -> bool {
++        self.hud.visible(self.now())
++    }
++}
+diff --git a/crates/slot/tests/silent_start.rs b/crates/slot/tests/silent_start.rs
+new file mode 100644
+index 0000000..959dc04
+--- /dev/null
++++ b/crates/slot/tests/silent_start.rs
+@@ -0,0 +1,122 @@
++mod common;
++
++use common::{tmp_root_with_carts, StubSnapshot};
++use slot::app::{App, Phase};
++use slot_input::Action;
++use slot_store::{write_slot_state, SlotState};
++use slot_ui::Icon;
++
++fn inserting(volume: u8, muted: bool) -> (tempfile::TempDir, App) {
++    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            cart: Some("Emerald".to_string()),
++            volume,
++            muted,
++            clock_set: true,
++            utc_offset_min: 0,
++            ..Default::default()
++        },
++    )
++    .expect("write slot.state");
++    let mut a = App::boot(d.path());
++    a.set_snapshot(StubSnapshot::boxed());
++    a.on_core_ready();
++    (d, a)
++}
++
++fn until_playing(a: &mut App) -> bool {
++    let mut hud_while_loading = false;
++    for _ in 0..600 {
++        if matches!(a.phase(), Phase::Playing { .. }) {
++            return hud_while_loading;
++        }
++        hud_while_loading |= a.hud_visible();
++        a.update(1.0 / 60.0);
++    }
++    panic!("the cart never started: {:?}", a.phase());
++}
++
++fn play_for(a: &mut App, secs: f32) {
++    for _ in 0..(secs * 60.0) as u32 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++#[test]
++fn zero_volume_shows_the_volume_hud_as_play_begins() {
++    let (_d, mut a) = inserting(0, false);
++    assert!(!until_playing(&mut a), "the hud showed while loading");
++    assert!(a.hud_visible());
++    assert_eq!(a.hud_icon(), Icon::VolumeZero);
++}
++
++#[test]
++fn a_muted_device_shows_the_muted_hud_as_play_begins() {
++    let (_d, mut a) = inserting(60, true);
++    until_playing(&mut a);
++    assert!(a.hud_visible());
++    assert_eq!(a.hud_icon(), Icon::VolumeMuted);
++}
++
++#[test]
++fn a_game_with_sound_starts_without_the_hud() {
++    let (_d, mut a) = inserting(60, false);
++    until_playing(&mut a);
++    assert!(!a.hud_visible());
++}
++
++#[test]
++fn the_silent_hud_fades_and_stays_gone_during_play() {
++    let (_d, mut a) = inserting(0, false);
++    until_playing(&mut a);
++    play_for(&mut a, 3.0);
++    assert!(!a.hud_visible());
++}
++
++#[test]
++fn waking_from_a_doze_does_not_show_it_again() {
++    let (_d, mut a) = inserting(0, false);
++    until_playing(&mut a);
++    play_for(&mut a, 3.0);
++    a.apply(Action::LidClose);
++    play_for(&mut a, 1.0);
++    a.apply(Action::LidOpen);
++    a.update(1.0 / 60.0);
++    assert!(matches!(a.phase(), Phase::Playing { .. }));
++    assert!(!a.hud_visible());
++}
++
++fn until_shelf(a: &mut App) {
++    for _ in 0..600 {
++        if matches!(a.phase(), Phase::Shelf) {
++            return;
++        }
++        a.update(1.0 / 60.0);
++    }
++    panic!("the cart never came out: {:?}", a.phase());
++}
++
++#[test]
++fn ejecting_a_silent_game_shows_nothing_on_the_shelf() {
++    let (_d, mut a) = inserting(0, false);
++    until_playing(&mut a);
++    play_for(&mut a, 3.0);
++    a.apply(Action::Eject);
++    until_shelf(&mut a);
++    assert!(!a.hud_visible());
++}
++
++#[test]
++fn the_next_insert_shows_it_again() {
++    let (_d, mut a) = inserting(0, false);
++    until_playing(&mut a);
++    play_for(&mut a, 3.0);
++    a.apply(Action::Eject);
++    until_shelf(&mut a);
++    a.apply(Action::Insert);
++    a.on_core_ready();
++    until_playing(&mut a);
++    assert!(a.hud_visible());
++}

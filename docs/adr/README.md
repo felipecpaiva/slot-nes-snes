@@ -93,3 +93,8 @@ the patch set looks the way it does.
 | [0074](0074-switcher-up-down.md) | Move through the save state switcher with Up and Down too | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
 | [0075](0075-carry-upstream-backlight-floor.md) | Carry upstream 3b6349c, a backlight floor of 8/255, until the 1.8.0 rebase | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
 | [0076](0076-master-system-region-row.md) | Give the Master System Screen section a Region row mapped to Genesis Plus GX's region option | Accepted. Amends 0061 | 2026-10-18 |
+| [0077](0077-battery-low-banners.md) | Show a Battery Low banner at 15% and at 10% | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0078](0078-rest-while-dozing.md) | Stop drawing while dozing | Accepted. Amends 0033. Drop when upstream lands (0047) | 2026-10-18 |
+| [0079](0079-favourite-removal-confirm-upstream-only.md) | Confirm favourite removal with a second Y: upstream only | Accepted (not carried) | 2026-10-18 |
+| [0080](0080-volume-hud-on-a-silent-start.md) | Show the volume HUD when a game starts muted or at zero | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
