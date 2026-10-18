@@ -225,6 +225,7 @@ class Registry(Base):
 
 RELEASE = "https://api.github.com/repos/o/r/releases/latest"
 ASSET = "https://github.com/o/r/releases/download/v2.0/gh.bps"
+RELEASES = "https://api.github.com/repos/o/r/releases?per_page=10"
 
 
 def release(tag="v2.0"):
@@ -446,6 +447,54 @@ class Update(Base):
         card.read = lambda rel: None
         with self.assertRaisesRegex(hk.Refuse, "could not be read"):
             hk.seated(card, "GBA", self.STEM)
+
+    def gh_by_crc(self, installed):
+        """A GitHub hack whose file name carries no version, installed (card and library) as installed."""
+        user = os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json")
+        self.write(user, json.dumps({"gh": {"card": "Gh.gba"}}))
+        self.write(self.at("Games", "GBA", "Gh.gba"), installed)
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", "Gh.zip"), "w") as z:
+            z.writestr("Gh.gba", installed)
+        v1 = BASE[:5] + b"one" + BASE[8:]
+        rels = [{"tag_name": "v2.0", "assets": [{"name": "gh.bps", "browser_download_url": ASSET}]},
+                {"tag_name": "v1.0", "assets": [{"name": "gh.bps", "browser_download_url": ASSET + "1"}]}]
+        return FakeHttp({RELEASE: release(), RELEASES: (200, json.dumps(rels).encode(), None),
+                         ASSET: (200, bps(BASE, NEW, [(1, NEW)]), None),
+                         ASSET + "1": (200, bps(BASE, v1, [(1, v1)]), None)}), v1
+
+    def test_check_identifies_the_installed_release_by_crc_and_records_it(self):
+        http, v1 = self.gh_by_crc(BASE[:5] + b"one" + BASE[8:])
+        rows = self.run_main("--card", self.card, "--library", self.lib, http=http)[0]
+        row = [r for r in rows if r[1] == "gh"][0]
+        self.assertEqual((row[2], row[4]), ("v1.0", "UPDATE AVAILABLE"))
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
+        self.assertEqual((state["gh"]["version"], state["gh"]["crc32"]), ("v1.0", hk.crc_hex(v1)))
+
+    def test_check_says_up_to_date_when_the_crc_is_the_latest_release(self):
+        http, _ = self.gh_by_crc(NEW)
+        row = [r for r in self.run_main("--card", self.card, "--library", self.lib, http=http)[0] if r[1] == "gh"][0]
+        self.assertEqual((row[2], row[4]), ("v2.0", "up to date"))
+
+    def test_an_unknown_build_is_an_update_and_all_takes_it(self):
+        http, _ = self.gh_by_crc(b"some other build")
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--all", "--dry-run", http=http)
+        self.assertIn("UPDATE AVAILABLE (installed version unknown)", out)
+        self.assertIn("updates available: gh", out.replace("hack, ", ""))
+        self.assertIn("DRY RUN", out)
+
+    def test_incoming_version_txt_names_the_version_and_a_bps_names_its_base(self):
+        user = os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json")
+        self.write(user, json.dumps({"hack": {"base_crc32": None}}))
+        self.write(os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack", "version.txt"), "2.0.1\n")
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
+        self.assertEqual(state["hack"]["version"], "2.0.1")
+
+    def test_check_reports_an_incoming_patch_as_ready(self):
+        rows = self.run_main("--card", self.card, "--library", self.lib)[0]
+        row = [r for r in rows if r[1] == "hack"][0]
+        self.assertEqual(row[4], "UPDATE AVAILABLE (from incoming 2)")
 
     def test_zip_with_two_roms_is_refused(self):
         inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack")

@@ -72,6 +72,7 @@ FORMATS = {"bps", "ips", "ups", "xdelta", "rom", "unknown"}
 FIELDS = {"name", "system", "card", "source", "asset", "version_regex", "format", "base_name", "base_crc32",
           "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes"}
 HOUR = 3600
+RELEASES = 10  # how many GitHub releases --check tries when it must identify the installed version
 
 
 class Refuse(Exception):
@@ -599,6 +600,18 @@ def check_one(ctx, hid, h, installed):
     return "?", "manual: no feed" if not rest else "manual", rest or h.get("home") or ""
 
 
+def download(ctx, hid, version, asset):
+    """(name, bytes) of a release asset, cached under the cache dir by version."""
+    p = os.path.join(ctx.cache, "downloads", hid, re.sub(r"[^\w.-]", "_", version), asset["name"])
+    if not os.path.isfile(p):
+        status, body = fl.fetch(ctx, asset["browser_download_url"])
+        if status != 200:
+            raise Refuse(f"asset download failed (HTTP {status})")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        fl.spit(p, body)
+    return asset["name"], fl.slurp(p)
+
+
 def get_payload(ctx, hid, h, as_version=None):
     """(name, bytes, version) of the patch or pre-patched ROM to install. Never runs anything it reads."""
     kind, _, rest = h["source"].partition(":")
@@ -608,21 +621,20 @@ def get_payload(ctx, hid, h, as_version=None):
         if not asset:
             raise Refuse(f"no single release asset matches {h.get('asset') or '*'}")
         version = rel.get("tag_name") or "unknown"
-        p = os.path.join(ctx.cache, "downloads", hid, re.sub(r"[^\w.-]", "_", version), asset["name"])
-        if not os.path.isfile(p):
-            status, body = fl.fetch(ctx, asset["browser_download_url"])
-            if status != 200:
-                raise Refuse(f"asset download failed (HTTP {status})")
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            fl.spit(p, body)
-        return asset["name"], fl.slurp(p), as_version or version
+        name, data = download(ctx, hid, version, asset)
+        return name, data, as_version or version
     folder = os.path.join(ctx.home, "incoming", hid)
     files = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
     files = [f for f in files if os.path.isfile(f) and not os.path.basename(f).startswith(".")]
     if not files:
         raise Refuse(f"{h['source'] or 'no source'}: drop the patch (or patched ROM, or a zip of it) into {folder}")
+    files = [f for f in files if os.path.basename(f) != "version.txt"]
+    if not files:
+        raise Refuse(f"only a version.txt in {folder}")
     p = max(files, key=os.path.getmtime)
-    return os.path.basename(p), fl.slurp(p), as_version or version_in_name(os.path.basename(p)) or "unknown"
+    noted = fl.slurp(os.path.join(folder, "version.txt"), "r").strip() if os.path.isfile(
+        os.path.join(folder, "version.txt")) else ""
+    return os.path.basename(p), fl.slurp(p), as_version or noted or version_in_name(os.path.basename(p)) or "unknown"
 
 
 def unpack(name, data, system):
@@ -672,13 +684,46 @@ def cmd_check(ctx, reg, args, card):
             where = ""
         inst = installed_version(state, hid, h)
         latest, status, link = check_one(ctx, hid, h, inst)
+        if args.library and (inst == "unknown" or not h["source"].startswith("github")):
+            inst, status = by_crc(ctx, hid, h, args, card, state, inst, latest, status)
         rows.append((h["system"], hid, inst, latest, status + (f" [{where}]" if where else ""), link))
     for system, hid, inst, latest, status, link in rows:
         print(f"{system:<4} {hid:<30} installed {inst:<10} latest {latest:<12} {status}")
         if link and status != "up to date":
             print(f"     {link}")
-    print(f"\n{len(rows)} hack(s) checked. Read only: nothing written to the card, the library or the settings.")
+    print(f"\n{len(rows)} hack(s) checked. Nothing written to the card, the library or the settings; a version "
+          "identified by CRC is recorded in hacks-state.json.")
     return rows
+
+
+def by_crc(ctx, hid, h, args, card, state, inst, latest, status):
+    """(installed, status) after building the known payloads and comparing them with the installed ROM's
+    CRC32 (the library copy's, else the card's). A match is recorded in the state file."""
+    stem = os.path.splitext(h["card"])[0]
+    crc = (state.get(hid) or {}).get("crc32") or library_crc(args.library, h["system"], stem)
+    if not crc and card:
+        data = card.read(f"Games/{h['system']}/{real_name(card, h['system'], h['card'])}")
+        crc = crc_hex(data) if data else None
+    if not crc:
+        return inst, status
+    try:
+        found, newest = identify(ctx, hid, h, args.library, crc)
+    except (fl.Fail, Refuse, ValueError, OSError) as e:
+        return inst, f"{status}; could not build the patches: {e}"
+    github = h["source"].startswith("github")
+    if found:
+        if found != (state.get(hid) or {}).get("version"):
+            state[hid] = dict(state.get(hid) or {}, version=found, crc32=crc, date=time.strftime("%Y-%m-%d"),
+                              card=h["card"], identified="by CRC")
+            write_state(os.path.join(ctx.config, "hacks-state.json"), state)
+        if github:
+            return found, "up to date" if norm_version(found) == norm_version(latest) else "UPDATE AVAILABLE"
+        return found, f"{status}; incoming {found} is what is installed"
+    if newest is None:
+        return inst, status
+    if github:
+        return inst, "UPDATE AVAILABLE (installed version unknown)"
+    return inst, f"UPDATE AVAILABLE (from incoming {newest})"
 
 
 def plan_update(ctx, hid, h, args, card, state):
@@ -690,30 +735,10 @@ def plan_update(ctx, hid, h, args, card, state):
     if seated(card, system, stem):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
     name, data, version = get_payload(ctx, hid, h, args.as_version)
-    kind, name, data = unpack(name, data, system)
-    if kind == "patch":
-        if not h.get("base_crc32"):
-            raise Refuse("the registry has no base_crc32 for this hack")
-        base, where = find_base(args.library, system, h["base_crc32"].upper())
-        if base is None:
-            raise Refuse(f"no clean base ROM with CRC32 {h['base_crc32']} ({h.get('base_name') or '?'}) in "
-                         f"{os.path.join(args.library, fl.SYSTEMS[system][0])}")
-        print(f"  base {where} ({h['base_crc32'].upper()}), patch {name}")
-        new = apply_patch(base, data, h.get("target_crc32"))
-    else:
-        print(f"  pre-patched ROM {name}")
-        new = data
-        if h.get("target_crc32") and crc_hex(new) != h["target_crc32"].upper():
-            raise Refuse(f"ROM CRC {crc_hex(new)} is not the registry's target_crc32 {h['target_crc32']}")
+    new = build(h, args.library, name, data)
     new_crc = crc_hex(new)
     lib = library_items(args.library, system, stem)
-    old_crc = (state.get(hid) or {}).get("crc32")
-    for p, _, m in lib:
-        if m:
-            with zipfile.ZipFile(p) as z:
-                old_crc = old_crc or f"{z.getinfo(m).CRC:08X}"
-        elif p.lower().endswith(tuple(fl.SYSTEMS[system][1])):
-            old_crc = old_crc or fl.file_crc(p)
+    old_crc = (state.get(hid) or {}).get("crc32") or library_crc(args.library, system, stem)
     if old_crc == new_crc:
         raise Refuse(f"already installed ({new_crc}), nothing to do")
     old = installed_version(state, hid, h)
@@ -731,6 +756,77 @@ def plan_update(ctx, hid, h, args, card, state):
     record = {"version": version, "crc32": new_crc, "date": time.strftime("%Y-%m-%d"), "card": rom,
               "backup": cdir, "library_backup": ldir if lib else None}
     return card_ops, lib_ops, record, h["saves_carry_over"]
+
+
+def build(h, library, name, data, say=print):
+    """The ROM a payload makes: a patch applied to the clean base found in the library by CRC32 (the
+    registry's base_crc32, else the source CRC a BPS or UPS carries in its footer), or a pre-patched ROM."""
+    system = h["system"]
+    kind, name, data = unpack(name, data, system)
+    if kind == "rom":
+        say(f"  pre-patched ROM {name}")
+        if h.get("target_crc32") and crc_hex(data) != h["target_crc32"].upper():
+            raise Refuse(f"ROM CRC {crc_hex(data)} is not the registry's target_crc32 {h['target_crc32']}")
+        return data
+    want = (h.get("base_crc32") or "").upper()
+    if not want and data[:4] in (b"BPS1", b"UPS1") and len(data) >= 12:
+        want = f"{int.from_bytes(data[-12:-8], 'little'):08X}"  # the patch names its own source
+    if not want:
+        raise Refuse("the registry has no base_crc32 for this hack and an IPS names no source")
+    base, where = find_base(library, system, want)
+    if base is None:
+        raise Refuse(f"no clean base ROM with CRC32 {want} ({h.get('base_name') or '?'}) in "
+                     f"{os.path.join(library, fl.SYSTEMS[system][0])}")
+    say(f"  base {where} ({want}), patch {name}")
+    return apply_patch(base, data, h.get("target_crc32"), warn=say)
+
+
+def library_crc(library, system, stem):
+    """CRC32 of the library copy of stem (zip header or loose file), else None."""
+    for p, _, m in library_items(library, system, stem) if library else []:
+        if m:
+            with zipfile.ZipFile(p) as z:
+                return f"{z.getinfo(m).CRC:08X}"
+        return fl.file_crc(p)
+    return None
+
+
+def candidates(ctx, hid, h):
+    """[(version, name, bytes)] of the payloads to try against the installed ROM: the newest GitHub releases
+    with a matching asset (cached), and what waits in the incoming folder."""
+    out = []
+    kind, _, rest = h["source"].partition(":")
+    if kind == "github":
+        text = fl.cached_text(ctx, f"github/{rest.replace('/', '__')}.all.json",
+                              f"{GITHUB}{rest}/releases?per_page={RELEASES}", HOUR)
+        for rel in json.loads(text)[:RELEASES]:
+            asset = pick_asset(rel, h.get("asset"))
+            if asset:
+                name, data = download(ctx, hid, rel.get("tag_name") or "unknown", asset)
+                out.append((rel.get("tag_name") or "unknown", name, data))
+    else:
+        try:
+            name, data, version = get_payload(ctx, hid, h)
+            out.append((version, name, data))
+        except (Refuse, OSError):
+            pass
+    return out
+
+
+def identify(ctx, hid, h, library, installed_crc):
+    """(version the installed ROM is, or None; version the newest payload builds, or None). Patches that
+    do not apply are skipped silently: they are other versions' or need a base the library lacks."""
+    found = newest = None
+    for version, name, data in candidates(ctx, hid, h):
+        try:
+            rom = build(h, library, name, data, say=lambda *_: None)
+        except (Refuse, zipfile.BadZipFile):
+            continue
+        newest = newest or version
+        if crc_hex(rom) == installed_crc:
+            found = version
+            break
+    return found, newest
 
 
 def confirm(args, what):
