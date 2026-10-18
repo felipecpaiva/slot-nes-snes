@@ -833,6 +833,32 @@ class Disc(Base):
         self.assertEqual(state["crc32"], hk.crc_hex(rd(new)))
         self.assertIn("already installed", self.add("--yes")[1])
 
+    def test_update_replaces_the_disc_keeps_the_memory_card_and_moves_the_states(self):
+        self.assertEqual(self.add("--yes")[0], 0)
+        stem = os.path.splitext(self.NAME)[0]
+        self.write(self.at("States", "PS1", "pcsx_rearmed", stem, "x.state"), b"state")
+        self.write(self.at("Saves", "PS1", stem + ".sav"), b"memcard")
+        self.write(self.at("Saves", "PS1", stem + ".disc"), b"disc")
+        old = rd(self.at("Games", "PS1", self.NAME))
+        self.patch([(2000, b"VERSION 2")])
+        self.write(os.path.join(self.inc, "version.txt"), "2.0\n")
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "disc", "--yes")
+        self.assertEqual(r, 0, out)
+        new = self.at("Games", "PS1", self.NAME)
+        self.assertNotEqual(rd(new), old)
+        self.assertEqual(rd(os.path.join(self.lib, "psx", self.NAME)), rd(new))
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "psx"))), ["Disc (USA).chd", self.NAME])
+        self.assertEqual(rd(self.at("Saves", "PS1", stem + ".sav")), b"memcard")  # the memory card stays
+        self.assertEqual(rd(self.at("Saves", "PS1", stem + ".disc")), b"disc")
+        self.assertFalse(os.path.exists(self.at("States", "PS1", "pcsx_rearmed", stem)))
+        (b,) = os.listdir(self.at("Backups", "hacks", "PS1", stem))
+        bdir = self.at("Backups", "hacks", "PS1", stem, b)
+        self.assertEqual(rd(os.path.join(bdir, "States", "PS1", "pcsx_rearmed", stem, "x.state")), b"state")
+        self.assertEqual(rd(os.path.join(bdir, "Saves", "PS1", stem + ".sav")), b"memcard")
+        self.assertEqual(rd(os.path.join(bdir, "Games", "PS1", self.NAME)), old)
+        (lb,) = os.listdir(os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "PS1", stem))
+        self.assertEqual(rd(os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "PS1", stem, lb, self.NAME)), old)
+
     def test_a_wrong_base_track_or_a_write_past_track_1_is_refused(self):
         self.entry("DEADBEEF")
         self.assertIn("track 1 of Disc (USA).chd is", self.add("--yes")[1])

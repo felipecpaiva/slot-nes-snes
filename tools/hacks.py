@@ -752,7 +752,8 @@ def build_disc(h, base, patch, say=print):
         if h.get("target_crc32") and new != h["target_crc32"].upper():
             raise Refuse(f"patched track 1 is {new}, the registry wants {h['target_crc32'].upper()}")
         out = os.path.join(t, "new.chd")
-        chdman("createcd", "-i", os.path.join(t, "in", "disc.cue"), "-o", out)
+        # the codecs every PS1 .chd here uses (and slot reads); pinned so a chdman upgrade cannot switch them
+        chdman("createcd", "-i", os.path.join(t, "in", "disc.cue"), "-o", out, "-c", "cdlz,cdzl,cdfl")
         back = [fl.file_crc(b) for b in extract_disc(out, os.path.join(t, "back"))]
         if back != [new] + crcs[1:] or disc_tracks(out) != disc_tracks(base):
             raise Refuse(f"the packed disc does not extract to the patched tracks ({back} != {[new] + crcs[1:]})")

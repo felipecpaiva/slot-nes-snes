@@ -274,8 +274,8 @@ marked manual need the patch fetched by hand. PS1 disc hacks are built from the 
 | `castlevania-chronicles-arrange-knockback` | PS1 | Small fix (knockback in Arrange Mode) | 1.0 (2018-09-26) | ppf | track 1 D4F5D6A1 | incoming |
 
 One SotN hack, not two: the Quality hack and the Improvement hack both rework the castle entrance's hatch
-rooms and both want the clean track 1, so they do not stack; the seed picks the Quality hack (the most
-downloaded, and the one in the archive.org RHDN dumps). The Improvement hack's patch is not in those dumps
+rooms and both want the clean track 1, so they do not stack; the seed picks the Quality hack (36k
+downloads on romhacking.net against about 4k, and the one in the archive.org RHDN dumps). The Improvement hack's patch is not in those dumps
 and romhacking.net no longer serves downloads: drop its `.xdelta` into the incoming folder to build it.
 The Chronicles patch is named `no-knockback.ppf` but restores knockback; romhacking.net names only the
 executable, yet the patch is relative to the bin (it rewrites sector 49's data and its EDC/ECC).

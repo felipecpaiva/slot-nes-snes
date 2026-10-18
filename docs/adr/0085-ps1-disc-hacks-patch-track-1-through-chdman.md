@@ -40,6 +40,9 @@ there is none. A new game whose name already has saves or states on the card is 
   the temp dir.
 - `chdman` must be installed (`brew install rom-tools`; mise has no package for it). Without it a PS1
   build is refused and its tests are skipped.
+- `createcd` is pinned to the library's codecs (cdlz, cdzl, cdfl). If a chdman upgrade still changes
+  the output bytes, an `--update` with the same patch no longer reads "already installed": it backs up
+  the disc and moves its states aside for an identical game (nothing lost, `--rollback` brings them back).
 - `--check` does not identify an installed PS1 hack by CRC (that would build a disc per check); the
   state file's version is shown.
 - A patch for a track other than 1, a patched base in another container (.cue, .pbp), or a pre-patched
