@@ -1,0 +1,609 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:23:26 +0400
+Subject: [PATCH] cpu-governor
+
+General gains a CPU row (Performance, Balanced), stored as `mode = balanced`
+in Config/cpu.txt. Performance is the default and writes performance, as
+BaseOS already runs. Balanced writes schedutil to every cpufreq policy at
+start and when the row changes, after checking each policy offers it.
+Every write logs `slot: cpu:` with what each policy reads back.
+
+Idea from pvaibhav/slot ad7ce10 and 320ac44 (launch_frontend.sh writes
+schedutil), GPL-3.0, Copyright Prashant Vaibhav; here it is a user option.
+---
+ crates/slot-ui/src/quick_menu.rs        |  17 ++-
+ crates/slot-ui/src/quick_retro.rs       |   2 +
+ crates/slot-ui/tests/quick_menu.rs      |   1 +
+ crates/slot-ui/tests/retro_faces.rs     |  22 +++-
+ crates/slot/src/app.rs                  |  18 ++-
+ crates/slot/src/cpu_governor.rs         | 142 ++++++++++++++++++++++++
+ crates/slot/src/device_app.rs           |   1 +
+ crates/slot/src/lib.rs                  |   1 +
+ crates/slot/tests/cpu_governor.rs       | 121 ++++++++++++++++++++
+ crates/slot/tests/cpu_governor_start.rs |  52 +++++++++
+ 10 files changed, 369 insertions(+), 8 deletions(-)
+ create mode 100644 crates/slot/src/cpu_governor.rs
+ create mode 100644 crates/slot/tests/cpu_governor.rs
+ create mode 100644 crates/slot/tests/cpu_governor_start.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index deea6e7..563289a 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -106,10 +106,11 @@ pub enum QuickRow {
+     MdPalSpeed,
+     Ps1PalSpeed,
+     SmsRegion,
++    Cpu,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 96] = [
++    pub const ALL: [QuickRow; 97] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -206,6 +207,7 @@ impl QuickRow {
+         QuickRow::MdPalSpeed,
+         QuickRow::Ps1PalSpeed,
+         QuickRow::SmsRegion,
++        QuickRow::Cpu,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -216,13 +218,14 @@ impl QuickRow {
+         QuickRow::About,
+     ];
+ 
+-    pub const GENERAL: [QuickRow; 7] = [
++    pub const GENERAL: [QuickRow; 8] = [
+         QuickRow::Theme,
+         QuickRow::Wallpaper,
+         QuickRow::WallpaperTint,
+         QuickRow::Recents,
+         QuickRow::ShowTitles,
+         QuickRow::LidOff,
++        QuickRow::Cpu,
+         QuickRow::DateTime,
+     ];
+ 
+@@ -366,7 +369,8 @@ impl QuickRow {
+             | QuickRow::Theme
+             | QuickRow::Recents
+             | QuickRow::ShowTitles
+-            | QuickRow::LidOff => &QuickRow::GENERAL,
++            | QuickRow::LidOff
++            | QuickRow::Cpu => &QuickRow::GENERAL,
+             QuickRow::ControlsShelf | QuickRow::Shortcuts | QuickRow::ControlsInGame => {
+                 &QuickRow::CONTROL_PAGES
+             }
+@@ -594,6 +598,7 @@ impl QuickRow {
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed => "PAL Speed",
+             QuickRow::SmsRegion => "Region",
++            QuickRow::Cpu => "CPU",
+         }
+     }
+ 
+@@ -724,6 +729,8 @@ pub enum QuickValue {
+     Japan,
+     Usa,
+     Europe,
++    Performance,
++    Balanced,
+ }
+ 
+ impl QuickValue {
+@@ -774,6 +781,8 @@ impl QuickValue {
+             QuickValue::Japan => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 6,
+             QuickValue::Usa => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 7,
+             QuickValue::Europe => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 8,
++            QuickValue::Performance => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 9,
++            QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -813,6 +822,8 @@ impl QuickValue {
+             QuickValue::Japan => "Japan",
+             QuickValue::Usa => "USA",
+             QuickValue::Europe => "Europe",
++            QuickValue::Performance => "Performance",
++            QuickValue::Balanced => "Balanced",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index df91a80..ba54532 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -47,6 +47,8 @@ impl QuickValue {
+                 QuickValue::Japan,
+                 QuickValue::Usa,
+                 QuickValue::Europe,
++                QuickValue::Performance,
++                QuickValue::Balanced,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 4d04670..fe74d98 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -90,6 +90,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             "Recents",
+             "Game Titles",
+             "Lid Power Off",
++            "CPU",
+             "Date & Time"
+         ]
+     );
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index fd99f87..eb94f01 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -21,7 +21,9 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Auto,
+             QuickValue::Japan,
+             QuickValue::Usa,
+-            QuickValue::Europe
++            QuickValue::Europe,
++            QuickValue::Performance,
++            QuickValue::Balanced
+         ]
+     );
+     assert_eq!(
+@@ -34,9 +36,23 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Auto.text(),
+             QuickValue::Japan.text(),
+             QuickValue::Usa.text(),
+-            QuickValue::Europe.text()
++            QuickValue::Europe.text(),
++            QuickValue::Performance.text(),
++            QuickValue::Balanced.text()
+         ],
+-        ["Stretch", "Actual", "Crop", "Native", "Panel", "Auto", "Japan", "USA", "Europe"]
++        [
++            "Stretch",
++            "Actual",
++            "Crop",
++            "Native",
++            "Panel",
++            "Auto",
++            "Japan",
++            "USA",
++            "Europe",
++            "Performance",
++            "Balanced"
++        ]
+     );
+     for (i, v) in every.iter().enumerate() {
+         assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 0418f77..c957e25 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -453,6 +453,7 @@ pub struct App {
+     pictures: crate::platform_video::SystemPictures,
+     pal_speeds: crate::pal_speed::PalSpeeds,
+     sms_region: crate::sms_region::Region,
++    cpu_mode: crate::cpu_governor::CpuMode,
+     rested: Option<(usize, usize)>,
+     start_marked: bool,
+ }
+@@ -636,6 +637,7 @@ impl App {
+             pictures: crate::platform_video::SystemPictures::default(),
+             pal_speeds: crate::pal_speed::PalSpeeds::default(),
+             sms_region: crate::sms_region::Region::Auto,
++            cpu_mode: crate::cpu_governor::CpuMode::Performance,
+             rested: None,
+             start_marked: false,
+         }
+@@ -657,6 +659,7 @@ impl App {
+         app.pictures = crate::platform_video::SystemPictures::read(root);
+         app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
+         app.sms_region = crate::sms_region::Region::read(root);
++        app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -1072,6 +1075,7 @@ impl App {
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
++            QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+@@ -2711,7 +2715,8 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
+-            | QuickRow::SmsRegion => {}
++            | QuickRow::SmsRegion
++            | QuickRow::Cpu => {}
+         }
+     }
+ 
+@@ -2740,6 +2745,14 @@ impl App {
+             }
+             return;
+         }
++        if row == QuickRow::Cpu {
++            self.cpu_mode = self.cpu_mode.flipped();
++            if let Some(root) = &self.root {
++                self.cpu_mode.save(root, &self.card_writes);
++            }
++            crate::cpu_governor::changed(self.cpu_mode);
++            return;
++        }
+         if row == QuickRow::Palette {
+             let to = match right {
+                 true => self.state.gb_palette.next(),
+@@ -2857,7 +2870,8 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
+-            | QuickRow::SmsRegion => return,
++            | QuickRow::SmsRegion
++            | QuickRow::Cpu => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+diff --git a/crates/slot/src/cpu_governor.rs b/crates/slot/src/cpu_governor.rs
+new file mode 100644
+index 0000000..a6fb632
+--- /dev/null
++++ b/crates/slot/src/cpu_governor.rs
+@@ -0,0 +1,142 @@
++use std::path::{Path, PathBuf};
++use std::sync::OnceLock;
++
++use slot_store::ini;
++use slot_ui::QuickValue;
++
++use crate::card_log::CardWrites;
++
++pub const CPU_FILE: &str = "Config/cpu.txt";
++
++pub const CPUFREQ: &str = "/sys/devices/system/cpu/cpufreq";
++
++const KEY: &str = "mode";
++
++static CPUFREQ_DIR: OnceLock<PathBuf> = OnceLock::new();
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum CpuMode {
++    #[default]
++    Performance,
++    Balanced,
++}
++
++impl CpuMode {
++    pub const ALL: [CpuMode; 2] = [CpuMode::Performance, CpuMode::Balanced];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            CpuMode::Performance => "performance",
++            CpuMode::Balanced => "balanced",
++        }
++    }
++
++    pub fn governor(self) -> &'static str {
++        match self {
++            CpuMode::Performance => "performance",
++            CpuMode::Balanced => "schedutil",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            CpuMode::Performance => QuickValue::Performance,
++            CpuMode::Balanced => QuickValue::Balanced,
++        }
++    }
++
++    pub fn flipped(self) -> CpuMode {
++        match self {
++            CpuMode::Performance => CpuMode::Balanced,
++            CpuMode::Balanced => CpuMode::Performance,
++        }
++    }
++
++    pub fn read(root: &Path) -> CpuMode {
++        let Some(line) = ini::value(root, CPU_FILE, KEY) else {
++            return CpuMode::Performance;
++        };
++        CpuMode::ALL
++            .into_iter()
++            .find(|m| m.as_str() == line)
++            .unwrap_or_else(|| {
++                eprintln!("slot: cpu.txt: ignoring {KEY}={line}");
++                CpuMode::Performance
++            })
++    }
++
++    pub fn save(self, root: &Path, writes: &CardWrites) {
++        let written = ini::write(root, CPU_FILE, KEY, self.as_str());
++        if let Err(e) = &written {
++            eprintln!("slot: cpu: could not write cpu.txt: {e}");
++        }
++        writes.wrote("cpu.txt", &written);
++    }
++}
++
++pub fn set_governor(cpufreq: &Path, mode: CpuMode) -> Result<Vec<String>, String> {
++    let want = mode.governor();
++    let entries = std::fs::read_dir(cpufreq).map_err(|e| format!("{}: {e}", cpufreq.display()))?;
++    let mut policies: Vec<PathBuf> = entries
++        .filter_map(Result::ok)
++        .map(|e| e.path())
++        .filter(|p| {
++            p.file_name()
++                .and_then(|n| n.to_str())
++                .is_some_and(|n| n.starts_with("policy"))
++        })
++        .collect();
++    policies.sort();
++    if policies.is_empty() {
++        return Err(format!("no cpufreq policy under {}", cpufreq.display()));
++    }
++    for p in &policies {
++        let offered =
++            std::fs::read_to_string(p.join("scaling_available_governors")).unwrap_or_default();
++        if !offered.split_whitespace().any(|g| g == want) {
++            return Err(format!(
++                "{} offers [{}], not {want}",
++                p.display(),
++                offered.trim()
++            ));
++        }
++    }
++    let mut now = Vec::new();
++    for p in &policies {
++        let node = p.join("scaling_governor");
++        std::fs::write(&node, want).map_err(|e| format!("{}: {e}", node.display()))?;
++        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("policy");
++        let read = std::fs::read_to_string(&node).unwrap_or_default();
++        now.push(format!("{name} {}", read.trim()));
++    }
++    Ok(now)
++}
++
++pub fn apply(cpufreq: &Path, mode: CpuMode) -> String {
++    match set_governor(cpufreq, mode) {
++        Ok(now) => format!(
++            "slot: cpu: {} mode, governor {} ({})",
++            mode.as_str(),
++            mode.governor(),
++            now.join(", ")
++        ),
++        Err(e) => format!(
++            "slot: cpu: {} mode, could not set governor {}: {e}",
++            mode.as_str(),
++            mode.governor()
++        ),
++    }
++}
++
++pub fn start(root: &Path, cpufreq: &Path) {
++    if CPUFREQ_DIR.set(cpufreq.to_path_buf()).is_err() {
++        eprintln!("slot: cpu: governor already started");
++    }
++    eprintln!("{}", apply(cpufreq, CpuMode::read(root)));
++}
++
++pub fn changed(mode: CpuMode) {
++    if let Some(dir) = CPUFREQ_DIR.get() {
++        eprintln!("{}", apply(dir, mode));
++    }
++}
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index 4d98971..67e1656 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -129,6 +129,7 @@ pub fn run() {
+     };
+     slot::boot_time::mark("audio");
+     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
++    slot::cpu_governor::start(&root, std::path::Path::new(slot::cpu_governor::CPUFREQ));
+     slot::boot_time::mark("frontend");
+     let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
+     frontend.set_left_stick(slot::input::evdev::has_left_stick(&target));
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 97c3ec5..82c22ff 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -19,6 +19,7 @@ pub mod crash;
+ pub mod crash {
+     pub fn install() {}
+ }
++pub mod cpu_governor;
+ pub mod doze_rest;
+ pub mod drc;
+ pub mod emu;
+diff --git a/crates/slot/tests/cpu_governor.rs b/crates/slot/tests/cpu_governor.rs
+new file mode 100644
+index 0000000..1961368
+--- /dev/null
++++ b/crates/slot/tests/cpu_governor.rs
+@@ -0,0 +1,121 @@
++mod common;
++
++use std::path::Path;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::cpu_governor::{apply, set_governor, CpuMode, CPU_FILE};
++use slot_input::{Action, Btn};
++use slot_ui::{QuickRow, QuickValue};
++
++const OFFERED: &str = "ondemand userspace powersave interactive performance schedutil\n";
++
++fn sysfs(policies: &[(&str, &str)]) -> tempfile::TempDir {
++    let d = tempfile::tempdir().expect("tempdir");
++    for (name, offered) in policies {
++        let p = d.path().join(name);
++        std::fs::create_dir(&p).expect("policy dir");
++        std::fs::write(p.join("scaling_available_governors"), offered).expect("offered");
++        std::fs::write(p.join("scaling_governor"), "performance\n").expect("governor");
++    }
++    d
++}
++
++fn governor(cpufreq: &Path, policy: &str) -> String {
++    std::fs::read_to_string(cpufreq.join(policy).join("scaling_governor"))
++        .expect("read governor")
++        .trim()
++        .to_owned()
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_cpu_row(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::General.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::Cpu.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++}
++
++#[test]
++fn the_cpu_row_sits_on_the_general_page_just_above_date_and_time() {
++    let at = |r: QuickRow| QuickRow::GENERAL.iter().position(|g| *g == r);
++    assert_eq!(at(QuickRow::Cpu).map(|i| i + 1), at(QuickRow::DateTime));
++    assert_eq!(QuickRow::Cpu.parent(), Some(QuickRow::General));
++    assert_eq!(QuickRow::Cpu.label(), "CPU");
++}
++
++#[test]
++fn a_fresh_card_shows_cpu_performance() {
++    let root = tmp_root_with_real_carts(&["Emerald", "Ruby"]);
++    assert_eq!(
++        boot(root.path()).quick_value(QuickRow::Cpu),
++        Some(QuickValue::Performance)
++    );
++}
++
++#[test]
++fn right_on_the_cpu_row_saves_balanced_and_a_reboot_keeps_it() {
++    let root = tmp_root_with_real_carts(&["Emerald", "Ruby"]);
++    let mut app = boot(root.path());
++    open_cpu_row(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Cpu));
++    press(&mut app, Btn::Right);
++    assert_eq!(app.quick_value(QuickRow::Cpu), Some(QuickValue::Balanced));
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(CPU_FILE)).ok(),
++        Some("mode = balanced\n".to_owned())
++    );
++    drop(app);
++    assert_eq!(
++        boot(root.path()).quick_value(QuickRow::Cpu),
++        Some(QuickValue::Balanced)
++    );
++}
++
++#[test]
++fn an_unknown_cpu_line_reads_as_performance() {
++    let root = tmp_root_with_real_carts(&["Emerald", "Ruby"]);
++    std::fs::write(root.path().join(CPU_FILE), "mode = turbo\n").expect("write cpu.txt");
++    assert_eq!(CpuMode::read(root.path()), CpuMode::Performance);
++}
++
++#[test]
++fn balanced_writes_schedutil_to_every_cpufreq_policy() {
++    let d = sysfs(&[("policy0", OFFERED), ("policy4", OFFERED)]);
++    set_governor(d.path(), CpuMode::Balanced).expect("schedutil refused");
++    assert_eq!(governor(d.path(), "policy0"), "schedutil");
++    assert_eq!(governor(d.path(), "policy4"), "schedutil");
++}
++
++#[test]
++fn performance_puts_performance_back() {
++    let d = sysfs(&[("policy0", OFFERED)]);
++    set_governor(d.path(), CpuMode::Balanced).expect("schedutil refused");
++    set_governor(d.path(), CpuMode::Performance).expect("performance refused");
++    assert_eq!(governor(d.path(), "policy0"), "performance");
++}
++
++#[test]
++fn a_kernel_without_schedutil_is_refused_and_no_policy_changes() {
++    let d = sysfs(&[("policy0", OFFERED), ("policy4", "performance powersave\n")]);
++    assert!(set_governor(d.path(), CpuMode::Balanced).is_err());
++    assert_eq!(governor(d.path(), "policy0"), "performance");
++    assert_eq!(governor(d.path(), "policy4"), "performance");
++}
++
++#[test]
++fn the_log_line_names_the_mode_and_what_each_policy_reads_back() {
++    let d = sysfs(&[("policy0", OFFERED)]);
++    assert_eq!(
++        apply(d.path(), CpuMode::Balanced),
++        "slot: cpu: balanced mode, governor schedutil (policy0 schedutil)"
++    );
++}
+diff --git a/crates/slot/tests/cpu_governor_start.rs b/crates/slot/tests/cpu_governor_start.rs
+new file mode 100644
+index 0000000..79dc745
+--- /dev/null
++++ b/crates/slot/tests/cpu_governor_start.rs
+@@ -0,0 +1,52 @@
++mod common;
++
++use std::path::Path;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::cpu_governor::{start, CPU_FILE};
++use slot_input::{Action, Btn};
++use slot_ui::QuickRow;
++
++fn governor(cpufreq: &Path) -> String {
++    std::fs::read_to_string(cpufreq.join("policy0").join("scaling_governor"))
++        .expect("read governor")
++        .trim()
++        .to_owned()
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++#[test]
++fn the_governor_follows_the_saved_mode_at_start_and_then_each_change() {
++    let root = tmp_root_with_real_carts(&["Emerald", "Ruby"]);
++    std::fs::write(root.path().join(CPU_FILE), "mode = balanced\n").expect("write cpu.txt");
++    let d = tempfile::tempdir().expect("tempdir");
++    let p = d.path().join("policy0");
++    std::fs::create_dir(&p).expect("policy dir");
++    std::fs::write(
++        p.join("scaling_available_governors"),
++        "performance schedutil\n",
++    )
++    .expect("offered");
++    std::fs::write(p.join("scaling_governor"), "performance\n").expect("governor");
++    start(root.path(), d.path());
++    assert_eq!(governor(d.path()), "schedutil");
++    let mut app = boot(root.path());
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::General.position(&app.hidden_rows()) {
++        press(&mut app, Btn::Down);
++    }
++    press(&mut app, Btn::A);
++    for _ in 0..QuickRow::Cpu.position(&app.hidden_rows()) {
++        press(&mut app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::Cpu));
++    press(&mut app, Btn::Right);
++    assert_eq!(governor(d.path()), "performance");
++    press(&mut app, Btn::Left);
++    assert_eq!(governor(d.path()), "schedutil");
++}
