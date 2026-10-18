@@ -51,7 +51,7 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
 - The NES and SNES shaders live on the NES or SNES shelf's Screen page and the in-game Screen page, not in the platform list the other shelves open.
 - slot remembers the shelf and its cart at power off and restart (upstream's memory); the other shelves do not keep their own cart.
 - The Turbo quick-menu row does nothing on SNES.
-- PAL (50 Hz) titles run about 20% fast.
+- PAL (50 Hz) titles run at 50 fps with their own pitch, so on the 59.6 Hz panel about one frame in six is shown twice (a slight judder). The PAL Speed row in the NES, SNES, Master System, Mega Drive and PlayStation Screen sections switches a system back to Panel (60 Hz, about 20% fast). Master System games count as PAL only when Genesis Plus GX knows them as European (ADR 0071).
 - Sega: no second core yet (PicoDrive for Mega Drive, Gearsystem for Game Gear and Master System are
   the candidates). Mega Drive is a provisional go until the heavy-title device gate (Virtua Racing,
   Sonic 3D Blast, Street Fighter II SCE, Thunder Force IV) passes on the RG34XXSP. A Game Gear game

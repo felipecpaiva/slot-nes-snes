@@ -1,6 +1,6 @@
 # 0065. Give PS1 a fixed 640x480 canvas, its own frontend budget and its own Screen section
 
-- Status: Accepted. Amends [0004](0004-fixed-2x-canvas.md), [0050](0050-canvas-per-core-and-platform.md) and [0061](0061-per-system-picture-row.md)
+- Status: Accepted. Amends [0004](0004-fixed-2x-canvas.md), [0050](0050-canvas-per-core-and-platform.md) and [0061](0061-per-system-picture-row.md). Amended by [0071](0071-pace-off-panel-cores-at-their-own-fps.md)
 - Date: 2026-10-17
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md), [ADR 0055](0055-sega-tokens-at-named-test-sites.md), [ADR 0061](0061-per-system-picture-row.md), [ADR 0062](0062-crop-overscan-picture.md), [PS1 spike](../research/ps1-spike.md), [issue 60](../../.github/issues/60-ps1-canvas-screen.md)

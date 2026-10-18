@@ -14,6 +14,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 3 | Open questions | User resolved OQ2 (no quick menu shader rows) and OQ4 (SELECT+X SNES video mode) |
 | 4 | Phased rollout | Phase 7 (Sega on Genesis Plus GX, patches 0024 to 0028) added |
 | 5 | Spec, Phased rollout | PS1 brought into scope as Phase 8 (ADRs 0063 to 0069, issues 56 to 68), planned, not shipped; PAL pacing moved from deferred to issue 66 |
+| 6 | Spec (Out of scope), Phase 6+ | PAL 50 Hz pacing leaves the out-of-scope and deferred lists: issue 66, patch 0043, ADR 0071 |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -67,7 +68,6 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Out of scope:**
   - upstreaming;
   - zip ROMs;
-  - PAL 50 Hz pacing (PAL titles run about 20% fast, documented). Planned again in issue 66, which amends this line when it ships;
   - the stem-key collision in `selected_core.txt`, `video_mode.txt` and `cart_shell.txt` (documented only);
   - Famicom Disk System (deferred variant);
   - Option B variable frame size and true hi-res SNES detail;
@@ -433,13 +433,12 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 | 11 | 64 | Jewel cases with cover art and region styles (ADR 0069) |
 | 12 | 65 | Analog sticks and DualShock (v2, not blocking) |
 
-Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66) and a crash guard on
+Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
 
 ### Phase 6+: deferred (non-blocking)
 
 - Famicom Disk System variant and core support (needs a BIOS and a different save model).
-- PAL 50 Hz pacing (out of scope by spec; planned again in issue 66).
 - A 3D disc or disc stack PS1 shelf style (issue 68).
 - Stem-key collision (documented only).
 - Option B variable frame size.

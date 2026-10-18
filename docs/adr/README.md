@@ -87,3 +87,4 @@ the patch set looks the way it does.
 | [0068](0068-ps1-input-digital-then-analog.md) | Ship PS1 with the digital pad and L2/R2 to the game, and analog DualShock in v2 | Accepted | 2026-10-17 |
 | [0069](0069-ps1-jewel-case-shelf.md) | Show PS1 games as jewel cases with front cover art, and the disc on insert | Accepted. Amends 0014 | 2026-10-17 |
 | [0070](0070-backport-upstream-settings-scroll.md) | Scroll the Screen page with a backport of upstream's settings-page scrolling | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
+| [0071](0071-pace-off-panel-cores-at-their-own-fps.md) | Pace a core more than 2 fps from 60 at its own fps, locked to the panel, with a per-system PAL Speed row (Native default) | Accepted. Amends 0061, 0065 | 2026-10-18 |

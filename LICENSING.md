@@ -314,3 +314,10 @@ credited in the patch commit.
 Patch `0035-ps1-options` answers pcsx_rearmed's declared option defaults, as oauramos/omega-zero
 does, after AaronC1990/tray found that pcsx renders on the emu thread unless its threaded-rendering
 key is answered. Both are credited in the patch commit.
+
+Patch `0043-pal-pacing` paces a core at its own fps, as oauramos/omega-zero does (`Pace`, 726cc34).
+The 2 fps window around 60 and the period-based `core_hz` follow cloudwithax/unslot
+([4cf8468](https://github.com/cloudwithax/unslot/commit/4cf8468)), and the fractional frames-owed
+carry follows nelynes/slotPlus ([0848fcb](https://github.com/nelynes/slotPlus/commit/0848fcb),
+[b264635](https://github.com/nelynes/slotPlus/commit/b264635)). All three are GPL-3.0, the code is
+reimplemented, and all three are credited in the patch commit.
