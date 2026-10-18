@@ -5,6 +5,7 @@ the rollback round trip.
     python3 -m unittest tools/tests/test_hacks.py
 """
 import contextlib
+import errno
 import importlib.util
 import io
 import json
@@ -12,7 +13,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 import unittest
+from unittest import mock
 import zipfile
 import zlib
 
@@ -395,6 +398,53 @@ class Update(Base):
         (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
         b = self.at("Backups", "hacks", "GBA", self.STEM, label)
         self.assertEqual(rd(os.path.join(b, "States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
+
+    def test_a_move_across_filesystems_still_lands(self):
+        real = os.rename
+
+        def rename(a, b):
+            if a.startswith(self.lib):  # the library is another volume than ~/ROMHacks
+                raise OSError(errno.EXDEV, "Cross-device link")
+            return real(a, b)
+        with mock.patch("os.rename", rename):
+            r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
+            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+
+    def test_a_failure_mid_update_can_be_rolled_back(self):
+        real = hk.LocalCard.apply
+
+        def apply(card, op, src, dst):
+            if op == "write" and dst == f"Games/GBA/{self.STEM}.gba":
+                raise OSError(28, "No space left on device")
+            return real(card, op, src, dst)
+        with mock.patch.object(hk.LocalCard, "apply", apply):
+            r, out = self.update("--yes")
+        self.assertIn("--rollback hack", out)
+        self.assertFalse(os.path.exists(self.at("Games", "GBA", self.STEM + ".gba")))
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertEqual(rd(self.at("States", "GBA", "mgba", self.STEM, "resume.state")), b"auto")
+        self.assertEqual(rd(self.at("Saves", "GBA", self.STEM + ".sav")), b"battery")
+
+    def test_an_nfd_name_on_the_card_is_the_seed_entry(self):
+        nfd = "Hack\u0301 (v1)"
+        user = os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json")
+        os.rename(self.at("Games", "GBA", self.STEM + ".gba"), self.at("Games", "GBA", nfd + ".gba"))
+        os.rename(self.at("States", "GBA", "mgba", self.STEM), self.at("States", "GBA", "mgba", nfd))
+        self.write(user, json.dumps({"hack": {"card": unicodedata.normalize("NFC", nfd) + ".gba"}}))
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(self.at("Games", "GBA", nfd + ".gba")), NEW)
+        self.assertFalse(os.path.exists(self.at("States", "GBA", "mgba", nfd)))
+
+    def test_an_unreadable_slot_state_refuses(self):
+        card = hk.LocalCard(self.card)
+        card.read = lambda rel: None
+        with self.assertRaisesRegex(hk.Refuse, "could not be read"):
+            hk.seated(card, "GBA", self.STEM)
 
     def test_zip_with_two_roms_is_refused(self):
         inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack")

@@ -53,6 +53,11 @@ same thing with `-- <flags>`.
 8. **Record** the new version, CRC32, date and backup paths in
    `~/.config/slot-nes-snes/hacks-state.json`.
 
+If a card step fails partway (a full card, a lost adb link) the tool says which ops ran and stops; the
+backup's `backup.json` is written first, so `--rollback <id>` puts the old files back. The state file is
+written as soon as the card is done, so a library failure afterwards is only a warning. A card written
+from a Mac may spell names in NFD (`Pokémon`); names are compared in NFC and the card's own spelling is used.
+
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
 copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
 

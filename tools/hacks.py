@@ -335,7 +335,7 @@ class LocalCard:
         elif op == "copy":
             (shutil.copytree if os.path.isdir(self.p(src)) else shutil.copy2)(self.p(src), d)
         else:
-            os.rename(self.p(src), d)
+            shutil.move(self.p(src), d)  # a rename, or copy then remove across filesystems (SD card -> Mac)
 
 
 class AdbCard:
@@ -389,7 +389,10 @@ class AdbCard:
 
 def seated(card, system, stem):
     """slot keeps the game in the slot in Config/slot.state: cart=<stem>, cart_platform=<system lowercase>."""
-    text = (card.read("Config/slot.state") or b"").decode("utf-8", "replace")
+    raw = card.read("Config/slot.state")
+    if raw is None and card.exists("Config/slot.state"):
+        raise Refuse("Config/slot.state exists but could not be read: cannot tell whether the game is seated")
+    text = (raw or b"").decode("utf-8", "replace")
     kv = dict(l.split("=", 1) for l in text.splitlines() if "=" in l)
     return kv.get("cart") == stem and kv.get("cart_platform", "").lower() in ("", system.lower())
 
@@ -513,9 +516,16 @@ def show(ops, where):
         print(f"    {where}: {op:<5} {src}  ->  {b}")
 
 
-def execute(target, ops):
-    for op, a, b in ops:
-        target.apply(op, a, b)
+def execute(target, ops, where):
+    """True when every op ran; else says which did and returns False."""
+    for n, (op, a, b) in enumerate(ops):
+        try:
+            target.apply(op, a, b)
+        except (Refuse, OSError) as e:
+            print(f"  {where}: FAILED at op {n + 1} of {len(ops)} ({op} -> {b}): {e}")
+            print(f"  {where}: the {n} op(s) before it were done; nothing was deleted")
+            return False
+    return True
 
 
 # ---- sources ----------------------------------------------------------------------------------------
@@ -634,7 +644,13 @@ def unpack(name, data, system):
 # ---- commands -----------------------------------------------------------------------------------------
 
 def card_listing(card, systems):
-    return {s: set(card.names(f"Games/{s}")) for s in systems}
+    """{system: NFC names}: a card written from a Mac can hold NFD names (Pok\u0065\u0301mon)."""
+    return {s: {fl.nfc(n) for n in card.names(f"Games/{s}")} for s in systems}
+
+
+def real_name(card, system, name):
+    """The name as the card spells it (NFC or NFD), so the stem keys the same saves and states."""
+    return next((n for n in card.names(f"Games/{system}") if fl.nfc(n) == fl.nfc(name)), name)
 
 
 def installed_version(state, hid, h):
@@ -646,7 +662,7 @@ def cmd_check(ctx, reg, args, card):
     on = card_listing(card, {h["system"] for h in reg.values()}) if card else None
     rows = []
     for hid, h in sorted(reg.items(), key=lambda kv: (kv[1]["system"], kv[1]["name"].lower())):
-        if on is not None and h["card"] not in on[h["system"]]:
+        if on is not None and fl.nfc(h["card"]) not in on[h["system"]]:
             continue
         if on is None and args.library and not library_items(args.library, h["system"], os.path.splitext(h["card"])[0]):
             where = "not in library"
@@ -665,7 +681,7 @@ def cmd_check(ctx, reg, args, card):
 
 def plan_update(ctx, hid, h, args, card, state):
     """(card ops, library ops, record) or Refuse. Every refusal happens here, before any write."""
-    system, rom = h["system"], h["card"]
+    system, rom = h["system"], real_name(card, h["system"], h["card"])
     stem = os.path.splitext(rom)[0]
     if not card.exists(f"Games/{system}/{rom}"):
         raise Refuse(f"Games/{system}/{rom} is not on the card")
@@ -751,17 +767,24 @@ def cmd_update(ctx, reg, ids, args, card):
         if not confirm(args, f"  apply {hid}?"):
             print("  skipped")
             continue
-        execute(card, card_ops)
-        execute(LocalCard(args.library), lib_ops)
-        state[hid] = record
+        if not execute(card, card_ops, "card"):
+            print(f"  the card is half updated: run --rollback {hid} to put the old files back")
+            failed += 1
+            continue
+        state[hid] = record  # the card is what counts: record it before the library
         write_state(path, state)
+        if not execute(LocalCard(args.library), lib_ops, "library"):
+            print("  WARNING: the card is updated but the library copy is not; the old library file is "
+                  f"where the ops above left it (backup folder {record['library_backup']})")
+            failed += 1
+            continue
         print(f"  installed {record['version']}; backup {record['backup']}")
     return failed
 
 
 def cmd_rollback(ctx, reg, hid, args, card):
     h, path = reg[hid], os.path.join(ctx.config, "hacks-state.json")
-    system, rom = h["system"], h["card"]
+    system, rom = h["system"], real_name(card, h["system"], h["card"])
     stem = os.path.splitext(rom)[0]
     if seated(card, system, stem):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
@@ -780,9 +803,10 @@ def cmd_rollback(ctx, reg, hid, args, card):
         return
     if not confirm(args, f"  roll back {hid}?"):
         return
-    execute(card, card_ops)
-    if lib_ops:
-        execute(local, lib_ops)
+    if not execute(card, card_ops, "card"):
+        return 1
+    if lib_ops and not execute(local, lib_ops, "library"):
+        print("  WARNING: the card is rolled back but the library is not")
     state = read_state(path)
     state[hid] = {"version": info.get("from"), "crc32": info.get("from_crc32"),
                   "date": time.strftime("%Y-%m-%d"), "card": rom}
@@ -790,6 +814,8 @@ def cmd_rollback(ctx, reg, hid, args, card):
     print("  rolled back")
 
 
+# a GoodTools or No-Intro region tag: a retail dump or revision, not a hack (V1.1, Rev 2)
+REGION = re.compile(r"\((?:[JUEWFGSK]{1,3}|USA|Europe|Japan|World|Brazil|Korea|Unl|PD)(?:[,)]| )", re.I)
 HACKISH = re.compile(r"\bv\d+(\.\d+)+[a-z]?\b|\bhack\b|\b(redux|definitive|delta|remix)\b", re.I)
 
 
@@ -799,9 +825,9 @@ def cmd_init(ctx, reg, card, library):
     if os.path.exists(path):
         print(f"{path} exists, left as it is")
         return False
-    have = {s: set(card.names(f"Games/{s}")) for s in fl.SYSTEMS} if card else \
+    have = card_listing(card, fl.SYSTEMS) if card else \
         {s: {n + ".x" for n in fl.scan_library(library, s)[0]} for s in fl.SYSTEMS} if library else {}
-    known = {(h["system"], h["card"]) for h in reg.values()}
+    known = {(h["system"], fl.nfc(h["card"])) for h in reg.values()}
     lines = ["// slot-nes-snes ROM hack settings (docs/HACKS.md), read on top of the repo's tools/hacks.json.",
              "// JSON with whole-line // comments. An id from the seed overrides only the fields given here;",
              "// a new id adds a hack and needs system, card and source.",
@@ -811,12 +837,12 @@ def cmd_init(ctx, reg, card, library):
              "{",
              "// Seed hacks found on this card; uncomment and edit a line to override a field:"]
     for hid, h in sorted(reg.items()):
-        if not have or h["card"] in have.get(h["system"], set()) or (library and not card):
+        if not have or fl.nfc(h["card"]) in have.get(h["system"], set()) or (library and not card):
             lines.append(f'//  "{hid}": {{"source": {json.dumps(h["source"])}, "asset": {json.dumps(h.get("asset"))}}},')
     new = []
     for s, names in sorted(have.items()):
         for n in sorted(names):
-            if (s, n) in known or re.search(r"\[[a-z]", n, re.I) or not HACKISH.search(n):
+            if (s, fl.nfc(n)) in known or re.search(r"\[[a-z!]", n, re.I) or not HACKISH.search(n) or REGION.search(n):
                 continue
             hid = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", os.path.splitext(n)[0]).lower()).strip("-")
             new.append(f'  {json.dumps(hid)}: {{"system": "{s}", "card": {json.dumps(n)}, "source": "", '
