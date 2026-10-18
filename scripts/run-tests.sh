@@ -51,8 +51,10 @@ fi
 # Upstream's own frame-hash tests in slot-gfx layout.rs fail on the unpatched v1.7.0 tree on this
 # Mac too (two tests, the GPU renders a different hash than the one Brandon pinned). They are left
 # out of the gating run and run in both trees afterwards: the patched tree must fail no test the
-# upstream tree passes.
-both_trees="slot-gfx:layout"
+# upstream tree passes. Upstream's render_in_game_menu.rs (main 1b20432) failed both its tests on the
+# macOS runner only (run 39151890455: one extra menu step, the footer brighter than the game) and
+# passes in both trees here, so it runs in both trees too: CI shows whether upstream fails it the same way.
+both_trees="slot-gfx:layout slot:render_in_game_menu"
 up="$(dirname "$1")/slot-upstream"
 [ -d "$up/crates" ] || {
 	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2

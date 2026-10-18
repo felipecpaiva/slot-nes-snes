@@ -36,7 +36,8 @@ code as possible, and prove GBA did not change.**
    An upstream test that already fails on the unpatched tree on the test machine is never
    edited or skipped silently: `scripts/run-tests.sh` runs its binary in both trees and fails
    if the patched tree fails a test the upstream tree passes. Today that is
-   `slot-gfx/tests/layout.rs` (two frame-hash tests, ADR 0045).
+   `slot-gfx/tests/layout.rs` (two frame-hash tests, ADR 0045) and `slot/tests/render_in_game_menu.rs`
+   (both tests failed on the macOS runner only after the 1b20432 rebase, ADR 0083).
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
 

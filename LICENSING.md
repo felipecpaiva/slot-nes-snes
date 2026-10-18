@@ -23,6 +23,8 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `pcsx_rearmed-src.tar.gz` and `pcsx_rearmed-src.meta`: the same for pcsx_rearmed.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
+- `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
+  `System/fsck.exfat`, which upstream slot ships for its SD card repair (SELECT+START), as slot ships them.
 
 **Rebuilding `System/slot`.** Build the `slot/` tree in the main tarball as upstream does, with
 Cargo and the network: Cargo fetches the crates by `Cargo.lock`. Without the network that works

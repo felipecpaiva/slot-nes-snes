@@ -109,6 +109,14 @@ them, so we do not make those buttons remappable.
   skip that names the Games folder as a ROM skip: upstream's new `core.rs` test says "no vendored
   mGBA core or no Super Mario Advance 4 under sdcard/Games".
 - `scripts/check-upstream-tests.sh`: site (h) anchored on `ControlsInGame`, site (i) removed.
+- After the first CI run (39151890455): `scripts/zip-check.sh` expects upstream's new release files,
+  `System/lid.sh`, `System/repair.sh`, `System/fsck.exfat` (aarch64), `licenses/exfatprogs-GPL-2.0.txt`
+  and `licenses/exfatprogs-<EXFATPROGS_VERSION>.tar.gz` (checked against upstream's
+  `EXFATPROGS_SHA256`); LICENSING and SUPPLY-CHAIN list exfatprogs.
+- Upstream's `render_in_game_menu.rs` failed both tests on the macOS runner (one extra menu step to
+  `GameL`, the footer brighter than the game) and passes here in both trees, with its mock core, also
+  under a 14-way CPU load. It joins `layout.rs` in `run-tests.sh`'s both-trees list (ADR 0045): it
+  gates on no failure upstream does not also have, and CI prints both trees' counts.
 
 ## Consequences
 
