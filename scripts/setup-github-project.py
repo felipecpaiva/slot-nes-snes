@@ -31,6 +31,7 @@ PHASES = {
     "6": "Deferred",
     "7": "Phase 7: Game Gear, Master System and Mega Drive",
     "8": "Phase 8: PlayStation",
+    "12": "Phase 12: Atari Lynx",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}
 FIELDS = {"Phase": list(PHASES.values()),
