@@ -73,3 +73,12 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
 | [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
+| [91](91-wswan-tracking.md) | WonderSwan: WonderSwan and WonderSwan Color on Beetle Cygne, built the NES and SNES way | 11 | device | tracking | L | 56-ps1-tracking |
+| [92](92-wswan-core-build.md) | Build Beetle Cygne from a pinned commit for host and device and record its licence | 11 | cores | feature | S | 91-wswan-tracking |
+| [93](93-platform-wswan.md) | Add Platform::Ws with its own shelf, scan, footer reader, saves and explicit policy | 11 | platform | feature | M | 92-wswan-core-build |
+| [94](94-wswan-options.md) | Set the WonderSwan core options: 60 Hz mode, rotation and keymap on every load | 11 | cores | feature | S | 93-platform-wswan |
+| [95](95-wswan-canvas-screen.md) | Give WonderSwan its canvases and its own Screen section with Shader, Picture and Refresh rows | 11 | video | feature | M | 94-wswan-options |
+| [96](96-wswan-input.md) | Map the WonderSwan X and Y pads for horizontal and vertical games | 11 | input | feature | M | 93-platform-wswan |
+| [97](97-wswan-tests.md) | Test WonderSwan with a generated cart that paints, turns and saves | 11 | tests | test | S | 92-wswan-core-build |
+| [98](98-wswan-carts.md) | Draw WonderSwan carts (black and clear shells) and fetch their labels | 11 | ui-art | feature | M | 93-platform-wswan |
+| [99](99-wswan-device-gate.md) | WonderSwan device gate on the RG34XXSP | 11 | device | chore | S | 93-platform-wswan, 95-wswan-canvas-screen, 96-wswan-input |

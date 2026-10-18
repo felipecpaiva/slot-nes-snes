@@ -1,0 +1,410 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:03:42 +0400
+Subject: [PATCH] wswan-core-tests
+
+Beetle Cygne (WonderSwan and WonderSwan Color) runs on the generic
+libretro host before any WonderSwan platform code exists. A generated
+64 KB Color cart boots with no BIOS and paints a 224x144 picture in the
+middle of the 240x160 buffer, and its state round-trips with 60 Hz mode
+on, mid-way through the core's four-call cycle.
+
+The pacing facts the platform must act on: with wswan_60hz_mode set the
+core reports 60.38 fps, and without an answer it runs at the native
+75.47 fps although it declares "enabled" as the default. In both modes
+the game plays at its own speed: 60 Hz mode emulates five frames every
+four calls and hands out their sound over the four.
+
+Rotation is the core's: slot answers no SET_ROTATION, so "portrait"
+draws 144x224 from the core's own buffer. The core ignores the footer's
+vertical flag, and left on "manual" every SELECT press turns the
+picture, so the platform must read the footer and set the layout.
+
+Saves are the ordinary save RAM path: the cart's SRAM or EEPROM, sized
+by the footer, with no RTC block and no file of the core's own, and a
+game reads back what slot writes after load.
+
+The reset jump in the last 16 bytes landing at F000:0000 follows
+cloudwithax/unslot's crates/slot-retro/tests/systems.rs, commit 00296a5
+(https://github.com/cloudwithax/unslot/commit/00296a5, GPL-3.0). The
+footer, paint and save RAM code is new.
+---
+ crates/slot/tests/wswan_core.rs | 369 ++++++++++++++++++++++++++++++++
+ 1 file changed, 369 insertions(+)
+ create mode 100644 crates/slot/tests/wswan_core.rs
+
+diff --git a/crates/slot/tests/wswan_core.rs b/crates/slot/tests/wswan_core.rs
+new file mode 100644
+index 0000000..7199eee
+--- /dev/null
++++ b/crates/slot/tests/wswan_core.rs
+@@ -0,0 +1,369 @@
++// Beetle Cygne (WonderSwan and WonderSwan Color) on the generic libretro host, before any WonderSwan
++// platform code exists (issues 92 and 98, ADR 0086). The reset jump in the last 16 bytes landing at
++// F000:0000 follows cloudwithax/unslot's crates/slot-retro/tests/systems.rs
++// (https://github.com/cloudwithax/unslot/commit/00296a5, GPL-3.0). The footer, paint and save RAM code
++// is ours.
++mod common;
++mod core_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++const MARK: u8 = 0x5a;
++// WonderSwan Color palette RAM words are 0x0RGB, 4 bits a channel.
++const RED: u16 = 0x0f00;
++const BLUE: u16 = 0x000f;
++// The core's own timing: 3.072 MHz over 159 lines of 256 cycles, and 4/5 of that in 60 Hz mode.
++const NATIVE_FPS: f64 = 3_072_000.0 / (159.0 * 256.0);
++const SIXTY_FPS: f64 = NATIVE_FPS * 4.0 / 5.0;
++
++/// Footer save type byte (offset 0xfffb): what the core reads to size SRAM or EEPROM.
++#[derive(Clone, Copy)]
++enum Save {
++    None = 0x00,
++    Sram8k = 0x01,
++    Eeprom128 = 0x10,
++    Eeprom2k = 0x20,
++}
++
++#[derive(Clone, Copy, PartialEq)]
++enum Code {
++    /// Paint the whole screen red.
++    Paint,
++    /// Write `MARK` to the first SRAM byte, then paint red.
++    WriteSram,
++    /// Paint red when the first SRAM byte is `MARK`, blue otherwise.
++    ReadSram,
++}
++
++/// A 64 KB WonderSwan Color cart (the smallest the core loads). Code at F000:0000 switches the
++/// display to colour mode, sets palette 0 colour 0 (the backdrop BGColor 0 selects) and spins. The
++/// reset vector at FFFF:0000 is a far jump there; the footer after it carries the save type and the
++/// vertical flag, and the checksum is the byte sum of everything before it.
++fn cart(dir: &Path, stem: &str, code: Code, save: Save, vertical: bool) -> PathBuf {
++    let mut rom = vec![0u8; 0x10000];
++    let mut c: Vec<u8> = vec![0xb0, 0x80, 0xe6, 0x60]; // mov al,0x80; out 0x60,al (colour mode)
++    let sram_ds = [0xb8, 0x00, 0x10, 0x8e, 0xd8]; // mov ax,0x1000; mov ds,ax (bank 1 is SRAM)
++    let color = match code {
++        Code::WriteSram => {
++            c.extend(sram_ds);
++            c.extend([0xc6, 0x06, 0x00, 0x00, MARK]); // mov byte [0],MARK
++            RED
++        }
++        Code::ReadSram => {
++            c.extend(sram_ds);
++            c.extend([0xbb]); // mov bx,BLUE
++            c.extend(BLUE.to_le_bytes());
++            c.extend([0xa0, 0x00, 0x00, 0x3c, MARK, 0x75, 0x03]); // mov al,[0]; cmp al,MARK; jne +3
++            c.extend([0xbb]); // mov bx,RED
++            c.extend(RED.to_le_bytes());
++            c.extend([0x31, 0xc0, 0x8e, 0xd8]); // xor ax,ax; mov ds,ax
++            c.extend([0x89, 0x1e, 0x00, 0xfe]); // mov [0xfe00],bx
++            c.extend([0xeb, 0xfe]); // jmp $
++            rom[..c.len()].copy_from_slice(&c);
++            0
++        }
++        Code::Paint => RED,
++    };
++    if code != Code::ReadSram {
++        c.extend([0x31, 0xc0, 0x8e, 0xd8, 0xb8]); // xor ax,ax; mov ds,ax; mov ax,color
++        c.extend(color.to_le_bytes());
++        c.extend([0xa3, 0x00, 0xfe, 0xeb, 0xfe]); // mov [0xfe00],ax; jmp $
++        rom[..c.len()].copy_from_slice(&c);
++    }
++    rom[0xfff0..0xfff5].copy_from_slice(&[0xea, 0x00, 0x00, 0x00, 0xf0]); // jmp far F000:0000
++    rom[0xfff7] = 1; // WonderSwan Color
++    rom[0xfffa] = 0x01; // ROM size code
++    rom[0xfffb] = save as u8;
++    rom[0xfffc] = u8::from(vertical);
++    let sum = rom[..0xfffe]
++        .iter()
++        .fold(0u16, |s, &b| s.wrapping_add(b.into()));
++    rom[0xfffe..].copy_from_slice(&sum.to_le_bytes());
++    let path = dir.join(format!("{stem}.wsc"));
++    std::fs::write(&path, rom).unwrap();
++    path
++}
++
++/// The core opened the way slot opens every core today, BIOS/ and Saves/, with `options` set
++/// before load (the core reads them in retro_load_game, before slot reads the av info).
++fn cygne(root: &Path, options: &[(&str, &str)]) -> Option<LibretroCore> {
++    let dylib = require_core("mednafen_wswan")?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open Beetle Cygne");
++    for (k, v) in options {
++        core.set_option(k, v);
++    }
++    Some(core)
++}
++
++const SIXTY: &[(&str, &str)] = &[
++    ("wswan_60hz_mode", "enabled"),
++    ("wswan_rotate_display", "landscape"),
++];
++
++fn play(core: &mut LibretroCore, frames: usize) -> usize {
++    let mut audio_frames = 0;
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++        audio_frames += core.take_audio().len() / 2;
++    }
++    audio_frames
++}
++
++/// Every pixel of a `w` x `h` frame centred in the canvas is red and every other one is black.
++fn assert_red_box(video: &[u8], canvas: (usize, usize), (w, h): (usize, usize)) {
++    assert_eq!(video.len(), canvas.0 * canvas.1 * 4);
++    let (left, top) = ((canvas.0 - w) / 2, (canvas.1 - h) / 2);
++    for y in 0..canvas.1 {
++        for x in 0..canvas.0 {
++            let at = (y * canvas.0 + x) * 4;
++            let px = &video[at..at + 3];
++            if (left..left + w).contains(&x) && (top..top + h).contains(&y) {
++                assert!(
++                    px[2] > 200 && px[1] < 60 && px[0] < 60,
++                    "({x}, {y}) is {px:?}"
++                );
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++#[test]
++fn a_wonderswan_cart_boots_with_no_bios_and_draws_224_by_144_in_the_middle_of_240_by_160() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), SIXTY) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++        .expect("Beetle Cygne refused the cart");
++    assert!(play(&mut core, 30) > 0, "no sound came out");
++    let av = core.av_info();
++    assert_eq!(av.sample_rate, 44100.0);
++    assert_red_box(core.video_xrgb8888(), (240, 160), (224, 144));
++}
++
++#[test]
++fn with_60hz_mode_set_the_core_reports_60_38_fps() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), SIXTY) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++        .unwrap();
++    let fps = core.av_info().fps;
++    assert!((fps - SIXTY_FPS).abs() < 0.01, "{fps} fps");
++}
++
++#[test]
++fn unanswered_60hz_mode_runs_at_the_native_75_47_fps_despite_its_declared_default() {
++    // The core declares wswan_60hz_mode with the default "enabled" but starts it false, and only a
++    // GET_VARIABLE answer turns it on. slot answers declared defaults for pcsx_rearmed alone (ADR
++    // 0064), so the platform must set the key itself.
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), &[]) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++        .unwrap();
++    let fps = core.av_info().fps;
++    assert!((fps - NATIVE_FPS).abs() < 0.01, "{fps} fps");
++}
++
++#[test]
++fn both_modes_play_the_game_at_its_own_speed_60hz_mode_runs_five_frames_in_four() {
++    // One second of game is NATIVE_FPS emulated frames and 44100 sound frames, whatever the mode:
++    // 60 Hz mode emulates a fifth frame every fourth call and hands out its sound over the four.
++    const RUNS: usize = 600;
++    for (options, fps) in [(SIXTY, SIXTY_FPS), (&[][..], NATIVE_FPS)] {
++        let _g = core_lock();
++        let d = tempfile::tempdir().unwrap();
++        let Some(mut core) = cygne(d.path(), options) else {
++            return;
++        };
++        core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++            .unwrap();
++        let got = play(&mut core, RUNS) as f64;
++        let want = RUNS as f64 * 44100.0 / fps;
++        assert!(
++            (got - want).abs() / want < 0.01,
++            "{got} sound frames at {fps} fps, want {want}"
++        );
++    }
++}
++
++#[test]
++fn portrait_turns_the_picture_in_the_core_to_144_by_224_with_no_rotation_from_slot() {
++    // slot does not answer SET_ROTATION, so the core rotates in software into its own buffer.
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(
++        d.path(),
++        &[
++            ("wswan_60hz_mode", "enabled"),
++            ("wswan_rotate_display", "portrait"),
++        ],
++    ) else {
++        return;
++    };
++    core.set_canvas(360, 240);
++    core.load(&cart(d.path(), "Tall", Code::Paint, Save::None, true))
++        .unwrap();
++    play(&mut core, 30);
++    assert_eq!(core.frame_width(), 144);
++    assert_red_box(core.video_xrgb8888(), (360, 240), (144, 224));
++}
++
++#[test]
++fn the_core_ignores_the_footers_vertical_flag_so_slot_must_read_it() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), &[("wswan_60hz_mode", "enabled")]) else {
++        return;
++    };
++    // A canvas other than the GBA one, so the host records the frame size.
++    core.set_canvas(360, 240);
++    core.load(&cart(d.path(), "Tall", Code::Paint, Save::None, true))
++        .unwrap();
++    play(&mut core, 10);
++    assert_eq!(core.frame_width(), 224);
++}
++
++#[test]
++fn select_turns_the_picture_only_while_rotate_display_is_left_on_manual() {
++    // Unanswered, wswan_rotate_display is "manual" and every SELECT press flips the picture. SELECT is
++    // slot's modifier, so the platform must always set landscape or portrait.
++    let select = ButtonMask(ButtonMask::SELECT);
++    for (options, turned) in [
++        (SIXTY, false),
++        (&[("wswan_60hz_mode", "enabled")][..], true),
++    ] {
++        let _g = core_lock();
++        let d = tempfile::tempdir().unwrap();
++        let Some(mut core) = cygne(d.path(), options) else {
++            return;
++        };
++        core.set_canvas(360, 240);
++        core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++            .unwrap();
++        play(&mut core, 5);
++        core.run_frame(select);
++        core.run_frame(ButtonMask::default());
++        let want = if turned { 144 } else { 224 };
++        assert_eq!(core.frame_width(), want, "options {options:?}");
++    }
++}
++
++#[test]
++fn a_wonderswan_state_round_trips_in_60hz_mode() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), SIXTY) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint", Code::Paint, Save::None, false))
++        .unwrap();
++    // Mid-way through the 4-call cycle, so the 60 Hz counter and its cached sound are in the state.
++    play(&mut core, 7);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn cygne_hands_slot_the_cart_sram_as_save_ram_with_no_rtc() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), SIXTY) else {
++        return;
++    };
++    core.load(&cart(
++        d.path(),
++        "Save",
++        Code::WriteSram,
++        Save::Sram8k,
++        false,
++    ))
++    .unwrap();
++    play(&mut core, 10);
++    let sav = core.save_ram().expect("no save ram");
++    assert_eq!(sav.len(), 8 * 1024, "SRAM only, no RTC block appended");
++    assert_eq!(sav[0], MARK);
++    assert!(sav[1..].iter().all(|&b| b == 0));
++}
++
++#[test]
++fn the_save_ram_size_follows_the_footer_save_type_and_a_cart_with_none_has_none() {
++    for (save, len) in [
++        (Save::None, None),
++        (Save::Eeprom128, Some(128)),
++        (Save::Eeprom2k, Some(2048)),
++        (Save::Sram8k, Some(8192)),
++    ] {
++        let _g = core_lock();
++        let d = tempfile::tempdir().unwrap();
++        let Some(mut core) = cygne(d.path(), SIXTY) else {
++            return;
++        };
++        core.load(&cart(d.path(), "Kind", Code::Paint, save, false))
++            .unwrap();
++        assert_eq!(core.save_ram().map(|s| s.len()), len);
++    }
++}
++
++#[test]
++fn sram_written_back_after_load_is_what_the_game_reads_on_the_next_boot() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = cygne(d.path(), SIXTY) else {
++        return;
++    };
++    core.load(&cart(
++        d.path(),
++        "Save",
++        Code::WriteSram,
++        Save::Sram8k,
++        false,
++    ))
++    .unwrap();
++    play(&mut core, 10);
++    let sav = core.save_ram().unwrap();
++    drop(core);
++
++    // The core writes no file of its own: the .sav slot persists is the only copy.
++    assert_eq!(
++        std::fs::read_dir(slot::root::saves_dir(d.path()))
++            .unwrap()
++            .count(),
++        0
++    );
++
++    let rom = cart(d.path(), "Read", Code::ReadSram, Save::Sram8k, false);
++    let mut core = cygne(d.path(), SIXTY).unwrap();
++    core.load(&rom).unwrap();
++    play(&mut core, 10);
++    let px = &core.video_xrgb8888()[(80 * 240 + 120) * 4..][..3];
++    assert!(px[0] > 200 && px[2] < 60, "blank SRAM paints blue: {px:?}");
++    drop(core);
++
++    let mut core = cygne(d.path(), SIXTY).unwrap();
++    core.load(&rom).unwrap();
++    core.load_save_ram(&sav).unwrap();
++    play(&mut core, 10);
++    assert_red_box(core.video_xrgb8888(), (240, 160), (224, 144));
++}
