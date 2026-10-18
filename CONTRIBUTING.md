@@ -16,7 +16,7 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   seven, and the guard checks each one exactly:
+   eight, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
    - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`, `| Platform::Gg`, `| Platform::Sms`, `| Platform::Md` and `| Platform::Ps1`, in that order (the Sega and PlayStation tokens by the standing rule below, ADR 0055 and ADR 0065). The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
@@ -26,6 +26,14 @@ code as possible, and prove GBA did not change.**
    - (h) the same test: the line `            QuickRow::ControlsInGame` (last entry of the rows that open pages) becomes `            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes`, on that one line (ADR 0048), then optionally `, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd` on the same line (ADR 0055), and after those optionally `, QuickRow::ScreenPs1` (ADR 0065). Up to v1.7.0 the last entry was `QuickRow::ScreenGb`; upstream main 1b20432 appended its Controls rows after it, so the tokens moved to the new last entry (ADR 0083). Any other line of that file changing still fails.
    (Site (i), upstream 3b6349c's backlight-floor lines in `slot-power/tests/device.rs`, was retired on the
    rebase onto upstream main 1b20432, which ships that commit, ADR 0083.)
+   - (j) approved by the maintainer on 2026-10-18 (ADR 0085): `the_rows_run_in_the_order_the_user_chose` in
+     `crates/slot-ui/tests/quick_menu.rs` gains the single line `            "CPU",` between
+     `            "Lid Power Off",` and `            "Date & Time"` in the General labels, because
+     `QuickRow::GENERAL` gains the CPU row. Approved on v1.7.0 between `"Game Titles",` and
+     `"Date & Time"`; upstream main 1b20432 put its `"Lid Power Off",` row between those two, so the
+     line follows it and still sits directly before `"Date & Time"`. The guard removes exactly that
+     line before comparing and also accepts the file without it. Together with (g) and (h), any other
+     line of that file changing still fails.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must
