@@ -1,6 +1,6 @@
 # 0061. Give each retro system's Screen section a Picture row for its default picture mode
 
-- Status: Accepted. Amends [0022](0022-nes-snes-default-stretch.md). Amended by [0062](0062-crop-overscan-picture.md), [0065](0065-ps1-canvas-and-screen-section.md) and [0071](0071-pace-off-panel-cores-at-their-own-fps.md)
+- Status: Accepted. Amends [0022](0022-nes-snes-default-stretch.md). Amended by [0062](0062-crop-overscan-picture.md), [0065](0065-ps1-canvas-and-screen-section.md), [0071](0071-pace-off-panel-cores-at-their-own-fps.md) and [0076](0076-master-system-region-row.md)
 - Date: 2026-10-16
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0007](0007-snes-select-x-picture-mode.md), [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md), [ADR 0051](0051-sega-shaders-outside-slot-state.md), [ADR 0058](0058-propose-modular-platform-registry-upstream.md), [issue 54](../../.github/issues/54-system-picture.md), patches/0032-system-picture.patch

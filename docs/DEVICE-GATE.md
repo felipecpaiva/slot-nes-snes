@@ -206,6 +206,39 @@ Per title, 3 minutes, one run:
 PAL gate passed on 2026-10-18. Q starts above T (the start-up prefill) and settles near T, with no
 steady drift. SNES had no European cart on the card, so SNES PAL pacing is host-tested only.
 
+## Master System region (issue 69, ADR 0076)
+
+Checks that Region Europe makes a European Master System cart the core does not know run at PAL
+timing, and that Auto leaves it as before. Genesis Plus GX's database marks only these as Europe:
+Cosmic Spacehead, Fantastic Dizzy, Micro Machines, The Addams Family, Back to the Future Part III,
+Bram Stoker's Dracula, California Games II, Home Alone, Power Strike II, Predator 2, RoboCop 3,
+Sensible Soccer, Shadow of the Beast, Sonic the Hedgehog 2, Space Harrier (50 Hz), Chase H.Q. (and
+a few Brazilian and prototype entries). Pick a European cart **not** in that list, for example
+`Asterix (Europe)`, `Asterix and the Secret Mission (Europe)`, `Lemmings (Europe)`,
+`Land of Illusion Starring Mickey Mouse (Europe)`, `The Lucky Dime Caper Starring Donald Duck
+(Europe)`, `Streets of Rage (Europe)`, `Ninja Gaiden (Europe)`, `Prince of Persia (Europe)`,
+`Ecco the Dolphin (Europe)` or `The Smurfs (Europe)`.
+
+1. `task deploy:device`. Make sure `Config/region.txt` has no `sms` line (Auto) and PAL Speed is
+   Native.
+2. `CORE=genesis_plus_gx PLATFORM=sms STEM='<name on the card>' PAIR=sms-region-auto MINUTES=2 RUNS=1 sh scripts/auto-play.sh`.
+   `grep 'slot: emu: pacing at' docs/perf/<date>/play/sms-region-auto.1.log` must print nothing:
+   the core runs the cart at 59.92 fps, the reason for the row. A `pacing at 49.701` line means the
+   cart is in the core's list; pick another.
+3. On the device, open the Master System Screen section, set Region to Europe (or put
+   `sms = europe` in `Config/region.txt`), then
+   `CORE=genesis_plus_gx PLATFORM=sms STEM='<same name>' PAIR=sms-region-europe MINUTES=2 RUNS=1 sh scripts/auto-play.sh`.
+4. In `sms-region-europe.1.log`: one `slot: emu: pacing at 49.701 fps` line; starved and dropped 0;
+   Q near T in the `queued` lines; `ft_p50_med` about 16.78 ms and `ft_p99_worst` within 1.1x.
+5. Optional: start a Game Gear and a Mega Drive game with Region still on Europe; neither log may
+   show a `pacing at` line for a non-European cart. Set Region back to Auto afterwards.
+
+| Title | Auto: pacing line | Europe: pacing line fps | Starved / dropped | p50 / p99 present ms | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|
+| Streets of Rage (Europe, Brazil) | none (60 Hz) | 49.701 | 0 / 0 | 16.79 / 17.34 (worst window) | 2026-10-18 | branch sms-region (df8a717), governor performance | auto-play, Region set by `sms = europe` in Config/region.txt, removed afterwards; no panics |
+
+Master System region gate passed on 2026-10-18. Logs: `docs/perf/2026-10-18/play/sms-region-*.1.log`.
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

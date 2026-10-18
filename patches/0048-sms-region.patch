@@ -1,0 +1,584 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 10:44:35 +0400
+Subject: [PATCH] sms-region
+
+The Master System Screen section gains a Region row (Auto, Japan, USA,
+Europe), stored as `sms = europe` in Config/region.txt. A Master System
+game opens with Genesis Plus GX's genesis_plus_gx_region_detect set to
+ntsc-j, ntsc-u or pal; Auto leaves the option unanswered, as before.
+Game Gear and Mega Drive on the same core never get it. The core's own
+database marks only about 23 Master System titles as European, so most
+European carts ran at 60 Hz and PAL pacing never engaged for them.
+---
+ crates/slot-ui/src/quick_menu.rs    |  31 +++--
+ crates/slot-ui/src/quick_retro.rs   |   7 +-
+ crates/slot-ui/tests/retro_faces.rs |  14 ++-
+ crates/slot/src/app.rs              |  17 ++-
+ crates/slot/src/core.rs             |   1 +
+ crates/slot/src/lib.rs              |   1 +
+ crates/slot/src/sms_region.rs       |  95 ++++++++++++++
+ crates/slot/tests/pal_speed.rs      |   2 +-
+ crates/slot/tests/sms_region.rs     | 189 ++++++++++++++++++++++++++++
+ 9 files changed, 343 insertions(+), 14 deletions(-)
+ create mode 100644 crates/slot/src/sms_region.rs
+ create mode 100644 crates/slot/tests/sms_region.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index f38ffb8..d854f3a 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -69,10 +69,11 @@ pub enum QuickRow {
+     SmsPalSpeed,
+     MdPalSpeed,
+     Ps1PalSpeed,
++    SmsRegion,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 63] = [
++    pub const ALL: [QuickRow; 64] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -136,6 +137,7 @@ impl QuickRow {
+         QuickRow::SmsPalSpeed,
+         QuickRow::MdPalSpeed,
+         QuickRow::Ps1PalSpeed,
++        QuickRow::SmsRegion,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -263,9 +265,10 @@ impl QuickRow {
+                 &QuickRow::SCREEN_SNES
+             }
+             QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
+-            QuickRow::SmsShader | QuickRow::SmsPicture | QuickRow::SmsPalSpeed => {
+-                &QuickRow::SCREEN_SMS
+-            }
++            QuickRow::SmsShader
++            | QuickRow::SmsPicture
++            | QuickRow::SmsPalSpeed
++            | QuickRow::SmsRegion => &QuickRow::SCREEN_SMS,
+             QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => &QuickRow::SCREEN_MD,
+             QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
+                 &QuickRow::SCREEN_PS1
+@@ -291,9 +294,10 @@ impl QuickRow {
+                 Some(QuickRow::ScreenSnes)
+             }
+             QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
+-            QuickRow::SmsShader | QuickRow::SmsPicture | QuickRow::SmsPalSpeed => {
+-                Some(QuickRow::ScreenSms)
+-            }
++            QuickRow::SmsShader
++            | QuickRow::SmsPicture
++            | QuickRow::SmsPalSpeed
++            | QuickRow::SmsRegion => Some(QuickRow::ScreenSms),
+             QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => {
+                 Some(QuickRow::ScreenMd)
+             }
+@@ -422,6 +426,7 @@ impl QuickRow {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed => "PAL Speed",
++            QuickRow::SmsRegion => "Region",
+         }
+     }
+ 
+@@ -488,6 +493,10 @@ pub enum QuickValue {
+     Crop,
+     Native,
+     Panel,
++    Auto,
++    Japan,
++    Usa,
++    Europe,
+ }
+ 
+ impl QuickValue {
+@@ -520,6 +529,10 @@ impl QuickValue {
+             QuickValue::Crop => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 2,
+             QuickValue::Native => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 3,
+             QuickValue::Panel => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 4,
++            QuickValue::Auto => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 5,
++            QuickValue::Japan => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 6,
++            QuickValue::Usa => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 7,
++            QuickValue::Europe => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 8,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -550,6 +563,10 @@ impl QuickValue {
+             QuickValue::Crop => "Crop",
+             QuickValue::Native => "Native",
+             QuickValue::Panel => "Panel",
++            QuickValue::Auto => "Auto",
++            QuickValue::Japan => "Japan",
++            QuickValue::Usa => "USA",
++            QuickValue::Europe => "Europe",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index c7596c5..3049fcd 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -14,10 +14,11 @@ impl QuickRow {
+         QuickRow::SnesPalSpeed,
+     ];
+     pub const SCREEN_GG: [QuickRow; 2] = [QuickRow::GgShader, QuickRow::GgPicture];
+-    pub const SCREEN_SMS: [QuickRow; 3] = [
++    pub const SCREEN_SMS: [QuickRow; 4] = [
+         QuickRow::SmsShader,
+         QuickRow::SmsPicture,
+         QuickRow::SmsPalSpeed,
++        QuickRow::SmsRegion,
+     ];
+     pub const SCREEN_MD: [QuickRow; 3] = [
+         QuickRow::MdShader,
+@@ -42,6 +43,10 @@ impl QuickValue {
+                 QuickValue::Crop,
+                 QuickValue::Native,
+                 QuickValue::Panel,
++                QuickValue::Auto,
++                QuickValue::Japan,
++                QuickValue::Usa,
++                QuickValue::Europe,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index a97f888..fd99f87 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -17,7 +17,11 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Actual,
+             QuickValue::Crop,
+             QuickValue::Native,
+-            QuickValue::Panel
++            QuickValue::Panel,
++            QuickValue::Auto,
++            QuickValue::Japan,
++            QuickValue::Usa,
++            QuickValue::Europe
+         ]
+     );
+     assert_eq!(
+@@ -26,9 +30,13 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Actual.text(),
+             QuickValue::Crop.text(),
+             QuickValue::Native.text(),
+-            QuickValue::Panel.text()
++            QuickValue::Panel.text(),
++            QuickValue::Auto.text(),
++            QuickValue::Japan.text(),
++            QuickValue::Usa.text(),
++            QuickValue::Europe.text()
+         ],
+-        ["Stretch", "Actual", "Crop", "Native", "Panel"]
++        ["Stretch", "Actual", "Crop", "Native", "Panel", "Auto", "Japan", "USA", "Europe"]
+     );
+     for (i, v) in every.iter().enumerate() {
+         assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 0c4c177..e2b117b 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -414,6 +414,7 @@ pub struct App {
+     sega_shaders: slot_store::SegaShaders,
+     pictures: crate::platform_video::SystemPictures,
+     pal_speeds: crate::pal_speed::PalSpeeds,
++    sms_region: crate::sms_region::Region,
+     rested: Option<(usize, usize)>,
+ }
+ 
+@@ -565,6 +566,7 @@ impl App {
+             sega_shaders: slot_store::SegaShaders::default(),
+             pictures: crate::platform_video::SystemPictures::default(),
+             pal_speeds: crate::pal_speed::PalSpeeds::default(),
++            sms_region: crate::sms_region::Region::Auto,
+             rested: None,
+         }
+     }
+@@ -581,6 +583,7 @@ impl App {
+         app.sega_shaders = slot_store::read_sega_shaders(root);
+         app.pictures = crate::platform_video::SystemPictures::read(root);
+         app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
++        app.sms_region = crate::sms_region::Region::read(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -994,6 +997,7 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
++            QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -2249,7 +2253,8 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+-            | QuickRow::Ps1PalSpeed => {}
++            | QuickRow::Ps1PalSpeed
++            | QuickRow::SmsRegion => {}
+         }
+     }
+ 
+@@ -2271,6 +2276,13 @@ impl App {
+             }
+             return;
+         }
++        if row == QuickRow::SmsRegion {
++            self.sms_region = self.sms_region.stepped(right);
++            if let Some(root) = &self.root {
++                self.sms_region.save(root, &self.card_writes);
++            }
++            return;
++        }
+         if row == QuickRow::Palette {
+             let to = match right {
+                 true => self.state.gb_palette.next(),
+@@ -2374,7 +2386,8 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+-            | QuickRow::Ps1PalSpeed => return,
++            | QuickRow::Ps1PalSpeed
++            | QuickRow::SmsRegion => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index e62c847..3ad74b5 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -124,6 +124,7 @@ fn open_named(
+                     colour,
+                     palette,
+                 );
++                crate::sms_region::apply(&mut opened, root, platform);
+                 if let Some(player) = link {
+                     apply_link_options(&mut opened, core, player);
+                 }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 77ec568..f925c14 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -47,6 +47,7 @@ pub mod rewind;
+ pub mod root;
+ pub mod session;
+ pub mod shelf_restock;
++pub mod sms_region;
+ pub mod snes_input;
+ pub mod state_writer;
+ pub mod thumb;
+diff --git a/crates/slot/src/sms_region.rs b/crates/slot/src/sms_region.rs
+new file mode 100644
+index 0000000..b3c716b
+--- /dev/null
++++ b/crates/slot/src/sms_region.rs
+@@ -0,0 +1,95 @@
++use std::path::Path;
++
++use slot_retro::LibretroCore;
++use slot_store::{ini, Platform};
++use slot_ui::QuickValue;
++
++use crate::card_log::CardWrites;
++
++pub const REGION_FILE: &str = "Config/region.txt";
++
++const KEY: &str = "sms";
++
++const OPTION: &str = "genesis_plus_gx_region_detect";
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum Region {
++    #[default]
++    Auto,
++    Japan,
++    Usa,
++    Europe,
++}
++
++impl Region {
++    pub const ALL: [Region; 4] = [Region::Auto, Region::Japan, Region::Usa, Region::Europe];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Region::Auto => "auto",
++            Region::Japan => "japan",
++            Region::Usa => "usa",
++            Region::Europe => "europe",
++        }
++    }
++
++    pub fn core_value(self) -> &'static str {
++        match self {
++            Region::Auto => "auto",
++            Region::Japan => "ntsc-j",
++            Region::Usa => "ntsc-u",
++            Region::Europe => "pal",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            Region::Auto => QuickValue::Auto,
++            Region::Japan => QuickValue::Japan,
++            Region::Usa => QuickValue::Usa,
++            Region::Europe => QuickValue::Europe,
++        }
++    }
++
++    pub fn stepped(self, right: bool) -> Region {
++        let n = Region::ALL.len();
++        let at = Region::ALL.iter().position(|r| *r == self).unwrap_or(0);
++        let next = if right {
++            (at + 1) % n
++        } else {
++            (at + n - 1) % n
++        };
++        Region::ALL.get(next).copied().unwrap_or(self)
++    }
++
++    pub fn read(root: &Path) -> Region {
++        let Some(line) = ini::value(root, REGION_FILE, KEY) else {
++            return Region::Auto;
++        };
++        Region::ALL
++            .into_iter()
++            .find(|r| r.as_str() == line)
++            .unwrap_or_else(|| {
++                eprintln!("slot: region.txt: ignoring {KEY}={line}");
++                Region::Auto
++            })
++    }
++
++    pub fn save(self, root: &Path, writes: &CardWrites) {
++        let written = ini::write(root, REGION_FILE, KEY, self.as_str());
++        if let Err(e) = &written {
++            eprintln!("slot: core: could not write region.txt: {e}");
++        }
++        writes.wrote("region.txt", &written);
++    }
++}
++
++pub fn apply(core: &mut LibretroCore, root: &Path, platform: Platform) {
++    if platform != Platform::Sms {
++        return;
++    }
++    let region = Region::read(root);
++    if region != Region::Auto {
++        core.set_option(OPTION, region.core_value());
++    }
++}
+diff --git a/crates/slot/tests/pal_speed.rs b/crates/slot/tests/pal_speed.rs
+index a4166da..1dc7c97 100644
+--- a/crates/slot/tests/pal_speed.rs
++++ b/crates/slot/tests/pal_speed.rs
+@@ -50,7 +50,7 @@ fn every_paced_system_shows_a_pal_speed_row_set_to_native() {
+     let (_root, app) = every_system();
+     for (row, platform) in PAL_SPEED_ROWS {
+         assert_eq!(row.label(), "PAL Speed");
+-        assert_eq!(row.page().last(), Some(&row), "{platform:?}");
++        assert_eq!(row.page().get(2), Some(&row), "{platform:?}");
+         assert_eq!(app.quick_value(row), Some(QuickValue::Native), "{row:?}");
+         assert!(app.native_pal(platform), "{platform:?}");
+     }
+diff --git a/crates/slot/tests/sms_region.rs b/crates/slot/tests/sms_region.rs
+new file mode 100644
+index 0000000..52a8687
+--- /dev/null
++++ b/crates/slot/tests/sms_region.rs
+@@ -0,0 +1,189 @@
++mod common;
++mod core_common;
++mod sega_common;
++
++use std::path::{Path, PathBuf};
++
++use common::{boot, core_lock, tmp_root_with_real_carts};
++use sega_common::{gg_rom, md_rom, sms_rom};
++use slot::app::App;
++use slot::core::open_core_for_palette;
++use slot::sms_region::REGION_FILE;
++use slot_input::{Action, Btn};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use slot_ui::{QuickRow, QuickValue};
++
++fn fps_of(platform: Platform, rom: PathBuf, region: Option<&str>) -> Option<f64> {
++    let dylib = sega_common::genesis_plus_gx()?;
++    let d = tmp_root_with_real_carts(&[]);
++    if let Some(line) = region {
++        std::fs::write(d.path().join(REGION_FILE), line).expect("write region.txt");
++    }
++    let mut core = open_core_for_palette(
++        d.path(),
++        Core::GenesisPlusGx,
++        platform,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    core.load(&rom).expect("Genesis Plus GX refused the cart");
++    core.run_frame(ButtonMask::default());
++    Some(core.av_info().fps)
++}
++
++fn write_cart(root: &Path, platform: Platform) {
++    let dir = root.join("Games").join(platform.dir_name());
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let cart = dir.join(format!("Sonic.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x8000]).expect("write cart");
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++#[test]
++fn an_sms_cart_the_core_does_not_know_runs_at_ntsc_rate_on_auto() {
++    let _g = core_lock();
++    let Some(fps) = fps_of(Platform::Sms, sms_rom("region_auto.sms"), None) else {
++        return;
++    };
++    assert!((fps - 59.92).abs() < 0.05, "{fps}");
++}
++
++#[test]
++fn the_same_sms_cart_runs_at_pal_rate_with_region_europe() {
++    let _g = core_lock();
++    let Some(fps) = fps_of(
++        Platform::Sms,
++        sms_rom("region_europe.sms"),
++        Some("sms = europe\n"),
++    ) else {
++        return;
++    };
++    assert!((fps - 49.70).abs() < 0.05, "{fps}");
++}
++
++#[test]
++fn region_usa_keeps_an_sms_cart_at_ntsc_rate() {
++    let _g = core_lock();
++    let Some(fps) = fps_of(
++        Platform::Sms,
++        sms_rom("region_usa.sms"),
++        Some("sms = usa\n"),
++    ) else {
++        return;
++    };
++    assert!((fps - 59.92).abs() < 0.05, "{fps}");
++}
++
++#[test]
++fn region_europe_leaves_a_mega_drive_cart_at_its_own_rate() {
++    let _g = core_lock();
++    let Some(fps) = fps_of(
++        Platform::Md,
++        md_rom("region_md.md", true, false),
++        Some("sms = europe\n"),
++    ) else {
++        return;
++    };
++    assert!((fps - 59.92).abs() < 0.05, "{fps}");
++}
++
++#[test]
++fn region_europe_leaves_a_game_gear_cart_at_60() {
++    let _g = core_lock();
++    let Some(fps) = fps_of(Platform::Gg, gg_rom("region_gg.gg"), Some("sms = europe\n")) else {
++        return;
++    };
++    assert!((fps - 59.92).abs() < 0.05, "{fps}");
++}
++
++#[test]
++fn only_the_master_system_section_has_a_region_row_and_it_starts_on_auto() {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    write_cart(root.path(), Platform::Sms);
++    let app = boot(root.path());
++    assert_eq!(QuickRow::SmsRegion.label(), "Region");
++    assert_eq!(QuickRow::SCREEN_SMS.last(), Some(&QuickRow::SmsRegion));
++    assert_eq!(QuickRow::SmsRegion.parent(), Some(QuickRow::ScreenSms));
++    for page in [
++        &QuickRow::SCREEN_NES[..],
++        &QuickRow::SCREEN_SNES[..],
++        &QuickRow::SCREEN_GG[..],
++        &QuickRow::SCREEN_MD[..],
++        &QuickRow::SCREEN_PS1[..],
++    ] {
++        assert!(!page.contains(&QuickRow::SmsRegion), "{page:?}");
++    }
++    assert_eq!(app.quick_value(QuickRow::SmsRegion), Some(QuickValue::Auto));
++}
++
++#[test]
++fn stepping_the_region_row_walks_auto_japan_usa_europe_and_saves_it() {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    write_cart(root.path(), Platform::Sms);
++    let mut app = boot(root.path());
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(&mut app, Btn::Down);
++    }
++    press(&mut app, Btn::A);
++    for _ in 0..QuickRow::ScreenSms.position(app.hidden_rows()) {
++        press(&mut app, Btn::Down);
++    }
++    press(&mut app, Btn::A);
++    for _ in 0..3 {
++        press(&mut app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::SmsRegion));
++    for want in [QuickValue::Japan, QuickValue::Usa, QuickValue::Europe] {
++        press(&mut app, Btn::Right);
++        assert_eq!(app.quick_value(QuickRow::SmsRegion), Some(want));
++    }
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(REGION_FILE)).ok(),
++        Some("sms = europe\n".to_owned())
++    );
++    press(&mut app, Btn::Right);
++    assert_eq!(app.quick_value(QuickRow::SmsRegion), Some(QuickValue::Auto));
++    drop(app);
++    assert_eq!(
++        boot(root.path()).quick_value(QuickRow::SmsRegion),
++        Some(QuickValue::Auto)
++    );
++}
++
++#[test]
++fn an_unknown_region_line_reads_as_auto() {
++    let d = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir(d.path().join("Config")).expect("config dir");
++    std::fs::write(d.path().join(REGION_FILE), "sms = brazil\n").expect("write region.txt");
++    assert_eq!(
++        boot(d.path()).quick_value(QuickRow::SmsRegion),
++        Some(QuickValue::Auto)
++    );
++}
++
++#[test]
++fn a_mega_drive_cart_after_a_europe_sms_session_is_back_on_auto() {
++    let _g = core_lock();
++    let Some(sms) = fps_of(
++        Platform::Sms,
++        sms_rom("region_first.sms"),
++        Some("sms = europe\n"),
++    ) else {
++        return;
++    };
++    let md = fps_of(
++        Platform::Md,
++        md_rom("region_after.md", true, false),
++        Some("sms = europe\n"),
++    );
++    assert!((sms - 49.70).abs() < 0.05, "{sms}");
++    assert!(md.is_some_and(|fps| (fps - 59.92).abs() < 0.05), "{md:?}");
++}

@@ -92,3 +92,4 @@ the patch set looks the way it does.
 | [0073](0073-keep-faces-and-selection-across-a-restock.md) | Drop stale cart faces, keep faces and selection across a restock, prefer the selected cart | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
 | [0074](0074-switcher-up-down.md) | Move through the save state switcher with Up and Down too | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
 | [0075](0075-carry-upstream-backlight-floor.md) | Carry upstream 3b6349c, a backlight floor of 8/255, until the 1.8.0 rebase | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
+| [0076](0076-master-system-region-row.md) | Give the Master System Screen section a Region row mapped to Genesis Plus GX's region option | Accepted. Amends 0061 | 2026-10-18 |
