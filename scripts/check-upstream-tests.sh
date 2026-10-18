@@ -118,9 +118,9 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
 			[ "$(grep -cE '^            "CPU",$' "$ours/$f")" -le 1 ] &&
 			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?(\])$/$1$4/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$/$1/' "$ours/$f" |
-			perl -0pe 's/(\n            "Lid Power Off",\n)            "CPU",\n(            "Date & Time"\n)/$1$2/' >"$tmp/x" &&
+			perl -0pe 's/(\n            "Game Titles",\n)            "CPU",\n(            "Lid Power Off",\n)/$1$2/' >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems and PlayStation after Game Boy in the Screen labels and the rows that open pages, CPU before Date & Time in the General labels)"
+			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems and PlayStation after Game Boy in the Screen labels and the rows that open pages, CPU before Lid Power Off in the General labels)"
 		else
 			fail "$f differs beyond the NES, SNES, Sega and PlayStation tokens in the Screen labels and the rows that open pages, and the CPU line in the General labels"
 		fi
