@@ -1,0 +1,422 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 09:53:30 +0400
+Subject: [PATCH] logo-label
+
+A slot-ui example that draws a Logo Only label (a game's logo on a
+generated two-stop ground) at the label size slot draws for the
+system, for tools/fetch-labels.py --logo-fallback. The style is Cart
+Studio's, as ported by cloudwithax/unslot (scraped.rs, 0b0f3a3),
+without its box-art cover or box-art hue: the hue is the one slot
+gives the game's generated text label. Nothing in slot's runtime
+changes; the shelf shows the PNG like any other label.
+---
+ crates/slot-ui/examples/logo_label.rs | 399 ++++++++++++++++++++++++++
+ 1 file changed, 399 insertions(+)
+ create mode 100644 crates/slot-ui/examples/logo_label.rs
+
+diff --git a/crates/slot-ui/examples/logo_label.rs b/crates/slot-ui/examples/logo_label.rs
+new file mode 100644
+index 0000000..eb973e9
+--- /dev/null
++++ b/crates/slot-ui/examples/logo_label.rs
+@@ -0,0 +1,399 @@
++//! A Logo Only label for a game with no label scan: its logo on a two-stop gradient, at the label
++//! size slot draws for that system, written as a PNG for `tools/fetch-labels.py --logo-fallback`.
++//!
++//!     cargo run --release -p slot-ui --example logo_label -- NES "<stem>" logo.png out.png
++//!
++//! The style is Cart Studio's "Logo Only" (github.com/BrandonKowalski/slot-cart-studio,
++//! GPL-3.0-or-later), as ported to Rust by cloudwithax/unslot in `slot-ui/src/scraped.rs`
++//! (https://github.com/cloudwithax/unslot/commit/0b0f3a307da447d8d048425ab8e70a9fc4aeab43):
++//! its gradient, the brightness split that decides a deep or pale ground, the olive-to-amber
++//! rule and the logo's box. The box-art cover and box-art hue are left out (ADR 0014): the hue is
++//! the one slot gives the game's generated text label (`label_colour`).
++
++use std::path::PathBuf;
++
++use resvg::tiny_skia::{FilterQuality, IntSize, Pixmap, PixmapPaint, Transform};
++use slot_store::{Cart, Platform};
++use slot_ui::{clean_label, label_colour, label_size};
++
++/// The logo's box, as fractions of the label, so a label of any shape places it alike.
++const BOX_W_OF: f32 = 920.0 / 1280.0;
++const BOX_H_OF: f32 = 423.0 / 640.0;
++/// Where a logo that fills the box's height starts; a wider one centres on `MID_ROW_OF`.
++const TALL_TOP_OF: f32 = 70.0 / 640.0;
++const MID_ROW_OF: f32 = 320.0 / 640.0;
++/// Bounds ignore the faint fringe some rips carry round a logo.
++const ALPHA_EDGE: u8 = 16;
++/// How bright a logo is before the ground goes deep under it rather than pale.
++const BRIGHT: f32 = 110.0;
++/// Yellow has no deep form: taken dark it reads as olive, so a deep yellow turns to amber.
++const OLIVE_LO: u16 = 45;
++const OLIVE_HI: u16 = 75;
++const AMBER: f32 = 38.0;
++
++const PLATFORMS: [Platform; 9] = [
++    Platform::Gba,
++    Platform::Gb,
++    Platform::Gbc,
++    Platform::Nes,
++    Platform::Snes,
++    Platform::Gg,
++    Platform::Sms,
++    Platform::Md,
++    Platform::Ps1,
++];
++
++fn main() {
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    let [system, stem, logo, out] = a.as_slice() else {
++        eprintln!("usage: logo_label <SYSTEM> <stem> <logo.png> <out.png>");
++        std::process::exit(2);
++    };
++    let Some(platform) = PLATFORMS.into_iter().find(|p| p.dir_name() == system) else {
++        eprintln!("logo_label: unknown system {system}");
++        std::process::exit(2);
++    };
++    let bytes = std::fs::read(logo).expect("read the logo");
++    let Some(png) = logo_label(platform, stem, &bytes) else {
++        eprintln!("logo_label: {logo} is not a PNG with anything visible in it");
++        std::process::exit(1);
++    };
++    std::fs::write(out, png).expect("write the label");
++}
++
++/// The label PNG for `stem` on `platform`, or None when the logo is not a PNG or is all clear.
++fn logo_label(platform: Platform, stem: &str, logo: &[u8]) -> Option<Vec<u8>> {
++    let cart = Cart {
++        platform,
++        stem: stem.to_string(),
++        rom: PathBuf::new(),
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    };
++    let (w, h) = label_size(&cart);
++    let (px, lw, lh) = decode(logo)?;
++    trim(&px, lw, lh)?;
++    let (deep, pale) = stops(hue_of(label_colour(&clean_label(stem))), luma(&px));
++    encode(&compose(&px, lw, lh, w, h, deep, pale), w, h)
++}
++
++/// Any PNG as straight RGBA 8-bit.
++fn decode(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
++    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
++    dec.set_transformations(png::Transformations::normalize_to_color8());
++    let mut reader = dec.read_info().ok()?;
++    let mut buf = vec![0; reader.output_buffer_size()];
++    let info = reader.next_frame(&mut buf).ok()?;
++    buf.truncate(info.buffer_size());
++    let rgba = match info.color_type {
++        png::ColorType::Rgba => buf,
++        png::ColorType::Rgb => buf
++            .chunks_exact(3)
++            .flat_map(|p| [p[0], p[1], p[2], 255])
++            .collect(),
++        png::ColorType::GrayscaleAlpha => buf
++            .chunks_exact(2)
++            .flat_map(|p| [p[0], p[0], p[0], p[1]])
++            .collect(),
++        png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
++        png::ColorType::Indexed => return None,
++    };
++    Some((rgba, info.width, info.height))
++}
++
++/// The ground's two corners for a hue, given how bright the logo landing on it is.
++fn stops(hue: u16, logo_luma: f32) -> ([u8; 3], [u8; 3]) {
++    let h = hue as f32;
++    if logo_luma < BRIGHT {
++        (hsl_to_rgb(h, 0.55, 0.62), hsl_to_rgb(h, 0.50, 0.84))
++    } else {
++        let h = if (OLIVE_LO..=OLIVE_HI).contains(&hue) {
++            AMBER
++        } else {
++            h
++        };
++        (hsl_to_rgb(h, 0.65, 0.24), hsl_to_rgb(h, 0.60, 0.46))
++    }
++}
++
++/// Opaque RGBA between two corners, leaning on x so it reads as diagonal on a wide label.
++fn gradient(lw: u32, lh: u32, deep: [u8; 3], pale: [u8; 3]) -> Vec<u8> {
++    let mut px = Vec::with_capacity((lw * lh * 4) as usize);
++    for y in 0..lh {
++        for x in 0..lw {
++            let t = 0.88 * x as f32 / lw as f32 + 0.12 * y as f32 / lh as f32;
++            for c in 0..3 {
++                px.push((deep[c] as f32 + (pale[c] as f32 - deep[c] as f32) * t).round() as u8);
++            }
++            px.push(255);
++        }
++    }
++    px
++}
++
++/// The visible part of a logo as `(x0, y0, x1, y1)`, far edges exclusive.
++fn trim(rgba: &[u8], w: u32, h: u32) -> Option<(u32, u32, u32, u32)> {
++    let mut bounds: Option<(u32, u32, u32, u32)> = None;
++    for y in 0..h {
++        for x in 0..w {
++            if rgba[((y * w + x) * 4 + 3) as usize] < ALPHA_EDGE {
++                continue;
++            }
++            bounds = Some(match bounds {
++                None => (x, y, x + 1, y + 1),
++                Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1)),
++            });
++        }
++    }
++    bounds
++}
++
++/// Scale and top left for a trimmed logo `w` by `h`: one factor that fits the label's box,
++/// centred across.
++fn placement(lw: u32, lh: u32, w: u32, h: u32) -> (f32, f32, f32) {
++    let by_w = BOX_W_OF * lw as f32 / w as f32;
++    let by_h = BOX_H_OF * lh as f32 / h as f32;
++    let scale = by_w.min(by_h);
++    let x = (lw as f32 - w as f32 * scale) / 2.0;
++    let y = if by_h <= by_w {
++        TALL_TOP_OF * lh as f32
++    } else {
++        MID_ROW_OF * lh as f32 - h as f32 * scale / 2.0
++    };
++    (scale, x, y)
++}
++
++/// The logo (`w` by `h`) over the gradient, as opaque RGBA `lw` by `lh`.
++fn compose(logo: &[u8], w: u32, h: u32, lw: u32, lh: u32, deep: [u8; 3], pale: [u8; 3]) -> Vec<u8> {
++    let ground = gradient(lw, lh, deep, pale);
++    let Some((x0, y0, x1, y1)) = trim(logo, w, h) else {
++        return ground;
++    };
++    let (tw, th) = (x1 - x0, y1 - y0);
++    let mut cut = Vec::with_capacity((tw * th * 4) as usize);
++    for y in y0..y1 {
++        for x in x0..x1 {
++            let i = ((y * w + x) * 4) as usize;
++            let a = logo[i + 3] as u32;
++            for c in 0..3 {
++                cut.push(((logo[i + c] as u32 * a + 127) / 255) as u8);
++            }
++            cut.push(a as u8);
++        }
++    }
++    let Some(src) = IntSize::from_wh(tw, th).and_then(|s| Pixmap::from_vec(cut, s)) else {
++        return ground;
++    };
++    let Some(mut dst) = IntSize::from_wh(lw, lh).and_then(|s| Pixmap::from_vec(ground.clone(), s))
++    else {
++        return ground;
++    };
++    let (scale, x, y) = placement(lw, lh, tw, th);
++    let paint = PixmapPaint {
++        quality: FilterQuality::Bicubic,
++        ..PixmapPaint::default()
++    };
++    dst.draw_pixmap(
++        0,
++        0,
++        src.as_ref(),
++        &paint,
++        Transform::from_row(scale, 0.0, 0.0, scale, x, y),
++        None,
++    );
++    // The ground is opaque everywhere, so premultiplied and straight are the same bytes.
++    dst.take()
++}
++
++/// Mean luminance of a logo's opaque pixels, which decides whether its ground goes deep or pale.
++fn luma(px: &[u8]) -> f32 {
++    let (mut sum, mut n) = (0.0, 0usize);
++    for p in px.chunks_exact(4) {
++        if p[3] < 200 {
++            continue;
++        }
++        sum += 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
++        n += 1;
++    }
++    if n == 0 {
++        255.0
++    } else {
++        sum / n as f32
++    }
++}
++
++fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [u8; 3] {
++    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
++    let sector = h.rem_euclid(360.0) / 60.0;
++    let x = c * (1.0 - (sector % 2.0 - 1.0).abs());
++    let (r, g, b) = match sector as u32 {
++        0 => (c, x, 0.0),
++        1 => (x, c, 0.0),
++        2 => (0.0, c, x),
++        3 => (0.0, x, c),
++        4 => (x, 0.0, c),
++        _ => (c, 0.0, x),
++    };
++    let m = l - c / 2.0;
++    [r, g, b].map(|v| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8)
++}
++
++/// The hue of a colour in degrees.
++fn hue_of([r, g, b]: [u8; 3]) -> u16 {
++    let (r, g, b) = (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
++    let max = r.max(g).max(b);
++    let d = max - r.min(g).min(b);
++    let hue = if d == 0.0 {
++        0.0
++    } else if max == r {
++        60.0 * ((g - b) / d).rem_euclid(6.0)
++    } else if max == g {
++        60.0 * ((b - r) / d + 2.0)
++    } else {
++        60.0 * ((r - g) / d + 4.0)
++    };
++    hue as u16
++}
++
++fn encode(rgba: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
++    let mut out = Vec::new();
++    {
++        let mut enc = png::Encoder::new(&mut out, w, h);
++        enc.set_color(png::ColorType::Rgba);
++        enc.set_depth(png::BitDepth::Eight);
++        enc.write_header().ok()?.write_image_data(rgba).ok()?;
++    }
++    Some(out)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn png(w: u32, h: u32, px: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
++        let data: Vec<u8> = (0..h)
++            .flat_map(|y| (0..w).map(move |x| (x, y)))
++            .flat_map(|(x, y)| px(x, y))
++            .collect();
++        encode(&data, w, h).unwrap()
++    }
++
++    fn size(platform: Platform, stem: &str) -> (u32, u32) {
++        label_size(&Cart {
++            platform,
++            stem: stem.to_string(),
++            rom: PathBuf::new(),
++            label: None,
++            title: String::new(),
++            code: String::new(),
++            shell: None,
++        })
++    }
++
++    /// A white bar on a clear field, so its ground goes deep.
++    fn white_bar() -> Vec<u8> {
++        png(60, 20, |x, y| match (x, y) {
++            (10..=49, 5..=14) => [255, 255, 255, 255],
++            _ => [0, 0, 0, 0],
++        })
++    }
++
++    #[test]
++    fn the_label_is_slots_label_size_for_each_system() {
++        for p in PLATFORMS {
++            let stem = "Some Game (U)";
++            let (px, w, h) = decode(&logo_label(p, stem, &white_bar()).unwrap()).unwrap();
++            assert_eq!((w, h), size(p, stem), "{p:?}");
++            assert_eq!(px.len(), (w * h * 4) as usize);
++            assert!(
++                px.chunks_exact(4).all(|q| q[3] == 255),
++                "{p:?}: the label is not opaque"
++            );
++        }
++        // A Famicom name gets the Famicom label, as slot reads it from the stem.
++        assert_eq!(
++            decode(&logo_label(Platform::Nes, "Gun.Smoke (J)", &white_bar()).unwrap())
++                .map(|d| (d.1, d.2)),
++            Some(size(Platform::Nes, "Gun.Smoke (J)"))
++        );
++    }
++
++    #[test]
++    fn the_ground_takes_the_hue_slot_gives_the_text_label() {
++        let stem = "Some Game (U)";
++        let (px, w, h) = decode(&logo_label(Platform::Snes, stem, &white_bar()).unwrap()).unwrap();
++        let want = stops(hue_of(label_colour(&clean_label(stem))), 255.0);
++        assert_eq!(&px[..3], &want.0, "top left is the deep stop");
++        let last = px.len() - 4;
++        assert_eq!(
++            px[last..],
++            gradient(w, h, want.0, want.1)[last..],
++            "bottom right"
++        );
++        assert!(
++            px[last..last + 3].iter().zip(want.0).all(|(a, b)| *a > b),
++            "it fades towards pale"
++        );
++        assert!(
++            want.0.iter().all(|&c| c < 120),
++            "a white logo got a pale ground"
++        );
++    }
++
++    #[test]
++    fn the_logo_sits_in_the_safe_box_and_nothing_outside_it_changes() {
++        for p in PLATFORMS {
++            let stem = "Some Game (U)";
++            let (w, h) = size(p, stem);
++            let (px, ..) = decode(&logo_label(p, stem, &white_bar()).unwrap()).unwrap();
++            let (deep, pale) = stops(hue_of(label_colour(&clean_label(stem))), 255.0);
++            let ground = gradient(w, h, deep, pale);
++            // Across: the box. Down: from the box's top to as far below the middle row (a wide
++            // logo centres on that row).
++            let bw = BOX_W_OF * w as f32;
++            let (bx, by) = ((w as f32 - bw) / 2.0, TALL_TOP_OF * h as f32);
++            let bh = (2.0 * MID_ROW_OF - 2.0 * TALL_TOP_OF) * h as f32;
++            let mut inked = 0;
++            for y in 0..h {
++                for x in 0..w {
++                    let i = ((y * w + x) * 4) as usize;
++                    if px[i..i + 4] == ground[i..i + 4] {
++                        continue;
++                    }
++                    inked += 1;
++                    let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
++                    assert!(
++                        fx > bx - 1.0 && fx < bx + bw + 1.0 && fy > by - 1.0 && fy < by + bh + 1.0,
++                        "{p:?}: logo ink at {x},{y} is outside the box"
++                    );
++                }
++            }
++            assert!(inked > 0, "{p:?}: no logo drawn");
++            let mid = (((h / 2) * w + w / 2) * 4) as usize;
++            assert_eq!(
++                &px[mid..mid + 3],
++                &[255, 255, 255],
++                "{p:?}: the logo is not centred"
++            );
++        }
++    }
++
++    #[test]
++    fn grey_and_rgb_logos_decode_and_a_clear_one_is_no_label() {
++        let mut gray = Vec::new();
++        {
++            let mut enc = png::Encoder::new(&mut gray, 4, 2);
++            enc.set_color(png::ColorType::Grayscale);
++            enc.write_header()
++                .unwrap()
++                .write_image_data(&[0; 8])
++                .unwrap();
++        }
++        assert!(logo_label(Platform::Md, "Dark (U)", &gray).is_some());
++        let clear = png(8, 8, |_, _| [0, 0, 0, 0]);
++        assert!(logo_label(Platform::Md, "Clear (U)", &clear).is_none());
++        assert!(logo_label(Platform::Md, "Junk (U)", b"not a png").is_none());
++    }
++}

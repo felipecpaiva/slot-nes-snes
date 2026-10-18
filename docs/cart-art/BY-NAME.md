@@ -45,8 +45,38 @@ candidate (`ss:<id>` and its name, or `sibling:<stem>`) and why it was not taken
 columns are the `--aliases` format: keep the good rows and pass the file back. Homebrew, PD, test carts,
 BIOS and cheat devices are expected to stay without art.
 
+## Logo Only fallback (`--logo-fallback`)
+
+ADR 0014's last resort: a ROM still without a label after every pass above (`no confident match`, `matched
+by name, no art`, `not searched by name`) gets its logo on a generated ground, Cart Studio's Logo Only style
+as ported by cloudwithax/unslot (`scraped.rs`,
+[0b0f3a3](https://github.com/cloudwithax/unslot/commit/0b0f3a307da447d8d048425ab8e70a9fc4aeab43)). Opt in,
+and only with `--by-name`.
+
+- **Logo.** libretro-thumbnails `Named_Logos` for the system (listed at `thumbnails.libretro.com`; there are
+  none for GBC, GG and PS1), matched by `title_key` like a sibling: the same key (libretro writes `&` as
+  `_`, so both readings are keyed), the best region, and for a cut name the one title starting with it,
+  none when several do. Else the ScreenScraper `wheel` of the game the name pass (or an `ss:` alias) found.
+  A hack (`[h..]` or "hack" in the name) never takes its parent's logo by itself: a `sibling:<stem>` alias
+  names the title to look up, an `ss:<id>` alias the game. Translations, bad dumps and the like do.
+- **Label.** The slot-ui example `logo_label` (patch `0049-logo-label`) draws it at the size slot draws
+  that system's label (`label_size`, so NES or Famicom, SNES or SFC by the name), the ground's hue being the
+  one slot gives the game's text label. Build it once with `task labels:logo-tool`
+  (`build/slot/target/release/examples/logo_label`; `SLOT_LOGO_LABEL` overrides the path).
+- **Report.** Outcome `logo fallback`, source `libretro:<name>` or `ss:<id> wheel`, media `logo`, in place
+  of the bare outcome. The index and the PNGs are cached under `logos/` (wheels under `ss/<SYSTEM>/name/wheel`).
+  A dry run matches and reports, and downloads, renders and writes no logo. A ROM `not searched` because of
+  the quota, a stop or `--limit` gets no logo, so a later run still searches it by name.
+- **A logo label is a label.** Later runs skip the stem, and a same-title ROM copies it as a sibling. To
+  replace it with real art found later, delete the PNG or rerun with `--force`.
+
+On the maintainer's 349 bare games (2026-10-18) the libretro match alone covers 19 (GBA 6, NES 7, MD 3,
+SNES 2, SMS 1); 37 hacks are left to aliases. The rest are mostly hacks, homebrew and translations with no
+logo anywhere, plus whatever ScreenScraper wheels the name pass reaches.
+
 ```sh
 task labels:fetch -- --device --library ~/ROMS --by-name --dry-run --report by-name-dry.tsv
 task labels:fetch -- --device --library ~/ROMS --by-name --report by-name.tsv --suggest suggest.tsv
 task labels:fetch -- --device --library ~/ROMS --by-name --aliases approved.tsv --report by-name-aliases.tsv
+task labels:logo-tool && task labels:fetch -- --device --library ~/ROMS --by-name --logo-fallback --report logo.tsv
 ```

@@ -30,7 +30,7 @@ the patch set looks the way it does.
 | [0011](0011-one-token-in-two-test-files.md) | Add one token each to two upstream test files | Accepted | 2026-10-12 |
 | [0012](0012-durability-value-pce.md) | Change durability.rs's unknown platform example from nes to pce | Accepted | 2026-10-12 |
 | [0013](0013-five-named-test-sites.md) | Allow upstream test edits only at named sites checked by the guard | Amended by 0044, 0048 and 0055 | 2026-10-12 |
-| [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted. Amended by 0057 and 0069 | 2026-10-12 |
+| [0014](0014-real-label-art.md) | Show real cartridge label art on carts, never a screenshot | Accepted. Amended by 0057 and 0069; Logo Only fallback implemented 2026-10-18 | 2026-10-12 |
 | [0015](0015-hostextra-canvas-only.md) | Start HostExtra with only the canvas field | Accepted | 2026-10-12 |
 | [0016](0016-set-game-canvas-every-frame.md) | Call set_game_canvas every frame and return early when unchanged | Accepted | 2026-10-12 |
 | [0017](0017-thumb-sized-new-file.md) | Put thumb::png_sized in a new file | Accepted | 2026-10-12 |
