@@ -24,7 +24,8 @@ cache dir so a later check can say "page changed".
 the GitHub release asset matching the entry's asset pattern, or from ~/ROMHacks/incoming/<id>/ (the newest
 .bps .ips .ups, ROM, or a .zip holding exactly one of them). Nothing downloaded is ever executed. A patch is
 applied in pure Python to the clean base ROM found in --library by CRC32 (BPS and UPS check the source,
-target and patch CRCs; IPS has none, so the entry's target_crc32 is checked when known, else a warning).
+target and patch CRCs; xdelta checks each window's Adler-32; IPS has none, so the entry's target_crc32 is
+checked when known, else a warning).
 Any mismatch refuses. Then, on the card (ADR 0082):
   - refuses while Config/slot.state has the game seated (cart= and cart_platform=): eject it first;
   - Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/ gets the old ROM (moved), the .sav/.srm (copied:
@@ -66,12 +67,14 @@ fl.UA = "slot-nes-snes-hacks/1.0 (+https://github.com/felipecpaiva/slot-nes-snes
 
 SEED = os.path.join(HERE, "hacks.json")
 GITHUB = "https://api.github.com/repos/"
-PATCH_EXTS = (".bps", ".ips", ".ups")
+PATCH_EXTS = (".bps", ".ips", ".ups", ".xdelta", ".vcdiff")
 SOURCE = re.compile(r"github:[\w.-]+/[\w.-]+|page:https?://\S+|manual(:https?://\S+)?|")
 FORMATS = {"bps", "ips", "ups", "xdelta", "rom", "unknown"}
 FIELDS = {"name", "system", "card", "source", "asset", "version_regex", "format", "base_name", "base_crc32",
-          "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes"}
+          "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes", "status"}
 HOUR = 3600
+CHALLENGE = re.compile(r"Anubis|Making sure you're not a bot|cf-chl|Just a moment\.\.\.", re.I)
+GITHUB_PAGE = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/?")
 RELEASES = 10  # how many GitHub releases --check tries when it must identify the installed version
 
 
@@ -280,6 +283,110 @@ def apply_ips(src, p):
     return bytes(out)
 
 
+def _code_table():
+    """RFC 3284 section 5.6, the default instruction code table: (type, size, mode) pairs per byte.
+    Types: 0 NOOP, 1 ADD, 2 RUN, 3 COPY."""
+    t = [((2, 0, 0), (0, 0, 0))] + [((1, n, 0), (0, 0, 0)) for n in range(18)]
+    for m in range(9):
+        t += [((3, n, m), (0, 0, 0)) for n in [0] + list(range(4, 19))]
+    for m in range(6):
+        t += [((1, a, 0), (3, c, m)) for a in range(1, 5) for c in range(4, 7)]
+    for m in range(6, 9):
+        t += [((1, a, 0), (3, 4, m)) for a in range(1, 5)]
+    t += [((3, 4, m), (1, 1, 0)) for m in range(9)]
+    return t
+
+
+CODE_TABLE = _code_table()
+
+
+def _vint(p, i):
+    """VCDIFF integer: big-endian base 128, the high bit set on every byte but the last."""
+    n = 0
+    while True:
+        b = p[i]
+        i += 1
+        n = n << 7 | b & 0x7f
+        if not b & 0x80:
+            return n, i
+
+
+def apply_vcdiff(src, p):
+    """xdelta3 / VCDIFF (RFC 3284) with the default code table and no secondary compression, which is
+    what Delta Patcher and xdelta3 write by default; xdelta's per-window Adler-32 is checked."""
+    try:
+        ind, i = p[4], 5
+        if ind & 3:
+            raise PatchError("xdelta patch uses secondary compression or a custom code table: not supported here")
+        if ind & 4:
+            n, i = _vint(p, i)
+            i += n
+        out = bytearray()
+        while i < len(p):
+            win, i = p[i], i + 1
+            seg = b""
+            if win & 3:
+                size, i = _vint(p, i)
+                pos, i = _vint(p, i)
+                seg = (src if win & 1 else out)[pos:pos + size]
+                if len(seg) != size:
+                    raise PatchError("xdelta window reads past its source")
+            _, i = _vint(p, i)
+            tlen, i = _vint(p, i)
+            if p[i]:
+                raise PatchError("xdelta window is compressed: not supported here")
+            dlen, i = _vint(p, i + 1)
+            ilen, i = _vint(p, i)
+            alen, i = _vint(p, i)
+            adler = None
+            if win & 4:
+                adler, i = int.from_bytes(p[i:i + 4], "big"), i + 4
+            data, inst, addr = p[i:i + dlen], p[i + dlen:i + dlen + ilen], p[i + dlen + ilen:i + dlen + ilen + alen]
+            i += dlen + ilen + alen
+            t, di, ii, ai, near, nxt, same = bytearray(), 0, 0, 0, [0] * 4, 0, [0] * 768
+            while ii < len(inst):
+                code, ii = inst[ii], ii + 1
+                for typ, size, mode in CODE_TABLE[code]:
+                    if not typ:
+                        continue
+                    if not size:
+                        size, ii = _vint(inst, ii)
+                    if typ == 1:
+                        t += data[di:di + size]
+                        di += size
+                    elif typ == 2:
+                        t += data[di:di + 1] * size
+                        di += 1
+                    else:
+                        here = len(seg) + len(t)
+                        if mode == 0:
+                            a, ai = _vint(addr, ai)
+                        elif mode == 1:
+                            a, ai = _vint(addr, ai)
+                            a = here - a
+                        elif mode < 6:
+                            a, ai = _vint(addr, ai)
+                            a += near[mode - 2]
+                        else:
+                            a, ai = same[(mode - 6) * 256 + addr[ai]], ai + 1
+                        near[nxt], nxt, same[a % 768] = a, (nxt + 1) % 4, a
+                        if a + size <= len(seg):
+                            t += seg[a:a + size]
+                        elif a >= len(seg) and a - len(seg) + size <= len(t):
+                            t += t[a - len(seg):a - len(seg) + size]
+                        else:
+                            for k in range(a, a + size):  # overlaps the bytes it writes: one at a time
+                                t.append(seg[k] if k < len(seg) else t[k - len(seg)])
+            if len(t) != tlen:
+                raise PatchError("xdelta window has the wrong length")
+            if adler is not None and zlib.adler32(bytes(t)) & 0xffffffff != adler:
+                raise PatchError("xdelta window checksum mismatch: wrong base ROM or a corrupt patch")
+            out += t
+    except IndexError:
+        raise PatchError("the xdelta patch is truncated") from None
+    return bytes(out)
+
+
 def apply_patch(src, p, target_crc=None, warn=print):
     """The patched ROM, or PatchError. The format is read from the patch's magic, not trusted from the name."""
     if p[:4] == b"BPS1":
@@ -290,9 +397,10 @@ def apply_patch(src, p, target_crc=None, warn=print):
         out = apply_ips(src, p)
         if not target_crc:
             warn("  warning: IPS has no checksums and the registry knows no target_crc32; the result is unverified")
-    elif p[:3] == b"\xd6\xc3\xc4":
-        raise PatchError("xdelta patch: no pure-Python path here. Patch it yourself (e.g. xdelta3 -d) and drop "
-                         "the ROM in the incoming folder")
+    elif p[:4] == b"\xd6\xc3\xc4\x00":
+        out = apply_vcdiff(src, p)
+        if not target_crc:
+            warn("  note: xdelta checks each window (Adler-32) but not the base; the base was found by CRC")
     else:
         raise PatchError("unknown patch format")
     if target_crc and crc_hex(out) != target_crc.upper():
@@ -580,6 +688,15 @@ def check_one(ctx, hid, h, installed):
             why = "the site refuses scripts, open the link" if status_code in (401, 403) else "error"
             return "?", f"{why} (HTTP {status_code})", rest
         text = body.decode("utf-8", "replace")
+        if CHALLENGE.search(text[:20000]):  # a bot check page differs on every fetch: its hash means nothing
+            return "?", "the site answers scripts with a bot check, open the link", rest
+        repo = GITHUB_PAGE.fullmatch(rest)
+        if repo and not h.get("version_regex"):  # GitHub's HTML changes per request: use the last push
+            try:
+                body = json.loads(fl.cached_text(ctx, f"github/{repo.group(1).replace('/', '__')}.repo.json",
+                                                 GITHUB + repo.group(1), HOUR)).get("pushed_at", "").encode()
+            except (fl.Fail, ValueError) as e:
+                return "?", f"error: {e}", rest
         if h.get("version_regex"):
             found = [m.group(1) if m.groups() else m.group(0) for m in re.finditer(h["version_regex"], text)]
             if found:  # a page may list every version: the highest one
@@ -588,8 +705,11 @@ def check_one(ctx, hid, h, installed):
                     return latest, "installed version unknown", rest
                 same = norm_version(latest) == norm_version(installed)
                 return latest, "up to date" if same else "UPDATE AVAILABLE", rest
+        if not repo:  # the visible text only: scripts, comments and markup carry per-request noise
+            body = " ".join(re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)\b.*?</\1>|<!--.*?-->", " ",
+                                                         text)).split()).encode()
         digest = hashlib.sha256(body).hexdigest()
-        p = os.path.join(ctx.cache, "pages", hid + ".json")
+        p = os.path.join(ctx.cache, "pages", f"{hid}-{zlib.crc32(rest.encode()) & 0xffffffff:08x}.json")
         seen = read_state(p)
         if not seen:
             write_state(p, {"sha256": digest, "date": time.strftime("%Y-%m-%d")})
@@ -814,18 +934,22 @@ def candidates(ctx, hid, h):
 
 
 def identify(ctx, hid, h, library, installed_crc):
-    """(version the installed ROM is, or None; version the newest payload builds, or None). Patches that
-    do not apply are skipped silently: they are other versions' or need a base the library lacks."""
+    """(version the installed ROM is, or None; version the newest payload builds, or None). A payload that
+    does not build is skipped; when none builds, Refuse says why (the first one's reason)."""
     found = newest = None
+    why = ""
     for version, name, data in candidates(ctx, hid, h):
         try:
             rom = build(h, library, name, data, say=lambda *_: None)
-        except (Refuse, zipfile.BadZipFile):
+        except (Refuse, zipfile.BadZipFile) as e:
+            why = why or f"{version}: {e}"
             continue
         newest = newest or version
         if crc_hex(rom) == installed_crc:
             found = version
             break
+    if newest is None and why:
+        raise Refuse(why)
     return found, newest
 
 

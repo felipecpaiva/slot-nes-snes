@@ -92,6 +92,34 @@ def ips(records, truncate=None):
     return out + b"EOF" + (truncate.to_bytes(3, "big") if truncate is not None else b"")
 
 
+def vint(n):
+    out = [n & 0x7f]
+    n >>= 7
+    while n:
+        out.append(0x80 | n & 0x7f)
+        n >>= 7
+    return bytes(reversed(out))
+
+
+def vcdiff(src, tgt, insts):
+    """One VCD_SOURCE window over all of src with an Adler-32, from (code, ...) instructions using the
+    default table's explicit-size codes: (19, size, address) COPY mode 0, (1, bytes) ADD, (0, size, byte) RUN."""
+    data, inst, addr = b"", b"", b""
+    for code, *a in insts:
+        if code == 19:
+            inst += bytes([19]) + vint(a[0])
+            addr += vint(a[1])
+        elif code == 1:
+            inst += bytes([1]) + vint(len(a[0]))
+            data += a[0]
+        else:
+            inst += bytes([0]) + vint(a[0])
+            data += a[1]
+    body = vint(len(tgt)) + b"\0" + vint(len(data)) + vint(len(inst)) + vint(len(addr)) + \
+        zlib.adler32(tgt).to_bytes(4, "big") + data + inst + addr
+    return b"\xd6\xc3\xc4\x00\x00" + bytes([1 | 4]) + vint(len(src)) + vint(0) + vint(len(body)) + body
+
+
 BASE = bytes(range(256)) * 64
 NEW = BASE[:100] + b"HACKED v2" + BASE[109:] + b"tail"
 
@@ -138,9 +166,18 @@ class Patches(unittest.TestCase):
         hk.apply_patch(BASE, p, None, warn=said.append)
         self.assertIn("unverified", said[0])
 
-    def test_xdelta_is_refused_with_advice(self):
-        with self.assertRaisesRegex(hk.PatchError, "xdelta"):
-            hk.apply_patch(BASE, b"\xd6\xc3\xc4\x00rest")
+    def test_xdelta_copy_add_run_and_an_overlapping_copy(self):
+        tgt = BASE[:100] + b"new!" + b"z" * 5 + b"ababab"
+        p = vcdiff(BASE, tgt, [(19, 100, 0), (1, b"new!"), (0, 5, b"z"), (1, b"ab"), (19, 4, len(BASE) + 109)])
+        self.assertEqual(hk.apply_patch(BASE, p, warn=lambda *_: None), tgt)
+        self.assertEqual(hk.apply_patch(BASE, p, hk.crc_hex(tgt)), tgt)
+
+    def test_xdelta_refuses_another_base_and_secondary_compression(self):
+        p = vcdiff(BASE, BASE[:50], [(19, 50, 0)])
+        with self.assertRaisesRegex(hk.PatchError, "checksum mismatch"):
+            hk.apply_patch(b"x" + BASE[1:], p, warn=lambda *_: None)
+        with self.assertRaisesRegex(hk.PatchError, "secondary compression"):
+            hk.apply_patch(BASE, p[:4] + b"\x01" + p[5:])
 
 
 class Base(unittest.TestCase):

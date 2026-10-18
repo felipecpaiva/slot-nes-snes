@@ -29,17 +29,27 @@ same thing with `-- <flags>`.
      otherwise the page's SHA-256 is compared with the first one seen (kept in the cache dir):
      `page baseline recorded`, `page unchanged since ...` or `page changed since ...: look`, with the link.
    - `manual`: just the link.
-   Nothing is written to the card, the library or the settings; only the cache dir.
+   With `--library`, a hack whose installed version is unknown (no version in the file name) is
+   identified by CRC32: the newest GitHub releases with a matching asset (up to 10, cached) are built
+   against the library's base and compared with the installed ROM's CRC (the library copy's, else the
+   card's). A match is recorded in `hacks-state.json` as the installed version; no match while the
+   latest builds reads `UPDATE AVAILABLE (installed version unknown)`, which `--all` takes. A patch
+   waiting in the incoming folder is built the same way: `UPDATE AVAILABLE (from incoming <version>)`,
+   or what is installed when the CRCs agree. Nothing is written to the card, the library or the
+   settings; only the cache dir and, for an identified version, the state file.
 2. **Get the patch.** A `github:` source downloads the one release asset that matches `asset` (cached
    under the cache dir by version). Any other source reads the newest file in
    `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips` or `.ups`, a ROM, or a `.zip` holding exactly one of
-   them (read in memory; a 7z or rar you extract yourself). Nothing downloaded is ever run.
-3. **Find the base ROM** in `--library` by the whole file's CRC32 (`base_crc32`): zip headers first,
-   then loose files. Missing: refused.
+   them (read in memory; a 7z or rar you extract yourself), with an optional `version.txt` naming its
+   version (else `--as-version`, else the version in the file name). Nothing downloaded is ever run.
+3. **Find the base ROM** in `--library` by the whole file's CRC32 (`base_crc32`, or when it is unknown
+   the source CRC a BPS or UPS carries in its footer): zip headers first, then loose files. Missing:
+   refused.
 4. **Patch in pure Python.** BPS and UPS check the base's CRC, the result's CRC and the patch's own
    CRC. IPS has no checksums, so the entry's `target_crc32` is checked when known, else a warning. A
-   pre-patched ROM is checked against `target_crc32` when known. Any mismatch: refused. xdelta has no
-   pure-Python path here: patch it yourself and drop the ROM in the incoming folder.
+   pre-patched ROM is checked against `target_crc32` when known. Any mismatch: refused. xdelta
+   (VCDIFF, as Delta Patcher and xdelta3 write it: default code table, no secondary compression) is
+   applied too, with xdelta's Adler-32 per window checked; it names no base, so `base_crc32` must be set.
 5. **Plan and confirm.** Every refusal (not on the card, seated, no base, CRC, already installed)
    happens before the first write. `--dry-run` prints the plan and stops; a real run prints it and asks.
 6. **Card.** Into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, at the same card paths:
@@ -101,6 +111,7 @@ entries with a blank source); it never overwrites an existing file.
 | `base_name`, `base_crc32` | No-Intro name and CRC32 of the clean ROM the patch applies to |
 | `target_crc32` | CRC32 of the patched ROM, when the author publishes it (the only check an IPS gets) |
 | `saves_carry_over` | `yes`, `no` or `unknown`, from the release notes |
+| `status` | `maintained`, `finished`, `dormant`, `dead` or `no primary source` (informational) |
 | `save_note`, `latest_known`, `home`, `cite`, `notes` | the research: what the notes say, the version seen, the home page, the source URLs |
 
 A full user file:
@@ -131,34 +142,36 @@ A full user file:
 
 Researched 2026-10-18; every entry cites its sources in `tools/hacks.json`. Unknown stays unknown.
 
-| id | system | latest seen | source | format | base | saves carry over |
-|---|---|---|---|---|---|---|
-| `pokemon-unbound` | GBA | 2.1.1.1 (2022-11-08) | `page` | bps | DD88761C | unknown |
-| `pokemon-radical-red` | GBA | 4.1 (2024-03-22) | `page` | unknown | DD88761C | yes |
-| `pokemon-inclement-emerald` | GBA | 1.13 (2021-11-28) | `github:BuffelSaft/pokeemerald` | unknown | 1F1C08FB | yes |
-| `pokemon-modern-emerald` | GBA | Release3.6 (2026-10-05) | `github:resetes12/pokeemerald` | bps | 1F1C08FB | yes |
-| `pokemon-lazarus` | GBA | 2.0 (about 2026-02) | `manual` | bps | 1F1C08FB | yes |
-| `pokemon-emerald-imperium` | GBA | 1.3.1 (2025-09-04) | `page` | bps | 1F1C08FB | unknown |
-| `pokemon-hyper-emerald` | GBA | 5.7 Lost Artifacts (secondary sites) | `manual` | rom | unknown | unknown |
-| `pokemon-hyper-emerald-lost-artifacts` | GBA | 5.7 (secondary sites) | `manual` | rom | unknown | unknown |
-| `pokemon-parallel-emerald` | GBA | 1.2 (2024-03-13) | `page` | ups | 1F1C08FB | unknown |
-| `mother-3` | GBA | 1.3 (2021-04-20) | `page` | ups | 42AC9CB9 | yes |
-| `castlevania-aos-definitive` | GBA | 1.0 (2024-10-07) | `page` | unknown | unknown | unknown |
-| `pokemon-elite-redux` | GBA | 2.65 Beta 2 (2026-03-08); stable 2.5 Hotfix 2 (2025-04-03) | `page` | unknown | unknown | unknown |
-| `pokemon-emerald-horizons` | GBA | 1.16 (first post edited 2025-10-09) | `page` | unknown | 1F1C08FB | unknown |
-| `pokemon-pisces` | GBA | 1.5.4 (2025-04-30) | `page` | bps | unknown | unknown |
-| `pokemon-emerald-genesis` | GBA | Beta 2.1 (2020) | `page` | unknown | unknown | unknown |
-| `pokemon-emerald-z` | GBA | 1.2.0 (2024-03-10) | `page` | unknown | unknown | unknown |
-| `pokemon-evolved` | GBA | 1.0 (2025-03-26) | `page` | ips | DAFFECEC | unknown |
-| `pokemon-prism` | GBC | 0.95.0254 Hotfix 5 (2023-08-24) | `page` | unknown | unknown | unknown |
-| `sonic-3d-blast-directors-cut` | MD | final (2017-12-24) | `page` | xdelta | 44A2CA44 | unknown |
-| `sonic-2-delta-ultimate` | MD | 1.12 (2025-06-01) | `page` | rom | unknown | unknown |
-| `sonic-3-delta` | MD | 0.1a (2002-11-29) | `page` | rom | unknown | unknown |
-| `s2k-long` | MD | 1.8.1 (2004-10-22) | `page` | unknown | unknown | unknown |
-| `s2smtp` | MD | 0.5 (2008) | `page` | rom | unknown | unknown |
+| id | system | status | latest seen | source | format | base | saves carry over |
+|---|---|---|---|---|---|---|---|
+| `pokemon-unbound` | GBA | finished | 2.1.1.1 (2022-11-08) | `page` | bps | DD88761C | unknown |
+| `pokemon-radical-red` | GBA | maintained | 4.1 (2024-03-22) | `page` | ups | DD88761C | yes |
+| `pokemon-inclement-emerald` | GBA | dormant | 1.13 (2021-11-28) | `github` | xdelta | 1F1C08FB | yes |
+| `pokemon-modern-emerald` | GBA | maintained | Release3.6 (2026-10-05) | `github` | bps | 1F1C08FB | yes |
+| `pokemon-lazarus` | GBA | maintained | 2.0 (about 2026-02) | `manual` | bps | 1F1C08FB | yes |
+| `pokemon-emerald-imperium` | GBA | maintained | 1.3.1 (2025-09-04) | `page` | bps | 1F1C08FB | unknown |
+| `pokemon-hyper-emerald` | GBA | no primary source | 5.7 Lost Artifacts (secondary sites) | `manual` | rom | unknown | unknown |
+| `pokemon-hyper-emerald-lost-artifacts` | GBA | no primary source | 5.7 (secondary sites) | `manual` | rom | unknown | unknown |
+| `pokemon-parallel-emerald` | GBA | dormant | 1.2 (2024-03-13) | `page` | ups | 1F1C08FB | unknown |
+| `mother-3` | GBA | finished | 1.3 (2021-04-20) | `page` | ups | 42AC9CB9 | yes |
+| `castlevania-aos-definitive` | GBA | dead | 1.0 (2024-10-07) | `page` | unknown | unknown | unknown |
+| `pokemon-elite-redux` | GBA | maintained | 2.65 Beta 2 (2026-03-08); stable 2.5 Hotfix 2 (2025-04-03) | `page` | unknown | 1F1C08FB | unknown |
+| `pokemon-emerald-horizons` | GBA | maintained | 1.16 (first post edited 2025-10-09) | `page` | unknown | 1F1C08FB | unknown |
+| `pokemon-pisces` | GBA | maintained | 1.5.4 (2025-12-14) | `page` | bps | unknown | unknown |
+| `pokemon-emerald-genesis` | GBA | dead | Beta 2.1 (2020) | `page` | unknown | unknown | unknown |
+| `pokemon-emerald-z` | GBA | finished | 1.2.0 (2024-03-10) | `page` | unknown | unknown | yes |
+| `pokemon-evolved` | GBA | dead | 1.0 (2025-03-26) | `page` | ips | DAFFECEC | unknown |
+| `pokemon-prism` | GBC | maintained | 0.95.0254 Hotfix 5 (2023-08-24) | `page` | unknown | unknown | unknown |
+| `sonic-3d-blast-directors-cut` | MD | finished | final (2017-12-24) | `page` | xdelta | 44A2CA44 | unknown |
+| `sonic-2-delta-ultimate` | MD | maintained | 1.12 (2025-06-01) | `page` | rom | unknown | unknown |
+| `sonic-3-delta` | MD | dead | 0.1a (2002-11-29) | `page` | rom | unknown | unknown |
+| `s2k-long` | MD | dead | 1.8.1 / 1.10 (2004-10-22) | `page` | unknown | unknown | unknown |
+| `s2smtp` | MD | dead | 0.5 (2008) | `page` | rom | unknown | unknown |
 
 Left out: `Sonic 2 remix`, `Sonic 2 mecha world`, `Sonic 2 GHZ v0.2`, `Knuckles in Sonic 2 GHZ v0.1`,
 `sonic 2 salus` and `Sonic 2 haz` (not identified anywhere searched; add them in your settings if you
-find their home), and the GoodTools-tagged hacks. Pokemon Unbound and Radical Red need FireRed 1.0
-(DD88761C); the maintainer's library holds only Rev 1 (84EE4776), so their updates refuse until it is
-added.
+find their home; searched 2026-10-18 on Sonic Retro, SHC and the web with no result, so treat them as
+dead), and the GoodTools-tagged hacks. Pokemon Unbound and Radical Red need FireRed 1.0 (DD88761C,
+'1636 Squirrels'): Radical Red's thread names that dump and its patch is a UPS, which checks the source
+CRC, and Unbound's thread names none, and its patch (a BPS, per community guides) checks its own source CRC too. FireRed Rev 1
+(84EE4776) is refused by both, so their updates wait until a 1.0 dump is in the library.
