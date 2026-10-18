@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 09:56:26 +0400
+Subject: [PATCH] switcher-up-down
+
+Up moves to the next newer save state in the switcher and Down to the
+next older one, beside Left and Right. From suprsomething/slot.advance
+2fe9876 (GPL-3.0), without its ring of five and without its delete
+question, which changes upstream-tested behaviour,
+https://github.com/suprsomething/slot.advance/commit/2fe9876
+---
+ crates/slot/src/app.rs                |  8 ++++--
+ crates/slot/tests/switcher_up_down.rs | 35 +++++++++++++++++++++++++++
+ 2 files changed, 41 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/switcher_up_down.rs
+
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 843d8b5..0c4c177 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -2070,8 +2070,12 @@ impl App {
+                 _ => {}
+             },
+             Phase::Polaroids { .. } => match action {
+-                Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.flick(Polaroids::left),
+-                Action::ShelfRight | Action::GbaDown(Btn::Right) => self.flick(Polaroids::right),
++                Action::ShelfLeft | Action::GbaDown(Btn::Left) | Action::GbaDown(Btn::Up) => {
++                    self.flick(Polaroids::left)
++                }
++                Action::ShelfRight | Action::GbaDown(Btn::Right) | Action::GbaDown(Btn::Down) => {
++                    self.flick(Polaroids::right)
++                }
+                 Action::GbaDown(Btn::A) => self.load_selected(),
+                 Action::GbaDown(Btn::B) | Action::Polaroids => self.close_polaroids(),
+                 Action::GbaDown(Btn::X) => self.undo(self.now()),
+diff --git a/crates/slot/tests/switcher_up_down.rs b/crates/slot/tests/switcher_up_down.rs
+new file mode 100644
+index 0000000..5b199d1
+--- /dev/null
++++ b/crates/slot/tests/switcher_up_down.rs
+@@ -0,0 +1,35 @@
++mod common;
++
++use common::{app_in_switcher, tmp_root_with_carts};
++use slot::app::App;
++use slot_input::{Action, Btn};
++use slot_store::{Core, Platform, StateRing};
++use tempfile::TempDir;
++
++fn switcher_on_three_states() -> (TempDir, App) {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let r = StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Emerald");
++    for i in 0..3 {
++        r.push(&[i as u8; 64], b"png", &format!("2026-08-09_00-00-{i:02}"))
++            .unwrap();
++    }
++    let a = app_in_switcher(d.path(), "Emerald");
++    (d, a)
++}
++
++#[test]
++fn down_in_the_switcher_moves_to_the_next_older_state() {
++    let (_d, mut a) = switcher_on_three_states();
++    assert_eq!(a.polaroid_stamp(), Some("2026-08-09_00-00-02"));
++    a.apply(Action::GbaDown(Btn::Down));
++    assert_eq!(a.polaroid_stamp(), Some("2026-08-09_00-00-01"));
++}
++
++#[test]
++fn up_in_the_switcher_moves_back_to_the_next_newer_state() {
++    let (_d, mut a) = switcher_on_three_states();
++    a.apply(Action::GbaDown(Btn::Right));
++    a.apply(Action::GbaDown(Btn::Right));
++    a.apply(Action::GbaDown(Btn::Up));
++    assert_eq!(a.polaroid_stamp(), Some("2026-08-09_00-00-01"));
++}

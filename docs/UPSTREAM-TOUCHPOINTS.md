@@ -12,6 +12,8 @@ the reasons (docs/REBASE.md).
 | `crates/slot-gfx/src/pipeline.rs` | 14 | 65 (+52/-13) | 0004-canvas, 0017-retro-shaders |
 | `crates/slot-gfx/src/shaders.rs` | 1 | 1 (+1/-0) | 0036-ps1-canvas |
 | `crates/slot-input/src/gesture.rs` | 8 | 28 (+23/-5) | 0007-input, 0037-ps1-discs, 0038-ps1-input |
+| `crates/slot-power/src/device.rs` | 2 | 7 (+4/-3) | 0047-backlight-floor |
+| `crates/slot-power/tests/device.rs` | 4 | 8 (+4/-4) | 0047-backlight-floor |
 | `crates/slot-retro/src/core.rs` | 3 | 17 (+17/-0) | 0004-canvas, 0006-libretro-env, 0026-platform-md, 0037-ps1-discs, 0038-ps1-input |
 | `crates/slot-retro/src/ffi.rs` | 3 | 23 (+23/-0) | 0030-need-fullpath |
 | `crates/slot-retro/src/lib.rs` | 4 | 7 (+6/-1) | 0004-canvas, 0007-input, 0037-ps1-discs, 0040-ps1-analog |
@@ -30,15 +32,16 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/lib.rs` | 12 | 38 (+33/-5) | 0012-cart-art, 0016-quick-menu-retro-shaders, 0020-label-top, 0028-sega-carts, 0036-ps1-canvas, 0037-ps1-discs, 0039-ps1-cases, 0042-screen-scroll |
 | `crates/slot-ui/src/polaroids.rs` | 2 | 4 (+2/-2) | 0036-ps1-canvas |
 | `crates/slot-ui/src/quick_menu.rs` | 16 | 193 (+183/-10) | 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0022-screen-platform-list, 0027-sega-shaders, 0032-system-picture, 0033-crop-overscan, 0034-platform-ps1, 0042-screen-scroll, 0043-pal-pacing |
-| `crates/slot-ui/src/shelf.rs` | 5 | 15 (+13/-2) | 0012-cart-art, 0021-shelf-cart-memory, 0039-ps1-cases |
+| `crates/slot-ui/src/shelf.rs` | 7 | 26 (+22/-4) | 0012-cart-art, 0021-shelf-cart-memory, 0039-ps1-cases, 0045-shelf-face-restock |
 | `crates/slot-ui/src/shell.rs` | 1 | 6 (+6/-0) | 0002-platform-nes, 0005-platform-snes, 0012-cart-art, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0028-sega-carts, 0034-platform-ps1, 0039-ps1-cases |
 | `crates/slot-ui/src/slot_chrome.rs` | 1 | 1 (+1/-0) | 0039-ps1-cases |
 | `crates/slot-ui/src/toast.rs` | 3 | 6 (+6/-0) | 0017-retro-shaders, 0037-ps1-discs |
 | `crates/slot-ui/tests/chrome.rs` | 1 | 2 (+1/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0034-platform-ps1 |
 | `crates/slot-ui/tests/quick_menu.rs` | 2 | 4 (+2/-2) | 0022-screen-platform-list, 0027-sega-shaders, 0034-platform-ps1 |
-| `crates/slot/src/app.rs` | 48 | 314 (+290/-24) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd, 0032-system-picture, 0033-crop-overscan, 0034-platform-ps1, 0035-ps1-options, 0037-ps1-discs, 0043-pal-pacing |
+| `crates/slot/src/app.rs` | 61 | 358 (+314/-44) | 0001-step0-exhaustive-matches, 0002-platform-nes, 0004-canvas, 0005-platform-snes, 0007-input, 0012-cart-art, 0014-shaders, 0016-quick-menu-retro-shaders, 0017-retro-shaders, 0021-shelf-cart-memory, 0022-screen-platform-list, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0027-sega-shaders, 0031-gg-lcd, 0032-system-picture, 0033-crop-overscan, 0034-platform-ps1, 0035-ps1-options, 0037-ps1-discs, 0043-pal-pacing, 0044-flush-sav-without-state, 0045-shelf-face-restock, 0046-switcher-up-down |
 | `crates/slot/src/audio/alsa.rs` | 4 | 10 (+6/-4) | 0018-audio-reopen |
 | `crates/slot/src/audio/mod.rs` | 2 | 2 (+2/-0) | 0018-audio-reopen |
+| `crates/slot/src/cart_faces.rs` | 7 | 16 (+10/-6) | 0045-shelf-face-restock |
 | `crates/slot/src/core.rs` | 7 | 26 (+22/-4) | 0001-step0-exhaustive-matches, 0003-core-fceumm, 0004-canvas, 0005-platform-snes, 0009-core-picker-pairs, 0024-platform-gg, 0034-platform-ps1, 0036-ps1-canvas, 0037-ps1-discs |
 | `crates/slot/src/core_picker.rs` | 6 | 14 (+10/-4) | 0009-core-picker-pairs |
 | `crates/slot/src/device_app.rs` | 5 | 7 (+7/-0) | 0015-frame-trace |
@@ -48,7 +51,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/input/mask.rs` | 1 | 2 (+2/-0) | 0038-ps1-input |
 | `crates/slot/src/input/mod.rs` | 1 | 1 (+1/-0) | 0040-ps1-analog |
 | `crates/slot/src/label_cache.rs` | 2 | 4 (+2/-2) | 0020-label-top |
-| `crates/slot/src/lib.rs` | 9 | 10 (+10/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0015-frame-trace, 0016-quick-menu-retro-shaders, 0034-platform-ps1, 0043-pal-pacing |
+| `crates/slot/src/lib.rs` | 9 | 12 (+12/-0) | 0003-core-fceumm, 0004-canvas, 0006-libretro-env, 0007-input, 0008-default-stretch, 0009-core-picker-pairs, 0015-frame-trace, 0016-quick-menu-retro-shaders, 0034-platform-ps1, 0043-pal-pacing, 0044-flush-sav-without-state, 0045-shelf-face-restock |
 | `crates/slot/src/root.rs` | 5 | 26 (+25/-1) | 0002-platform-nes, 0005-platform-snes, 0024-platform-gg, 0025-platform-sms, 0026-platform-md, 0034-platform-ps1 |
 | `crates/slot/src/session.rs` | 8 | 32 (+30/-2) | 0007-input, 0008-default-stretch, 0018-audio-reopen, 0026-platform-md, 0037-ps1-discs, 0038-ps1-input, 0043-pal-pacing |
 | `crates/slot/src/state_writer.rs` | 9 | 60 (+54/-6) | 0021-shelf-cart-memory, 0027-sega-shaders |
@@ -86,6 +89,12 @@ the reasons (docs/REBASE.md).
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#impl Gestures {#L193#cb6bacf9 | 193-194 | +2/-2 | impl Gestures { | PS1 (0038): L2 and R2 go to the game, not to rewind and fast-forward, while the triggers belong to the game (owns_triggers false, PS1 only, ADR 0068) |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#impl Gestures {#L216#2d22c79d | 216-217 | +2/-2 | impl Gestures { | PS1 (0038): releasing L2 or R2 goes to the game too while the triggers belong to the game |
 | `crates/slot-input/src/gesture.rs` | crates/slot-input/src/gesture.rs#fn chord(b: Btn) -> Option<(u16, Action)> {#L454#ce36bd10 | 454 | +1/-0 | fn chord(b: Btn) -> Option<(u16, Action)> { | Maps Select+X to VideoModeToggle in the chord table |
+| `crates/slot-power/src/device.rs` | crates/slot-power/src/device.rs#const TOP_STEP: u32 = 9;#L15#d17cddc7 | 15 | +1/-1 | const TOP_STEP: u32 = 9; | The backlight floor is 8/255 of the maximum, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
+| `crates/slot-power/src/device.rs` | crates/slot-power/src/device.rs#fn backlight_value(step: u8, max: u32) -> u32 {#L417#a5c89840 | 417-418 | +3/-2 | fn backlight_value(step: u8, max: u32) -> u32 { | Step 1 lights at the floor scaled to the kernel's maximum, at least 1, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
+| `crates/slot-power/tests/device.rs` | crates/slot-power/tests/device.rs#fn the_backlight_steps_span_whatever_range_the_kernel_reports() {#L59#be24a412 | 59 | +1/-1 | fn the_backlight_steps_span_whatever_range_the_kernel_reports() { | Named test site (i): upstream's own widened step 5 range, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
+| `crates/slot-power/tests/device.rs` | crates/slot-power/tests/device.rs#fn the_backlight_steps_span_whatever_range_the_kernel_reports() {#L63#2715bc86 | 63 | +1/-1 | fn the_backlight_steps_span_whatever_range_the_kernel_reports() { | Named test site (i): upstream's own test rename, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
+| `crates/slot-power/tests/device.rs` | crates/slot-power/tests/device.rs#fn step_one_is_the_dimmest_lit_value() {#L67#a8f4ce94 | 67 | +1/-1 | fn step_one_is_the_dimmest_lit_value() { | Named test site (i): step 1 writes 8, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
+| `crates/slot-power/tests/device.rs` | crates/slot-power/tests/device.rs#fn the_steps_follow_the_curve_from_the_floor_to_full() {#L80#1777ec1f | 80 | +1/-1 | fn the_steps_follow_the_curve_from_the_floor_to_full() { | Named test site (i): upstream's own new curve, backport of upstream 3b6349c (backlight-floor, ADR 0075, drop on the 1.8.0 rebase) |
 | `crates/slot-retro/src/core.rs` | crates/slot-retro/src/core.rs#use std::path::Path;#L3#5e376e6f | 3 | +1/-0 | use std::path::Path; | PS1 (0037): re-exports DiscEvent next to the trait that reports it |
 | `crates/slot-retro/src/core.rs` | crates/slot-retro/src/core.rs#impl ButtonMask {#L25#2d38bb23 | 25 | +2/-0 | impl ButtonMask { | PS1 (0038): ButtonMask names L2 and R2 at their libretro ids, 12 and 13 |
 | `crates/slot-retro/src/core.rs` | crates/slot-retro/src/core.rs#pub trait RetroCore: Send {#L101#9eeb44eb | 101 | +14/-0 | pub trait RetroCore: Send { | Adds default canvas(), take_av_change() and frame_width() so cores can report their real size and the live frame width (ADR 0052), and set_initial_disc(), next_disc() and take_disc_event(), which do nothing for a core with no discs (ADR 0067) |
@@ -219,7 +228,9 @@ the reasons (docs/REBASE.md).
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub fn draw_menu_ground(canvas: Canvas, ground: Option<TexId>, out: &mut Vec<Dra#L700#19d461a8 | 700-701 | +21/-2 | pub fn draw_menu_ground(canvas: Canvas, ground: Option<TexId>, out: &mut Vec<Dra | Screen scroll (0042): QUICK_VISIBLE, scrolls(), quick_window and quick_row_top_at from upstream e1bfb2b and 2c82294, with SCREEN added to the scrolls() list so nine systems show six rows that follow the cursor; on the 1.8.0 rebase keep only the SCREEN token (ADR 0070) |
 | `crates/slot-ui/src/quick_menu.rs` | crates/slot-ui/src/quick_menu.rs#pub fn quick_row_top(row: QuickRow, hidden: &[QuickRow]) -> f32 {#L706#a587d453 | 706 | +5/-1 | pub fn quick_row_top(row: QuickRow, hidden: &[QuickRow]) -> f32 { | Screen scroll (0042): quick_row_top becomes upstream's wrapper over quick_row_top_at; our PLAY_SCREEN top (LEGEND_Y - PANEL_GAP) stays as in v1.7.0 (ADR 0070) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#use crate::hud::Millis;#L9#b1f6be9d | 9 | +3/-0 | use crate::hud::Millis; | Imports the retro shell lookup, the retro label rect and the published shadows |
+| `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L209#7f0c8d71 | 209 | +5/-1 | impl Shelf { | behind tries the selected cart before a stem search, so a stem two platforms share finds the picked cart (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L211#839ddc22 | 211 | +3/-0 | impl Shelf { | PS1 (0039): behind() hands the slot the disc face of a PlayStation game, so the disc can slide in while the case opens |
+| `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L224#65acdb75 | 224 | +4/-1 | impl Shelf { | find tries the selected cart before a stem search (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L330#f806d509 | 330 | +4/-0 | impl Shelf { | held() tells the app the cursor is at rest, so a held direction writes once when it is let go (patch 0021) |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L460#a4ed7e26 | 460 | +1/-1 | impl Shelf { | Backs a receding NES or SNES cart with its own shadow instead of the GBA one |
 | `crates/slot-ui/src/shelf.rs` | crates/slot-ui/src/shelf.rs#impl Shelf {#L542#0534c042 | 542 | +2/-1 | impl Shelf { | Puts the Favorites star on the NES or SNES label box instead of the GBA label position |
@@ -251,6 +262,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L980#e6175d6f | 980 | +7/-1 | impl App { | NES, SNES and the Sega platforms resolve to the GBA bezel choice (ADR 0005) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1012#83d709eb | 1012 | +1/-1 | impl App { | Crop hides the GBA bezel like Stretch: only Actual draws it (ADR 0062) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1116#c18f53f7 | 1116 | +7/-0 | impl App { | Hides each NES/SNES and Sega console row on a card with no carts of that system, so GBA, GB and GBC menus stay upstream's (retro_quick::hidden_on_shelf) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1275#edc9bd7f | 1275 | +1/-1 | impl App { | seated_cart goes through Shelf::find, which tries the selected cart first (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1378#0476f702 | 1378 | +4/-0 | impl App { | Stores the live frame width the emu reports and crops Stretch to it, so the Mega Drive picture follows H32 and H40 (ADR 0052) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1380#0686f0ec | 1380 | +6/-1 | impl App { | Sizes the source rect from the canvas of the core and seated platform instead of fixed 240x160 (ADR 0050), and from the overscan-cropped picture in Crop (ADR 0062) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1384#2f23d52a | 1384 | +1/-1 | impl App { | Uses owns_shoulders so NES and SNES keep the shoulder buttons for the game |
@@ -262,6 +274,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1636#1a45001c | 1636 | +6/-0 | impl App { | NES and SNES have no colour correction |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1881#96cd58d5 | 1881 | +1/-1 | impl App { | L1 asks the platform which stretch to take, so NES moves between Crop and Stretch; GB, GBC, GG and SMS still get Stretch (ADR 0062) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1885#336888d3 | 1885 | +1/-0 | impl App { | Select+X toggles the picture mode where the platform says so (SNES, Mega Drive) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L1897#f742213d | 1897-1898 | +6/-2 | impl App { | Up and Down move through the save state switcher beside Left and Right (switcher-up-down, ADR 0074, drop when the upstream PR lands) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2012#5f370ae9 | 2012 | +7/-1 | impl App { | The NES, SNES and Sega console rows open their page through child(), like the Game Boy console rows |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2049#6f6606fb | 2049 | +18/-1 | impl App { | New shader, picture and PAL Speed rows change only with Left/Right; exhaustive match needs the arm |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2054#fdeeab4c | 2054 | +16/-0 | impl App { | Steps a Game Gear, Master System or Mega Drive shader row into its own Config/sega_shaders.txt, not slot.state (ADR 0051), and steps a Picture row either way through its platform's choices into Config/picture.txt (ADR 0061, 0062), and flips a PAL Speed row into Config/pal_speed.txt (ADR 0071) |
@@ -272,11 +285,22 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2195#b83780a4 | 2195 | +1/-0 | impl App { | SELECT+A/B on a Sega game saves the Sega shader file too; it writes nothing while the Sega shaders are unchanged (ADR 0051) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2237#4f609b42 | 2237 | +6/-0 | impl App { | SELECT+Y does nothing on NES, SNES and the Sega platforms (no colour correction); the action is left unhandled as before |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2574#e0f4d064 | 2574 | +1/-0 | impl App { | Saves the shelf and its cart each time the cursor comes to rest on the shelf (patch 0021) |
-| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2719#bb04628d | 2719 | +1/-0 | impl App { | A restocked shelf is noted again at its next rest (patch 0021) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2686#27cb5e61 | 2686 | +3/-1 | impl App { | Recents still opens on its newest cart when its list changes, now that a restock keeps the selection (shelf-face-restock, ADR 0073) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2709#be67a4bb | 2709 | +1/-1 | impl App { | restock says whether the list changed, for Recents (shelf-face-restock, ADR 0073) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2717#479f6186 | 2717 | +1/-1 | impl App { | restock says whether the list changed, for Recents (shelf-face-restock, ADR 0073) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2719#0a1dfa37 | 2719 | +2/-1 | impl App { | A restock keeps the faces of carts still on the shelf and the selected cart (shelf-face-restock, ADR 0073, drop when the upstream PR lands); a restocked shelf is noted again at its next rest (patch 0021) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2724#3d3690d1 | 2724 | +1/-0 | impl App { | restock says whether the list changed, for Recents (shelf-face-restock, ADR 0073) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L2774#bca609d5 | 2774 | +7/-0 | impl App { | Hands the Sega shaders to the state writer, beside slot.state (ADR 0051) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3238#580f6137 | 3238 | +1/-1 | impl App { | Uses shelf_cart_of so the lid fits the current shelf's platform |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3473#f6b98b92 | 3473 | +1/-1 | impl App { | auto_link goes through Shelf::find, which tries the selected cart first (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3564#fe7d35e4 | 3564-3566 | +3/-3 | impl App { | flush_eject writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3568#db653712 | 3568 | +0/-1 | impl App { | flush_eject writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3695#ea7bed03 | 3695 | +1/-1 | impl App { | Opens the core picker for any platform with a core pair, not just GBA |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L3698#bb81e0e8 | 3698 | +1/-1 | impl App { | Looks up the saved core by platform so NES and SNES have their own |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L4088#f6a6df99 | 4088-4090 | +3/-3 | impl App { | autosave writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L4092#bc29b28f | 4092 | +0/-1 | impl App { | autosave writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L4126#e42d4c80 | 4126-4128 | +3/-3 | impl App { | flush_resume writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
+| `crates/slot/src/app.rs` | crates/slot/src/app.rs#impl App {#L4130#bb8e7924 | 4130 | +0/-1 | impl App { | flush_resume writes the save ram when the core gives no state instead of returning (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn shader_value(shader: Shader) -> QuickValue {#L4451#7b6170b2 | 4451 | +1/-0 | fn shader_value(shader: Shader) -> QuickValue { | Shows the retro shader's name in the NES and SNES quick menu row |
 | `crates/slot/src/app.rs` | crates/slot/src/app.rs#fn bezel_slot(platform: Platform) -> usize {#L4553#ba4515f8 | 4553 | +7/-1 | fn bezel_slot(platform: Platform) -> usize { | NES, SNES and the Sega platforms use the GBA bezel value faces (ADR 0005) |
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#use libloading::Library;#L8#e9658ecc | 8 | +1/-0 | use libloading::Library; | Imports the hold that keeps a fed device open |
@@ -285,6 +309,13 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/audio/alsa.rs` | crates/slot/src/audio/alsa.rs#impl Playback {#L227#c4488709 | 227-228 | +4/-2 | impl Playback { | Lets the hold fill the ring and decide: the device stays open while a game feeds the ring, and a session start reopens it at once |
 | `crates/slot/src/audio/mod.rs` | crates/slot/src/audio/mod.rs#mod alsa;#L1#cda8a469 | 1 | +1/-0 | mod alsa; | Declares the hold module |
 | `crates/slot/src/audio/mod.rs` | crates/slot/src/audio/mod.rs#pub use alsa::AlsaSink;#L12#7cfb4391 | 12 | +1/-0 | pub use alsa::AlsaSink; | Exports wake_device and prefill_silence for the session and emu hooks |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#type Key = (usize, usize);#L19#c2c0a4b1 | 19 | +1/-1 | type Key = (usize, usize); | A built face carries the cart it was built for (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#impl CartFaces {#L61#04a1f6f2 | 61-62 | +2/-2 | impl CartFaces { | A built face carries the cart it was built for (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#impl CartFaces {#L76#86ef109d | 76 | +1/-1 | impl CartFaces { | A built face carries the cart it was built for (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#impl CartFaces {#L80#e55cdc70 | 80 | +1/-1 | impl CartFaces { | A built face carries the cart it was built for (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#impl CartFaces {#L117#a21cc385 | 117 | +1/-0 | impl CartFaces { | place takes the cart the face was built for (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#impl CartFaces {#L122#0d803316 | 122 | +3/-0 | impl CartFaces { | place drops a face whose index now holds another cart after a restock (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
+| `crates/slot/src/cart_faces.rs` | crates/slot/src/cart_faces.rs#fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {#L157#4a6c933f | 157 | +1/-1 | fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) { | The worker sends the cart back with its face (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#use slot_store::{Core, GbPalette, Platform};#L5#5b60b241 | 5 | +1/-0 | use slot_store::{Core, GbPalette, Platform}; | Imports the policy options applied per core |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#pub fn open_core(#L55#16eb6a1e | 55 | +1/-1 | pub fn open_core( | Sizes the mock core from the core's canvas instead of GBA size |
 | `crates/slot/src/core.rs` | crates/slot/src/core.rs#pub fn open_core_for_palette(#L83#eac091e0 | 83 | +1/-1 | pub fn open_core_for_palette( | Sizes the mock core from the core's canvas instead of GBA size |
@@ -365,11 +396,11 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod audio;#L2#2f73c3c4 | 2 | +1/-0 | pub mod audio; | Declares the av_rate module |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod core;#L10#c9506168 | 10 | +2/-0 | pub mod core; | Declares core_faces and core_options_policy |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod face_builder;#L20#a493a56d | 20 | +1/-0 | pub mod face_builder; | Declares the frame_trace module |
-| `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod link_state;#L32#478d90ed | 32 | +1/-0 | pub mod link_state; | Declares pal_speed (Config/pal_speed.txt, ADR 0071) |
+| `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod link_state;#L32#c7ffca4c | 32 | +2/-0 | pub mod link_state; | Declares pal_speed (Config/pal_speed.txt, ADR 0071), and no_state (flush-sav-without-state, ADR 0072, drop when the upstream PR lands) |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod persist;#L34#64eca0b9 | 34 | +1/-0 | pub mod persist; | Declares the platform_video module |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod prefetch;#L35#3ed3e7ef | 35 | +1/-0 | pub mod prefetch; | PS1 (0034): declares our ps1_load module |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod resample;#L36#072a857b | 36 | +1/-0 | pub mod resample; | Declares the retro_quick module |
-| `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod session;#L39#b9aeb6bc | 39 | +1/-0 | pub mod session; | Declares the snes_input module |
+| `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod session;#L39#9658d673 | 39 | +2/-0 | pub mod session; | Declares the snes_input module, and shelf_restock (shelf-face-restock, ADR 0073, drop when the upstream PR lands) |
 | `crates/slot/src/lib.rs` | crates/slot/src/lib.rs#pub mod thumb;#L41#d164b266 | 41 | +1/-0 | pub mod thumb; | Declares the thumb_sized module |
 | `crates/slot/src/root.rs` | crates/slot/src/root.rs#use std::path::{Path, PathBuf};#L3#22e32f15 | 3 | +1/-1 | use std::path::{Path, PathBuf}; | Grows DIRS from upstream's 24 to 32 entries for the NES and SNES folders |
 | `crates/slot/src/root.rs` | crates/slot/src/root.rs#pub const DIRS: [&str; 24] = [#L12#c5632700 | 12 | +6/-0 | pub const DIRS: [&str; 24] = [ | Creates Games/NES, SNES, GG, SMS and MD |

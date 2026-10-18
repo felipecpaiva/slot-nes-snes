@@ -1,0 +1,359 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 09:55:28 +0400
+Subject: [PATCH] shelf-face-restock
+
+A cart face built while Favorites or Recents restocks is dropped when
+the cart at its index is no longer the cart it was built for. A restock
+keeps the faces of carts still on the shelf, frees only the rest, and
+keeps the selected cart selected (Recents still opens on its newest).
+Stem lookups for the seated cart try the selected index first, so a
+stem two platforms share resolves to the cart that was picked.
+Reimplemented from marghost/slot_modded 88af60a (GPL-3.0),
+https://github.com/marghost/slot_modded/commit/88af60a
+---
+ crates/slot-ui/src/shelf.rs        |  11 ++-
+ crates/slot/src/app.rs             |  15 ++--
+ crates/slot/src/cart_faces.rs      |  16 ++--
+ crates/slot/src/lib.rs             |   1 +
+ crates/slot/src/shelf_restock.rs   |  44 +++++++++++
+ crates/slot/tests/shelf_restock.rs | 114 +++++++++++++++++++++++++++++
+ 6 files changed, 187 insertions(+), 14 deletions(-)
+ create mode 100644 crates/slot/src/shelf_restock.rs
+ create mode 100644 crates/slot/tests/shelf_restock.rs
+
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index c1199ee..03572c8 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -209,7 +209,11 @@ impl Shelf {
+     /// The shelf draws these under the face. The slot has to as well, or the board vanishes
+     /// as the cart goes in or comes out.
+     pub fn behind(&self, stem: &str) -> [Option<TexId>; 2] {
+-        let Some(i) = self.carts.iter().position(|c| c.stem == stem) else {
++        let i = match self.carts.get(self.index) {
++            Some(c) if c.stem == stem => Some(self.index),
++            _ => self.carts.iter().position(|c| c.stem == stem),
++        };
++        let Some(i) = i else {
+             return [None, None];
+         };
+         if self.carts.get(i).is_some_and(crate::ps1_case::has_disc) {
+@@ -227,7 +231,10 @@ impl Shelf {
+     }
+ 
+     pub fn find(&self, stem: &str) -> Option<(&Cart, Option<TexId>)> {
+-        let i = self.carts.iter().position(|c| c.stem == stem)?;
++        let i = match self.carts.get(self.index) {
++            Some(c) if c.stem == stem => self.index,
++            _ => self.carts.iter().position(|c| c.stem == stem)?,
++        };
+         Some((&self.carts[i], self.face(i)))
+     }
+ 
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 0928a15..843d8b5 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1422,7 +1422,7 @@ impl App {
+             Phase::Doze { cart: Some(cart) } => cart,
+             _ => return None,
+         };
+-        self.shelf().carts.iter().find(|c| c.stem == *stem)
++        self.shelf().find(stem).map(|(c, _)| c)
+     }
+ 
+     pub fn single_cart(&self) -> bool {
+@@ -2934,7 +2934,9 @@ impl App {
+                 .collect(),
+             false => Vec::new(),
+         };
+-        self.restock(RECENTS_AT, carts);
++        if self.restock(RECENTS_AT, carts) {
++            self.shelves[RECENTS_AT].1.select(0);
++        }
+         self.mark_stars();
+     }
+ 
+@@ -2957,7 +2959,7 @@ impl App {
+         self.mark_stars();
+     }
+ 
+-    fn restock(&mut self, at: usize, carts: Vec<Cart>) {
++    fn restock(&mut self, at: usize, carts: Vec<Cart>) -> bool {
+         let stocked = &self.shelves[at].1.carts;
+         if stocked.len() == carts.len()
+             && stocked
+@@ -2965,15 +2967,16 @@ impl App {
+                 .zip(&carts)
+                 .all(|(a, b)| a.platform == b.platform && a.stem == b.stem)
+         {
+-            return;
++            return false;
+         }
+-        let old = self.shelves[at].1.restock(carts);
++        let old = crate::shelf_restock::restock_keeping_faces(&mut self.shelves[at].1, carts);
+         self.rested = None;
+         self.orphaned.extend(old);
+         let empty = self.shelves[at].1.carts.is_empty();
+         if self.shelf_at == at && empty {
+             self.shelf_at = self.next_shelf(1).unwrap_or(0);
+         }
++        true
+     }
+ 
+     fn toggle_favorite(&mut self) {
+@@ -3729,7 +3732,7 @@ impl App {
+     }
+ 
+     fn auto_link(&self, stem: &str) -> Option<(&Cart, LinkKind)> {
+-        let cart = self.shelf().carts.iter().find(|c| c.stem == stem)?;
++        let (cart, _) = self.shelf().find(stem)?;
+         let auto = link_kind(&cart.code, &cart.title, slot_store::header_clean(&cart.rom));
+         Some((cart, auto))
+     }
+diff --git a/crates/slot/src/cart_faces.rs b/crates/slot/src/cart_faces.rs
+index 3cdd5a0..128c3a5 100644
+--- a/crates/slot/src/cart_faces.rs
++++ b/crates/slot/src/cart_faces.rs
+@@ -16,7 +16,7 @@ const WORKERS: usize = 2;
+ type Key = (usize, usize);
+ 
+ /// A cart's face and, for a clear GBA cart, the game-coloured inside it is drawn over.
+-type Built = (Key, CartFace, Option<CartFace>);
++type Built = (Key, Cart, CartFace, Option<CartFace>);
+ 
+ #[derive(Default)]
+ struct Queue {
+@@ -58,8 +58,8 @@ impl CartFaces {
+ 
+     pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
+         self.free.extend(app.shed_faces());
+-        while let Ok((key, face, interior)) = self.built.try_recv() {
+-            self.place(app, compositor, key, face, interior);
++        while let Ok((key, cart, face, interior)) = self.built.try_recv() {
++            self.place(app, compositor, key, &cart, face, interior);
+         }
+         let wants = app.face_wants();
+         if wants != self.asked {
+@@ -73,11 +73,11 @@ impl CartFaces {
+             .map(|w| (w.shelf, w.index))
+             .collect();
+         while !waiting.is_empty() {
+-            let Ok((key, face, interior)) = self.built.recv() else {
++            let Ok((key, cart, face, interior)) = self.built.recv() else {
+                 return;
+             };
+             waiting.retain(|k| *k != key);
+-            self.place(app, compositor, key, face, interior);
++            self.place(app, compositor, key, &cart, face, interior);
+         }
+     }
+ 
+@@ -115,11 +115,15 @@ impl CartFaces {
+         app: &mut App,
+         compositor: &mut Compositor,
+         key: Key,
++        cart: &Cart,
+         face: CartFace,
+         interior: Option<CartFace>,
+     ) {
+         self.pending.remove(&key);
+         self.asked.retain(|w| (w.shelf, w.index) != key);
++        if !crate::shelf_restock::face_fits(app, key, cart) {
++            return;
++        }
+         let tex = self.texture(compositor, &face);
+         self.free.extend(app.set_cart_face(key.0, key.1, tex));
+         if let Some(interior) = interior {
+@@ -154,7 +158,7 @@ fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {
+         };
+         let face = cart_face_with(&cart, label_art(root, &cart));
+         let interior = shows_interior(&cart).then(|| cart_interior(&cart));
+-        if outbox.send((key, face, interior)).is_err() {
++        if outbox.send((key, cart, face, interior)).is_err() {
+             return;
+         }
+     }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 39a20c6..77ec568 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -46,6 +46,7 @@ pub mod retro_quick;
+ pub mod rewind;
+ pub mod root;
+ pub mod session;
++pub mod shelf_restock;
+ pub mod snes_input;
+ pub mod state_writer;
+ pub mod thumb;
+diff --git a/crates/slot/src/shelf_restock.rs b/crates/slot/src/shelf_restock.rs
+new file mode 100644
+index 0000000..fb1a3cb
+--- /dev/null
++++ b/crates/slot/src/shelf_restock.rs
+@@ -0,0 +1,44 @@
++use std::collections::HashMap;
++
++use slot_store::{Cart, Platform};
++use slot_ui::{Shelf, TexId};
++
++use crate::app::App;
++
++pub fn face_fits(app: &App, key: (usize, usize), cart: &Cart) -> bool {
++    app.face_cart(key.0, key.1)
++        .is_some_and(|c| c.platform == cart.platform && c.stem == cart.stem)
++}
++
++pub fn restock_keeping_faces(shelf: &mut Shelf, carts: Vec<Cart>) -> Vec<TexId> {
++    let selected = shelf
++        .carts
++        .get(shelf.index)
++        .map(|c| (c.platform, c.stem.clone()));
++    let keys: Vec<(Platform, String)> = shelf
++        .carts
++        .iter()
++        .map(|c| (c.platform, c.stem.clone()))
++        .collect();
++    let mut held: HashMap<(Platform, String), [Option<TexId>; 2]> = keys
++        .into_iter()
++        .enumerate()
++        .map(|(i, key)| (key, [shelf.take_face(i), shelf.take_interior(i)]))
++        .collect();
++    let kept: Vec<(usize, [Option<TexId>; 2])> = carts
++        .iter()
++        .enumerate()
++        .filter_map(|(i, c)| held.remove(&(c.platform, c.stem.clone())).map(|t| (i, t)))
++        .collect();
++    let index = selected
++        .and_then(|(p, stem)| carts.iter().position(|c| c.platform == p && c.stem == stem))
++        .unwrap_or(shelf.index.min(carts.len().saturating_sub(1)));
++    let mut freed = shelf.restock(carts);
++    for (i, [face, interior]) in kept {
++        freed.extend(face.and_then(|t| shelf.set_face(i, t)));
++        freed.extend(interior.and_then(|t| shelf.set_interior(i, t)));
++    }
++    freed.extend(held.into_values().flatten().flatten());
++    shelf.select(index);
++    freed
++}
+diff --git a/crates/slot/tests/shelf_restock.rs b/crates/slot/tests/shelf_restock.rs
+new file mode 100644
+index 0000000..d8f6a95
+--- /dev/null
++++ b/crates/slot/tests/shelf_restock.rs
+@@ -0,0 +1,114 @@
++mod common;
++
++use common::{tmp_root_with_carts, write_gb_cart};
++use slot::app::App;
++use slot::shelf_restock::{face_fits, restock_keeping_faces};
++use slot_input::{Action, Btn};
++use slot_store::{write_slot_state, Cart, Platform, Recent, SlotState};
++use slot_ui::{Shelf, TexId};
++
++fn cart(platform: Platform, stem: &str) -> Cart {
++    Cart {
++        platform,
++        stem: stem.into(),
++        rom: format!("/x/{stem}.gba").into(),
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++fn press(a: &mut App, btn: Btn) {
++    a.apply(Action::GbaDown(btn));
++    a.apply(Action::GbaUp(btn));
++}
++
++#[test]
++fn a_restock_keeps_each_carts_face_and_hands_back_the_rest() {
++    let mut s = Shelf::new(vec![
++        cart(Platform::Gba, "Kept"),
++        cart(Platform::Gba, "Gone"),
++    ]);
++    let (kept_face, gone_face) = (TexId::from_raw(20), TexId::from_raw(21));
++    let (kept_inside, gone_inside) = (TexId::from_raw(30), TexId::from_raw(31));
++    s.set_faces(vec![kept_face, gone_face]);
++    s.set_interior(0, kept_inside);
++    s.set_interior(1, gone_inside);
++    let mut freed = restock_keeping_faces(
++        &mut s,
++        vec![cart(Platform::Gba, "New"), cart(Platform::Gba, "Kept")],
++    );
++    freed.sort_by_key(|t| format!("{t:?}"));
++    let mut want = vec![gone_face, gone_inside];
++    want.sort_by_key(|t| format!("{t:?}"));
++    assert_eq!(freed, want);
++    assert_eq!(
++        [s.face(0), s.face(1), s.take_interior(0), s.take_interior(1)],
++        [None, Some(kept_face), None, Some(kept_inside)]
++    );
++}
++
++#[test]
++fn a_restock_keeps_the_selected_cart_selected() {
++    let mut s = Shelf::new(vec![
++        cart(Platform::Gba, "Alpha"),
++        cart(Platform::Gba, "Beta"),
++    ]);
++    s.select(1);
++    restock_keeping_faces(
++        &mut s,
++        vec![
++            cart(Platform::Gba, "Aardvark"),
++            cart(Platform::Gba, "Alpha"),
++            cart(Platform::Gba, "Beta"),
++        ],
++    );
++    assert_eq!(s.carts.get(s.index).map(|c| c.stem.as_str()), Some("Beta"));
++}
++
++#[test]
++fn the_selected_cart_wins_a_stem_another_platform_shares() {
++    let mut s = Shelf::new(vec![
++        cart(Platform::Gb, "Tetris"),
++        cart(Platform::Gbc, "Tetris"),
++    ]);
++    s.select(1);
++    assert_eq!(
++        s.find("Tetris").map(|(c, _)| c.platform),
++        Some(Platform::Gbc)
++    );
++}
++
++#[test]
++fn a_face_built_before_a_favourite_restock_does_not_fit_the_cart_now_there() {
++    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
++    write_gb_cart(&d, "Tetris", "TETRIS");
++    let fav = |platform, stem: &str| Recent {
++        platform,
++        stem: stem.into(),
++    };
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            clock_set: true,
++            favorites: vec![fav(Platform::Gba, "Fusion"), fav(Platform::Gb, "Tetris")],
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    let mut a = App::boot(d.path());
++    let favorites = 1;
++    let built_for = a.face_cart(favorites, 0).cloned().expect("a favourite");
++    assert_eq!(built_for.stem, "Fusion");
++    for _ in 0..8 {
++        if a.shelf_platform_name() == Some("Game Boy Advance") {
++            break;
++        }
++        press(&mut a, Btn::R1);
++    }
++    assert_eq!(a.selected_stem(), Some("Emerald"));
++    press(&mut a, Btn::Y);
++    assert!(!face_fits(&a, (favorites, 0), &built_for));
++    assert!(face_fits(&a, (favorites, 1), &built_for));
++}

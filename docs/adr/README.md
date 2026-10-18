@@ -88,3 +88,7 @@ the patch set looks the way it does.
 | [0069](0069-ps1-jewel-case-shelf.md) | Show PS1 games as jewel cases with front cover art, and the disc on insert | Accepted. Amends 0014 | 2026-10-17 |
 | [0070](0070-backport-upstream-settings-scroll.md) | Scroll the Screen page with a backport of upstream's settings-page scrolling | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
 | [0071](0071-pace-off-panel-cores-at-their-own-fps.md) | Pace a core more than 2 fps from 60 at its own fps, locked to the panel, with a per-system PAL Speed row (Native default) | Accepted. Amends 0061, 0065 | 2026-10-18 |
+| [0072](0072-write-sav-when-the-core-gives-no-state.md) | Write the battery save on a flush, an eject or an autosave even when the core gives no state | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0073](0073-keep-faces-and-selection-across-a-restock.md) | Drop stale cart faces, keep faces and selection across a restock, prefer the selected cart | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0074](0074-switcher-up-down.md) | Move through the save state switcher with Up and Down too | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0075](0075-carry-upstream-backlight-floor.md) | Carry upstream 3b6349c, a backlight floor of 8/255, until the 1.8.0 rebase | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
