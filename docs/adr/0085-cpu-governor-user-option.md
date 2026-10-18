@@ -25,7 +25,7 @@ above Date & Time).
 
 ## Decision
 
-- General gains a **CPU** row just above Date & Time: Performance or Balanced. Left or Right flips it.
+- General gains a **CPU** row just above Lid Power Off: Performance or Balanced. Left or Right flips it.
 - Stored as `mode = balanced` in `Config/cpu.txt` through upstream's `ini::write`, like `region.txt`.
   A missing file or line is Performance; an unknown value is logged and read as Performance.
 - Balanced writes `schedutil` to every `cpufreq/policy*`, Performance writes `performance`. It runs
@@ -37,7 +37,7 @@ above Date & Time).
 - `launch_frontend.sh` is unchanged. On the host and in tests nothing is written unless a test
   points the module at a fake cpufreq directory.
 - Upstream test site (j): `crates/slot-ui/tests/quick_menu.rs` gains the line `"CPU",` between
-  `"Lid Power Off",` and `"Date & Time"` in the General labels, because `QuickRow::GENERAL` is pinned
+  `"Game Titles",` and `"Lid Power Off",` in the General labels, because `QuickRow::GENERAL` is pinned
   there. `scripts/check-upstream-tests.sh` removes exactly that line before comparing, and accepts
   the file without it. This is a new kind of site (a list entry, like (g)); the maintainer
   approved it on 2026-10-18.
@@ -48,7 +48,10 @@ above Date & Time).
 - A Balanced user gets schedutil until they flip back; the row says which mode is on.
 - New hunks in upstream `quick_menu.rs` (one row), `app.rs` (the row arms) and `device_app.rs` (one
   line). Ported onto upstream main 1b20432 (ADR 0083): General has 7 upstream rows there, CPU sits
-  between Lid Power Off and Date & Time, and site (j) moved with it.
+  between Game Titles and Lid Power Off, and site (j) follows it. It cannot sit between Lid Power
+  Off and Date & Time (the v1.7.0 spot, just above Date & Time): upstream's
+  `the_arrows_stand_only_around_the_selected_rows_value` (`slot/tests/quick_menu.rs`) presses Down
+  once from Lid Power Off and expects Date & Time.
 - The BaseOS kernel must offer schedutil. If the probe below shows it does not, the row stays at
   Performance in effect and logs the refusal; the row should then be dropped.
 

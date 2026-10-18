@@ -28,10 +28,11 @@ code as possible, and prove GBA did not change.**
    rebase onto upstream main 1b20432, which ships that commit, ADR 0083.)
    - (j) approved by the maintainer on 2026-10-18 (ADR 0085): `the_rows_run_in_the_order_the_user_chose` in
      `crates/slot-ui/tests/quick_menu.rs` gains the single line `            "CPU",` between
-     `            "Lid Power Off",` and `            "Date & Time"` in the General labels, because
+     `            "Game Titles",` and `            "Lid Power Off",` in the General labels, because
      `QuickRow::GENERAL` gains the CPU row. Approved on v1.7.0 between `"Game Titles",` and
-     `"Date & Time"`; upstream main 1b20432 put its `"Lid Power Off",` row between those two, so the
-     line follows it and still sits directly before `"Date & Time"`. The guard removes exactly that
+     `"Date & Time"`; upstream main 1b20432 put its `"Lid Power Off",` row between those two, and
+     its `the_arrows_stand_only_around_the_selected_rows_value` (`slot/tests/quick_menu.rs`) pins
+     Date & Time directly after Lid Power Off, so the line stays right after `"Game Titles",`. The guard removes exactly that
      line before comparing and also accepts the file without it. Together with (g) and (h), any other
      line of that file changing still fails.
 
