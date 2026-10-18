@@ -1,0 +1,158 @@
+# ROM hack updates (`tools/hacks.py`)
+
+About 25 ROMs on the maintainer's card are hacks that still get new versions. `tools/hacks.py` tells
+you which have one, and updates them without losing the battery save or loading an old version's save
+state into the new ROM. The rules are in [ADR 0082](adr/0082-rom-hack-updates-keep-saves-move-states.md).
+The ~440 GoodTools `[h1]`, `[b1]`, `[T+...]` entries are old and never updated, and are not in the registry.
+
+```sh
+python3 tools/hacks.py --library /Volumes/MuOs/ROMS                         # check (default), read only
+python3 tools/hacks.py --device --library ~/ROMS                             # only the hacks on the card
+python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound --dry-run
+python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # prints the plan, asks y/N
+python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
+python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
+python3 tools/hacks.py --device --init                                       # write your settings file
+```
+
+`--card <root>` works on a mounted card instead of adb. `--yes` skips the question, `--as-version`
+names the version of a patch you dropped in by hand. `task hacks:check` and `task hacks:update` run the
+same thing with `-- <flags>`.
+
+## The flow
+
+1. **Check** (default, read only). Per hack: the installed version (the state file, else the version
+   in the file name, else `unknown`) against the latest:
+   - `github:` the GitHub releases API (`/releases/latest`, cached an hour: unauthenticated calls get
+     60 an hour). `UPDATE AVAILABLE` when the tag differs from the installed version.
+   - `page:` the page is fetched. With a `version_regex` its first group is the latest version;
+     otherwise the page's SHA-256 is compared with the first one seen (kept in the cache dir):
+     `page baseline recorded`, `page unchanged since ...` or `page changed since ...: look`, with the link.
+   - `manual`: just the link.
+   Nothing is written to the card, the library or the settings; only the cache dir.
+2. **Get the patch.** A `github:` source downloads the one release asset that matches `asset` (cached
+   under the cache dir by version). Any other source reads the newest file in
+   `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips` or `.ups`, a ROM, or a `.zip` holding exactly one of
+   them (read in memory; a 7z or rar you extract yourself). Nothing downloaded is ever run.
+3. **Find the base ROM** in `--library` by the whole file's CRC32 (`base_crc32`): zip headers first,
+   then loose files. Missing: refused.
+4. **Patch in pure Python.** BPS and UPS check the base's CRC, the result's CRC and the patch's own
+   CRC. IPS has no checksums, so the entry's `target_crc32` is checked when known, else a warning. A
+   pre-patched ROM is checked against `target_crc32` when known. Any mismatch: refused. xdelta has no
+   pure-Python path here: patch it yourself and drop the ROM in the incoming folder.
+5. **Plan and confirm.** Every refusal (not on the card, seated, no base, CRC, already installed)
+   happens before the first write. `--dry-run` prints the plan and stops; a real run prints it and asks.
+6. **Card.** Into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, at the same card paths:
+   `backup.json` (what is where), the battery saves copied (`Saves/<SYS>/<stem>.sav`, `.srm`, PS1
+   `.disc`), every `States/<SYS>/<core>/<stem>/` folder moved (all cores: GBA can have both `mgba` and
+   `gpsp`), the old ROM moved. Then the new ROM is written under the same name.
+7. **Library** (the Mac): the old file, loose or zipped, and RetroArch's `<stem>.state*` files next to
+   it are moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so the handheld
+   frontend never lists a backup as a game), the `.srm` copied; the new ROM goes in under the same name
+   (a zip keeps its zip name and member name).
+8. **Record** the new version, CRC32, date and backup paths in
+   `~/.config/slot-nes-snes/hacks-state.json`.
+
+`--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
+copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
+
+## Save and state rules, and why
+
+- **Same file name.** slot keys the save, the states, the label, `cart_shell.txt`, `video_mode.txt`,
+  `selected_core.txt`, favourites, recents, `shelf_carts.txt` and the `shelf_cart=` line by the ROM's
+  stem. Keeping the name keeps all of them; nothing in `Config/` is edited.
+- **The battery save stays.** It is the game's own format; most hacks keep it across versions and
+  say so. When the registry says `saves_carry_over: "no"` the `.sav` still stays (and is backed up) with
+  a loud warning: the new version may refuse it or start a new game, and you decide.
+- **Every save state moves out.** A state is a snapshot of the whole machine made against one ROM;
+  loaded into another version it can crash or corrupt the game. `resume.state` loads by itself when
+  the game is seated, so it goes too. They are in the backup and come back with `--rollback`.
+- **A seated game is refused.** `Config/slot.state` holds `cart=<stem>` and `cart_platform=<system>`
+  while a game is in the slot; eject it first, so slot does not resume it with an old state.
+
+## Settings: the registry
+
+`tools/hacks.json` is the researched seed, shipped in the repo. Your own
+`~/.config/slot-nes-snes/hacks.json` (next to `screenscraper.env`) is read on top of it: an entry with
+a seed id overrides just the fields it gives, a new id adds a hack (it needs `system`, `card` and
+`source`), an unknown field or an override for an id that is not in the seed is ignored with a warning.
+Both are JSON with whole-line `//` comments (the repo's Python is 3.9, which has no `tomllib`). What
+is installed lives in `hacks-state.json`, never in your settings, so the file stays hand-written and
+diffable. `--init` writes a commented example (the seed hacks found on the card as commented override
+lines, and the card's other hack-looking files, by a version number or `hack` in the name, as new
+entries with a blank source); it never overwrites an existing file.
+
+| Field | Meaning |
+|---|---|
+| id (the key) | stable id, e.g. `pokemon-unbound`; used by `--update`, `--rollback`, the incoming folder, the state file |
+| `name` | display name |
+| `system` | `GBA`, `GB`, `GBC`, `NES`, `SNES`, `GG`, `SMS`, `MD` or `PS1` (the card's `Games/<SYS>/`) |
+| `card` | the ROM's file name on the card, extension included |
+| `source` | `github:<owner>/<repo>` (release assets), `page:<url>` (a forum or site page), `manual` or `manual:<url>`, or `""` (not known yet) |
+| `asset` | glob for the release asset (`github:` only), e.g. `*.bps`; it must match exactly one asset |
+| `version_regex` | `page:` only: a regex whose first group is the latest version on the page |
+| `format` | `bps`, `ips`, `ups`, `xdelta`, `rom` (a pre-patched ROM) or `unknown`; informational, the patch's magic decides |
+| `base_name`, `base_crc32` | No-Intro name and CRC32 of the clean ROM the patch applies to |
+| `target_crc32` | CRC32 of the patched ROM, when the author publishes it (the only check an IPS gets) |
+| `saves_carry_over` | `yes`, `no` or `unknown`, from the release notes |
+| `save_note`, `latest_known`, `home`, `cite`, `notes` | the research: what the notes say, the version seen, the home page, the source URLs |
+
+A full user file:
+
+```json
+// ~/.config/slot-nes-snes/hacks.json
+{
+  // override two fields of a seed entry
+  "pokemon-unbound": {"source": "page:https://www.pokecommunity.com/threads/pok%C3%A9mon-unbound-completed.382178/",
+                      "version_regex": "Unbound v?([0-9][0-9.]+)"},
+  // add a hack the seed does not know
+  "sonic-fan-remix": {
+    "name": "Sonic Fan Remix",
+    "system": "MD",
+    "card": "Sonic Fan Remix v3.1.bin",
+    "source": "github:someone/sonic-fan-remix",
+    "asset": "*.bps",
+    "format": "bps",
+    "base_name": "Sonic The Hedgehog (USA, Europe)",
+    "base_crc32": "F9394E97",
+    "saves_carry_over": "unknown",
+    "cite": ["https://github.com/someone/sonic-fan-remix/releases"]
+  }
+}
+```
+
+## The seed
+
+Researched 2026-10-18; every entry cites its sources in `tools/hacks.json`. Unknown stays unknown.
+
+| id | system | latest seen | source | format | base | saves carry over |
+|---|---|---|---|---|---|---|
+| `pokemon-unbound` | GBA | 2.1.1.1 (2022-11-08) | `page` | bps | DD88761C | unknown |
+| `pokemon-radical-red` | GBA | 4.1 (2024-03-22) | `page` | unknown | DD88761C | yes |
+| `pokemon-inclement-emerald` | GBA | 1.13 (2021-11-28) | `github:BuffelSaft/pokeemerald` | unknown | 1F1C08FB | yes |
+| `pokemon-modern-emerald` | GBA | Release3.6 (2026-10-05) | `github:resetes12/pokeemerald` | bps | 1F1C08FB | yes |
+| `pokemon-lazarus` | GBA | 2.0 (about 2026-02) | `manual` | bps | 1F1C08FB | yes |
+| `pokemon-emerald-imperium` | GBA | 1.3.1 (2025-09-04) | `page` | bps | 1F1C08FB | unknown |
+| `pokemon-hyper-emerald` | GBA | 5.7 Lost Artifacts (secondary sites) | `manual` | rom | unknown | unknown |
+| `pokemon-hyper-emerald-lost-artifacts` | GBA | 5.7 (secondary sites) | `manual` | rom | unknown | unknown |
+| `pokemon-parallel-emerald` | GBA | 1.2 (2024-03-13) | `page` | ups | 1F1C08FB | unknown |
+| `mother-3` | GBA | 1.3 (2021-04-20) | `page` | ups | 42AC9CB9 | yes |
+| `castlevania-aos-definitive` | GBA | 1.0 (2024-10-07) | `page` | unknown | unknown | unknown |
+| `pokemon-elite-redux` | GBA | 2.65 Beta 2 (2026-03-08); stable 2.5 Hotfix 2 (2025-04-03) | `page` | unknown | unknown | unknown |
+| `pokemon-emerald-horizons` | GBA | 1.16 (first post edited 2025-10-09) | `page` | unknown | 1F1C08FB | unknown |
+| `pokemon-pisces` | GBA | 1.5.4 (2025-04-30) | `page` | bps | unknown | unknown |
+| `pokemon-emerald-genesis` | GBA | Beta 2.1 (2020) | `page` | unknown | unknown | unknown |
+| `pokemon-emerald-z` | GBA | 1.2.0 (2024-03-10) | `page` | unknown | unknown | unknown |
+| `pokemon-evolved` | GBA | 1.0 (2025-03-26) | `page` | ips | DAFFECEC | unknown |
+| `pokemon-prism` | GBC | 0.95.0254 Hotfix 5 (2023-08-24) | `page` | unknown | unknown | unknown |
+| `sonic-3d-blast-directors-cut` | MD | final (2017-12-24) | `page` | xdelta | 44A2CA44 | unknown |
+| `sonic-2-delta-ultimate` | MD | 1.12 (2025-06-01) | `page` | rom | unknown | unknown |
+| `sonic-3-delta` | MD | 0.1a (2002-11-29) | `page` | rom | unknown | unknown |
+| `s2k-long` | MD | 1.8.1 (2004-10-22) | `page` | unknown | unknown | unknown |
+| `s2smtp` | MD | 0.5 (2008) | `page` | rom | unknown | unknown |
+
+Left out: `Sonic 2 remix`, `Sonic 2 mecha world`, `Sonic 2 GHZ v0.2`, `Knuckles in Sonic 2 GHZ v0.1`,
+`sonic 2 salus` and `Sonic 2 haz` (not identified anywhere searched; add them in your settings if you
+find their home), and the GoodTools-tagged hacks. Pokemon Unbound and Radical Red need FireRed 1.0
+(DD88761C); the maintainer's library holds only Rev 1 (84EE4776), so their updates refuse until it is
+added.

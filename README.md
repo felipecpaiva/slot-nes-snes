@@ -94,6 +94,16 @@ Words: `nes`, `famicom`, `snes`, `sfc`, `gg`, `sms`, `segacard`, `megadrive`, `g
 
 Keep NES and SNES overrides in `Config/cart_shell.txt`. The cart studio at studio.slot-cfw.fyi writes `Labels/cart_shell.txt`, and whether it keeps the new words when it rewrites that file has not been checked.
 
+## Updating ROM hacks
+
+`tools/hacks.py` (standard library only) checks the ROM hacks on the card against their latest releases and updates them: the patch (BPS, IPS or UPS, applied in pure Python to the clean base ROM it finds in your library by CRC32) or a pre-patched ROM goes in under the same file name, the battery save stays, and every save state of that game moves to `Backups/hacks/` on the card (ADR 0082). The registry is `tools/hacks.json`, with your own `~/.config/slot-nes-snes/hacks.json` on top. See `docs/HACKS.md`.
+
+```sh
+task hacks:check -- --library ~/ROMS                                              # read only
+task hacks:update -- --device --library ~/ROMS --update pokemon-unbound --dry-run  # look first
+task hacks:update -- --device --library ~/ROMS --update pokemon-unbound            # asks before writing
+```
+
 ## Fetching real cart labels
 
 `tools/fetch-labels.py` (python3 standard library only) puts the real printed label on every cart of every shelf: GBA, GB, GBC, NES, SNES, Game Gear, Master System and Mega Drive. It never uses a screenshot, and box art only for Master System, whose carts carry little more than the name: every Master System cart shows its whole front box (ScreenScraper `box-2D`, ADR 0057), and nothing it fetches is committed: art is downloaded on your machine, at the time you run it, into your cache folder (`~/Library/Caches/slot-nes-snes/labels` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere), so a rerun fetches nothing twice.
