@@ -114,8 +114,9 @@ them, so we do not make those buttons remappable.
 
 - Left stick on PlayStation: with "Left Stick as D-Pad" on (upstream's default) and a device in
   upstream's stick list (the RG34XXSP is, 1b20432), the left stick both steers the D-pad and moves the
-  analog stick in a PS1 game. Both upstream's and our behaviour are kept; the setting turns the D-pad
-  half off. Whether a PS1 game should mute the D-pad steering is open for the maintainer.
+  analog stick in a PS1 game. Decided by the maintainer on 2026-10-18: keep both, as upstream's
+  setting and our analog stick each do on their own; a user who wants analog only turns "Left Stick
+  as D-Pad" off. No PS1 special case.
 - Upstream-first candidates: the resampler `drop` clamp above; making X, Y, L2 and R2 remappable (a `GameButton` list per system) would
   replace `raw_buttons.rs`; the lost GBA turbo on X and Y may be an upstream regression worth an issue.
 - Lid: our doze rest (0050) keeps running the timers, so upstream's `lid_off_min` timer powers off on

@@ -75,3 +75,10 @@ and 0x02/0x05.
   mapped once the device confirms them.
 - **Rumble:** event1 reports FF_RUMBLE. pcsx's DualShock rumble (`pcsx_rearmed_vibration`, enabled)
   reaches slot's existing `Rumble` path, so it buzzes when the Rumble row is on. Needs a device check.
+
+## Amendment (2026-10-18, rebase onto upstream main 1b20432, ADR 0083)
+
+- Upstream bfb8bb2 lets the left stick steer the D-pad ("Left Stick as D-Pad", on by default) on
+  devices in its stick list, the RG34XXSP included. The maintainer decided to keep both: with the
+  setting on, the left stick drives the D-pad and the PS1 analog stick together; turning the setting
+  off leaves analog only. The sticks are still published from the same `read_node` events.
