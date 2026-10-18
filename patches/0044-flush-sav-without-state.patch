@@ -1,0 +1,159 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 09:52:51 +0400
+Subject: [PATCH] flush-sav-without-state
+
+flush_resume, flush_eject and autosave now write the battery save when
+the core gives no state, instead of returning before it, so a doze
+that ends in a power off, an eject or an autosave keeps in-game
+progress held in save RAM. The missing state is logged.
+Generic half of suprsomething/slot.advance dbbadae (GPL-3.0),
+https://github.com/suprsomething/slot.advance/commit/dbbadae
+---
+ crates/slot/src/app.rs                   | 21 ++++-----
+ crates/slot/src/lib.rs                   |  1 +
+ crates/slot/src/no_state.rs              |  7 +++
+ crates/slot/tests/flush_without_state.rs | 59 ++++++++++++++++++++++++
+ 4 files changed, 76 insertions(+), 12 deletions(-)
+ create mode 100644 crates/slot/src/no_state.rs
+ create mode 100644 crates/slot/tests/flush_without_state.rs
+
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 667e257..0928a15 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -3820,11 +3820,10 @@ impl App {
+         let (Some(root), Some(snapshot)) = (&self.root, &self.snapshot) else {
+             return;
+         };
+-        let Some(state) = snapshot.state() else {
+-            eprintln!("slot: eject: the core gave up no state");
+-            return;
++        let (state, sav) = match snapshot.state() {
++            Some(state) => trusted_write(snapshot.as_ref(), state, "eject"),
++            None => crate::no_state::save_ram_alone(snapshot.as_ref(), "eject"),
+         };
+-        let (state, sav) = trusted_write(snapshot.as_ref(), state, "eject");
+         let state = state.filter(|_| self.state.eject_save);
+         match persist::eject(
+             root,
+@@ -4344,11 +4343,10 @@ impl App {
+         else {
+             return;
+         };
+-        let Some(state) = snapshot.state() else {
+-            eprintln!("slot: autosave: the core gave up no state");
+-            return;
++        let (state, sav) = match snapshot.state() {
++            Some(state) => trusted_write(snapshot.as_ref(), state, "autosave"),
++            None => crate::no_state::save_ram_alone(snapshot.as_ref(), "autosave"),
+         };
+-        let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
+         let (root, platform, core, cart) =
+             (root.clone(), self.platform, self.core, cart.to_owned());
+         let failing = self.card_writes.clone();
+@@ -4382,11 +4380,10 @@ impl App {
+         else {
+             return;
+         };
+-        let Some(state) = snapshot.state() else {
+-            eprintln!("slot: flush: the core gave up no state");
+-            return;
++        let (state, sav) = match snapshot.state() {
++            Some(state) => trusted_write(snapshot.as_ref(), state, "flush"),
++            None => crate::no_state::save_ram_alone(snapshot.as_ref(), "flush"),
+         };
+-        let (state, sav) = trusted_write(snapshot.as_ref(), state, "flush");
+         let written = persist::flush(
+             root,
+             self.platform,
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 27f26ad..39a20c6 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -34,6 +34,7 @@ pub mod link_radio;
+ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
++pub mod no_state;
+ pub mod pal_speed;
+ pub mod panel_turn;
+ pub mod persist;
+diff --git a/crates/slot/src/no_state.rs b/crates/slot/src/no_state.rs
+new file mode 100644
+index 0000000..a4a394e
+--- /dev/null
++++ b/crates/slot/src/no_state.rs
+@@ -0,0 +1,7 @@
++use crate::persist::Snapshot;
++
++pub fn save_ram_alone(snapshot: &dyn Snapshot, verb: &str) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
++    eprintln!("slot: {verb}: the core gave up no state, writing the save ram alone");
++    let sav = snapshot.save_ram().filter(|_| snapshot.save_ram_trusted());
++    (None, sav)
++}
+diff --git a/crates/slot/tests/flush_without_state.rs b/crates/slot/tests/flush_without_state.rs
+new file mode 100644
+index 0000000..48624a4
+--- /dev/null
++++ b/crates/slot/tests/flush_without_state.rs
+@@ -0,0 +1,59 @@
++mod common;
++
++use common::{app_playing_with, tmp_root_with_carts};
++use slot::persist;
++use slot::persist::Snapshot;
++use slot_input::Action;
++use slot_store::Platform;
++
++struct NoState;
++
++impl Snapshot for NoState {
++    fn state(&self) -> Option<Vec<u8>> {
++        None
++    }
++
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        Some(vec![7u8; 32])
++    }
++
++    fn thumb(&self) -> Option<Vec<u8>> {
++        None
++    }
++
++    fn load(&self, _state: Vec<u8>) {}
++}
++
++#[test]
++fn a_doze_writes_the_save_ram_even_when_the_core_gives_no_state() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
++    a.apply(Action::PowerTap);
++    assert_eq!(
++        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        Some(vec![7u8; 32])
++    );
++}
++
++#[test]
++fn an_eject_writes_the_save_ram_even_when_the_core_gives_no_state() {
++    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
++    let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
++    a.apply(Action::Eject);
++    assert_eq!(
++        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        Some(vec![7u8; 32])
++    );
++}
++
++#[test]
++fn an_autosave_writes_the_save_ram_even_when_the_core_gives_no_state() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
++    a.tick_ms(60_000);
++    a.settle_saves();
++    assert_eq!(
++        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        Some(vec![7u8; 32])
++    );
++}

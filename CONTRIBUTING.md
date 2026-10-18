@@ -16,7 +16,7 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   seven, and the guard checks each one exactly:
+   eight, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
    - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`, `| Platform::Gg`, `| Platform::Sms`, `| Platform::Md` and `| Platform::Ps1`, in that order (the Sega and PlayStation tokens by the standing rule below, ADR 0055 and ADR 0065). The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
@@ -24,6 +24,13 @@ code as possible, and prove GBA did not change.**
    - (f) `a_card_from_before_the_settings_keeps_all_its_values` in `crates/slot-store/tests/durability.rs`: its full `SlotState` literal gains exactly `shader_nes: Shader::Off,` and `shader_snes: Shader::Off,`, in that order, directly after `shader_gb: Shader::Simpletex,`, because that literal has no `..Default::default()` and the new fields are required. Approved by the maintainer on 2026-10-13 (issue 21). Any other line of that file changing still fails.
    - (g) `the_rows_run_in_the_order_the_user_chose` in `crates/slot-ui/tests/quick_menu.rs`: the line `        ["Game Boy Advance", "Game Boy Color", "Game Boy"]` becomes `        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"]`, because `QuickRow::SCREEN` lists NES and SNES (ADR 0048, approved by the maintainer on 2026-10-15), and then optionally gains `, "Game Gear", "Master System", "Mega Drive"` before the `]` (ADR 0055), and after those optionally `, "PlayStation"` (ADR 0065).
    - (h) the same test: the line `            QuickRow::ScreenGb` (last entry of the rows that open pages) becomes `            QuickRow::ScreenGb, QuickRow::ScreenNes, QuickRow::ScreenSnes`, on that one line (ADR 0048), then optionally `, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd` on the same line (ADR 0055), and after those optionally `, QuickRow::ScreenPs1` (ADR 0065). Any other line of that file changing still fails.
+   - (i) `crates/slot-power/tests/device.rs`: exactly the four lines upstream 3b6349c changes (the
+     backlight floor, issue #100): `(40..=80)` becomes `(40..=90)`, `fn step_one_is_the_dimmest_lit_value()`
+     becomes `fn step_one_is_the_dimmest_value_the_rg34xx_lights()`, `assert_eq!(brightness(&d), 1);`
+     becomes `assert_eq!(brightness(&d), 8);`, and the curve `[0, 1, 8, 23, 47, 77, 113, 155, 202, 255]`
+     becomes `[0, 8, 14, 30, 52, 81, 117, 157, 204, 255]`. A backport of an upstream commit, approved by
+     the maintainer on 2026-10-18 (ADR 0075), dropped on the 1.8.0 rebase. Any other line of that file
+     changing still fails.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must

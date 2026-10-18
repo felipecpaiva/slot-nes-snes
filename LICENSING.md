@@ -321,3 +321,10 @@ The 2 fps window around 60 and the period-based `core_hz` follow cloudwithax/uns
 carry follows nelynes/slotPlus ([0848fcb](https://github.com/nelynes/slotPlus/commit/0848fcb),
 [b264635](https://github.com/nelynes/slotPlus/commit/b264635)). All three are GPL-3.0, the code is
 reimplemented, and all three are credited in the patch commit.
+
+Patch `0044-flush-sav-without-state` takes the generic half of suprsomething/slot.advance commit
+dbbadae (writing the battery save when the core gives no state), patch `0045-shelf-face-restock`
+reimplements the stale face check, the face-keeping restock and the selected-index lookups of
+marghost/slot_modded commit 88af60a, and patch `0046-switcher-up-down` takes Up and Down in the save
+state switcher from suprsomething/slot.advance commit 2fe9876. Both forks are GPL-3.0 and are
+credited in the patch commits.
