@@ -39,6 +39,7 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [33](33-deferred-fds.md) | DEFERRED: Support the Famicom Disk System as a variant and core | 6 | cores | chore | L | 32-phase-6-deferred |
 | [34](34-deferred-pal-pacing.md) | DEFERRED: Pace PAL titles at 50 Hz (superseded by 66) | 6 | video | chore | M | 32-phase-6-deferred |
 | [35](35-deferred-stem-key-collision.md) | DEFERRED: Fix the stem-key collision in selected_core.txt, video_mode.txt and cart_shell.txt | 6 | platform | chore | M | 32-phase-6-deferred |
+| [80](80-deferred-cheats.md) | DEFERRED: Per-game cheats from the libretro cheat database | 6 | platform | chore | L | 32-phase-6-deferred |
 | [36](36-deferred-option-b-video.md) | DEFERRED: Move to Option B variable frame size for true SNES hi-res | 6 | video | chore | L | 32-phase-6-deferred |
 | [38](38-dev-tools-mise.md) | Pin the developer toolchain with mise | 1 | infra | chore | S | none |
 | [39](39-cross-platform-performance.md) | Evaluate performance across every platform and core so each one feels like GBA | 5 | device | test | L | 17-device-gate-log, 22-ff-and-rewind, 26-cart-art, 30-release-workflow |
