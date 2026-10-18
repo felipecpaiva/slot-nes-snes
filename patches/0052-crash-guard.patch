@@ -1,0 +1,403 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:32:10 +0400
+Subject: [PATCH] crash-guard
+
+slot writes Config/starting.txt (platform and stem) before it opens a
+core, and removes it once the game has published 300 frames or a
+resume state is written (flush, autosave). A boot that finds the mark
+naming the cart it would put back leaves that cart selected on the
+shelf with a Last start failed banner, so a game that crashes while
+starting no longer crashes every boot. The resume state stays on the
+card. Upstream-first (ADR 0047, ADR 0084): drop this patch when the
+upstream PR lands. Idea from oauramos/omega-zero be6eb11.
+---
+ crates/slot-ui/src/lib.rs          |   1 +
+ crates/slot-ui/src/quick_retro.rs  |   3 +-
+ crates/slot-ui/src/start_toast.rs  |   7 ++
+ crates/slot-ui/src/toast.rs        |   3 +
+ crates/slot/src/app.rs             |   8 ++
+ crates/slot/src/app/start_guard.rs |  67 +++++++++++++
+ crates/slot/src/session.rs         |   2 +
+ crates/slot/tests/crash_guard.rs   | 149 +++++++++++++++++++++++++++++
+ 8 files changed, 239 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-ui/src/start_toast.rs
+ create mode 100644 crates/slot/src/app/start_guard.rs
+ create mode 100644 crates/slot/tests/crash_guard.rs
+
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 566ceb5..1d92f2e 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -38,6 +38,7 @@ mod shelf;
+ mod shell;
+ mod silhouette;
+ mod slot_chrome;
++mod start_toast;
+ mod sticker;
+ pub mod text;
+ mod toast;
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index f89be41..df91a80 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -54,7 +54,7 @@ impl QuickValue {
+ 
+ impl Toast {
+     pub fn disc_index(d: crate::DiscToast) -> usize {
+-        Toast::all().len() + RetroShader::ALL.len() + crate::BatteryToast::ALL.len() + d.index()
++        Toast::all().len() + RetroShader::ALL.len() + crate::BatteryToast::ALL.len() + 1 + d.index()
+     }
+ 
+     pub fn every() -> Vec<Toast> {
+@@ -62,6 +62,7 @@ impl Toast {
+             .into_iter()
+             .chain(RetroShader::ALL.map(Toast::Retro))
+             .chain(crate::BatteryToast::ALL.map(Toast::Battery))
++            .chain([Toast::StartFailed])
+             .chain(crate::DiscToast::ALL.map(Toast::Disc))
+             .collect()
+     }
+diff --git a/crates/slot-ui/src/start_toast.rs b/crates/slot-ui/src/start_toast.rs
+new file mode 100644
+index 0000000..97f4b59
+--- /dev/null
++++ b/crates/slot-ui/src/start_toast.rs
+@@ -0,0 +1,7 @@
++use crate::Toast;
++
++impl Toast {
++    pub fn start_failed_index() -> usize {
++        Toast::all().len() + slot_store::RetroShader::ALL.len() + crate::BatteryToast::ALL.len()
++    }
++}
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index c7ab96b..a5015a9 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -30,6 +30,7 @@ pub enum Toast {
+     Retro(slot_store::RetroShader),
+     Disc(crate::DiscToast),
+     Battery(crate::BatteryToast),
++    StartFailed,
+ }
+ 
+ impl Toast {
+@@ -67,6 +68,7 @@ impl Toast {
+             Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+             Toast::Disc(d) => Toast::disc_index(d),
+             Toast::Battery(b) => Toast::battery_index(b),
++            Toast::StartFailed => Toast::start_failed_index(),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -114,6 +116,7 @@ impl Toast {
+             Toast::Retro(s) => s.toast(),
+             Toast::Disc(d) => d.text(),
+             Toast::Battery(b) => b.text(),
++            Toast::StartFailed => "Last start failed",
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9c5fefb..0418f77 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,6 +1,7 @@
+ mod battery_warn;
+ mod ps1_discs;
+ mod silent_start;
++mod start_guard;
+ 
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+@@ -453,6 +454,7 @@ pub struct App {
+     pal_speeds: crate::pal_speed::PalSpeeds,
+     sms_region: crate::sms_region::Region,
+     rested: Option<(usize, usize)>,
++    start_marked: bool,
+ }
+ 
+ const FACE_AHEAD: i32 = 8;
+@@ -635,6 +637,7 @@ impl App {
+             pal_speeds: crate::pal_speed::PalSpeeds::default(),
+             sms_region: crate::sms_region::Region::Auto,
+             rested: None,
++            start_marked: false,
+         }
+     }
+ 
+@@ -693,6 +696,9 @@ impl App {
+             Some((at, i)) => {
+                 self.shelf_at = at;
+                 self.shelf_mut().select(i);
++                if self.start_crashed() {
++                    return;
++                }
+                 self.insert(false);
+                 if let Phase::Inserting { resumed, t, .. } = &mut self.phase {
+                     *resumed = true;
+@@ -5149,6 +5155,7 @@ impl App {
+         };
+         let (root, platform, core, cart) =
+             (root.clone(), self.platform, self.core, cart.to_owned());
++        self.settle_start_now();
+         let failing = self.card_writes.clone();
+         let write = move || {
+             let written = persist::flush(
+@@ -5196,6 +5203,7 @@ impl App {
+             eprintln!("slot: flush: {e}");
+         }
+         self.card_writes.wrote("flush", &written);
++        self.settle_start_now();
+     }
+ 
+     fn ring(&self) -> Option<StateRing> {
+diff --git a/crates/slot/src/app/start_guard.rs b/crates/slot/src/app/start_guard.rs
+new file mode 100644
+index 0000000..cd6373b
+--- /dev/null
++++ b/crates/slot/src/app/start_guard.rs
+@@ -0,0 +1,67 @@
++use std::path::{Path, PathBuf};
++
++use slot_store::Platform;
++use slot_ui::Toast;
++
++use super::App;
++
++const START_SETTLED_FRAMES: u64 = 300;
++
++fn mark_file(root: &Path) -> PathBuf {
++    root.join("Config/starting.txt")
++}
++
++fn mark_line(platform: Platform, stem: &str) -> String {
++    format!("{}/{stem}", platform.dir_name())
++}
++
++impl App {
++    pub fn mark_start(&mut self, platform: Platform, stem: &str) {
++        let Some(root) = &self.root else {
++            return;
++        };
++        let line = mark_line(platform, stem);
++        match std::fs::write(mark_file(root), format!("{line}\n")) {
++            Ok(()) => self.start_marked = true,
++            Err(e) => eprintln!("slot: start guard: {e}"),
++        }
++    }
++
++    pub fn settle_start(&mut self, frames: u64) {
++        if !self.start_marked || frames < START_SETTLED_FRAMES {
++            return;
++        }
++        self.start_marked = false;
++        let Some(root) = &self.root else {
++            return;
++        };
++        if let Err(e) = std::fs::remove_file(mark_file(root)) {
++            if e.kind() != std::io::ErrorKind::NotFound {
++                eprintln!("slot: start guard: {e}");
++            }
++        }
++    }
++
++    pub(super) fn settle_start_now(&mut self) {
++        self.settle_start(START_SETTLED_FRAMES);
++    }
++
++    pub(super) fn start_crashed(&mut self) -> bool {
++        let Some(root) = &self.root else {
++            return false;
++        };
++        let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
++            return false;
++        };
++        let line = mark_line(cart.platform, &cart.stem);
++        let marked = std::fs::read_to_string(mark_file(root))
++            .is_ok_and(|m| m.trim_end_matches('\n') == line);
++        if !marked {
++            return false;
++        }
++        eprintln!("slot: start guard: {line} did not finish its last start, kept on the shelf");
++        self.name_pending = true;
++        self.hud.toast(Toast::StartFailed, self.now());
++        true
++    }
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 0803254..d963d62 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -343,6 +343,7 @@ impl Session {
+             launch("first frame shown");
+         }
+         self.app.set_game_ready(ready);
++        self.app.settle_start(self.frames_published());
+         self.sync_speed();
+         self.sync_rewind_hud();
+         self.sync_ff_hud();
+@@ -519,6 +520,7 @@ impl Session {
+         crate::audio::wake_device();
+         let core = slot_store::core_for_platform(&self.root, stem, platform);
+         launch(&format!("opening {stem} on {}", core.as_str()));
++        self.app.mark_start(platform, stem);
+         self.app.set_core(core);
+         self.app.set_platform(platform);
+         self.app
+diff --git a/crates/slot/tests/crash_guard.rs b/crates/slot/tests/crash_guard.rs
+new file mode 100644
+index 0000000..cdbdf06
+--- /dev/null
++++ b/crates/slot/tests/crash_guard.rs
+@@ -0,0 +1,149 @@
++mod common;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::{tmp_root_with_carts, StubSnapshot};
++use slot::app::{App, Phase};
++use slot::persist;
++use slot::session::Session;
++use slot_store::{write_slot_state, Core, Platform, SlotState};
++use slot_ui::Toast;
++
++fn left_running(stem: &str) -> tempfile::TempDir {
++    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
++    seat(d.path(), stem);
++    persist::flush(
++        d.path(),
++        Platform::Gba,
++        Core::Mgba,
++        "Emerald",
++        Some(&500_000u64.to_le_bytes()),
++        None,
++    )
++    .expect("flush");
++    d
++}
++
++fn seat(root: &Path, stem: &str) {
++    write_slot_state(
++        root,
++        &SlotState {
++            cart: Some(stem.into()),
++            cart_platform: Some(Platform::Gba),
++            clock_set: true,
++            utc_offset_min: 0,
++            ..Default::default()
++        },
++    )
++    .expect("write slot.state");
++}
++
++fn crash_while_starting(root: &Path) {
++    let s = Session::boot(root.to_path_buf());
++    assert!(s.has_core(), "the game was not started");
++}
++
++fn inserting(a: &App) -> Option<&str> {
++    match a.phase() {
++        Phase::Inserting { cart, .. } => Some(cart),
++        _ => None,
++    }
++}
++
++#[test]
++fn a_start_that_never_got_through_leaves_the_cart_on_the_shelf() {
++    let d = left_running("Emerald");
++    crash_while_starting(d.path());
++
++    let a = App::boot(d.path());
++
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.selected_stem(), Some("Emerald"));
++    assert_eq!(a.toast(), Some(Toast::StartFailed));
++}
++
++#[test]
++fn a_start_that_never_got_through_keeps_its_resume_state() {
++    let d = left_running("Emerald");
++    crash_while_starting(d.path());
++
++    let _ = App::boot(d.path());
++
++    assert_eq!(
++        persist::read_resume(d.path(), Platform::Gba, Core::Mgba, "Emerald"),
++        Some(500_000u64.to_le_bytes().to_vec())
++    );
++}
++
++#[test]
++fn a_cart_kept_on_the_shelf_stays_there_until_a_start_gets_through() {
++    let d = left_running("Emerald");
++    crash_while_starting(d.path());
++
++    let _ = App::boot(d.path());
++    let a = App::boot(d.path());
++
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++}
++
++#[test]
++fn a_start_that_runs_its_first_frames_resumes_on_the_next_boot() {
++    let d = left_running("Emerald");
++    let mut s = Session::boot(d.path().to_path_buf());
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while s.frames_published() < 300 {
++        assert!(Instant::now() < deadline, "the game never ran 300 frames");
++        s.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    s.update(1.0 / 60.0);
++    drop(s);
++
++    let a = App::boot(d.path());
++
++    assert_eq!(inserting(&a), Some("Emerald"));
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn a_flush_before_the_first_frames_also_clears_the_mark() {
++    let d = left_running("Emerald");
++    let mut a = App::boot(d.path());
++    a.mark_start(Platform::Gba, "Emerald");
++    a.set_snapshot(StubSnapshot::boxed());
++    a.on_core_ready();
++    for _ in 0..600 {
++        if matches!(a.phase(), Phase::Playing { .. }) {
++            break;
++        }
++        a.update(1.0 / 60.0);
++    }
++    a.flush_resume();
++    drop(a);
++
++    let a = App::boot(d.path());
++
++    assert_eq!(inserting(&a), Some("Emerald"));
++}
++
++#[test]
++fn the_mark_holds_back_only_the_cart_it_names() {
++    let d = left_running("Emerald");
++    crash_while_starting(d.path());
++    seat(d.path(), "Fusion");
++
++    let a = App::boot(d.path());
++
++    assert_eq!(inserting(&a), Some("Fusion"));
++}
++
++#[test]
++fn the_start_failed_banner_uploads_in_its_own_place() {
++    let every = Toast::every();
++    assert_eq!(
++        every.get(Toast::StartFailed.index()),
++        Some(&Toast::StartFailed)
++    );
++    assert_eq!(Toast::StartFailed.text(), "Last start failed");
++}
