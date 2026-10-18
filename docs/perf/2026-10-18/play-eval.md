@@ -40,6 +40,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 1395.300 | 1395.300 | n/a |
 | ps1-pal | 1 | 1773.500 | 1773.500 | n/a |
 | sms-pal | 1 | 1271.100 | 1271.100 | n/a |
+| sms-region-auto | 1 | 1711.600 | 1711.600 | n/a |
+| sms-region-europe | 1 | 1205.900 | 1205.900 | n/a |
 
 ## Insert or resume to first game frame (ms)
 
@@ -49,6 +51,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 738.200 | 738.200 | n/a |
 | ps1-pal | 1 | 1378.900 | 1378.900 | n/a |
 | sms-pal | 1 | 639.700 | 639.700 | n/a |
+| sms-region-auto | 1 | 1106.600 | 1106.600 | n/a |
+| sms-region-europe | 1 | 530.100 | 530.100 | n/a |
 
 ## Audio starved samples, session total
 
@@ -58,6 +62,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 0.000 | 0.000 | n/a |
 | ps1-pal | 1 | 0.000 | 0.000 | n/a |
 | sms-pal | 1 | 0.000 | 0.000 | n/a |
+| sms-region-auto | 1 | 0.000 | 0.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Audio dropped samples, session total
 
@@ -67,6 +73,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 0.000 | 0.000 | n/a |
 | ps1-pal | 1 | 0.000 | 0.000 | n/a |
 | sms-pal | 1 | 0.000 | 0.000 | n/a |
+| sms-region-auto | 1 | 0.000 | 0.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Audio starved, trace maximum (per 300 frames, cumulative)
 
@@ -76,6 +84,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 0.000 | 0.000 | n/a |
 | ps1-pal | 1 | 0.000 | 0.000 | n/a |
 | sms-pal | 1 | 0.000 | 0.000 | n/a |
+| sms-region-auto | 1 | 0.000 | 0.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Audio dropped, trace maximum
 
@@ -85,6 +95,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 0.000 | 0.000 | n/a |
 | ps1-pal | 1 | 0.000 | 0.000 | n/a |
 | sms-pal | 1 | 0.000 | 0.000 | n/a |
+| sms-region-auto | 1 | 0.000 | 0.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Input latency median (ms)
 
@@ -94,6 +106,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 18.400 | 18.400 | n/a |
 | ps1-pal | 1 | 23.100 | 23.100 | n/a |
 | sms-pal | 1 | 17.600 | 17.600 | n/a |
+| sms-region-auto | 1 | 16.600 | 16.600 | n/a |
+| sms-region-europe | 1 | 17.000 | 17.000 | n/a |
 
 ## Input latency p99 (ms)
 
@@ -103,6 +117,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 40.800 | 40.800 | n/a |
 | ps1-pal | 1 | 45.000 | 45.000 | n/a |
 | sms-pal | 1 | 39.600 | 39.600 | n/a |
+| sms-region-auto | 1 | 24.000 | 24.000 | n/a |
+| sms-region-europe | 1 | 39.200 | 39.200 | n/a |
 
 ## Input latency max (ms)
 
@@ -112,6 +128,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 41.500 | 41.500 | n/a |
 | ps1-pal | 1 | 48.500 | 48.500 | n/a |
 | sms-pal | 1 | 39.700 | 39.700 | n/a |
+| sms-region-auto | 1 | 24.600 | 24.600 | n/a |
+| sms-region-europe | 1 | 40.400 | 40.400 | n/a |
 
 ## Presents that missed a latch (total over the session)
 
@@ -121,6 +139,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 1.000 | 1.000 | n/a |
 | ps1-pal | 1 | 1.000 | 1.000 | n/a |
 | sms-pal | 1 | 1.000 | 1.000 | n/a |
+| sms-region-auto | 1 | 1.000 | 1.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Presents drawn early (total)
 
@@ -130,6 +150,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 79.000 | 79.000 | n/a |
 | ps1-pal | 1 | 1703.000 | 1703.000 | n/a |
 | sms-pal | 1 | 27.000 | 27.000 | n/a |
+| sms-region-auto | 1 | 32.000 | 32.000 | n/a |
+| sms-region-europe | 1 | 32.000 | 32.000 | n/a |
 
 ## Work per frame, median over 600 frame windows (ms)
 
@@ -139,6 +161,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 7.100 | 7.100 | n/a |
 | ps1-pal | 1 | 10.400 | 10.400 | n/a |
 | sms-pal | 1 | 5.800 | 5.800 | n/a |
+| sms-region-auto | 1 | 6.100 | 6.100 | n/a |
+| sms-region-europe | 1 | 6.000 | 6.000 | n/a |
 
 ## Work per frame, worst 600 frame window (ms)
 
@@ -148,6 +172,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 9.100 | 9.100 | n/a |
 | ps1-pal | 1 | 15.700 | 15.700 | n/a |
 | sms-pal | 1 | 7.400 | 7.400 | n/a |
+| sms-region-auto | 1 | 7.800 | 7.800 | n/a |
+| sms-region-europe | 1 | 7.000 | 7.000 | n/a |
 
 ## Present period, median (ms)
 
@@ -157,6 +183,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 16.790 | 16.790 | n/a |
 | ps1-pal | 1 | 16.780 | 16.780 | n/a |
 | sms-pal | 1 | 16.780 | 16.780 | n/a |
+| sms-region-auto | 1 | 16.780 | 16.780 | n/a |
+| sms-region-europe | 1 | 16.780 | 16.780 | n/a |
 
 ## Present interval p50, median over windows (ms)
 
@@ -166,6 +194,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 16.780 | 16.780 | n/a |
 | ps1-pal | 1 | 16.790 | 16.790 | n/a |
 | sms-pal | 1 | 16.780 | 16.780 | n/a |
+| sms-region-auto | 1 | 16.790 | 16.790 | n/a |
+| sms-region-europe | 1 | 16.790 | 16.790 | n/a |
 
 ## Present interval p99, worst window (ms)
 
@@ -175,6 +205,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 17.390 | 17.390 | n/a |
 | ps1-pal | 1 | 18.860 | 18.860 | n/a |
 | sms-pal | 1 | 17.320 | 17.320 | n/a |
+| sms-region-auto | 1 | 17.470 | 17.470 | n/a |
+| sms-region-europe | 1 | 17.340 | 17.340 | n/a |
 
 ## Present interval, longest (ms)
 
@@ -184,6 +216,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 41.450 | 41.450 | n/a |
 | ps1-pal | 1 | 284.570 | 284.570 | n/a |
 | sms-pal | 1 | 58.270 | 58.270 | n/a |
+| sms-region-auto | 1 | 81.380 | 81.380 | n/a |
+| sms-region-europe | 1 | 19.570 | 19.570 | n/a |
 
 ## Crash lines
 
@@ -193,6 +227,8 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 0.000 | 0.000 | n/a |
 | ps1-pal | 1 | 0.000 | 0.000 | n/a |
 | sms-pal | 1 | 0.000 | 0.000 | n/a |
+| sms-region-auto | 1 | 0.000 | 0.000 | n/a |
+| sms-region-europe | 1 | 0.000 | 0.000 | n/a |
 
 ## Sessions that ended cleanly (summary line present)
 
@@ -202,3 +238,5 @@ Each cell is median / worst over runs. Every run plays the same script on every 
 | nes-pal | 1 | 1 |
 | ps1-pal | 1 | 1 |
 | sms-pal | 1 | 1 |
+| sms-region-auto | 1 | 1 |
+| sms-region-europe | 1 | 1 |
