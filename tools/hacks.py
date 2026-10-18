@@ -8,6 +8,7 @@
     python3 tools/hacks.py --device --library ~/ROMS --all --dry-run
     python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
     python3 tools/hacks.py --device --init                                    # write the user settings file
+    python3 tools/hacks.py --library ~/ROMS --fix-library-zips --dry-run      # unzip updated hacks' library copies
 
 Registry: tools/hacks.json (the researched seed) with the user's ~/.config/slot-nes-snes/hacks.json read on
 top: an entry with a seed id overrides those fields, a new id adds a hack (it needs system, card, source).
@@ -35,8 +36,9 @@ Any mismatch refuses. Then, on the card (ADR 0082):
     backup.json listing them;
   - the new ROM is written under the SAME file name, so labels, cart_shell, video_mode, selected_core,
     favourites, recents and the shelf memory stay attached.
-The library copy gets the same: the old file (loose or zip, rewritten under the same zip and member name)
-is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/. The library is the muOS card: its RetroArch
+The library copy gets the same: the old file is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/ and the
+new ROM is written loose (slot reads no zip): a zip comes back as its member's name, never beside a loose
+copy. --fix-library-zips does that for hacks updated while the library copy stayed a zip. The library is the muOS card: its RetroArch
 <stem>.state* and .srm files are left alone (a note says old states there may not load). Nothing is
 deleted anywhere.
 --rollback <id> moves the current ROM, saves and states into a new backup and copies the newest update
@@ -567,7 +569,8 @@ def library_target(lib, h):
         if not p.lower().endswith(".zip"):
             return p, None
         with zipfile.ZipFile(p) as z:
-            roms = [i.filename for i in z.infolist() if os.path.splitext(i.filename)[1].lower() in exts]
+            roms = [i.filename for i in z.infolist() if os.path.splitext(i.filename)[1].lower() in exts
+                    and not os.path.basename(i.filename).startswith("._") and not i.filename.startswith("__MACOSX/")]
         if len(roms) != 1:
             raise Refuse(f"{hits[0]} holds {len(roms)} ROMs, want exactly one")
         return p, roms[0]
@@ -633,13 +636,27 @@ def find_base(lib, system, crc):
     return None, None
 
 
-def rezip(path, member, data):
-    """path's zip rewritten with member holding data (the other members kept)."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(path) as old, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as new:
-        for i in old.infolist():
-            new.writestr(i, data if i.filename == member else old.read(i))
-    return buf.getvalue()
+def library_ops(ctx, lib, system, stem, label, new, meta):
+    """(ops, backup dir, library name) for one library copy: the old file moved to the Mac backup, the new
+    ROM written loose. slot reads no zip, so a zipped copy comes back as the loose ROM under its member's
+    name, and a zip and a loose copy of one hack never sit side by side (the one-file rule)."""
+    path, member = lib
+    folder = os.path.dirname(path)
+    name = os.path.basename(member) if member else os.path.basename(path)
+    if member and any(fl.nfc(n) == fl.nfc(name) for n in os.listdir(folder)):
+        raise Refuse(f"{name} already sits next to {os.path.basename(path)} in the library: keep one copy, "
+                     "set `library` to it")
+    ldir = free_dir(LocalCard(folder), os.path.join(ctx.home, "backups", system, stem), label)
+    return update_ops([(path, "move")], ldir, lib_map(ldir), [(new, os.path.join(folder, name))], meta), ldir, name
+
+
+def zip_stem_note(path):
+    """muOS keys RetroArch's .srm and .state* by the file stem: unzipping renames the stem."""
+    stem = fl.nfc(os.path.splitext(os.path.basename(path))[0])
+    left = [n for n in os.listdir(os.path.dirname(path))
+            if fl.nfc(n).startswith(stem + ".state") or fl.nfc(n) == stem + ".srm"]
+    if left:
+        print(f"  note: muOS files keyed to the zip's name stop attaching to the loose ROM: {', '.join(sorted(left))}")
 
 
 # ---- plans -----------------------------------------------------------------------------------------
@@ -953,15 +970,10 @@ def plan_update(ctx, hid, h, args, card, state, bases=()):
     cbase = f"Backups/hacks/{system}/{stem}"
     cdir = free_dir(card, cbase, label)
     card_ops = update_ops(card_items(card, system, stem, rom), cdir, card_map(cdir), [(new, f"Games/{system}/{rom}")], meta)
-    lbase = os.path.join(ctx.home, "backups", system, stem)
-    local = LocalCard(args.library)
-    ldir = free_dir(local, lbase, label)
-    lib_ops = update_ops([(lib[0], "move")], ldir, lib_map(ldir),
-                         [(rezip(lib[0], lib[1], new) if lib[1] else new, lib[0])], meta) if lib else []
+    lib_ops, ldir, lname = library_ops(ctx, lib, system, stem, label, new, meta) if lib else ([], None, None)
     record = {"version": version, "crc32": new_crc, "date": time.strftime("%Y-%m-%d"), "card": rom,
-              "library": os.path.basename(lib[0]) if lib else None, "backup": cdir,
-              "library_backup": ldir if lib else None}
-    return card_ops, lib_ops, record, h["saves_carry_over"]
+              "library": lname, "backup": cdir, "library_backup": ldir}
+    return card_ops, lib_ops, record, h["saves_carry_over"], lib
 
 
 def build(h, library, name, data, say=print):
@@ -1055,7 +1067,7 @@ def cmd_update(ctx, reg, ids, args, card):
         h = reg[hid]
         print(f"\n{hid}: {h['name']} ({h['system']}/{h['card']})")
         try:
-            card_ops, lib_ops, record, saves = plan_update(ctx, hid, h, args, card, state, bases)
+            card_ops, lib_ops, record, saves, lib = plan_update(ctx, hid, h, args, card, state, bases)
         except (Refuse, fl.Fail, OSError, ValueError, zipfile.BadZipFile) as e:
             print(f"  refused: {e}")
             failed += 1
@@ -1069,6 +1081,8 @@ def cmd_update(ctx, reg, ids, args, card):
         elif saves == "unknown":
             print("  note: save compatibility across versions is unknown; the .sav stays in place and is backed up.")
         print("  all state folders move to the backup: slot must never load an old version's snapshot")
+        if lib and lib[1]:
+            zip_stem_note(lib[0])
         if library_states(args.library, h["system"], os.path.splitext(h["card"])[0]):
             print("  note: the library card's own RetroArch states are left alone; they may not work with the new version")
         if args.dry_run:
@@ -1089,6 +1103,51 @@ def cmd_update(ctx, reg, ids, args, card):
             failed += 1
             continue
         print(f"  installed {record['version']}; backup {record['backup']}")
+    return failed
+
+
+def cmd_fix_zips(ctx, reg, args):
+    """Unzip the library copy of every hack this tool updated (a `backup` in the state file) whose library
+    copy is still a zip holding the installed ROM (its CRC is the state's crc32)."""
+    path = os.path.join(ctx.config, "hacks-state.json")
+    state, failed = read_state(path), 0
+    for hid, st in sorted(state.items()):
+        h = reg.get(hid)
+        if not h or not st.get("backup"):
+            print(f"{hid}: skipped, {'not in the registry' if not h else 'never updated by this tool'}")
+            continue
+        try:
+            lib = library_target(args.library, dict(h, library=st.get("library") or h.get("library")))
+            if not lib or not lib[1]:
+                print(f"{hid}: {'no library copy' if not lib else 'already loose'}")
+                continue
+            crc = target_crc(lib)
+            if crc != st.get("crc32"):
+                raise Refuse(f"{os.path.basename(lib[0])} holds {crc}, the state file says {st.get('crc32')} is installed")
+            with zipfile.ZipFile(lib[0]) as z:
+                data = z.read(lib[1])  # zipfile checks the member's CRC
+            stem = os.path.splitext(st.get("card") or h["card"])[0]
+            # not "update": --rollback must skip this backup (it holds the new version) for the update's one
+            meta = {"kind": "unzip", "hack": hid, "crc32": crc}
+            ops, _, name = library_ops(ctx, lib, h["system"], stem, f"{stamp()}_unzip", data, meta)
+        except (Refuse, OSError, zipfile.BadZipFile) as e:
+            print(f"{hid}: refused: {e}")
+            failed += 1
+            continue
+        print(f"{hid}: {os.path.basename(lib[0])} -> {name}")
+        show(ops, "library")
+        zip_stem_note(lib[0])
+        if args.dry_run:
+            print("  DRY RUN, nothing written")
+            continue
+        if not confirm(args, f"  unzip {hid}?"):
+            print("  skipped")
+            continue
+        if not execute(LocalCard(args.library), ops, "library"):
+            failed += 1
+            continue
+        state[hid] = dict(st, library=name)
+        write_state(path, state)
     return failed
 
 
@@ -1176,6 +1235,8 @@ def main(argv=None, ctx=None):
     ap.add_argument("--all", action="store_true", help="update every hack on the card that has an update")
     ap.add_argument("--rollback", metavar="ID", help="restore the newest update backup of one hack")
     ap.add_argument("--init", action="store_true", help="write a commented example user settings file")
+    ap.add_argument("--fix-library-zips", action="store_true",
+                    help="unzip the library copies of updated hacks still in a zip (library only)")
     ap.add_argument("--card", help="a mounted SD card root")
     ap.add_argument("--device", action="store_true", help="the card inside the device, over adb")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
@@ -1197,6 +1258,10 @@ def main(argv=None, ctx=None):
     reg = load_registry(SEED, os.path.join(ctx.config, "hacks.json"))
     if args.init:
         return cmd_init(ctx, reg, card, args.library)
+    if args.fix_library_zips:
+        if not args.library:
+            ap.error("--fix-library-zips needs --library")
+        return cmd_fix_zips(ctx, reg, args)
     if args.update or args.all or args.rollback:
         if not card or not args.library:
             ap.error("--update, --all and --rollback need --card or --device, and --library")

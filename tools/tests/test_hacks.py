@@ -359,9 +359,9 @@ class Update(Base):
             "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.state", "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.png",
             "States/GBA/mgba/Hack (v1)/resume.state", "States/GBA/gpsp/Hack (v1)/resume.state"]))
         self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
-        # the library: same zip and member name; RetroArch's state and .srm left alone
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        # the library: the zip comes back loose under its member's name; RetroArch's state and .srm left alone
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".zip")))
         self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".state.auto")), b"ra")
         self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".srm")), b"ra-save")
         self.assertIn("may not work with the new version", out)
@@ -369,6 +369,7 @@ class Update(Base):
         self.assertEqual(sorted(os.listdir(lb)), ["Hack (v1).zip", "backup.json"])
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
         self.assertEqual((state["hack"]["version"], state["hack"]["crc32"]), ("2", hk.crc_hex(NEW)))
+        self.assertEqual(state["hack"]["library"], self.STEM + ".gba")
         # a second run finds nothing to do
         r, out = self.update("--yes")
         self.assertIn("already installed", out)
@@ -401,6 +402,7 @@ class Update(Base):
         self.assertEqual(rd(self.at("States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
         with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
             self.assertEqual(z.read(self.STEM + ".gba"), self.old)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".gba")))
         # nothing lost: the new version's ROM, save and state sit in the rollback backup
         safety = [n for n in os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)) if n.endswith("_rollback")]
         s = self.at("Backups", "hacks", "GBA", self.STEM, safety[0])
@@ -448,8 +450,7 @@ class Update(Base):
         with mock.patch("os.rename", rename):
             r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
 
     def test_a_failure_mid_update_can_be_rolled_back(self):
         real = hk.LocalCard.apply
@@ -541,7 +542,8 @@ class Update(Base):
         r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
         self.assertEqual(sorted(os.listdir(self.at("Games", "GBA"))), games)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "gba"))), lib)
+        lib[lib.index(self.STEM + ".zip")] = self.STEM + ".gba"  # the zip is swapped for its loose ROM
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "gba"))), sorted(lib))
 
     def test_two_library_copies_are_ambiguous_until_the_settings_name_one(self):
         loose = os.path.join(self.lib, "gba", self.STEM + ".gba")
@@ -551,12 +553,17 @@ class Update(Base):
         self.assertIn("ambiguous", out)
         self.assertIn("Hack (v1).gba", out)
         self.assertEqual(self.tree(self.tmp), before)
-        self.settings(library=self.STEM + ".zip")
+        self.settings(library=self.STEM + ".zip")  # unzipping it would put a second loose copy beside the first
+        before = self.tree(self.tmp)
+        r, out = self.update("--yes")
+        self.assertIn("already sits next to", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        self.settings(library=self.STEM + ".gba")
         r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
-        self.assertEqual(rd(loose), self.old)  # the other copy is never touched
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        self.assertEqual(rd(loose), NEW)
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:  # never touched
+            self.assertEqual(z.read(self.STEM + ".gba"), self.old)
 
     def test_a_clean_base_game_is_never_a_target(self):
         self.write(self.at("Games", "GBA", "Base (USA).gba"), BASE)
@@ -582,7 +589,58 @@ class Update(Base):
         r, out = self.update("--yes", "--accept-rename")
         self.assertEqual(r, 0, out)
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
-        self.assertEqual((state["hack"]["card"], state["hack"]["library"]), (self.STEM + ".gba", self.STEM + ".zip"))
+        self.assertEqual((state["hack"]["card"], state["hack"]["library"]), (self.STEM + ".gba", self.STEM + ".gba"))
+
+    def test_fix_library_zips_unzips_an_updated_hack_and_rollback_still_finds_the_old_rom(self):
+        # an update made before the tool unzipped: the library zip (another name, a __MACOSX member) holds NEW
+        zpath = os.path.join(self.lib, "gba", "Pokemon - Hack (v1).zip")
+        os.remove(os.path.join(self.lib, "gba", self.STEM + ".zip"))
+        with zipfile.ZipFile(zpath, "w") as z:
+            z.writestr(self.STEM + ".gba", self.old)
+            z.writestr("__MACOSX/._" + self.STEM + ".gba", b"apple")
+        self.settings(library="Pokemon - Hack (v1).zip")
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        old_backup = os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "GBA", self.STEM)
+        (label,) = os.listdir(old_backup)
+        os.remove(os.path.join(self.lib, "gba", self.STEM + ".gba"))  # the old tool rezipped instead
+        with zipfile.ZipFile(zpath, "w") as z:
+            z.writestr(self.STEM + ".gba", NEW)
+        state_path = os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")
+        state = json.loads(rd(state_path))
+        state["hack"]["library"] = "Pokemon - Hack (v1).zip"
+        hk.write_state(state_path, state)
+        self.write(os.path.join(self.lib, "gba", "Pokemon - Hack (v1).srm"), b"ra")
+
+        fix = lambda *a: self.run_main("--library", self.lib, "--fix-library-zips", *a)
+        before = self.tree(self.tmp)
+        r, out = fix("--dry-run")
+        self.assertIn("Pokemon - Hack (v1).zip -> Hack (v1).gba", out)
+        self.assertIn("stop attaching", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        r, out = fix("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
+        self.assertFalse(os.path.exists(zpath))
+        self.assertEqual(json.loads(rd(state_path))["hack"]["library"], self.STEM + ".gba")
+        self.assertIn("already loose", fix("--yes")[1])
+        # rollback skips the unzip backup (it holds NEW) and brings back the update's old zip
+        self.settings()
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        with zipfile.ZipFile(zpath) as z:
+            self.assertEqual(z.read(self.STEM + ".gba"), self.old)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".gba")))
+
+    def test_fix_library_zips_refuses_a_zip_that_is_not_the_installed_version(self):
+        hk.write_state(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json"),
+                       {"hack": {"version": "2", "crc32": hk.crc_hex(NEW), "card": self.STEM + ".gba", "backup": "x"},
+                        "gh": {"version": "v1.0", "crc32": "0"}})
+        before = self.tree(self.tmp)
+        r, out = self.run_main("--library", self.lib, "--fix-library-zips", "--yes")
+        self.assertIn("the state file says", out)
+        self.assertIn("gh: skipped, never updated", out)
+        self.assertEqual(self.tree(self.tmp), before)
 
     def test_zip_with_two_roms_is_refused(self):
         inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack")

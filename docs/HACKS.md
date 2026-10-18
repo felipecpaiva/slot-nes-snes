@@ -13,6 +13,7 @@ python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # p
 python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
 python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
 python3 tools/hacks.py --device --init                                       # write your settings file
+python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
 ```
 
 `--card <root>` works on a mounted card instead of adb. `--yes` skips the question, `--as-version`
@@ -58,8 +59,12 @@ same thing with `-- <flags>`.
    `gpsp`), the old ROM moved. Then the new ROM is written under the same name.
 7. **Library** (the muOS card mounted on the Mac): only the ROM changes. The old file, loose or
    zipped, is moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so muOS never lists
-   a backup as a game) and the new ROM goes in under the same name (a zip keeps its zip name and member
-   name). RetroArch's own `<stem>.state*` and `.srm` files there are left alone: that card belongs to
+   a backup as a game) and the new ROM goes in loose, since slot reads no zip and the library is what
+   gets pushed to the slot card: a loose copy keeps its name, a zip comes back as its member's name
+   (`Pokemon - Modern Emerald (v2.3.3).zip` holding `Modern Emerald (v2.3.3).gba` becomes the latter),
+   and the state file records the new name. If that loose name already exists, the update refuses: a
+   zip and a loose copy of one hack never sit side by side. muOS keys RetroArch's saves by the file
+   name, so a note lists any `.srm`/`.state*` left under the zip's name. RetroArch's own `<stem>.state*` and `.srm` files there are left alone: that card belongs to
    muOS. A one-line note says its old states may not work with the new version.
 8. **Record** the new version, CRC32, date and backup paths in
    `~/.config/slot-nes-snes/hacks-state.json`.
@@ -68,6 +73,12 @@ If a card step fails partway (a full card, a lost adb link) the tool says which 
 backup's `backup.json` is written first, so `--rollback <id>` puts the old files back. The state file is
 written as soon as the card is done, so a library failure afterwards is only a warning. A card written
 from a Mac may spell names in NFD (`Pokémon`); names are compared in NFC and the card's own spelling is used.
+
+`--fix-library-zips` (try `--dry-run` first; needs only `--library`) converts hacks updated before the
+tool unzipped: every hack the state file says this tool updated (it has a `backup`) whose library copy
+is still a zip holding the installed CRC32 is unzipped the same way, the zip moved to a `<stamp>_unzip`
+backup (kind `unzip`, which `--rollback` skips, so a rollback still restores the update's old file). A
+zip holding another CRC is refused. The card is not touched.
 
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
 copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
@@ -78,9 +89,9 @@ copies the newest update backup back, on the card and in the library. Nothing is
   names in NFD) and at most one library file (`library` if set, else the copy, loose or zipped, whose
   ROM has the card's stem). None on the card: "not on the card". Two candidates: refused with the list
   ("ambiguous: set `card`/`library` in your settings file"). Never a guess.
-- The update replaces that file in place, under the same name. It adds no file to `Games/<SYS>/` or
-  the library and never leaves the old and new versions side by side; the old one goes only to the
-  backup.
+- The update replaces that file in place, under the same name (a library zip is swapped for its loose
+  member, see step 7). It adds no file to `Games/<SYS>/` or the library and never leaves the old and
+  new versions side by side; the old one goes only to the backup.
 - A clean base game (any registry `base_crc32`, e.g. Emerald, FireRed 1.0, Mother 3 (Japan)) is never
   a target: if the card or library file resolves to one, the update refuses.
 - `--check` warns about files that look like another version of a registry hack (the same name once
