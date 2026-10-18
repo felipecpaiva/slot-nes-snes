@@ -28,7 +28,7 @@ the GitHub release asset matching the entry's asset pattern, or from ~/ROMHacks/
 patch is applied in pure Python to the clean base ROM found in --library by CRC32 (BPS and UPS check the source,
 target and patch CRCs; xdelta checks each window's Adler-32; PPF2/3 their block check and undo data; IPS has none,
 so the entry's target_crc32 is checked when known, else a warning). A PS1 disc (.chd) is extracted with chdman,
-track 1 checked against base_crc32 (redump) and patched, packed back and checked again (ADR 0085).
+track 1 checked against base_crc32 (redump) and patched, packed back and checked again (ADR 0089).
 Any mismatch refuses. Then, on the card (ADR 0082):
   - refuses while Config/slot.state has the game seated (cart= and cart_platform=): eject it first;
   - Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/ gets the old ROM (moved), the .sav/.srm (copied:
@@ -526,7 +526,7 @@ class AdbCard:
 
     def sizes(self, rel):
         rc, out = self.run("shell", f'for f in {shlex.quote(self.p(rel))}/*; do [ -f "$f" ] && '
-                                    f'echo "$(stat -c %s "$f") ${{f##*/}}"; done; true')
+                                    f'echo "$(ls -ln "$f" | awk \'{{print $5}}\') ${{f##*/}}"; done; true')
         rows = [l.rstrip("\r").lstrip().split(" ", 1) for l in out.splitlines()]
         return {r[1]: int(r[0]) for r in rows if len(r) == 2 and r[0].isdigit()}
 
@@ -694,7 +694,7 @@ def find_base(lib, system, crc):
     return None, None
 
 
-# ---- PS1 discs: .chd <-> bin/cue with chdman (ADR 0085) ----------------------------------------------
+# ---- PS1 discs: .chd <-> bin/cue with chdman (ADR 0089) ----------------------------------------------
 
 def chdman(*args):
     """stdout of one chdman run (MAME's tool: brew install rom-tools); Refuse when it is missing or fails."""

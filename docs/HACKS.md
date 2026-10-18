@@ -59,7 +59,7 @@ same thing with `-- <flags>`.
    PPF 1.0, 2.0 and 3.0 are applied in place: PPF2, and PPF3 with its block check, compare 1024 bytes of
    the image, and PPF3 undo data (the original bytes) is compared too, all before the first write;
    a PPF with neither gets a note, and the base was found by CRC anyway.
-   **PS1 discs** ([ADR 0085](adr/0085-ps1-disc-hacks-patch-track-1-through-chdman.md)): the base is the
+   **PS1 discs** ([ADR 0089](adr/0089-ps1-disc-hacks-patch-track-1-through-chdman.md)): the base is the
    library's `<base_name>.chd` (by name; CRCing every disc would read a hundred GB) and `base_crc32` is
    the redump CRC32 of its track 1. `chdman extractcd --splitbin` writes one bin per track into a temp
    dir, track 1 must have that CRC, the patch is applied to track 1 (a write past its end is refused),
