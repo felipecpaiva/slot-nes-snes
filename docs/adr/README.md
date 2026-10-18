@@ -86,3 +86,4 @@ the patch set looks the way it does.
 | [0067](0067-ps1-disk-control-and-disc-in-states.md) | Swap PS1 discs through both disk-control interfaces, remember the disc, and record it in states | Accepted | 2026-10-17 |
 | [0068](0068-ps1-input-digital-then-analog.md) | Ship PS1 with the digital pad and L2/R2 to the game, and analog DualShock in v2 | Accepted | 2026-10-17 |
 | [0069](0069-ps1-jewel-case-shelf.md) | Show PS1 games as jewel cases with front cover art, and the disc on insert | Accepted. Amends 0014 | 2026-10-17 |
+| [0070](0070-backport-upstream-settings-scroll.md) | Scroll the Screen page with a backport of upstream's settings-page scrolling | Accepted. Backport, drop on the 1.8.0 rebase (0047) | 2026-10-18 |
