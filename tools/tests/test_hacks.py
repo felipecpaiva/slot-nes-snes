@@ -536,6 +536,9 @@ class Update(Base):
         rows = self.run_main("--card", self.card, "--library", self.lib)[0]
         row = [r for r in rows if r[1] == "hack"][0]
         self.assertEqual(row[4], "UPDATE AVAILABLE (from incoming 2)")
+        out = self.run_main("--library", self.lib)[1]
+        self.assertIn("in neither the library nor the state file (install with --add <id>): gh", out)
+        self.assertNotIn("not in library", out)
 
     def settings(self, **fields):
         self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"hack": fields}))

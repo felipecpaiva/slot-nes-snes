@@ -7,7 +7,7 @@
     python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound
     python3 tools/hacks.py --device --library ~/ROMS --all --dry-run
     python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
-    python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-revamped --dry-run  # a new hack, new file
+    python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run  # a new hack, new file
     python3 tools/hacks.py --device --init                                    # write the user settings file
     python3 tools/hacks.py --library ~/ROMS --fix-library-zips --dry-run      # unzip updated hacks' library copies
 
@@ -887,7 +887,7 @@ def installed_version(state, hid, h):
 def cmd_check(ctx, reg, args, card):
     state = read_state(os.path.join(ctx.config, "hacks-state.json"))
     on = card_listing(card, {h["system"] for h in reg.values()}) if card else None
-    rows = []
+    rows, absent = [], []
     for hid, h in sorted(reg.items(), key=lambda kv: (kv[1]["system"], kv[1]["name"].lower())):
         if on is not None and fl.nfc(h["card"]) not in on[h["system"]]:
             continue
@@ -897,6 +897,9 @@ def cmd_check(ctx, reg, args, card):
                 where = "" if library_target(args.library, h) else "not in library"
             except (Refuse, zipfile.BadZipFile) as e:
                 where = str(e)
+            if where == "not in library" and hid not in state:
+                absent.append(hid)  # never installed: no feed to fetch, no row
+                continue
         inst = installed_version(state, hid, h)
         latest, status, link = check_one(ctx, hid, h, inst)
         if args.library and (inst == "unknown" or not h["source"].startswith("github")):
@@ -913,6 +916,9 @@ def cmd_check(ctx, reg, args, card):
     for system, mine, other in duplicates(reg, listing):
         print(f"warning: possible duplicate on the {'card' if on is not None else 'library'}: {system}/{other} "
               f"looks like another version of {mine} (left alone)")
+    if absent:
+        print(f"{len(absent)} registry hack(s) in neither the library nor the state file (install with --add <id>): "
+              f"{', '.join(absent)}")
     print(f"\n{len(rows)} hack(s) checked. Nothing written to the card, the library or the settings; a version "
           "identified by CRC is recorded in hacks-state.json.")
     return rows

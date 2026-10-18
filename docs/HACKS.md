@@ -12,7 +12,7 @@ python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound --dry-
 python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # prints the plan, asks y/N
 python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
 python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
-python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-revamped --dry-run   # a hack not on the card yet
+python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run   # a hack not on the card yet
 python3 tools/hacks.py --device --init                                       # write your settings file
 python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
 ```
@@ -38,7 +38,9 @@ same thing with `-- <flags>`.
    latest builds reads `UPDATE AVAILABLE (installed version unknown)`, which `--all` takes. A patch
    waiting in the incoming folder is built the same way: `UPDATE AVAILABLE (from incoming <version>)`,
    or what is installed when the CRCs agree. Nothing is written to the card, the library or the
-   settings; only the cache dir and, for an identified version, the state file.
+   settings; only the cache dir and, for an identified version, the state file. Without a card, a registry hack
+   that is neither in the library nor in the state file gets no row, only a closing line naming it
+   (install it with `--add <id>`).
 2. **Get the patch.** A `github:` source downloads the one release asset that matches `asset` (cached
    under the cache dir by version). Any other source reads the newest file in
    `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips` or `.ups`, a ROM, or a `.zip` holding exactly one of
