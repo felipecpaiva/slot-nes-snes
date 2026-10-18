@@ -19,7 +19,8 @@ same_identity() {
 	done
 }
 
-# slot-nes-snes-v1.6.0-ns.0: slot's tag from SLOT_PIN plus the release counter in VERSION.
+# slot-nes-snes-v1.7.0-ns.1 or slot-nes-snes-main-1b20432-ns.1: SLOT_PIN's tag (a slot release, or
+# main-<short sha> on an untagged upstream base, ADR 0083) plus the release counter in VERSION.
 release_name() {
 	v="$(cat "$root/VERSION")"
 	printf '%s\n' "$v" | grep -Eq '^ns\.[0-9]+$' || {

@@ -118,6 +118,15 @@ them, so we do not make those buttons remappable.
   under a 14-way CPU load. It joins `layout.rs` in `run-tests.sh`'s both-trees list (ADR 0045): it
   gates on no failure upstream does not also have, and CI prints both trees' counts.
 
+### Release tags on an untagged base
+
+Decided by the maintainer on 2026-10-18: a release cut from an untagged upstream base is tagged
+`main-<short sha>-ns.N`, the `tag` in `SLOT_PIN` plus `VERSION` (the first public release is
+`main-1b20432-ns.1`, so `VERSION` is `ns.1`). `release.yml` triggers on `main-*-ns.*` as well as
+`v*-ns.*` and keeps the rule that the tag equals SLOT_PIN's tag plus `VERSION`. The dist, zip and
+source names come from the same two values, so they follow either form. When upstream tags the base,
+the next rebase switches back to `v<tag>-ns.N`.
+
 ## Consequences
 
 - Left stick on PlayStation: with "Left Stick as D-Pad" on (upstream's default) and a device in

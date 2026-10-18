@@ -23,13 +23,13 @@ credited fork. A user-side fetch script (issue 41) is the fallback.
   screenshot or box art.
 - Issue 40 starts only after the owner's answer and records it.
 
-## Amendment, 2026-10-18: the Logo Only fallback is implemented (patch 0049-logo-label)
+## Amendment, 2026-10-18: the Logo Only fallback is implemented (patch 0048-logo-label)
 
 The fallback is a tool output, not slot code: `tools/fetch-labels.py --by-name --logo-fallback` writes a
 Logo Only PNG to `Labels/<SYSTEM>/<stem>.png` for a ROM every other pass left without a label, and the
 shelf shows it like any label. slot's runtime is unchanged.
 
-- Renderer: `crates/slot-ui/examples/logo_label.rs` (patch `0049-logo-label`, built by
+- Renderer: `crates/slot-ui/examples/logo_label.rs` (patch `0048-logo-label`, built by
   `task labels:logo-tool` to `build/slot/target/release/examples/logo_label`, `SLOT_LOGO_LABEL` overrides
   the path). It is Cart Studio's Logo Only style as ported by cloudwithax/unslot
   ([0b0f3a3](https://github.com/cloudwithax/unslot/commit/0b0f3a307da447d8d048425ab8e70a9fc4aeab43),

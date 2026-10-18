@@ -41,7 +41,9 @@ Goal: one session per upstream release, conflicts only in `app.rs` and `frontend
    game, pick a core, fast-forward and rewind; `task readout:device` for starve lines.
    Walk `docs/DEVICE-GATE.md` for anything the rebase touched.
 7. **Release.** Set `VERSION` to `ns.1`, commit `patches/`, `SLOT_PIN` and `VERSION`,
-   tag `vNEW-ns.1`, add a row to the log below.
+   tag `<SLOT_PIN tag>-ns.1` (`vNEW-ns.1` on an upstream release; `main-<short sha>-ns.1` when the
+   base is an untagged upstream commit, ADR 0083), add a row to the log below. `release.yml` takes
+   both forms and refuses a tag that is not SLOT_PIN's tag plus `VERSION`.
 
 ## Log
 
