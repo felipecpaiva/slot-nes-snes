@@ -12,7 +12,8 @@ composes and presents a black frame at about 60 Hz for the whole doze. With Lid 
 
 ## Change
 
-- After two dark frames (one per swap buffer), the loop in `device_app.rs` stops calling
+- Once the doze fade has reached black (`screen_power()` is 0) and two more dark frames (one per
+  swap buffer) are presented, the loop in `device_app.rs` stops calling
   `step_emulator`, `render` and the swap, and sleeps 50 ms per turn instead of `Pacer::wait`.
   It still calls `advance` every turn, so input, the lid, the timers, the doze power-off and a
   restart all work as before. A pending shutdown or restart, a live link, or a label rebuild keeps
@@ -28,7 +29,7 @@ composes and presents a black frame at about 60 Hz for the whole doze. With Lid 
 
 New `crates/slot/tests/standby.rs`: the rest state machine (dark frames, then rest; a wake draws at
 once; the next doze starts dark again), both log lines, the `/proc/self/stat` parser, and the rest
-condition for a shut lid, a doze power-off and a link. `device_app.rs` has no host test; it builds
+condition for a shut lid, a fade still in progress, a doze power-off and a link. `device_app.rs` has no host test; it builds
 and lints with `--features device`.
 
 Device: lid shut for 30 s with a game running, then open: `slot.log` shows the two lines, 2

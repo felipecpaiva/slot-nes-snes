@@ -17,8 +17,11 @@ log.
 
 ## Decision
 
-- New `crates/slot/src/doze_rest.rs`: `rests(app)` is true when the phase is `Doze`, no shutdown
-  or restart is pending, and no link is active. `DozeRest::step` lets two dark frames through
+- New `crates/slot/src/doze_rest.rs`: `rests(app)` is true when the phase is `Doze`, the doze
+  fade has reached black (`screen_power()` is 0, about 0.16 s after the lid shuts, `POWER_OFF_S`),
+  no shutdown or restart is pending, and no link is active. Without the fade check the two dark
+  frames would be partly faded game frames left in both swap buffers, and the wake would flash one
+  for a vsync when the backlight comes back. `DozeRest::step` lets two dark frames through
   (`DARK_FRAMES`), then rests. The device loop also requires `!frontend.rebuilding_labels()`,
   because a label rebuild ignores input and finishes only from `render`.
 - While resting the loop sleeps `DOZE_POLL` (50 ms) instead of `Pacer::wait`, still calls
@@ -46,7 +49,8 @@ log.
   150 + 50 + 17 ms on the hall path, and 50 + 17 ms on the POWER button or evdev lid.
 - The emu thread is unchanged: while paused and unlocked it already sleeps one period per turn.
 - `crates/slot/tests/doze_rest.rs`: the rest state machine, both log lines, the `/proc/self/stat`
-  parser, and `rests` for a shut lid, a doze power-off and a link begun behind a shut lid.
+  parser, and `rests` for a shut lid, a fade still in progress, a doze power-off and a link begun
+  behind a shut lid.
 - `device_app.rs` has no host test; it is compiled and linted by `task lint`
   (`--features device`). The device check is in the patch report.
 - **Drop the patch when the upstream PR lands.**

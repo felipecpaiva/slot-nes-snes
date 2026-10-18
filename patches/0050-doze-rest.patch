@@ -14,11 +14,11 @@ suprsomething/slot.advance bf810b6 (both GPL-3.0),
 https://github.com/marghost/slot_modded/commit/b1f9e24
 https://github.com/suprsomething/slot.advance/commit/bf810b6
 ---
- crates/slot/src/device_app.rs  |  15 ++++-
- crates/slot/src/doze_rest.rs   |  79 ++++++++++++++++++++++
+ crates/slot/src/device_app.rs  |  15 +++-
+ crates/slot/src/doze_rest.rs   |  82 +++++++++++++++++++
  crates/slot/src/lib.rs         |   1 +
- crates/slot/tests/doze_rest.rs | 120 +++++++++++++++++++++++++++++++++
- 4 files changed, 214 insertions(+), 1 deletion(-)
+ crates/slot/tests/doze_rest.rs | 140 +++++++++++++++++++++++++++++++++
+ 4 files changed, 237 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot/src/doze_rest.rs
  create mode 100644 crates/slot/tests/doze_rest.rs
 
@@ -58,10 +58,10 @@ index cd47849..e7ce8e6 100644
          let swap = Instant::now();
 diff --git a/crates/slot/src/doze_rest.rs b/crates/slot/src/doze_rest.rs
 new file mode 100644
-index 0000000..2fa1c53
+index 0000000..92c760e
 --- /dev/null
 +++ b/crates/slot/src/doze_rest.rs
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,82 @@
 +use std::time::{Duration, Instant};
 +
 +use crate::app::{App, Phase};
@@ -73,7 +73,10 @@ index 0000000..2fa1c53
 +const TICK_MS: u64 = 10;
 +
 +pub fn rests(app: &App) -> bool {
-+    matches!(app.phase(), Phase::Doze { .. }) && !app.shutting_down() && !app.link_active()
++    matches!(app.phase(), Phase::Doze { .. })
++        && app.screen_power() <= 0.0
++        && !app.shutting_down()
++        && !app.link_active()
 +}
 +
 +#[derive(Default)]
@@ -155,17 +158,24 @@ index f925c14..f47dada 100644
  pub mod face_builder;
 diff --git a/crates/slot/tests/doze_rest.rs b/crates/slot/tests/doze_rest.rs
 new file mode 100644
-index 0000000..3b3a4e7
+index 0000000..249b24e
 --- /dev/null
 +++ b/crates/slot/tests/doze_rest.rs
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,140 @@
 +mod common;
 +
 +use std::time::{Duration, Instant};
 +
 +use common::{app_playing_in, tmp_root_with_carts};
++use slot::app::App;
 +use slot::doze_rest::{awake_line, cpu_ms, rests, DozeRest, DARK_FRAMES};
 +use slot_input::Action;
++
++fn fade_out(a: &mut App) {
++    for _ in 0..30 {
++        a.update(1.0 / 60.0);
++    }
++}
 +
 +#[test]
 +fn awake_never_rests() {
@@ -256,8 +266,19 @@ index 0000000..3b3a4e7
 +    let mut a = app_playing_in(d.path(), "Emerald");
 +    assert!(!rests(&a));
 +    a.apply(Action::LidClose);
++    fade_out(&mut a);
 +    assert!(rests(&a));
 +    a.apply(Action::LidOpen);
++    assert!(!rests(&a));
++}
++
++#[test]
++fn a_doze_keeps_drawing_until_the_picture_has_faded_to_black() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_in(d.path(), "Emerald");
++    a.apply(Action::LidClose);
++    a.update(1.0 / 60.0);
++    assert!(a.screen_power() > 0.0);
 +    assert!(!rests(&a));
 +}
 +
@@ -266,6 +287,7 @@ index 0000000..3b3a4e7
 +    let d = tmp_root_with_carts(&["Emerald"]);
 +    let mut a = app_playing_in(d.path(), "Emerald");
 +    a.apply(Action::LidClose);
++    fade_out(&mut a);
 +    a.on_doze_timeout();
 +    assert!(a.shutting_down());
 +    assert!(!rests(&a));
@@ -276,6 +298,7 @@ index 0000000..3b3a4e7
 +    let d = tmp_root_with_carts(&["Emerald"]);
 +    let mut a = app_playing_in(d.path(), "Emerald");
 +    a.apply(Action::LidClose);
++    fade_out(&mut a);
 +    a.begin_link(1);
 +    assert!(!rests(&a));
 +}
