@@ -260,6 +260,74 @@ The build recipe facts (the pin, `HAVE_PHYSICAL_CDROM=0`, `BUILTIN_GPU=neon`, CH
 aarch64 default) come from bently0602/slot and oauramos/omega-zero, both GPL-3.0, and are credited in
 the commit that added the build.
 
+## Beetle PCE Fast (TurboGrafx-16 and PC Engine)
+
+Checked at commit `3f946f277aef3aa99a95551618bbcd1dd2bda0d9` of libretro/beetle-pce-fast-libretro, the
+commit `SLOT_PIN` pins as `mednafen_pce_fast_commit` (tarball sha256 `mednafen_pce_fast_tarball_sha256`). It
+is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091) and is
+not in a release yet: it joins `dist:device` and `zip-check.sh` with the TG16 platform patch (issue 83).
+Until then its licence files stay in `cores/mednafen_pce_fast/` and move to `licenses/` when the core
+ships (the Genesis Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release):
+
+- `mednafen_pce_fast-GPL-2.0.txt`, the root `COPYING` of that source, copied verbatim and whole. It is
+  the GPL version 2 text once. The fork review's remark that the file is "GPLv2 twice plus Xiph BSD"
+  describes nelynes' `licenses/pce-GPL-2.0.txt`, not upstream's `COPYING`.
+- `mednafen_pce_fast-tremor-BSD.txt`, `mednafen/tremor/COPYING` verbatim: the Xiph.org BSD licence of the
+  Tremor Vorbis decoder. The makefile always links Tremor (CD audio), so the binary must carry its notice.
+
+The exact source will ship with the core as `mednafen_pce_fast-src.tar.gz`, with `mednafen_pce_fast-src.meta`
+recording its sha256.
+
+**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+
+- The Mednafen files say "Mednafen - Multi-system Emulator", GPL. `README.md` has no licence line. The
+  sound buffer is Shay Green's Blip_Buffer.
+- Scope of the counts: the 96 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.c`,
+  `libretro_core_options.h` and `libretro_core_options_intl.h` at the root, 99 files. The fork review
+  (docs/research/fork-nelynes.md) counted 100 with the same exclusions (libretro-common, deps, intl);
+  the 38 or-later count matches, the headerless count is 31 here against its 29.
+  - 38 say "any later version": 36 are GPL-2.0-or-later (the CD ECC files `lec.c`, `galois.c`,
+    `l-ec.c` and `recover-raw.c` among them, and `libretro.c`, whose Mednafen block starts at line
+    587), `mednafen/sound/Blip_Buffer.c` is LGPL-2.1-or-later, and `mednafen/msvc_compat.h` is
+    GPL-3.0-or-later (RetroArch's, compiled only for MSVC).
+  - The 31 files of `mednafen/tremor/` are Xiph.org BSD ("governed by a BSD-style source license
+    included with this source", the licence file above).
+  - No file says version 2 only.
+  - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h'
+    -o -name '*.cpp' \); ls *.c *.h; } | xargs grep -l -i 'any later version' | wc -l`.
+- **Headerless files, a judgement.** 31 of the 99 have no licence text in their first 60 lines. They
+  are listed in `cores/mednafen_pce_fast/mednafen_pce_fast-headerless-files.txt` with the command that
+  produced the list. They include most of the `mednafen/pce_fast/` headers. `libretro.c` is on the list
+  too, because its GPL-2.0-or-later block is past line 60; the other 30 have no licence text anywhere.
+  We treat them as covered by `COPYING`. That is a judgement, not a quote.
+- `deps/` holds four bundled libraries, **not compiled** because the build sets `HAVE_CHD=0`. They ship
+  only inside the source tarball, each with its own notice there:
+  - `deps/zlib-1.2.11`: the zlib licence (Jean-loup Gailly and Mark Adler);
+  - `deps/lzma-19.00`: public domain (Igor Pavlov), `deps/lzma-19.00/LICENSE`;
+  - `deps/zstd`: dual BSD-3-Clause or GPL-2.0 at the recipient's choice (`deps/zstd/LICENSE` and
+    `COPYING`). We take the BSD terms, so it is not a GPL-2.0-only file;
+  - `deps/libchdr`: BSD-3-Clause (Romain Tisserand), `deps/libchdr/LICENSE.txt`.
+- `libretro-common/` carries the RetroArch team's MIT text in 56 of its 61 `.c` and `.h` files. The
+  other five are `include/compat/zlib.h`, `zconf.h` and `zutil.h` (zlib's, unused with `HAVE_CHD=0`),
+  `include/compat/ifaddrs.h` and `include/compat/msvc/stdint.h`; none of them is compiled on unix or
+  osx. Every object linked from it by the pinned build is MIT:
+  - `streams/file_stream`, `file_stream_transforms`, `vfs/vfs_implementation`, `file/file_path`,
+    `file/retro_dirent`, `lists/string_list`, `lists/dir_list` and `time/rtime`;
+  - `string/stdstring`, `encodings/encoding_utf`, `encodings/encoding_crc32` and `memmap/memalign`;
+  - `compat/fopen_utf8`, `compat_strl`, `compat_snprintf`, `compat_posix_string` and `compat_strcasestr`.
+- `intl/` is Python tooling for core option translations, not built.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The core is all C, but the makefile links with `$(CXX)` and `-lrt`. The device build links
+  `-static-libstdc++ -static-libgcc -Wl,--as-needed` and binds `powf` to `GLIBC_2.17`
+  (`cores/mednafen_pce_fast/glibc-2.17.h`). It needs only `libc.so.6` and `libm.so.6` at GLIBC_2.17
+  or older, which `task core:device:mednafen_pce_fast` checks.
+- No BIOS is shipped or needed for HuCards. CD system cards are out of scope.
+
+The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
+nelynes/slotPlus ([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0) and are
+credited in the commit that added the build. `HAVE_CDROM=0`, `HAVE_CHD=0`, the link flags and the
+`powf` binding are ours.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
@@ -346,3 +414,10 @@ which adapts suprsomething/slot.advance commit
 [bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0051-silent-start-hud`
 follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a). All three forks are GPL-3.0 and are
 credited in the patch commits.
+
+Patch `0052-tg16-core-tests` builds its synthetic HuCard (one 8 KB bank, the reset vector at the last two
+bytes pointing at $E000, and a `bra *` spin) after nelynes/slotPlus's `crates/slot/tests/pce_core.rs`
+([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0), the same recipe as
+cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
+([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The palette code is new. Both forks
+are credited in the patch commit.

@@ -73,3 +73,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
 | [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
+| [81](81-tg16-tracking.md) | TurboGrafx-16: PC Engine and TurboGrafx HuCards on Beetle PCE Fast, built the NES and SNES way | 10 | device | tracking | L | 56-ps1-tracking |
+| [82](82-tg16-core-build.md) | Build Beetle PCE Fast from a pinned commit for host and device and record its licence | 10 | cores | feature | S | 81-tg16-tracking |
+| [83](83-platform-tg16.md) | Add Platform::Tg16 with its own shelf, scan and explicit policy | 10 | platform | feature | M | 82-tg16-core-build |
+| [84](84-tg16-options.md) | Set the TG16 core options, the scanline window first | 10 | cores | feature | S | 83-platform-tg16 |
+| [85](85-tg16-canvas-screen.md) | Give TG16 the 360x240 canvas and its own Screen section with Shader and Picture rows | 10 | video | feature | S | 84-tg16-options |
+| [86](86-tg16-saves.md) | Keep TG16 backup RAM in .sav like every core; TurboCD out of scope | 10 | platform | feature | S | 83-platform-tg16 |
+| [87](87-tg16-input.md) | Map the TG16 pad: II, I, Select, Run and turbo | 10 | input | feature | S | 83-platform-tg16 |
+| [88](88-tg16-tests.md) | Test TG16 with a generated HuCard | 10 | tests | test | S | 82-tg16-core-build |
+| [89](89-tg16-carts.md) | Draw HuCards and fetch their labels | 10 | ui-art | feature | M | 83-platform-tg16 |
+| [90](90-tg16-device-gate.md) | TG16 device gate on the RG34XXSP | 10 | device | chore | S | 85-tg16-canvas-screen, 86-tg16-saves, 87-tg16-input |
