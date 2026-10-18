@@ -357,7 +357,7 @@ index f642aea..cd7eba2 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index 8e89627..66f2b65 100644
+index dd618ab..5892bd1 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
 @@ -211,6 +211,9 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
@@ -370,7 +370,7 @@ index 8e89627..66f2b65 100644
          _ => false,
      }
  }
-@@ -629,6 +632,7 @@ impl RetroCore for LibretroCore {
+@@ -642,6 +645,7 @@ impl RetroCore for LibretroCore {
      }
  
      fn set_frame_skip(&mut self, skip: bool) {
@@ -378,7 +378,7 @@ index 8e89627..66f2b65 100644
          let _a = Active::bind(&mut self.host);
          let _e = ExtraGuard::bind(&mut self.extra);
          unsafe { report_audio_status(skip) };
-@@ -728,6 +732,12 @@ impl RetroCore for LibretroCore {
+@@ -736,6 +740,12 @@ impl RetroCore for LibretroCore {
      fn canvas(&self) -> (u32, u32) {
          self.extra.canvas
      }
@@ -391,7 +391,7 @@ index 8e89627..66f2b65 100644
  }
  
  #[cfg(test)]
-@@ -1746,3 +1756,6 @@ mod tests {
+@@ -1754,3 +1764,6 @@ mod tests {
          );
      }
  }
@@ -579,11 +579,11 @@ index 0000000..e89a74f
 +    }
 +}
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index f766095..fa55d4c 100644
+index 49e70da..ab979a0 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -12,11 +12,11 @@ use slot_retro::{
- use slot_store::RUN_AHEAD_MAX;
+@@ -11,11 +11,11 @@ use slot_retro::{
+ };
  
  use crate::audio::Ring;
 +use crate::av_rate;
@@ -595,7 +595,7 @@ index f766095..fa55d4c 100644
  use crate::rewind::{RewindThread, REWIND_BYTES};
  
  const PRESENT: Duration = Duration::from_nanos(16_666_667);
-@@ -543,11 +543,7 @@ impl Worker {
+@@ -530,11 +530,7 @@ impl Worker {
              0 => av.sample_rate,
              hz => hz as f64,
          };
@@ -608,27 +608,27 @@ index f766095..fa55d4c 100644
          ring.clear_faults();
          self.shared
              .state
-@@ -823,6 +819,9 @@ impl Worker {
+@@ -784,6 +780,9 @@ impl Worker {
                      }
                  }
  
 +                if let Some(av) = core.take_av_change() {
 +                    resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
 +                }
-                 let audio = if shown {
-                     std::mem::take(&mut runahead.audio)
-                 } else {
+                 let audio = core.take_audio();
+                 if speed == Speed::Normal || ff_sound {
+                     let target = drc_target(ring.capacity_frames());
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 9ad8026..bfabc3a 100644
+index e92d13a..8dbe21d 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
 @@ -1,5 +1,6 @@
  pub mod app;
  pub mod audio;
 +pub mod av_rate;
+ pub mod baseos;
  pub mod bezel;
  pub mod boot_time;
- pub mod bootlogo;
 diff --git a/crates/slot/tests/core_common/mod.rs b/crates/slot/tests/core_common/mod.rs
 new file mode 100644
 index 0000000..398197b

@@ -32,11 +32,8 @@ fi
 # run 38862924402; the unpatched tree fails it the same way after a 100 us stall. Our own real-time budget tests (snes_ff.rs,
 # snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
 # own afterwards as information only. Locally they still gate. Our pal_pacing_clock.rs (issue 66) counts frames an
-# undriven 50 fps worker runs in two seconds of wall clock, so it joins them. Upstream's runahead.rs failed
-# intermittently on the macOS runner on 2026-10-18 (every_run_ahead_setting_hands_the_ring_as_much_sound_as_off on
-# main run 39112582484, rewind_with_run_ahead_on_walks_back_through_frames_the_game_really_played on runs 39112620223
-# and 39113939084), passed on rerun and 3 of 3 locally; upstream 1.8.0 removes run-ahead (b0fe199).
-ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock slot:runahead"
+# undriven 50 fps worker runs in two seconds of wall clock, so it joins them.
+ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do
@@ -116,7 +113,7 @@ fi
 echo "skip report (tests that printed a skip message, with the reason):"
 # A skip message that mentions a dylib, libretro or core fails the run as CORE MISSING: the host
 # cores are built before the tests, so such a skip means the suite did not test what check
-# promises. The exception is a message that also names a cart, ROM, card or BIOS ("no vendored
+# promises. The exception is a message that also names a cart, ROM, card, BIOS or the Games folder ("no vendored
 # core or no Game Boy cart"), which cannot tell which is missing; it is listed as a ROM skip.
 # Non-ROM skips are labelled [tool] (zbarimg) or [asset] (bootlogo) so they do not mix in.
 awk '
@@ -125,7 +122,7 @@ awk '
 	{ line = $0; gsub(/test [^ ]+ \.\.\. (ok|FAILED|ignored)/, "", line); sub(/^test .* \.\.\. /, "", line); sub(/^slot: [a-z]*: /, "", line) }
 	line ~ /skipp?(ed|ing)/ {
 		l = tolower(line)
-		rom = l ~ /(^|[^a-z])(carts?|roms?|cards?|bios)([^a-z]|$)/
+		rom = l ~ /(^|[^a-z])(carts?|roms?|cards?|bios|games)([^a-z]|$)/
 		tag = ""
 		if (!rom && l ~ /(^|[^a-z])(dylib|libretro|cores?)([^a-z]|$)/) tag = "CORE MISSING "
 		else if (l ~ /zbarimg/) tag = "[tool] "

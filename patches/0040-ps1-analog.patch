@@ -10,11 +10,11 @@ Subject: [PATCH] ps1-analog
  crates/slot-retro/src/libretro.rs           |  18 +-
  crates/slot-retro/src/libretro/env_tests.rs |  66 +++++
  crates/slot/src/core_options_policy.rs      |  16 ++
- crates/slot/src/input/device.rs             |  24 +-
+ crates/slot/src/input/device.rs             |  14 +-
  crates/slot/src/input/mod.rs                |   1 +
  crates/slot/src/input/sticks.rs             | 261 ++++++++++++++++++++
  crates/slot/tests/ps1_analog.rs             | 118 +++++++++
- 10 files changed, 578 insertions(+), 7 deletions(-)
+ 10 files changed, 569 insertions(+), 6 deletions(-)
  create mode 100644 crates/slot-retro/src/analog.rs
  create mode 100644 crates/slot/src/input/sticks.rs
  create mode 100644 crates/slot/tests/ps1_analog.rs
@@ -152,7 +152,7 @@ index 6729703..84bf25f 100644
  pub use ffi::{
      NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index ac25603..e404277 100644
+index 75bbd35..174d57e 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
 @@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -175,7 +175,7 @@ index ac25603..e404277 100644
      if device != DEVICE_JOYPAD {
          return 0;
      }
-@@ -450,6 +454,15 @@ impl LibretroCore {
+@@ -451,6 +455,15 @@ impl LibretroCore {
          self.extra.answers_av = true;
      }
  
@@ -191,7 +191,7 @@ index ac25603..e404277 100644
      pub fn reported_system_dir(&self) -> String {
          self.host.system_dir.to_string_lossy().into_owned()
      }
-@@ -648,7 +661,7 @@ impl RetroCore for LibretroCore {
+@@ -661,7 +674,7 @@ impl RetroCore for LibretroCore {
              fps: av.timing.fps,
              sample_rate: av.timing.sample_rate,
          };
@@ -200,7 +200,7 @@ index ac25603..e404277 100644
          Ok(())
      }
  
-@@ -661,6 +674,7 @@ impl RetroCore for LibretroCore {
+@@ -674,6 +687,7 @@ impl RetroCore for LibretroCore {
              return;
          }
          self.host.inputs = [p1.0, p2.0];
@@ -308,10 +308,10 @@ index 7db7a03..12a3d23 100644
 +    }
  }
 diff --git a/crates/slot/src/input/device.rs b/crates/slot/src/input/device.rs
-index 4b0c5e8..974371a 100644
+index a658371..2e4539d 100644
 --- a/crates/slot/src/input/device.rs
 +++ b/crates/slot/src/input/device.rs
-@@ -9,6 +9,7 @@ use slot_input::{Btn, InputSource, Millis, RawEvent};
+@@ -10,6 +10,7 @@ use slot_input::{Btn, InputSource, Millis, RawEvent};
  use super::evdev::{
      decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
  };
@@ -319,45 +319,35 @@ index 4b0c5e8..974371a 100644
  use super::trace;
  
  const DEV: &str = "/dev/input";
-@@ -33,7 +34,14 @@ impl DeviceInput {
+@@ -33,10 +34,11 @@ impl DeviceInput {
+ 
      pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
          let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
-         let target = std::env::var("BASEOS_TARGET").ok();
--        DeviceInput::open_traced(dev, sys, menu_dpad_display(target.as_deref()), trace)
+-        DeviceInput::open_traced(dev, sys, trace)
 +        let sticks = read_stick_map(root);
-+        DeviceInput::open_traced(
-+            dev,
-+            sys,
-+            menu_dpad_display(target.as_deref()),
-+            trace,
-+            sticks,
-+        )
++        DeviceInput::open_traced(dev, sys, trace, sticks)
      }
  
-     fn open_traced(
-@@ -41,6 +49,7 @@ impl DeviceInput {
-         sys: &Path,
-         menu_dpad_display: bool,
-         trace: Option<Arc<Trace>>,
-+        sticks: StickMap,
-     ) -> Self {
+-    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
++    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>, sticks: StickMap) -> Self {
          let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
+         let stick = Arc::new(AtomicBool::new(false));
          for node in pick_devices(dev, sys) {
-@@ -55,7 +64,7 @@ impl DeviceInput {
+@@ -52,7 +54,7 @@ impl DeviceInput {
              let trace = trace.clone();
              let spawned = std::thread::Builder::new()
                  .name(format!("slot-input-{name}"))
--                .spawn(move || read_node(&node, &queue, trace.as_deref()));
-+                .spawn(move || read_node(&node, &queue, trace.as_deref(), sticks));
+-                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref()));
++                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref(), sticks));
              if let Err(e) = spawned {
                  eprintln!("slot: input {name}: {e}");
              }
-@@ -94,12 +103,13 @@ fn quicken_poll(sys: &Path, node: &Path) {
-     }
- }
- 
--fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
-+fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, map: StickMap) {
+@@ -96,12 +98,14 @@ fn read_node(
+     queue: &Mutex<Vec<RawEvent>>,
+     steers: &AtomicBool,
+     trace: Option<&Trace>,
++    map: StickMap,
+ ) {
      let label = node
          .file_name()
          .map(|n| n.to_string_lossy().into_owned())
@@ -367,33 +357,29 @@ index 4b0c5e8..974371a 100644
      let mut file = match File::open(node) {
          Ok(f) => f,
          Err(e) => {
-@@ -127,7 +137,13 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
-                 crate::latency::read();
+@@ -130,6 +134,10 @@ fn read_node(
              }
              match ev.kind {
--                EV_ABS => events.extend(hat.feed(ev)),
-+                EV_ABS => {
+                 EV_ABS => {
 +                    sticks
 +                        .feed(ev)
 +                        .into_iter()
 +                        .for_each(slot_retro::publish_sticks);
-+                    events.extend(hat.feed(ev))
-+                }
-                 _ => events.extend(to_raw(ev)),
-             }
-         }
+                     hat.steer_with_stick(steers.load(Ordering::Relaxed));
+                     events.extend(hat.feed(ev));
+                 }
 diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
-index 35ad46b..33bc57d 100644
+index 6f918df..ee2ce35 100644
 --- a/crates/slot/src/input/mod.rs
 +++ b/crates/slot/src/input/mod.rs
-@@ -7,6 +7,7 @@ mod keys;
- mod mask;
+@@ -9,6 +9,7 @@ mod mask;
  #[cfg(feature = "host")]
  mod pad;
+ mod raw_buttons;
 +pub mod sticks;
  pub mod trace;
  
- pub use device::DeviceInput;
+ pub use bind::{btn_device, carousel_action, device_btn, shortcut_table};
 diff --git a/crates/slot/src/input/sticks.rs b/crates/slot/src/input/sticks.rs
 new file mode 100644
 index 0000000..bf4efd4

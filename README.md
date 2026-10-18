@@ -13,7 +13,7 @@ slot's own releases.
 
 ## What it does
 
-The pinned base is slot v1.7.0 (`SLOT_PIN`, rebased from v1.6.0 on 2026-10-15, ADR 0038).
+The pinned base is slot main 1b20432, the coming 1.8.0 with no tag yet (`SLOT_PIN`, rebased from v1.7.0 on 2026-10-18, ADR 0083; from v1.6.0 to v1.7.0 on 2026-10-15, ADR 0038).
 
 slot keeps GBA, GB and GBC on their own shelves, each with its own cores and settings. This patch
 set adds more shelves the same way:

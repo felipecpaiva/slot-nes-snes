@@ -4,6 +4,7 @@ Date: Fri, 16 Oct 2026 09:06:02 +0400
 Subject: [PATCH] platform-sms
 
 ---
+ crates/slot-store/src/bindings.rs        |  2 +-
  crates/slot-store/src/core.rs            | 33 +++++----
  crates/slot-store/src/core_policy.rs     |  9 ++-
  crates/slot-store/src/platform.rs        |  5 ++
@@ -14,21 +15,34 @@ Subject: [PATCH] platform-sms
  crates/slot-ui/src/retro_cart.rs         |  4 +-
  crates/slot-ui/src/shell.rs              |  2 +-
  crates/slot-ui/tests/chrome.rs           |  2 +-
- crates/slot/src/app.rs                   | 27 +++++---
+ crates/slot/src/app.rs                   | 29 ++++----
  crates/slot/src/core_options_policy.rs   |  3 +-
  crates/slot/src/platform_video.rs        |  2 +-
- crates/slot/src/retro_quick.rs           | 40 +++++------
+ crates/slot/src/retro_quick.rs           |  2 +-
  crates/slot/src/root.rs                  |  6 +-
  crates/slot/src/snes_input.rs            | 12 +++-
  crates/slot/tests/sega_common/mod.rs     | 20 ++++++
  crates/slot/tests/sms_emu.rs             | 68 ++++++++++++++++++
  crates/slot/tests/sms_seat.rs            | 87 ++++++++++++++++++++++++
  crates/slot/tests/snes_select.rs         |  9 ++-
- 20 files changed, 376 insertions(+), 70 deletions(-)
+ 21 files changed, 358 insertions(+), 54 deletions(-)
  create mode 100644 crates/slot-store/tests/sms_platform.rs
  create mode 100644 crates/slot/tests/sms_emu.rs
  create mode 100644 crates/slot/tests/sms_seat.rs
 
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index d2f2c26..01d0fbb 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -205,7 +205,7 @@ impl GameButton {
+     pub fn of(platform: Platform) -> &'static [GameButton] {
+         match platform {
+             Platform::Gba | Platform::Snes => &GameButton::ALL,
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg => &GameButton::ALL[..8],
++            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => &GameButton::ALL[..8],
+         }
+     }
+ 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
 index 972630a..c8fda16 100644
 --- a/crates/slot-store/src/core.rs
@@ -423,10 +437,10 @@ index c72394b..930252a 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index ad5a8ba..70d08ce 100644
+index 6751564..0fb3267 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -926,9 +926,10 @@ impl App {
+@@ -990,9 +990,10 @@ impl App {
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
@@ -440,7 +454,7 @@ index ad5a8ba..70d08ce 100644
              (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
              (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
              (row, _) => row,
-@@ -1029,7 +1030,9 @@ impl App {
+@@ -1127,7 +1128,9 @@ impl App {
  
      pub fn bezel_files(&self, platform: Platform) -> Vec<String> {
          match platform {
@@ -451,7 +465,7 @@ index ad5a8ba..70d08ce 100644
              Platform::Gb | Platform::Gbc => self
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
-@@ -1051,7 +1054,7 @@ impl App {
+@@ -1149,7 +1152,7 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
@@ -460,7 +474,7 @@ index ad5a8ba..70d08ce 100644
                  &mut self.state.bezel_gba
              }
              Platform::Gb => &mut self.state.bezel_gb,
-@@ -1061,7 +1064,9 @@ impl App {
+@@ -1159,7 +1162,9 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
@@ -471,7 +485,7 @@ index ad5a8ba..70d08ce 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -1716,7 +1721,7 @@ impl App {
+@@ -2065,7 +2070,7 @@ impl App {
              Platform::Gbc => self.state.shader_gbc,
              Platform::Nes => self.state.shader_nes,
              Platform::Snes => self.state.shader_snes,
@@ -480,7 +494,7 @@ index ad5a8ba..70d08ce 100644
          }
      }
  
-@@ -1733,7 +1738,7 @@ impl App {
+@@ -2082,7 +2087,7 @@ impl App {
              Platform::Gba => self.state.colour_correction_gba,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
@@ -489,7 +503,7 @@ index ad5a8ba..70d08ce 100644
          }
      }
  
-@@ -2293,7 +2298,7 @@ impl App {
+@@ -2785,7 +2790,7 @@ impl App {
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
              Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
              Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
@@ -498,7 +512,7 @@ index ad5a8ba..70d08ce 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -2347,7 +2352,7 @@ impl App {
+@@ -2839,7 +2844,7 @@ impl App {
                  Platform::Gba => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
@@ -507,7 +521,16 @@ index ad5a8ba..70d08ce 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -4666,7 +4671,7 @@ fn draw_menu_rows(
+@@ -3231,7 +3236,7 @@ impl App {
+         }
+         let lit = match self.playing_platform() {
+             Platform::Gb => [0x9b, 0xa5, 0x82],
+-            Platform::Gba | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg => {
++            Platform::Gba | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
+                 [0xe6, 0xe4, 0xda]
+             }
+         };
+@@ -5399,7 +5404,7 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {
@@ -547,56 +570,18 @@ index 3aeb430..010e7c7 100644
  }
  
 diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
-index 07aa7d1..257ae36 100644
+index 8dcfb7d..705c941 100644
 --- a/crates/slot/src/retro_quick.rs
 +++ b/crates/slot/src/retro_quick.rs
-@@ -17,25 +17,27 @@ pub fn hidden_in_game(
- ) -> Option<&'static [QuickRow]> {
+@@ -13,7 +13,7 @@ pub fn step(state: &mut SlotState, row: QuickRow, right: bool) {
+ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
      match platform {
-         Platform::Gba | Platform::Gb | Platform::Gbc => None,
--        Platform::Nes | Platform::Snes | Platform::Gg => Some(match (framed, single) {
--            (true, false) => &[QuickRow::ColourCorrection, QuickRow::Palette],
--            (true, true) => &[
--                QuickRow::ColourCorrection,
--                QuickRow::Palette,
--                QuickRow::ExitGame,
--            ],
--            (false, false) => &[
--                QuickRow::ColourCorrection,
--                QuickRow::Palette,
--                QuickRow::Bezel,
--            ],
--            (false, true) => &[
--                QuickRow::ColourCorrection,
--                QuickRow::Palette,
--                QuickRow::Bezel,
--                QuickRow::ExitGame,
--            ],
--        }),
+         Platform::Gba | Platform::Gb | Platform::Gbc => Vec::new(),
+-        Platform::Nes | Platform::Snes | Platform::Gg => {
 +        Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
-+            Some(match (framed, single) {
-+                (true, false) => &[QuickRow::ColourCorrection, QuickRow::Palette],
-+                (true, true) => &[
-+                    QuickRow::ColourCorrection,
-+                    QuickRow::Palette,
-+                    QuickRow::ExitGame,
-+                ],
-+                (false, false) => &[
-+                    QuickRow::ColourCorrection,
-+                    QuickRow::Palette,
-+                    QuickRow::Bezel,
-+                ],
-+                (false, true) => &[
-+                    QuickRow::ColourCorrection,
-+                    QuickRow::Palette,
-+                    QuickRow::Bezel,
-+                    QuickRow::ExitGame,
-+                ],
-+            })
-+        }
-     }
- }
- 
+             let mut hidden = vec![QuickRow::ColourCorrection, QuickRow::Palette];
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
 index b0a4010..af63e2a 100644
 --- a/crates/slot/src/root.rs
@@ -863,7 +848,7 @@ index 0000000..d7043f6
 +    session.feed([RawEvent::Up(Btn::Start)], 140);
 +}
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index 49a5b33..2249c5d 100644
+index 48c81e1..c172bf8 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -256,9 +256,12 @@ fn the_picture_toggle_flips_only_on_snes() {

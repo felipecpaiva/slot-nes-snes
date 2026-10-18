@@ -38,7 +38,7 @@ Subject: [PATCH] canvas
  create mode 100644 crates/slot/tests/nes_window.rs
 
 diff --git a/crates/slot-gfx/src/fbo.rs b/crates/slot-gfx/src/fbo.rs
-index f1386a2..dfae689 100644
+index 7c9e5d0..3377812 100644
 --- a/crates/slot-gfx/src/fbo.rs
 +++ b/crates/slot-gfx/src/fbo.rs
 @@ -136,6 +136,10 @@ impl Compositor {
@@ -53,7 +53,7 @@ index f1386a2..dfae689 100644
          self.game.draw(&self.quad);
      }
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index 3247daa..570ca51 100644
+index a7f37aa..4484e82 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
 @@ -13,6 +13,9 @@ pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
@@ -66,7 +66,7 @@ index 3247daa..570ca51 100644
      u_rect: gl::types::GLint,
      u_bright: gl::types::GLint,
      u_uv: gl::types::GLint,
-@@ -44,15 +47,12 @@ impl GamePass {
+@@ -46,15 +49,12 @@ impl GamePass {
              crate::gl::gray_format(),
              Some(&[255]),
          );
@@ -85,7 +85,7 @@ index 3247daa..570ca51 100644
              gl::Uniform2f(
                  crate::gl::uniform_location(prog, "u_target"),
                  OUT_W as f32,
-@@ -71,6 +71,9 @@ impl GamePass {
+@@ -73,6 +73,9 @@ impl GamePass {
          Ok(GamePass {
              prog,
              game,
@@ -95,7 +95,7 @@ index 3247daa..570ca51 100644
              u_rect,
              u_bright,
              u_uv,
-@@ -140,10 +143,39 @@ impl GamePass {
+@@ -152,10 +155,39 @@ impl GamePass {
          self.src = rect;
      }
  
@@ -136,7 +136,7 @@ index 3247daa..570ca51 100644
          unsafe {
              gl::BindTexture(gl::TEXTURE_2D, self.game);
              gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-@@ -152,8 +184,8 @@ impl GamePass {
+@@ -164,8 +196,8 @@ impl GamePass {
                  0,
                  0,
                  0,
@@ -147,7 +147,7 @@ index 3247daa..570ca51 100644
                  gl::BGRA,
                  gl::UNSIGNED_BYTE,
                  xrgb8888.as_ptr() as *const std::ffi::c_void,
-@@ -163,7 +195,7 @@ impl GamePass {
+@@ -175,7 +207,7 @@ impl GamePass {
  
      pub fn draw(&self, quad: &Quad) {
          let src = match self.effect {
@@ -156,7 +156,7 @@ index 3247daa..570ca51 100644
              _ => self.src,
          };
          self.draw_source(self.game, quad, src);
-@@ -205,9 +237,9 @@ impl GamePass {
+@@ -223,9 +255,9 @@ impl GamePass {
      }
  }
  
@@ -511,7 +511,7 @@ index 841e1a7..8cffa8c 100644
  mod ffi;
  mod libretro;
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index aad66f1..8e89627 100644
+index c5d59f0..dd618ab 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
 @@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -548,7 +548,7 @@ index aad66f1..8e89627 100644
      rom: Vec<u8>,
      rom_path: Option<CString>,
      av: AvInfo,
-@@ -412,6 +425,15 @@ impl LibretroCore {
+@@ -413,6 +426,15 @@ impl LibretroCore {
              .inspect_err(|_| LIVE.store(false, Ordering::SeqCst))
      }
  
@@ -564,7 +564,7 @@ index aad66f1..8e89627 100644
      pub fn reported_system_dir(&self) -> String {
          self.host.system_dir.to_string_lossy().into_owned()
      }
-@@ -485,8 +507,10 @@ impl LibretroCore {
+@@ -486,8 +508,10 @@ impl LibretroCore {
              options_dirty: false,
              declared: std::collections::HashMap::new(),
          });
@@ -575,7 +575,7 @@ index aad66f1..8e89627 100644
              (api.set_environment)(environment);
              (api.set_video_refresh)(video_refresh);
              (api.set_audio_sample)(audio_sample);
-@@ -498,6 +522,7 @@ impl LibretroCore {
+@@ -499,6 +523,7 @@ impl LibretroCore {
          Ok(LibretroCore {
              api,
              host,
@@ -583,7 +583,7 @@ index aad66f1..8e89627 100644
              rom: Vec::new(),
              rom_path: None,
              av: AvInfo {
-@@ -514,6 +539,7 @@ impl LibretroCore {
+@@ -516,6 +541,7 @@ impl LibretroCore {
              return;
          }
          let _a = Active::bind(&mut self.host);
@@ -591,7 +591,15 @@ index aad66f1..8e89627 100644
          unsafe { (self.api.unload_game)() };
          self.loaded = false;
      }
-@@ -542,6 +568,7 @@ impl Drop for LibretroCore {
+@@ -524,6 +550,7 @@ impl LibretroCore {
+         let mut buf = vec![0u8; size];
+         let ok = {
+             let _a = Active::bind(&mut self.host);
++            let _e = ExtraGuard::bind(&mut self.extra);
+             unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+         };
+         ok.then_some(buf)
+@@ -553,6 +580,7 @@ impl Drop for LibretroCore {
          self.unload();
          unsafe {
              let _a = Active::bind(&mut self.host);
@@ -599,7 +607,7 @@ index aad66f1..8e89627 100644
              (self.api.deinit)();
          }
          LIVE.store(false, Ordering::SeqCst);
-@@ -568,6 +595,7 @@ impl RetroCore for LibretroCore {
+@@ -580,6 +608,7 @@ impl RetroCore for LibretroCore {
          };
          let ok = {
              let _a = Active::bind(&mut self.host);
@@ -607,7 +615,7 @@ index aad66f1..8e89627 100644
              unsafe { (self.api.load_game)(&info) }
          };
          if !ok {
-@@ -596,11 +624,13 @@ impl RetroCore for LibretroCore {
+@@ -608,11 +637,13 @@ impl RetroCore for LibretroCore {
          }
          self.host.inputs = [p1.0, p2.0];
          let _a = Active::bind(&mut self.host);
@@ -621,15 +629,7 @@ index aad66f1..8e89627 100644
          unsafe { report_audio_status(skip) };
      }
  
-@@ -620,6 +650,7 @@ impl RetroCore for LibretroCore {
-         let mut buf = vec![0u8; size];
-         let ok = {
-             let _a = Active::bind(&mut self.host);
-+            let _e = ExtraGuard::bind(&mut self.extra);
-             unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
-         };
-         if ok {
-@@ -632,6 +663,7 @@ impl RetroCore for LibretroCore {
+@@ -640,6 +671,7 @@ impl RetroCore for LibretroCore {
      fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
          let ok = {
              let _a = Active::bind(&mut self.host);
@@ -637,7 +637,7 @@ index aad66f1..8e89627 100644
              unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
          };
          if ok {
-@@ -677,18 +709,25 @@ impl RetroCore for LibretroCore {
+@@ -685,18 +717,25 @@ impl RetroCore for LibretroCore {
  
      fn start_link(&mut self, client_id: u16) {
          let _a = Active::bind(&mut self.host);
@@ -754,10 +754,10 @@ index a66d208..e31b323 100644
 +    }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index a4eb528..93c0382 100644
+index 04caa81..eeee0d3 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1377,7 +1377,7 @@ impl App {
+@@ -1498,7 +1498,7 @@ impl App {
      }
  
      pub fn source_rect(&self) -> [f32; 4] {
@@ -766,7 +766,7 @@ index a4eb528..93c0382 100644
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
-@@ -1456,7 +1456,7 @@ impl App {
+@@ -1809,7 +1809,7 @@ impl App {
  
      pub fn picture_rect(&self) -> [f32; 4] {
          let (w, h) = self.platform.picture();
@@ -807,19 +807,19 @@ index 21b7b43..3a41c9d 100644
                      &mut opened,
                      core,
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index f36c889..f766095 100644
+index 5ec0f33..49e70da 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
  
  use crate::cable::{self, Cable};
  use slot_retro::{
--    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
-+    ButtonMask, CoreError, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
+-    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
++    ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
  };
- use slot_store::RUN_AHEAD_MAX;
  
-@@ -151,7 +151,8 @@ impl EmuHandle {
+ use crate::audio::Ring;
+@@ -149,7 +149,8 @@ impl EmuHandle {
      ) -> Self {
          let rumble = core.rumble();
          let link = core.net();
@@ -829,7 +829,7 @@ index f36c889..f766095 100644
          let shared = Arc::new(Shared {
              input: AtomicU16::new(0),
              speed: AtomicU8::new(Speed::Paused as u8),
-@@ -943,7 +944,8 @@ impl Worker {
+@@ -900,7 +901,8 @@ impl Worker {
                  let _ = reply.send(core.save_ram());
              }
              Cmd::Thumb(reply) => {
@@ -840,12 +840,12 @@ index f36c889..f766095 100644
              Cmd::BeginLink(client_id, t) => {
                  self.shared.link_lost.store(false, Ordering::Relaxed);
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index f4871b7..22b8b8c 100644
+index 08a6031..368e550 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -504,6 +504,8 @@ impl Frontend {
-         compositor.set_shake(self.session.app().screen_shake());
+@@ -530,6 +530,8 @@ impl Frontend {
          compositor.set_screen_power(self.session.app().screen_power());
+         compositor.set_screen_footer(self.session.app().screen_footer());
          compositor.set_overlay_slide(self.session.app().overlay_slide());
 +        let (canvas_w, canvas_h) = self.session.app().core().canvas();
 +        compositor.set_game_canvas(canvas_w, canvas_h);
@@ -853,10 +853,10 @@ index f4871b7..22b8b8c 100644
          self.grab_link_shot(compositor);
          compositor.begin_frame(self.session.app().layout());
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 0b37773..9ad8026 100644
+index d6e8efa..e92d13a 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -40,5 +40,6 @@ pub mod root;
+@@ -41,5 +41,6 @@ pub mod root;
  pub mod session;
  pub mod state_writer;
  pub mod thumb;
