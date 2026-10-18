@@ -57,7 +57,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7) and PlayStation (Phase 8, ADR 0063) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063) and NeoGeo Pocket (Phase 9, ADR 0090) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -437,6 +437,25 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
+
+### Phase 9: NeoGeo Pocket (planned, not shipped)
+
+Tracking issue 70, children 71 to 79, ADR 0090, plan in docs/research/ngp-plan.md. One core, Beetle
+NeoPop (`mednafen_ngp`) pinned at `a50d5ac`, one shelf `Games/NGP` for Pocket and Pocket Color, no
+BIOS, no core picker. The platform patches wait for the upstream 1.8.0 base.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0090 and the issues |
+| 2 | 71, done | Core build, pin and licence |
+| 3 | 77, core half done | Generated-cart tests: boot, 160x152 picture, states, flash across a restart (patch 0052) |
+| 4 | 72 | `Platform::Ngp`, shelf, scan, header colour flag, explicit policy; joins dist and zip-check |
+| 5 | 73 | Core options (`ngp_language=english`) |
+| 6 | 74 | 240x160 canvas at 3x, NGP Screen section with Shader and Picture rows (no PAL Speed) |
+| 7 | 75 | Flash durability: core save dir `Saves/NGP`, atomic publish, flush by reload |
+| 8 | 76 | A, B and Option |
+| 9 | 78 | Mono and Color carts, labels for ScreenScraper ids 25 and 82 |
+| 10 | 79 | Device gate, including a lid-close and battery-pull flash test |
 
 ### Phase 6+: deferred (non-blocking)
 

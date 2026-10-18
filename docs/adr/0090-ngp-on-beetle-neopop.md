@@ -1,6 +1,6 @@
 # 0090. Bring NeoGeo Pocket and Pocket Color into scope on pinned Beetle NeoPop, built the NES and SNES way
 
-- Status: Accepted. Amends [0002](0002-cores.md)
+- Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: [NGP plan](../research/ngp-plan.md), [fork review](../research/fork-review-2026-10-18.md) tier 4, [nelynes survey](../research/fork-nelynes.md) section 1, [ADR 0053](0053-genesis-plus-gx-for-sega.md), [ADR 0063](0063-ps1-in-scope-on-pcsx-rearmed.md), [ADR 0072](0072-write-sav-when-the-core-gives-no-state.md), [issue 70](../../.github/issues/70-ngp-tracking.md), [issue 71](../../.github/issues/71-ngp-core-build.md), patch `patches/0052-ngp-core-tests.patch`

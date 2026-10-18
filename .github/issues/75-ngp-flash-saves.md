@@ -32,6 +32,7 @@ Step 7, and the one new problem NGP brings (ADR 0090). NeoPop gives slot no `SAV
 | Game never wrote flash | No file written, no error (the core writes nothing) |
 | Old `Saves/<stem>.flash` from a build before this patch | Moved into `Saves/NGP/` once, logged |
 | Reload fails mid-flush | The state is already written; log, and resume from it |
+| A torn `.flash` at the final path (copied in from elsewhere, or from a build before this patch) | Checked before it is staged for the core: the id is 0x0053, `total_file_length` equals the file size, and every block header fits. A file that fails is moved aside and logged, never loaded, because NeoPop's reader trusts the lengths (plan section 2) |
 
 ## Acceptance
 - [ ] `task check` green; the three new tests were red with their part of the fix removed.

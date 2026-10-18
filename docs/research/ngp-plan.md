@@ -69,8 +69,16 @@ from it and reimplement them with credit. Nothing is cherry-picked (docs/researc
   - `retro_unload_game` writes `<save_dir>/<name>.flash`, where the name is the ROM stem because
     slot does not answer `GET_GAME_INFO_EXT`. It writes only when the game wrote flash. The write
     goes through libretro-common `filestream` (stdio, since slot answers no `GET_VFS_INTERFACE`)
-    opened for write, so the file is truncated first. A power cut in that window leaves a file
-    that fails the `0x0053` id check, and NeoPop then silently starts with blank flash.
+    opened for write, so the file is truncated first. A power cut in that window leaves a torn
+    file, with two outcomes:
+    - Cut before the 8-byte header is written: the `0x0053` id check fails and NeoPop silently
+      starts with blank flash.
+    - Cut after the header: the check passes. `system_io_flash_read` reports success on a short
+      read. `flash_read` allocates `total_file_length` bytes and fills only what the file holds.
+      `do_flash_read` then walks `block_count` block headers with no bounds check, so heap garbage
+      lands in the cart flash, and a torn block header can read past the buffer.
+
+    So slot must never hand the core a torn file.
   - `retro_load_game` reads the file back into the cart.
   - `retro_serialize` includes the flash blocks (`FLASH_StateAction`). `retro_unserialize`
     restores them, and the next unload writes them out. **A resume state alone brings the flash
@@ -102,7 +110,8 @@ Options, smallest first. They combine.
    the file sits beside the platform's `.sav` files and moves with ADR 0082's hack updates. Small.
 2. **Atomic publish.** Give the core a staging dir (`Saves/NGP/.core/`). Before load, copy
    `Saves/NGP/<stem>.flash` in. After unload, write it out with `persist`'s temp, fsync and rename.
-   This makes the truncate window harmless. Small, and it reuses the atomic writer.
+   This makes the truncate window harmless: a torn file never reaches the final path, and so it
+   never reaches the core at the next load. Small, and it reuses the atomic writer.
 3. **Flush by reload.** On `flush_resume`, eject and autosave for NGP: serialize, unload (the flash
    is written), publish (option 2), load, unserialize. The game carries on. NeoPop's state is small
    and the reload is a file read, so measure the cost on the device first (target: under one frame,
