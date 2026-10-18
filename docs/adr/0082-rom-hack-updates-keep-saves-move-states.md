@@ -38,6 +38,8 @@ that old states there may not load: only the slot card's states are moved aside.
 ## Consequences
 
 - Labels, cart shells, favourites, recents and shelf memory stay attached with no edit to any Config file.
+- One hack maps to exactly one card file and at most one library file; ambiguity, a clean base game
+  as the target, or a name that changed since install refuses, so an update never makes a duplicate.
 - A player loses quick access to old states after an update; they are in the backup and come back
   with `--rollback`.
 - No slot change is needed. If slot ever keys a file by ROM content or adds a stem-keyed file, the

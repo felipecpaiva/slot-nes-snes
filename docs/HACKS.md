@@ -72,6 +72,22 @@ from a Mac may spell names in NFD (`Pokémon`); names are compared in NFC and th
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
 copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
 
+## One file per hack, never a duplicate
+
+- Each hack updates exactly one card file (`card`, compared in NFC since a Mac-written card can spell
+  names in NFD) and at most one library file (`library` if set, else the copy, loose or zipped, whose
+  ROM has the card's stem). None on the card: "not on the card". Two candidates: refused with the list
+  ("ambiguous: set `card`/`library` in your settings file"). Never a guess.
+- The update replaces that file in place, under the same name. It adds no file to `Games/<SYS>/` or
+  the library and never leaves the old and new versions side by side; the old one goes only to the
+  backup.
+- A clean base game (any registry `base_crc32`, e.g. Emerald, FireRed 1.0, Mother 3 (Japan)) is never
+  a target: if the card or library file resolves to one, the update refuses.
+- `--check` warns about files that look like another version of a registry hack (the same name once
+  version numbers are dropped, e.g. `Sonic 3 Delta v0.1.bin` next to `v0.1a.bin`). It only warns.
+- The card and library file names are recorded at install. If they later differ (a rename, a new
+  `card`/`library` setting), the update refuses until you rerun with `--accept-rename`.
+
 ## Save and state rules, and why
 
 - **Same file name.** slot keys the save, the states, the label, `cart_shell.txt`, `video_mode.txt`,
@@ -104,6 +120,7 @@ entries with a blank source); it never overwrites an existing file.
 | `name` | display name |
 | `system` | `GBA`, `GB`, `GBC`, `NES`, `SNES`, `GG`, `SMS`, `MD` or `PS1` (the card's `Games/<SYS>/`) |
 | `card` | the ROM's file name on the card, extension included |
+| `library` | the file name in the library's system folder (loose or `.zip`), when the card stem alone would match several |
 | `source` | `github:<owner>/<repo>` (release assets), `page:<url>` (a forum or site page), `manual` or `manual:<url>`, or `""` (not known yet) |
 | `asset` | glob for the release asset (`github:` only), e.g. `*.bps`; it must match exactly one asset |
 | `version_regex` | `page:` only: a regex whose first group is the latest version on the page |

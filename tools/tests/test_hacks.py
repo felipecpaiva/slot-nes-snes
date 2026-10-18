@@ -533,6 +533,57 @@ class Update(Base):
         row = [r for r in rows if r[1] == "hack"][0]
         self.assertEqual(row[4], "UPDATE AVAILABLE (from incoming 2)")
 
+    def settings(self, **fields):
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"hack": fields}))
+
+    def test_an_update_replaces_in_place_and_adds_no_file(self):
+        games, lib = sorted(os.listdir(self.at("Games", "GBA"))), sorted(os.listdir(os.path.join(self.lib, "gba")))
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(sorted(os.listdir(self.at("Games", "GBA"))), games)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "gba"))), lib)
+
+    def test_two_library_copies_are_ambiguous_until_the_settings_name_one(self):
+        loose = os.path.join(self.lib, "gba", self.STEM + ".gba")
+        self.write(loose, self.old)
+        before = self.tree(self.tmp)
+        r, out = self.update("--yes")
+        self.assertIn("ambiguous", out)
+        self.assertIn("Hack (v1).gba", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        self.settings(library=self.STEM + ".zip")
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(loose), self.old)  # the other copy is never touched
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
+            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+
+    def test_a_clean_base_game_is_never_a_target(self):
+        self.write(self.at("Games", "GBA", "Base (USA).gba"), BASE)
+        self.settings(card="Base (USA).gba")
+        before = self.tree(self.tmp)
+        r, out = self.update("--yes")
+        self.assertIn("clean base game", out)
+        self.assertEqual(self.tree(self.tmp), before)
+
+    def test_check_warns_about_two_versions_side_by_side_and_touches_neither(self):
+        self.write(self.at("Games", "GBA", "Hack v2.gba"), b"other")
+        before = self.tree(self.card)
+        r, out = self.run_main("--card", self.card, "--library", self.lib)
+        self.assertIn("possible duplicate on the card: GBA/Hack v2.gba looks like another version of Hack (v1).gba", out)
+        self.assertEqual(self.tree(self.card), before)
+
+    def test_a_file_renamed_since_install_is_refused_until_accepted(self):
+        hk.write_state(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json"),
+                       {"hack": {"version": "1", "card": "Hack (v0).gba"}})
+        r, out = self.update("--yes")
+        self.assertIn("--accept-rename", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        r, out = self.update("--yes", "--accept-rename")
+        self.assertEqual(r, 0, out)
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
+        self.assertEqual((state["hack"]["card"], state["hack"]["library"]), (self.STEM + ".gba", self.STEM + ".zip"))
+
     def test_zip_with_two_roms_is_refused(self):
         inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack")
         os.remove(os.path.join(inc, "hack-v2.bps"))

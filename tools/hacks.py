@@ -71,7 +71,7 @@ PATCH_EXTS = (".bps", ".ips", ".ups", ".xdelta", ".vcdiff")
 SOURCE = re.compile(r"github:[\w.-]+/[\w.-]+|page:https?://\S+|manual(:https?://\S+)?|")
 FORMATS = {"bps", "ips", "ups", "xdelta", "rom", "unknown"}
 FIELDS = {"name", "system", "card", "source", "asset", "version_regex", "format", "base_name", "base_crc32",
-          "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes", "status"}
+          "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes", "status", "library"}
 HOUR = 3600
 CHALLENGE = re.compile(r"Anubis|Making sure you're not a bot|cf-chl|Just a moment\.\.\.", re.I)
 GITHUB_PAGE = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/?")
@@ -541,6 +541,72 @@ def library_items(lib, system, stem):
     return out
 
 
+def card_target(card, h, missing_ok=False):
+    """The one card file this hack updates: its `card` name, compared in NFC. None on the card, or two
+    spellings of it, refuse: never a guess."""
+    names = [n for n in card.names(f"Games/{h['system']}") if fl.nfc(n) == fl.nfc(h["card"])]
+    if not names and missing_ok:
+        return h["card"]
+    if not names:
+        raise Refuse(f"Games/{h['system']}/{h['card']} is not on the card")
+    if len(names) > 1:
+        raise Refuse(f"ambiguous: {', '.join(names)} on the card: set `card` in your settings file")
+    return names[0]
+
+
+def library_target(lib, h):
+    """(path, zip member or None) of the one library copy this hack updates, or None when there is none:
+    the entry's `library` file name if set, else the copies of the card stem. Several: refuse."""
+    system = h["system"]
+    if h.get("library"):
+        folder, exts = os.path.join(lib, fl.SYSTEMS[system][0]), fl.SYSTEMS[system][1]
+        hits = [n for n in (os.listdir(folder) if os.path.isdir(folder) else []) if fl.nfc(n) == fl.nfc(h["library"])]
+        if not hits:
+            return None
+        p = os.path.join(folder, hits[0])
+        if not p.lower().endswith(".zip"):
+            return p, None
+        with zipfile.ZipFile(p) as z:
+            roms = [i.filename for i in z.infolist() if os.path.splitext(i.filename)[1].lower() in exts]
+        if len(roms) != 1:
+            raise Refuse(f"{hits[0]} holds {len(roms)} ROMs, want exactly one")
+        return p, roms[0]
+    items = library_items(lib, system, os.path.splitext(h["card"])[0])
+    if len(items) > 1:
+        raise Refuse(f"ambiguous: {', '.join(os.path.basename(p) for p, _, _ in items)} in the library: "
+                     "set `library` in your settings file")
+    return (items[0][0], items[0][2]) if items else None
+
+
+def target_crc(lib_target):
+    p, m = lib_target
+    if m:
+        with zipfile.ZipFile(p) as z:
+            return f"{z.getinfo(m).CRC:08X}"
+    return fl.file_crc(p)
+
+
+VERSION_WORDS = re.compile(r"\bv(?:ersion)?\s*\d+(?:\.\d+)*[a-z]?\b|\bversion\b|\bb\d+(?:\.\d+)+\b", re.I)
+
+
+def dup_key(name, system):
+    """A name without its version numbers, for spotting two versions of one hack side by side."""
+    return fl.title_key(VERSION_WORDS.sub(" ", os.path.splitext(name)[0]), system)
+
+
+def duplicates(reg, listing):
+    """[(system, hack file, other file)] for files that look like another version of a registry hack."""
+    out = []
+    for h in reg.values():
+        names = listing.get(h["system"], set())
+        key = dup_key(h["card"], h["system"])
+        stem, exts = fl.nfc(os.path.splitext(h["card"])[0]), tuple(fl.SYSTEMS[h["system"]][1]) + (".zip",)
+        out += [(h["system"], h["card"], n) for n in sorted(names)
+                if key and n.lower().endswith(exts) and fl.nfc(os.path.splitext(n)[0]) != stem
+                and dup_key(n, h["system"]) == key]
+    return out
+
+
 def library_states(lib, system, stem):
     folder, key = os.path.join(lib, fl.SYSTEMS[system][0]), fl.nfc(stem)
     return [n for n in (os.listdir(folder) if os.path.isdir(folder) else []) if fl.nfc(n).startswith(key + ".state")]
@@ -798,10 +864,12 @@ def cmd_check(ctx, reg, args, card):
     for hid, h in sorted(reg.items(), key=lambda kv: (kv[1]["system"], kv[1]["name"].lower())):
         if on is not None and fl.nfc(h["card"]) not in on[h["system"]]:
             continue
-        if on is None and args.library and not library_items(args.library, h["system"], os.path.splitext(h["card"])[0]):
-            where = "not in library"
-        else:
-            where = ""
+        where = ""
+        if on is None and args.library:
+            try:
+                where = "" if library_target(args.library, h) else "not in library"
+            except (Refuse, zipfile.BadZipFile) as e:
+                where = str(e)
         inst = installed_version(state, hid, h)
         latest, status, link = check_one(ctx, hid, h, inst)
         if args.library and (inst == "unknown" or not h["source"].startswith("github")):
@@ -811,6 +879,13 @@ def cmd_check(ctx, reg, args, card):
         print(f"{system:<4} {hid:<30} installed {inst:<10} latest {latest:<12} {status}")
         if link and status != "up to date":
             print(f"     {link}")
+    listing = {s: set(n) for s, n in on.items()} if on is not None else {
+        s: {n for n in os.listdir(os.path.join(args.library, fl.SYSTEMS[s][0])) if not n.startswith(".")}
+        for s in {h["system"] for h in reg.values()} if os.path.isdir(os.path.join(args.library, fl.SYSTEMS[s][0]))
+    } if args.library else {}
+    for system, mine, other in duplicates(reg, listing):
+        print(f"warning: possible duplicate on the {'card' if on is not None else 'library'}: {system}/{other} "
+              f"looks like another version of {mine} (left alone)")
     print(f"\n{len(rows)} hack(s) checked. Nothing written to the card, the library or the settings; a version "
           "identified by CRC is recorded in hacks-state.json.")
     return rows
@@ -819,8 +894,7 @@ def cmd_check(ctx, reg, args, card):
 def by_crc(ctx, hid, h, args, card, state, inst, latest, status):
     """(installed, status) after building the known payloads and comparing them with the installed ROM's
     CRC32 (the library copy's, else the card's). A match is recorded in the state file."""
-    stem = os.path.splitext(h["card"])[0]
-    crc = (state.get(hid) or {}).get("crc32") or library_crc(args.library, h["system"], stem)
+    crc = (state.get(hid) or {}).get("crc32") or library_crc(args.library, h)
     if not crc and card:
         data = card.read(f"Games/{h['system']}/{real_name(card, h['system'], h['card'])}")
         crc = crc_hex(data) if data else None
@@ -846,19 +920,31 @@ def by_crc(ctx, hid, h, args, card, state, inst, latest, status):
     return inst, f"UPDATE AVAILABLE (from incoming {newest})"
 
 
-def plan_update(ctx, hid, h, args, card, state):
-    """(card ops, library ops, record) or Refuse. Every refusal happens here, before any write."""
-    system, rom = h["system"], real_name(card, h["system"], h["card"])
+def plan_update(ctx, hid, h, args, card, state, bases=()):
+    """(card ops, library ops, record) or Refuse. Every refusal happens here, before any write. The card
+    file and the library file are each exactly one, replaced in place under the same name."""
+    system, rom = h["system"], card_target(card, h)
     stem = os.path.splitext(rom)[0]
-    if not card.exists(f"Games/{system}/{rom}"):
-        raise Refuse(f"Games/{system}/{rom} is not on the card")
+    lib = library_target(args.library, h)
+    st = state.get(hid) or {}
+    moved = [f"{was!r} -> {now!r}" for was, now in ((st.get("card"), rom), (st.get("library"),
+             os.path.basename(lib[0]) if lib else None)) if was and now and fl.nfc(was) != fl.nfc(now)]
+    if moved and not args.accept_rename:
+        raise Refuse(f"the file is not the one recorded at install ({'; '.join(moved)}): check it, then rerun "
+                     "with --accept-rename")
+    data = card.read(f"Games/{system}/{rom}")
+    if data is None:
+        raise Refuse(f"could not read Games/{system}/{rom}")
+    card_crc = crc_hex(data)
+    for where, crc in (("card file", card_crc), ("library file", target_crc(lib) if lib else None)):
+        if crc and crc in bases:
+            raise Refuse(f"the {where} is a clean base game ({crc}), never a hack target: fix `card`/`library`")
     if seated(card, system, stem):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
     name, data, version = get_payload(ctx, hid, h, args.as_version)
     new = build(h, args.library, name, data)
     new_crc = crc_hex(new)
-    lib = library_items(args.library, system, stem)
-    old_crc = (state.get(hid) or {}).get("crc32") or library_crc(args.library, system, stem)
+    old_crc = card_crc
     if old_crc == new_crc:
         raise Refuse(f"already installed ({new_crc}), nothing to do")
     old = installed_version(state, hid, h)
@@ -870,11 +956,11 @@ def plan_update(ctx, hid, h, args, card, state):
     lbase = os.path.join(ctx.home, "backups", system, stem)
     local = LocalCard(args.library)
     ldir = free_dir(local, lbase, label)
-    writes = [(rezip(p, m, new) if m else new, p) for p, how, m in lib if how == "move" and
-              (m or p.lower().endswith(tuple(fl.SYSTEMS[system][1])))]
-    lib_ops = update_ops([(p, how) for p, how, _ in lib], ldir, lib_map(ldir), writes, meta) if lib else []
+    lib_ops = update_ops([(lib[0], "move")], ldir, lib_map(ldir),
+                         [(rezip(lib[0], lib[1], new) if lib[1] else new, lib[0])], meta) if lib else []
     record = {"version": version, "crc32": new_crc, "date": time.strftime("%Y-%m-%d"), "card": rom,
-              "backup": cdir, "library_backup": ldir if lib else None}
+              "library": os.path.basename(lib[0]) if lib else None, "backup": cdir,
+              "library_backup": ldir if lib else None}
     return card_ops, lib_ops, record, h["saves_carry_over"]
 
 
@@ -901,14 +987,13 @@ def build(h, library, name, data, say=print):
     return apply_patch(base, data, h.get("target_crc32"), warn=say)
 
 
-def library_crc(library, system, stem):
-    """CRC32 of the library copy of stem (zip header or loose file), else None."""
-    for p, _, m in library_items(library, system, stem) if library else []:
-        if m:
-            with zipfile.ZipFile(p) as z:
-                return f"{z.getinfo(m).CRC:08X}"
-        return fl.file_crc(p)
-    return None
+def library_crc(library, h):
+    """CRC32 of the library copy (zip header or loose file), else None (none, or ambiguous)."""
+    try:
+        t = library_target(library, h) if library else None
+    except (Refuse, zipfile.BadZipFile):
+        return None
+    return target_crc(t) if t else None
 
 
 def candidates(ctx, hid, h):
@@ -965,11 +1050,12 @@ def confirm(args, what):
 def cmd_update(ctx, reg, ids, args, card):
     path = os.path.join(ctx.config, "hacks-state.json")
     state, failed = read_state(path), 0
+    bases = {(x.get("base_crc32") or "").upper() for x in reg.values()} - {""}
     for hid in ids:
         h = reg[hid]
         print(f"\n{hid}: {h['name']} ({h['system']}/{h['card']})")
         try:
-            card_ops, lib_ops, record, saves = plan_update(ctx, hid, h, args, card, state)
+            card_ops, lib_ops, record, saves = plan_update(ctx, hid, h, args, card, state, bases)
         except (Refuse, fl.Fail, OSError, ValueError, zipfile.BadZipFile) as e:
             print(f"  refused: {e}")
             failed += 1
@@ -1008,7 +1094,7 @@ def cmd_update(ctx, reg, ids, args, card):
 
 def cmd_rollback(ctx, reg, hid, args, card):
     h, path = reg[hid], os.path.join(ctx.config, "hacks-state.json")
-    system, rom = h["system"], real_name(card, h["system"], h["card"])
+    system, rom = h["system"], card_target(card, h, missing_ok=True)  # a half-done update
     stem = os.path.splitext(rom)[0]
     if seated(card, system, stem):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
@@ -1017,7 +1103,8 @@ def cmd_rollback(ctx, reg, hid, args, card):
     card_ops, info = rollback_ops(card, current, f"Backups/hacks/{system}/{stem}", card_map, meta)
     lib_ops, local = [], LocalCard(args.library) if args.library else None
     if local and os.path.isdir(os.path.join(ctx.home, "backups", system, stem)):
-        cur = [(p, how) for p, how, _ in library_items(args.library, system, stem)]
+        t = library_target(args.library, h)
+        cur = [(t[0], "move")] if t else []
         lib_ops, _ = rollback_ops(local, cur, os.path.join(ctx.home, "backups", system, stem), lib_map, meta)
     print(f"{hid}: back to {info.get('from')} ({info.get('from_crc32')})")
     show(card_ops, "card")
@@ -1095,6 +1182,8 @@ def main(argv=None, ctx=None):
     ap.add_argument("--library", help="ROM library with gba/ gbc/ megadrive/ ... folders (needed to update)")
     ap.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
     ap.add_argument("--yes", action="store_true", help="do not ask before applying")
+    ap.add_argument("--accept-rename", action="store_true",
+                    help="update although the card or library file name differs from the one recorded at install")
     ap.add_argument("--as-version", help="the version to record for a patch from the incoming folder")
     args = ap.parse_args(argv)
     ctx = ctx or Ctx()
