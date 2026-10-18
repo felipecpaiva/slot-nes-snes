@@ -31,8 +31,9 @@ fi
 # if the first update beats mGBA refusing the ROM (about 50 us here), and failed on the runner twice in
 # run 38862924402; the unpatched tree fails it the same way after a 100 us stall. Our own real-time budget tests (snes_ff.rs,
 # snes_rewind.rs: run 38347334149) are treated the same way. On CI these binaries are left out of the gating run and run on their
-# own afterwards as information only. Locally they still gate.
-ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves"
+# own afterwards as information only. Locally they still gate. Our pal_pacing_clock.rs (issue 66) counts frames an
+# undriven 50 fps worker runs in two seconds of wall clock, so it joins them.
+ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do

@@ -158,6 +158,54 @@ ms (1.14x the median, limit 1.1x) and one present is 25.67 ms (1.53x the period,
 other window's p99 is 17.3 to 17.8 ms. The 35.14 ms present is the eject at the end of the run. Likely
 a level load (CD read) under the scripted input; to confirm with the 10-minute run.
 
+## PAL pacing (issue 66, ADR 0071)
+
+Checks that a PAL game runs at its own 50 fps with its own pitch and no audio cost. Pick titles the
+cores really detect as PAL (the first line below proves it either way):
+
+| System | Example (No-Intro name) | Why it reads as PAL |
+|---|---|---|
+| NES (fceumm) | `Super Mario Bros. 3 (Europe)` | "(Europe)" in an iNES 1.0 file name, or the NES 2.0 timing byte |
+| SNES (snes9x2005_plus or snes9x) | `Super Mario World (Europe)` | header region byte |
+| Mega Drive | a Europe-only cart, e.g. `Asterix and the Great Rescue (Europe)` | header region `E` only; a `JUE` header (most "(USA, Europe)" carts) runs as NTSC |
+| Master System | `Micro Machines (Europe)` or `Fantastic Dizzy (Europe)` | in Genesis Plus GX's database; most other SMS carts run as NTSC |
+| PS1 | `Spyro the Dragon (Europe)` | SCES disc |
+
+Per title, 3 minutes, one run:
+
+1. `task deploy:device`. Note the zip version. PAL Speed must be Native (no `Config/pal_speed.txt`,
+   or no line for that system).
+2. `CORE=<core> PLATFORM=<nes|snes|md|sms|ps1> STEM='<name on the card>' PAIR=<platform>-pal MINUTES=3 RUNS=1 sh scripts/auto-play.sh`
+3. In `docs/perf/<date>/play/<platform>-pal.1.log` (auto-play names the log `<PAIR>.<run>.log`):
+   - `grep 'slot: emu: pacing at' <log>` must print one line near 50 (50.007 NES and SNES, 49.701
+     Mega Drive and Master System, about 50 PS1). No line means the core ran the game as NTSC: pick
+     another title, it is not a pacing failure.
+   - Game speed: `grep -c 'slot: audio: .* queued' <log>` counts one line per 300 game frames, so
+     3 minutes at 50 fps gives about 30 (36 would mean 60 fps). Enter count x 300 / 180 as fps.
+   - Audio: starved and dropped 0 in the session summary, as for every title. In the
+     `slot: audio: Q/T queued` lines Q must stay near T for the whole run. A paced core takes its
+     ticks-to-frames ratio from the pacer's estimate of the panel period, not from the measured
+     tick rate; if the two differ by more than the 0.5% rate control can absorb, Q climbs steadily
+     (towards dropped: frames run faster than the panel really ticks) or falls steadily (towards
+     starved) long before the summary shows it. Note the first and last Q of the run.
+   - Presents: `ft_p50_med` stays about 16.78 ms and `ft_p99_worst` within 1.1x of it, from
+     `play-eval.md`. The panel still presents at 59.6 Hz; a repeated frame is not a missed present.
+4. By ear and eye, against a stopwatch: a PAL game's music at Native is about 17% lower in pitch
+   and slower than with PAL Speed set to Panel (flip the row in that system's Screen section, start
+   the game again). An in-game clock (a level timer) should keep pace with the stopwatch over 60 s.
+5. Optional, for the record: `adb shell cat /sys/class/graphics/fb0/modes` and add it to Notes
+   (upstream never writes a panel mode; a 50 Hz mode is the open alternative in ADR 0071).
+
+| Title | Core | Pacing line fps | Game fps (audio lines) | Q first / last (T) | Starved / dropped | p50 / p99 present ms | Native vs Panel by ear | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Asterix (Europe), NES | fceumm | 50.007 | about 50 (21 lines in a 2 minute run) | 2443 / 2110 (2184) | 0 / 0 | 16.78 / 17.39 | not checked | 2026-10-18 | branch pal-pacing (2b4445a), governor performance | 2 minutes, auto-play, one run; no panic, clean eject |
+| Another World (Europe), MD | genesis_plus_gx | 49.701 | about 50 (21 lines) | 3243 / 2205 (2184) | 0 / 0 | 16.78 / 17.42 | not checked | 2026-10-18 | branch pal-pacing (2b4445a), governor performance | as above |
+| Addams Family (Europe), SMS | genesis_plus_gx | 49.701 | about 50 (21 lines) | 2470 / 2251 (2184) | 0 / 0 | 16.78 / 17.32 | not checked | 2026-10-18 | branch pal-pacing (2b4445a), governor performance | as above; the title is in Genesis Plus GX's Europe list |
+| Rapid Reload (Europe), PS1 | pcsx_rearmed | 50.000 | about 50 (21 lines) | 3068 / 1950 (2184) | 0 / 0 | 16.78 / 18.86 | not checked | 2026-10-18 | branch pal-pacing (2b4445a), governor performance | p99 as the NTSC Spyro run, accepted |
+
+PAL gate passed on 2026-10-18. Q starts above T (the start-up prefill) and settles near T, with no
+steady drift. SNES had no European cart on the card, so SNES PAL pacing is host-tested only.
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

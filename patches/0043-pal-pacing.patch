@@ -1,0 +1,1300 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 09:10:55 +0400
+Subject: [PATCH] pal-pacing
+
+A core that reports a rate more than 2 fps from 60 (PAL content on
+fceumm, nestopia, snes9x, snes9x2005_plus, Genesis Plus GX and
+pcsx_rearmed, about 50 fps) is paced at its own fps. Locked to the
+panel, each tick runs the whole frames its owed frame time adds up to
+(0 or 1 at 50 fps, so the last frame repeats about one tick in six;
+1 or 2 for a later 75 fps core); undriven, it sleeps one content period
+a frame. Its sound is resampled from the core's own rate and passes
+1:1 per frame. Every core within 2 fps of 60 keeps the 60 Hz present
+and the av_rate stretch, which is also the PAL Speed "Panel" choice in
+the NES, SNES, Master System, Mega Drive and PlayStation Screen
+sections (Config/pal_speed.txt, Native by default).
+
+Prior art, all GPL-3.0: oauramos/omega-zero paces each core at its own
+fps (Pace, commit 726cc34); the 2 fps window and the period-based
+core_hz follow cloudwithax/unslot
+(https://github.com/cloudwithax/unslot/commit/4cf8468); the fractional
+frames-owed carry follows nelynes/slotPlus
+(https://github.com/nelynes/slotPlus/commit/0848fcb,
+https://github.com/nelynes/slotPlus/commit/b264635).
+---
+ crates/slot-ui/src/quick_menu.rs        |  61 ++++-
+ crates/slot-ui/src/quick_retro.rs       |  38 ++-
+ crates/slot-ui/tests/quick_retro.rs     |   4 +-
+ crates/slot-ui/tests/retro_faces.rs     |  14 +-
+ crates/slot/src/app.rs                  |  32 ++-
+ crates/slot/src/av_rate.rs              |  82 ++++++
+ crates/slot/src/emu.rs                  |  44 ++-
+ crates/slot/src/lib.rs                  |   1 +
+ crates/slot/src/pal_speed.rs            |  83 ++++++
+ crates/slot/src/session.rs              |   1 +
+ crates/slot/tests/pal_pacing.rs         | 339 ++++++++++++++++++++++++
+ crates/slot/tests/pal_pacing_clock.rs   |  66 +++++
+ crates/slot/tests/pal_speed.rs          | 105 ++++++++
+ crates/slot/tests/ps1_screen.rs         |   6 +-
+ crates/slot/tests/quick_retro_shader.rs |   8 +-
+ crates/slot/tests/system_picture.rs     |   5 +-
+ 16 files changed, 854 insertions(+), 35 deletions(-)
+ create mode 100644 crates/slot/src/pal_speed.rs
+ create mode 100644 crates/slot/tests/pal_pacing.rs
+ create mode 100644 crates/slot/tests/pal_pacing_clock.rs
+ create mode 100644 crates/slot/tests/pal_speed.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 258f493..f38ffb8 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -64,10 +64,15 @@ pub enum QuickRow {
+     Ps1Shader,
+     ScreenPs1,
+     Ps1Picture,
++    NesPalSpeed,
++    SnesPalSpeed,
++    SmsPalSpeed,
++    MdPalSpeed,
++    Ps1PalSpeed,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 58] = [
++    pub const ALL: [QuickRow; 63] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -126,6 +131,11 @@ impl QuickRow {
+         QuickRow::Ps1Shader,
+         QuickRow::ScreenPs1,
+         QuickRow::Ps1Picture,
++        QuickRow::NesPalSpeed,
++        QuickRow::SnesPalSpeed,
++        QuickRow::SmsPalSpeed,
++        QuickRow::MdPalSpeed,
++        QuickRow::Ps1PalSpeed,
+     ];
+ 
+     pub const MAIN: [QuickRow; 4] = [
+@@ -246,12 +256,20 @@ impl QuickRow {
+             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
+                 &QuickRow::PLAY_SCREEN
+             }
+-            QuickRow::NesShader | QuickRow::NesPicture => &QuickRow::SCREEN_NES,
+-            QuickRow::SnesShader | QuickRow::SnesPicture => &QuickRow::SCREEN_SNES,
++            QuickRow::NesShader | QuickRow::NesPicture | QuickRow::NesPalSpeed => {
++                &QuickRow::SCREEN_NES
++            }
++            QuickRow::SnesShader | QuickRow::SnesPicture | QuickRow::SnesPalSpeed => {
++                &QuickRow::SCREEN_SNES
++            }
+             QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
+-            QuickRow::SmsShader | QuickRow::SmsPicture => &QuickRow::SCREEN_SMS,
+-            QuickRow::MdShader | QuickRow::MdPicture => &QuickRow::SCREEN_MD,
+-            QuickRow::Ps1Shader | QuickRow::Ps1Picture => &QuickRow::SCREEN_PS1,
++            QuickRow::SmsShader | QuickRow::SmsPicture | QuickRow::SmsPalSpeed => {
++                &QuickRow::SCREEN_SMS
++            }
++            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => &QuickRow::SCREEN_MD,
++            QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
++                &QuickRow::SCREEN_PS1
++            }
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -266,12 +284,22 @@ impl QuickRow {
+             QuickRow::Wallpaper => Some(QuickRow::General),
+             QuickRow::PlayScreen => Some(QuickRow::Settings),
+             QuickRow::Shader => Some(QuickRow::PlayScreen),
+-            QuickRow::NesShader | QuickRow::NesPicture => Some(QuickRow::ScreenNes),
+-            QuickRow::SnesShader | QuickRow::SnesPicture => Some(QuickRow::ScreenSnes),
++            QuickRow::NesShader | QuickRow::NesPicture | QuickRow::NesPalSpeed => {
++                Some(QuickRow::ScreenNes)
++            }
++            QuickRow::SnesShader | QuickRow::SnesPicture | QuickRow::SnesPalSpeed => {
++                Some(QuickRow::ScreenSnes)
++            }
+             QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
+-            QuickRow::SmsShader | QuickRow::SmsPicture => Some(QuickRow::ScreenSms),
+-            QuickRow::MdShader | QuickRow::MdPicture => Some(QuickRow::ScreenMd),
+-            QuickRow::Ps1Shader | QuickRow::Ps1Picture => Some(QuickRow::ScreenPs1),
++            QuickRow::SmsShader | QuickRow::SmsPicture | QuickRow::SmsPalSpeed => {
++                Some(QuickRow::ScreenSms)
++            }
++            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => {
++                Some(QuickRow::ScreenMd)
++            }
++            QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
++                Some(QuickRow::ScreenPs1)
++            }
+             _ => None,
+         }
+     }
+@@ -389,6 +417,11 @@ impl QuickRow {
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+             | QuickRow::Ps1Picture => "Picture",
++            QuickRow::NesPalSpeed
++            | QuickRow::SnesPalSpeed
++            | QuickRow::SmsPalSpeed
++            | QuickRow::MdPalSpeed
++            | QuickRow::Ps1PalSpeed => "PAL Speed",
+         }
+     }
+ 
+@@ -453,6 +486,8 @@ pub enum QuickValue {
+     Stretch,
+     Actual,
+     Crop,
++    Native,
++    Panel,
+ }
+ 
+ impl QuickValue {
+@@ -483,6 +518,8 @@ impl QuickValue {
+             QuickValue::Stretch => Self::ALL.len() + slot_store::RetroShader::ALL.len(),
+             QuickValue::Actual => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 1,
+             QuickValue::Crop => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 2,
++            QuickValue::Native => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 3,
++            QuickValue::Panel => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 4,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -511,6 +548,8 @@ impl QuickValue {
+             QuickValue::Stretch => "Stretch",
+             QuickValue::Actual => "Actual",
+             QuickValue::Crop => "Crop",
++            QuickValue::Native => "Native",
++            QuickValue::Panel => "Panel",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 7058551..c7596c5 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -3,12 +3,32 @@ use crate::toast::Toast;
+ use slot_store::RetroShader;
+ 
+ impl QuickRow {
+-    pub const SCREEN_NES: [QuickRow; 2] = [QuickRow::NesShader, QuickRow::NesPicture];
+-    pub const SCREEN_SNES: [QuickRow; 2] = [QuickRow::SnesShader, QuickRow::SnesPicture];
++    pub const SCREEN_NES: [QuickRow; 3] = [
++        QuickRow::NesShader,
++        QuickRow::NesPicture,
++        QuickRow::NesPalSpeed,
++    ];
++    pub const SCREEN_SNES: [QuickRow; 3] = [
++        QuickRow::SnesShader,
++        QuickRow::SnesPicture,
++        QuickRow::SnesPalSpeed,
++    ];
+     pub const SCREEN_GG: [QuickRow; 2] = [QuickRow::GgShader, QuickRow::GgPicture];
+-    pub const SCREEN_SMS: [QuickRow; 2] = [QuickRow::SmsShader, QuickRow::SmsPicture];
+-    pub const SCREEN_MD: [QuickRow; 2] = [QuickRow::MdShader, QuickRow::MdPicture];
+-    pub const SCREEN_PS1: [QuickRow; 2] = [QuickRow::Ps1Shader, QuickRow::Ps1Picture];
++    pub const SCREEN_SMS: [QuickRow; 3] = [
++        QuickRow::SmsShader,
++        QuickRow::SmsPicture,
++        QuickRow::SmsPalSpeed,
++    ];
++    pub const SCREEN_MD: [QuickRow; 3] = [
++        QuickRow::MdShader,
++        QuickRow::MdPicture,
++        QuickRow::MdPalSpeed,
++    ];
++    pub const SCREEN_PS1: [QuickRow; 3] = [
++        QuickRow::Ps1Shader,
++        QuickRow::Ps1Picture,
++        QuickRow::Ps1PalSpeed,
++    ];
+ }
+ 
+ impl QuickValue {
+@@ -16,7 +36,13 @@ impl QuickValue {
+         QuickValue::ALL
+             .into_iter()
+             .chain(RetroShader::ALL.map(QuickValue::Retro))
+-            .chain([QuickValue::Stretch, QuickValue::Actual, QuickValue::Crop])
++            .chain([
++                QuickValue::Stretch,
++                QuickValue::Actual,
++                QuickValue::Crop,
++                QuickValue::Native,
++                QuickValue::Panel,
++            ])
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/tests/quick_retro.rs b/crates/slot-ui/tests/quick_retro.rs
+index 1fdbe06..e087be2 100644
+--- a/crates/slot-ui/tests/quick_retro.rs
++++ b/crates/slot-ui/tests/quick_retro.rs
+@@ -49,8 +49,8 @@ fn each_retro_and_sega_page_holds_its_own_shader_and_picture_rows() {
+         (QuickRow::ScreenMd, QuickRow::MdShader, QuickRow::MdPicture),
+     ] {
+         assert_eq!(console.child(), Some(row));
+-        assert_eq!(row.page(), [row, picture]);
+-        assert_eq!(picture.page(), [row, picture]);
++        assert_eq!(row.page()[..2], [row, picture]);
++        assert_eq!(picture.page(), row.page());
+         assert_eq!(row.label(), "Shader");
+         assert_eq!(picture.label(), "Picture");
+         assert_eq!(row.parent(), Some(console));
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index de32a5e..a97f888 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -12,15 +12,23 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+     );
+     assert_eq!(
+         every[retro_end..],
+-        [QuickValue::Stretch, QuickValue::Actual, QuickValue::Crop]
++        [
++            QuickValue::Stretch,
++            QuickValue::Actual,
++            QuickValue::Crop,
++            QuickValue::Native,
++            QuickValue::Panel
++        ]
+     );
+     assert_eq!(
+         [
+             QuickValue::Stretch.text(),
+             QuickValue::Actual.text(),
+-            QuickValue::Crop.text()
++            QuickValue::Crop.text(),
++            QuickValue::Native.text(),
++            QuickValue::Panel.text()
+         ],
+-        ["Stretch", "Actual", "Crop"]
++        ["Stretch", "Actual", "Crop", "Native", "Panel"]
+     );
+     for (i, v) in every.iter().enumerate() {
+         assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 378b7a1..667e257 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -413,6 +413,7 @@ pub struct App {
+     frame_w: u32,
+     sega_shaders: slot_store::SegaShaders,
+     pictures: crate::platform_video::SystemPictures,
++    pal_speeds: crate::pal_speed::PalSpeeds,
+     rested: Option<(usize, usize)>,
+ }
+ 
+@@ -563,6 +564,7 @@ impl App {
+             frame_w: 0,
+             sega_shaders: slot_store::SegaShaders::default(),
+             pictures: crate::platform_video::SystemPictures::default(),
++            pal_speeds: crate::pal_speed::PalSpeeds::default(),
+             rested: None,
+         }
+     }
+@@ -578,6 +580,7 @@ impl App {
+         app.shelf_carts = slot_store::read_shelf_carts(root);
+         app.sega_shaders = slot_store::read_sega_shaders(root);
+         app.pictures = crate::platform_video::SystemPictures::read(root);
++        app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -986,6 +989,11 @@ impl App {
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+             | QuickRow::Ps1Picture => self.pictures.get(row).map(VideoMode::quick_value),
++            QuickRow::NesPalSpeed
++            | QuickRow::SnesPalSpeed
++            | QuickRow::SmsPalSpeed
++            | QuickRow::MdPalSpeed
++            | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+@@ -1786,6 +1794,10 @@ impl App {
+         self.seated_cart().map_or(self.platform, |c| c.platform)
+     }
+ 
++    pub fn native_pal(&self, platform: Platform) -> bool {
++        self.pal_speeds.native(platform)
++    }
++
+     pub fn colour_correction_for(&self, platform: Platform) -> bool {
+         match platform {
+             Platform::Gba => self.state.colour_correction_gba,
+@@ -2228,7 +2240,12 @@ impl App {
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+             | QuickRow::Ps1Shader
+-            | QuickRow::Ps1Picture => {}
++            | QuickRow::Ps1Picture
++            | QuickRow::NesPalSpeed
++            | QuickRow::SnesPalSpeed
++            | QuickRow::SmsPalSpeed
++            | QuickRow::MdPalSpeed
++            | QuickRow::Ps1PalSpeed => {}
+         }
+     }
+ 
+@@ -2244,6 +2261,12 @@ impl App {
+             }
+             return;
+         }
++        if let Some((platform, native)) = self.pal_speeds.flip(row) {
++            if let Some(root) = &self.root {
++                crate::pal_speed::save(root, platform, native, &self.card_writes);
++            }
++            return;
++        }
+         if row == QuickRow::Palette {
+             let to = match right {
+                 true => self.state.gb_palette.next(),
+@@ -2342,7 +2365,12 @@ impl App {
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+-            | QuickRow::Ps1Picture => return,
++            | QuickRow::Ps1Picture
++            | QuickRow::NesPalSpeed
++            | QuickRow::SnesPalSpeed
++            | QuickRow::SmsPalSpeed
++            | QuickRow::MdPalSpeed
++            | QuickRow::Ps1PalSpeed => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+diff --git a/crates/slot/src/av_rate.rs b/crates/slot/src/av_rate.rs
+index e89a74f..cc01328 100644
+--- a/crates/slot/src/av_rate.rs
++++ b/crates/slot/src/av_rate.rs
+@@ -15,6 +15,27 @@ pub fn rebuilt_resampler(av: AvInfo, present: Duration, device_hz: f64) -> Resam
+     Resampler::new(core_hz(av, present), device_hz)
+ }
+ 
++const NEAR_PRESENT_FPS: f64 = 2.0;
++
++pub fn period(av: AvInfo, native: bool, present: Duration) -> Duration {
++    match av.fps {
++        fps if native && fps > 0.0 && (fps - 60.0).abs() > NEAR_PRESENT_FPS => {
++            Duration::from_secs_f64(1.0 / fps)
++        }
++        _ => present,
++    }
++}
++
++pub fn owed_frames(owed: &mut f64, tick: Duration, period: Duration, present: Duration) -> u32 {
++    if period == present {
++        return 1;
++    }
++    *owed += tick.as_secs_f64() / period.as_secs_f64();
++    let whole = owed.floor();
++    *owed -= whole;
++    whole as u32
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -30,6 +51,67 @@ mod tests {
+         assert!((core_hz(av, PRESENT) - 38448.0).abs() < 0.01);
+     }
+ 
++    fn av(fps: f64) -> AvInfo {
++        AvInfo {
++            fps,
++            sample_rate: 44100.0,
++        }
++    }
++
++    #[test]
++    fn a_pal_core_is_paced_at_its_own_frame_rate_when_native() {
++        let period = period(av(49.701), true, PRESENT);
++        assert!((period.as_secs_f64() - 1.0 / 49.701).abs() < 1e-9);
++    }
++
++    #[test]
++    fn a_native_pal_core_is_resampled_from_its_own_sample_rate() {
++        let av = av(50.0);
++        assert!((core_hz(av, period(av, true, PRESENT)) - 44100.0).abs() < 1e-6);
++    }
++
++    #[test]
++    fn a_pal_core_keeps_the_present_when_the_user_chose_panel_rate() {
++        assert_eq!(period(av(50.0), false, PRESENT), PRESENT);
++    }
++
++    #[test]
++    fn an_ntsc_or_game_boy_core_keeps_the_present() {
++        for fps in [59.7275, 59.8261, 59.92, 60.0988, 0.0] {
++            assert_eq!(period(av(fps), true, PRESENT), PRESENT, "{fps}");
++        }
++    }
++
++    #[test]
++    fn a_pal_core_on_a_60_hz_tick_runs_five_frames_in_six_ticks() {
++        let period = period(av(50.0), true, PRESENT);
++        let mut owed = 0.0;
++        let ran: Vec<u32> = (0..12)
++            .map(|_| owed_frames(&mut owed, PRESENT, period, PRESENT))
++            .collect();
++        assert_eq!(ran.iter().take(6).sum::<u32>(), 5, "{ran:?}");
++        assert_eq!(ran.iter().sum::<u32>(), 10, "{ran:?}");
++        assert!(ran.iter().all(|n| *n <= 1), "{ran:?}");
++    }
++
++    #[test]
++    fn a_75_hz_core_on_a_60_hz_tick_runs_five_frames_in_four_ticks() {
++        let period = period(av(75.0), true, PRESENT);
++        let mut owed = 0.0;
++        let ran: Vec<u32> = (0..8)
++            .map(|_| owed_frames(&mut owed, PRESENT, period, PRESENT))
++            .collect();
++        assert_eq!(ran.iter().take(4).sum::<u32>(), 5, "{ran:?}");
++        assert_eq!(ran.iter().sum::<u32>(), 10, "{ran:?}");
++    }
++
++    #[test]
++    fn a_core_on_the_present_runs_one_frame_a_tick_and_owes_nothing() {
++        let mut owed = 0.0;
++        assert!((0..10).all(|_| owed_frames(&mut owed, PRESENT, PRESENT, PRESENT) == 1));
++        assert_eq!(owed, 0.0);
++    }
++
+     #[test]
+     fn a_core_with_no_frame_rate_keeps_its_sample_rate() {
+         let av = AvInfo {
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index 9984dfb..b0fe4dd 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -112,6 +112,7 @@ struct Shared {
+     driven: AtomicBool,
+     locked: AtomicBool,
+     present_ns: AtomicU64,
++    native_pal: AtomicBool,
+     requested: AtomicBool,
+     clock: Mutex<Clock>,
+     clocked: Condvar,
+@@ -184,6 +185,7 @@ impl EmuHandle {
+             driven: AtomicBool::new(false),
+             locked: AtomicBool::new(false),
+             present_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
++            native_pal: AtomicBool::new(false),
+             requested: AtomicBool::new(false),
+             clock: Mutex::new(Clock::default()),
+             clocked: Condvar::new(),
+@@ -269,6 +271,10 @@ impl EmuHandle {
+         self.shared.clocked.notify_all();
+     }
+ 
++    pub fn set_native_pal(&self, native: bool) {
++        self.shared.native_pal.store(native, Ordering::Relaxed);
++    }
++
+     pub fn locked(&self) -> bool {
+         self.shared.locked.load(Ordering::Acquire)
+     }
+@@ -576,7 +582,7 @@ impl Worker {
+             }
+             self.keep_disc_event(core.as_mut());
+         }
+-        let av = core.av_info();
++        let mut av = core.av_info();
+         let device_hz = match ring.sample_rate() {
+             0 => av.sample_rate,
+             hz => hz as f64,
+@@ -614,6 +620,8 @@ impl Worker {
+         let mut cable_wait = Duration::ZERO;
+         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
+         let mut runahead = RunAhead::default();
++        let mut pace = PRESENT;
++        let mut owed = 0.0f64;
+         while !self.shared.stop.load(Ordering::Relaxed) {
+             for cmd in self.cmds.try_iter() {
+                 self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+@@ -688,13 +696,25 @@ impl Worker {
+                 } else {
+                     0
+                 };
++            let period =
++                av_rate::period(av, self.shared.native_pal.load(Ordering::Relaxed), PRESENT);
++            if period != pace {
++                pace = period;
++                owed = 0.0;
++                eprintln!("slot: emu: pacing at {:.3} fps", 1.0 / period.as_secs_f64());
++                resampler = av_rate::rebuilt_resampler(av, period, device_hz);
++            }
+             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
+             crate::latency::emu_frame(input.0);
+             let mut span = 1u32;
++            let owed_frames = match lock {
++                true => av_rate::owed_frames(&mut owed, self.present(), period, PRESENT),
++                false => 1,
++            };
+             let ceiling = match speed {
+                 Speed::Paused => 0,
+                 Speed::Normal if lock && !ticked => 0,
+-                Speed::Normal => 1,
++                Speed::Normal => owed_frames,
+                 Speed::Fast => self.shared.fast_steps.load(Ordering::Relaxed),
+             };
+             if rewinding {
+@@ -866,8 +886,9 @@ impl Worker {
+                     }
+                 }
+ 
+-                if let Some(av) = core.take_av_change() {
+-                    resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
++                if let Some(next) = core.take_av_change() {
++                    av = next;
++                    resampler = av_rate::rebuilt_resampler(av, period, device_hz);
+                 }
+                 let audio = if shown {
+                     std::mem::take(&mut runahead.audio)
+@@ -881,9 +902,14 @@ impl Worker {
+                         scale = self.shared.present_ns.load(Ordering::Relaxed) as f64
+                             / PRESENT.as_nanos() as f64;
+                     }
+-                    let base = if lock { scale } else { 1.0 };
++                    let base = if lock && period == PRESENT {
++                        scale
++                    } else {
++                        1.0
++                    };
++                    let heard = if speed == Speed::Normal { span } else { ran };
+                     resampler.set_ratio(
+-                        drc_ratio(queued, target) * base * f64::from(span) / f64::from(ran),
++                        drc_ratio(queued, target) * base * f64::from(span) / f64::from(heard),
+                     );
+                     resampler.process(&audio, &mut out);
+                     crate::audio::volume::apply(
+@@ -941,7 +967,7 @@ impl Worker {
+                 continue;
+             }
+             ticked = false;
+-            deadline += PRESENT * span;
++            deadline += period * span;
+             let now = Instant::now();
+             match deadline.checked_duration_since(now) {
+                 Some(wait) => std::thread::sleep(wait),
+@@ -1062,6 +1088,10 @@ impl Worker {
+         }
+     }
+ 
++    fn present(&self) -> Duration {
++        Duration::from_nanos(self.shared.present_ns.load(Ordering::Relaxed))
++    }
++
+     fn current_tick(&self) -> u64 {
+         self.shared
+             .clock
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index cd3e255..27f26ad 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -34,6 +34,7 @@ pub mod link_radio;
+ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
++pub mod pal_speed;
+ pub mod panel_turn;
+ pub mod persist;
+ pub mod platform_video;
+diff --git a/crates/slot/src/pal_speed.rs b/crates/slot/src/pal_speed.rs
+new file mode 100644
+index 0000000..c689d07
+--- /dev/null
++++ b/crates/slot/src/pal_speed.rs
+@@ -0,0 +1,83 @@
++use std::path::Path;
++
++use slot_store::{ini, Platform};
++use slot_ui::{QuickRow, QuickValue};
++
++use crate::card_log::CardWrites;
++
++pub const PAL_SPEED_FILE: &str = "Config/pal_speed.txt";
++
++pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 5] = [
++    (QuickRow::NesPalSpeed, Platform::Nes),
++    (QuickRow::SnesPalSpeed, Platform::Snes),
++    (QuickRow::SmsPalSpeed, Platform::Sms),
++    (QuickRow::MdPalSpeed, Platform::Md),
++    (QuickRow::Ps1PalSpeed, Platform::Ps1),
++];
++
++fn key(platform: Platform) -> String {
++    platform.dir_name().to_ascii_lowercase()
++}
++
++fn native_for(root: &Path, platform: Platform) -> bool {
++    match ini::value(root, PAL_SPEED_FILE, &key(platform)).as_deref() {
++        None | Some("native") => true,
++        Some("panel") => false,
++        Some(other) => {
++            eprintln!("slot: pal_speed.txt: ignoring {}={other}", key(platform));
++            true
++        }
++    }
++}
++
++pub fn quick_value(native: bool) -> QuickValue {
++    match native {
++        true => QuickValue::Native,
++        false => QuickValue::Panel,
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub struct PalSpeeds([bool; 5]);
++
++impl Default for PalSpeeds {
++    fn default() -> Self {
++        PalSpeeds([true; 5])
++    }
++}
++
++impl PalSpeeds {
++    pub fn read(root: &Path) -> Self {
++        PalSpeeds(PAL_SPEED_ROWS.map(|(_, p)| native_for(root, p)))
++    }
++
++    pub fn native(&self, platform: Platform) -> bool {
++        PAL_SPEED_ROWS
++            .iter()
++            .position(|(_, p)| *p == platform)
++            .and_then(|at| self.0.get(at).copied())
++            .unwrap_or(false)
++    }
++
++    pub fn get(&self, row: QuickRow) -> Option<bool> {
++        let at = PAL_SPEED_ROWS.iter().position(|(r, _)| *r == row)?;
++        self.0.get(at).copied()
++    }
++
++    pub fn flip(&mut self, row: QuickRow) -> Option<(Platform, bool)> {
++        let at = PAL_SPEED_ROWS.iter().position(|(r, _)| *r == row)?;
++        let (_, platform) = PAL_SPEED_ROWS.get(at)?;
++        let native = self.0.get_mut(at)?;
++        *native = !*native;
++        Some((*platform, *native))
++    }
++}
++
++pub fn save(root: &Path, platform: Platform, native: bool, writes: &CardWrites) {
++    let value = if native { "native" } else { "panel" };
++    let written = ini::write(root, PAL_SPEED_FILE, &key(platform), value);
++    if let Err(e) = &written {
++        eprintln!("slot: emu: could not write pal_speed.txt: {e}");
++    }
++    writes.wrote("pal_speed.txt", &written);
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 3d5e3a1..f9efb84 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -520,6 +520,7 @@ impl Session {
+         };
+         emu.set_volume(self.app.output_volume());
+         emu.set_driven(self.driven);
++        emu.set_native_pal(self.app.native_pal(platform));
+         emu.set_pass_through(platform.passes_xy_through());
+         self.gestures
+             .set_video_mode_chord(platform.select_x_toggles_picture());
+diff --git a/crates/slot/tests/pal_pacing.rs b/crates/slot/tests/pal_pacing.rs
+new file mode 100644
+index 0000000..0976ee1
+--- /dev/null
++++ b/crates/slot/tests/pal_pacing.rs
+@@ -0,0 +1,339 @@
++mod common;
++mod core_common;
++mod nes_common;
++mod real_seat;
++mod sega_common;
++
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use nes_common::{fceumm, nes_rom};
++use sega_common::{genesis_plus_gx, md_rom};
++use slot::audio::{AudioSink, StubSink};
++use slot::core::{open_core_for, open_core_for_palette};
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot::session::Session;
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++use slot_store::{read_slot_state, write_slot_state, Core, Platform};
++
++const PANEL: Duration = Duration::from_nanos(16_666_667);
++const DEVICE_HZ: u32 = 32_768;
++
++struct Rated {
++    inner: MockCore,
++    fps: f64,
++    change_at: Option<usize>,
++    calls: usize,
++    ran: Arc<AtomicU64>,
++}
++
++impl RetroCore for Rated {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.ran.fetch_add(1, Ordering::Relaxed);
++        self.inner.run_frame(input);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.inner.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.inner.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        AvInfo {
++            fps: self.fps,
++            sample_rate: 32_768.0,
++        }
++    }
++    fn take_av_change(&mut self) -> Option<AvInfo> {
++        self.calls += 1;
++        (Some(self.calls) == self.change_at).then(|| {
++            self.fps = 50.0;
++            self.av_info()
++        })
++    }
++}
++
++fn rated(fps: f64) -> Box<dyn RetroCore> {
++    Box::new(Rated {
++        inner: MockCore::new(),
++        fps,
++        change_at: None,
++        calls: 0,
++        ran: Arc::new(AtomicU64::new(0)),
++    })
++}
++
++fn wait_for(cond: impl Fn() -> bool) -> bool {
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while !cond() {
++        if Instant::now() >= deadline {
++            return false;
++        }
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    true
++}
++
++fn spawn(core: Box<dyn RetroCore>, rom: PathBuf, native: bool) -> (EmuHandle, Arc<AtomicU64>) {
++    let mut sink = StubSink::new();
++    sink.open(DEVICE_HZ).expect("the stub refused to open");
++    let ring = sink.ring();
++    let heard = Arc::new(AtomicU64::new(0));
++    let counted = heard.clone();
++    let drained = ring.clone();
++    std::thread::spawn(move || loop {
++        let frames = drained.queued_frames();
++        drained.fill(&mut vec![0i16; frames * 2]);
++        counted.fetch_add(frames as u64, Ordering::Relaxed);
++        std::thread::sleep(Duration::from_millis(2));
++    });
++    let emu = EmuHandle::spawn(core, rom, ring, None, None);
++    emu.set_native_pal(native);
++    emu.set_speed(Speed::Normal);
++    assert!(
++        wait_for(|| emu.state() != CoreState::Loading),
++        "the core never finished loading"
++    );
++    assert_eq!(emu.state(), CoreState::Ready);
++    (emu, heard)
++}
++
++fn locked(emu: &EmuHandle) {
++    emu.set_driven(true);
++    assert!(wait_for(|| emu.locked()), "the worker never locked");
++    for _ in 0..12 {
++        tick(emu);
++    }
++}
++
++fn tick(emu: &EmuHandle) {
++    emu.tick(PANEL);
++    assert!(
++        emu.wait_frame(Duration::from_millis(500)),
++        "a tick was never served"
++    );
++}
++
++fn frames_in_60_ticks(emu: &EmuHandle) -> u64 {
++    let before = emu.published_count();
++    for _ in 0..60 {
++        tick(emu);
++    }
++    emu.published_count() - before
++}
++
++fn europe_md_rom(name: &str) -> PathBuf {
++    let path = md_rom(name, true, false);
++    let mut rom = std::fs::read(&path).expect("read the generated cart");
++    rom[0x1f0..0x1f4].copy_from_slice(b"E   ");
++    std::fs::write(&path, rom).expect("write the Europe cart");
++    path
++}
++
++#[test]
++fn a_50_fps_core_runs_50_frames_in_60_display_ticks() {
++    let (emu, _) = spawn(rated(50.0), PathBuf::from("mock"), true);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 50);
++}
++
++#[test]
++fn a_60_fps_core_still_runs_a_frame_on_every_display_tick() {
++    let (emu, _) = spawn(rated(59.7275), PathBuf::from("mock"), true);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 60);
++}
++
++#[test]
++fn a_50_fps_core_on_panel_rate_runs_a_frame_on_every_display_tick() {
++    let (emu, _) = spawn(rated(50.0), PathBuf::from("mock"), false);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 60);
++}
++
++#[test]
++fn a_75_fps_core_runs_75_frames_in_60_display_ticks() {
++    let ran = Arc::new(AtomicU64::new(0));
++    let core = Box::new(Rated {
++        inner: MockCore::new(),
++        fps: 75.0,
++        change_at: None,
++        calls: 0,
++        ran: ran.clone(),
++    });
++    let (emu, _) = spawn(core, PathBuf::from("mock"), true);
++    locked(&emu);
++    let before = ran.load(Ordering::Relaxed);
++    for _ in 0..60 {
++        tick(&emu);
++    }
++    assert_eq!(ran.load(Ordering::Relaxed) - before, 75);
++}
++
++#[test]
++fn a_75_fps_core_running_two_frames_on_a_tick_keeps_all_their_sound() {
++    let ran = Arc::new(AtomicU64::new(0));
++    let core = Box::new(Rated {
++        inner: MockCore::new(),
++        fps: 75.0,
++        change_at: None,
++        calls: 0,
++        ran: ran.clone(),
++    });
++    let (emu, heard) = spawn(core, PathBuf::from("mock"), true);
++    locked(&emu);
++    std::thread::sleep(Duration::from_millis(50));
++    let (frames, sound) = (ran.load(Ordering::Relaxed), heard.load(Ordering::Relaxed));
++    for _ in 0..240 {
++        tick(&emu);
++    }
++    std::thread::sleep(Duration::from_millis(50));
++    let frames = ran.load(Ordering::Relaxed) - frames;
++    let sound = heard.load(Ordering::Relaxed) - sound;
++    let per_frame = sound as f64 / frames as f64;
++    let want = 32_768.0 / 59.7275;
++    assert!(
++        (per_frame / want - 1.0).abs() < 0.02,
++        "{per_frame:.1} device frames of sound per game frame, want {want:.1}"
++    );
++}
++
++#[test]
++fn a_core_that_turns_pal_mid_game_is_paced_at_50_fps_from_then_on() {
++    let core = Box::new(Rated {
++        inner: MockCore::new(),
++        fps: 59.7275,
++        change_at: Some(3),
++        calls: 0,
++        ran: Arc::new(AtomicU64::new(0)),
++    });
++    let (emu, _) = spawn(core, PathBuf::from("mock"), true);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 50);
++}
++
++#[test]
++fn a_europe_nes_cart_on_fceumm_runs_50_frames_in_60_display_ticks() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let core = open_core_for(d.path(), Core::Fceumm, "auto", false, &[dylib]);
++    let (emu, _) = spawn(core, nes_rom("Pal Test (Europe).nes", false), true);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 50);
++}
++
++#[test]
++fn a_europe_mega_drive_cart_on_genesis_plus_gx_runs_50_frames_in_60_display_ticks() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let core = open_core_for_palette(
++        d.path(),
++        Core::GenesisPlusGx,
++        Platform::Md,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    let (emu, _) = spawn(core, europe_md_rom("pal_test_e.md"), true);
++    locked(&emu);
++    assert_eq!(frames_in_60_ticks(&emu), 50);
++}
++
++#[test]
++fn a_europe_nes_cart_feeds_one_second_of_sound_a_second_of_game() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let core = open_core_for(d.path(), Core::Fceumm, "auto", false, &[dylib]);
++    let (emu, heard) = spawn(core, nes_rom("Pal Sound (Europe).nes", false), true);
++    locked(&emu);
++    std::thread::sleep(Duration::from_millis(50));
++    let (frames, sound) = (emu.published_count(), heard.load(Ordering::Relaxed));
++    for _ in 0..300 {
++        tick(&emu);
++    }
++    std::thread::sleep(Duration::from_millis(50));
++    let frames = emu.published_count() - frames;
++    let sound = heard.load(Ordering::Relaxed) - sound;
++    let per_frame = sound as f64 / frames as f64;
++    let want = f64::from(DEVICE_HZ) / 50.007;
++    assert!(
++        (per_frame / want - 1.0).abs() < 0.02,
++        "{per_frame:.1} device frames of sound per game frame, want {want:.1}"
++    );
++}
++
++fn seated_europe_nes(pal_speed: Option<&str>) -> Option<(tempfile::TempDir, Session)> {
++    let dylib = fceumm()?;
++    let stem = "Pal Seat (Europe)";
++    let root = real_seat::rooted(Platform::Nes, stem, &nes_rom("pal_seat.nes", false), &dylib);
++    if let Some(line) = pal_speed {
++        std::fs::write(root.path().join(slot::pal_speed::PAL_SPEED_FILE), line)
++            .expect("write pal_speed.txt");
++    }
++    let mut state = read_slot_state(root.path());
++    state.cart = Some(stem.into());
++    state.cart_platform = Some(Platform::Nes);
++    write_slot_state(root.path(), &state).expect("write slot.state");
++    let mut session = real_seat::play(root.path(), false);
++    session.set_driven(true);
++    let emu = session.emu().expect("no emu");
++    assert!(wait_for(|| emu.locked()), "the worker never locked");
++    Some((root, session))
++}
++
++fn session_frames_in_60_ticks(session: &Session) -> u64 {
++    for _ in 0..12 {
++        assert!(session.step_emulator(PANEL, Duration::from_millis(500)));
++    }
++    let before = session.frames_published();
++    for _ in 0..60 {
++        assert!(session.step_emulator(PANEL, Duration::from_millis(500)));
++    }
++    session.frames_published() - before
++}
++
++#[test]
++fn a_session_seats_a_europe_nes_cart_at_its_own_50_fps() {
++    let _g = core_lock();
++    let Some((_root, session)) = seated_europe_nes(None) else {
++        return;
++    };
++    assert_eq!(session_frames_in_60_ticks(&session), 50);
++}
++
++#[test]
++fn a_session_with_nes_set_to_panel_runs_the_europe_cart_on_every_tick() {
++    let _g = core_lock();
++    let Some((_root, session)) = seated_europe_nes(Some("nes = panel\n")) else {
++        return;
++    };
++    assert_eq!(session_frames_in_60_ticks(&session), 60);
++}
+diff --git a/crates/slot/tests/pal_pacing_clock.rs b/crates/slot/tests/pal_pacing_clock.rs
+new file mode 100644
+index 0000000..6595dc8
+--- /dev/null
++++ b/crates/slot/tests/pal_pacing_clock.rs
+@@ -0,0 +1,66 @@
++use std::path::{Path, PathBuf};
++use std::time::{Duration, Instant};
++
++use slot::audio::{AudioSink, StubSink};
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++
++struct Pal(MockCore);
++
++impl RetroCore for Pal {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.0.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.0.run_frame(input);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.0.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        self.0.take_audio()
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.0.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.0.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        self.0.save_ram()
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.0.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        AvInfo {
++            fps: 50.0,
++            sample_rate: 32_768.0,
++        }
++    }
++}
++
++#[test]
++fn an_undriven_50_fps_core_runs_50_frames_a_second() {
++    let mut sink = StubSink::draining();
++    sink.open(32_768).expect("the stub refused to open");
++    let emu = EmuHandle::spawn(
++        Box::new(Pal(MockCore::new())),
++        PathBuf::from("mock"),
++        sink.ring(),
++        None,
++        None,
++    );
++    emu.set_native_pal(true);
++    emu.set_speed(Speed::Normal);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while emu.state() == CoreState::Loading {
++        assert!(Instant::now() < deadline, "the core never finished loading");
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    std::thread::sleep(Duration::from_millis(200));
++    let (before, began) = (emu.published_count(), Instant::now());
++    std::thread::sleep(Duration::from_secs(2));
++    let fps = (emu.published_count() - before) as f64 / began.elapsed().as_secs_f64();
++    assert!((fps - 50.0).abs() < 2.0, "{fps:.1} fps");
++}
+diff --git a/crates/slot/tests/pal_speed.rs b/crates/slot/tests/pal_speed.rs
+new file mode 100644
+index 0000000..a4166da
+--- /dev/null
++++ b/crates/slot/tests/pal_speed.rs
+@@ -0,0 +1,105 @@
++mod common;
++
++use std::path::Path;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::pal_speed::{PAL_SPEED_FILE, PAL_SPEED_ROWS};
++use slot_input::{Action, Btn};
++use slot_store::Platform;
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn write_cart(root: &Path, platform: Platform) {
++    let dir = root.join("Games").join(platform.dir_name());
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let cart = dir.join(format!("Sonic.{}", platform.extensions()[0]));
++    std::fs::write(cart, vec![0u8; 0x8000]).expect("write cart");
++}
++
++fn every_system() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    for platform in [Platform::Nes, Platform::Snes, Platform::Sms, Platform::Md] {
++        write_cart(root.path(), platform);
++    }
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_pal_speed(app: &mut App, console: QuickRow) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..console.position(app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    press(app, Btn::Down);
++    press(app, Btn::Down);
++}
++
++#[test]
++fn every_paced_system_shows_a_pal_speed_row_set_to_native() {
++    let (_root, app) = every_system();
++    for (row, platform) in PAL_SPEED_ROWS {
++        assert_eq!(row.label(), "PAL Speed");
++        assert_eq!(row.page().last(), Some(&row), "{platform:?}");
++        assert_eq!(app.quick_value(row), Some(QuickValue::Native), "{row:?}");
++        assert!(app.native_pal(platform), "{platform:?}");
++    }
++}
++
++#[test]
++fn game_gear_and_the_game_boys_have_no_pal_speed_row() {
++    for page in [
++        &QuickRow::SCREEN_GG[..],
++        &QuickRow::SCREEN_GBA[..],
++        &QuickRow::SCREEN_GBC[..],
++        &QuickRow::SCREEN_GB[..],
++    ] {
++        assert!(page.iter().all(|r| r.label() != "PAL Speed"), "{page:?}");
++    }
++    let (_root, app) = every_system();
++    for platform in [Platform::Gg, Platform::Gba, Platform::Gb, Platform::Gbc] {
++        assert!(!app.native_pal(platform), "{platform:?}");
++    }
++}
++
++#[test]
++fn flipping_the_mega_drive_row_saves_panel_rate_for_the_mega_drive_only() {
++    let (root, mut app) = every_system();
++    open_pal_speed(&mut app, QuickRow::ScreenMd);
++    assert_eq!(app.quick_menu(), Some(QuickRow::MdPalSpeed));
++    press(&mut app, Btn::Right);
++    assert_eq!(
++        app.quick_value(QuickRow::MdPalSpeed),
++        Some(QuickValue::Panel)
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PAL_SPEED_FILE)).ok(),
++        Some("md = panel\n".to_owned())
++    );
++    for (_, platform) in PAL_SPEED_ROWS {
++        assert_eq!(app.native_pal(platform), platform != Platform::Md);
++    }
++    drop(app);
++    assert!(!boot(root.path()).native_pal(Platform::Md));
++}
++
++#[test]
++fn an_unknown_pal_speed_line_reads_as_native() {
++    let d = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir(d.path().join("Config")).expect("config dir");
++    std::fs::write(d.path().join(PAL_SPEED_FILE), "nes = fast\nsnes = panel\n")
++        .expect("write pal_speed.txt");
++    let app = boot(d.path());
++    assert!(app.native_pal(Platform::Nes));
++    assert!(!app.native_pal(Platform::Snes));
++}
+diff --git a/crates/slot/tests/ps1_screen.rs b/crates/slot/tests/ps1_screen.rs
+index 8e6ff49..cb8447f 100644
+--- a/crates/slot/tests/ps1_screen.rs
++++ b/crates/slot/tests/ps1_screen.rs
+@@ -42,7 +42,11 @@ fn playstation_closes_the_screen_list_and_opens_its_own_section() {
+     assert_eq!(QuickRow::ScreenPs1.child(), Some(QuickRow::Ps1Shader));
+     assert_eq!(
+         QuickRow::SCREEN_PS1,
+-        [QuickRow::Ps1Shader, QuickRow::Ps1Picture]
++        [
++            QuickRow::Ps1Shader,
++            QuickRow::Ps1Picture,
++            QuickRow::Ps1PalSpeed
++        ]
+     );
+     for row in QuickRow::SCREEN_PS1 {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenPs1));
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index 73995f4..3b2100f 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -107,7 +107,7 @@ fn a_card_with_no_nes_or_snes_carts_keeps_the_upstream_platform_list() {
+ }
+ 
+ #[test]
+-fn the_nes_and_snes_pages_hold_a_shader_and_a_picture_row_and_back_out_to_their_console() {
++fn the_nes_and_snes_pages_hold_shader_picture_and_pal_speed_rows_and_back_out_to_their_console() {
+     for (console, row, _) in shader_rows() {
+         let (_root, mut app) = on_shelf(Platform::Gba);
+         open_console(&mut app, console);
+@@ -120,6 +120,12 @@ fn the_nes_and_snes_pages_hold_a_shader_and_a_picture_row_and_back_out_to_their_
+             "{console:?}"
+         );
+         press(&mut app, Btn::Down);
++        assert_eq!(
++            app.quick_menu().map(QuickRow::label),
++            Some("PAL Speed"),
++            "{console:?}"
++        );
++        press(&mut app, Btn::Down);
+         assert_eq!(app.quick_menu(), Some(row), "{console:?}");
+         press(&mut app, Btn::B);
+         assert_eq!(app.quick_menu(), Some(console), "{console:?}");
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 04bd990..05a38fc 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -106,7 +106,7 @@ fn root_with(picture: &str, cart_line: Option<&str>) -> TempDir {
+ fn each_retro_screen_section_shows_a_picture_row_under_its_shader() {
+     for (console, shader, picture, _, factory) in SECTIONS {
+         let (_root, mut app) = every_system();
+-        assert_eq!(picture.page(), [shader, picture], "{console:?}");
++        assert_eq!(picture.page()[..2], [shader, picture], "{console:?}");
+         assert_eq!(picture.label(), "Picture");
+         open_section(&mut app, console);
+         assert_eq!(app.quick_menu(), Some(shader));
+@@ -114,7 +114,8 @@ fn each_retro_screen_section_shows_a_picture_row_under_its_shader() {
+         assert_eq!(app.quick_menu(), Some(picture));
+         assert_eq!(app.quick_value(picture), Some(factory), "{console:?}");
+         press(&mut app, Btn::Down);
+-        assert_eq!(app.quick_menu(), Some(shader), "{console:?} does not wrap");
++        let next = picture.page().get(2).copied().unwrap_or(shader);
++        assert_eq!(app.quick_menu(), Some(next), "{console:?}");
+     }
+ }
+ 

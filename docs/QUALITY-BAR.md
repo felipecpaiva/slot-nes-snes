@@ -34,5 +34,5 @@ These will not match GBA in the first version:
 - SNES hi-res frames (512 wide, a few titles) are blended down 2:1 and lose detail.
 - Colour correction does nothing on NES and SNES.
 - Carts are NES and SNES shaped (issue 26). Famicom and Super Famicom variants, and the choice of region, wait for issue 27, so every NES cart wears the NES shell and every SNES cart the SNES shell. The embossed lettering masks are blank, so no moulded text appears on any cart face.
-- PAL (50 Hz) games run about 20% fast.
+- PAL (50 Hz) games run at 50 fps with one frame in about six repeated on the 59.6 Hz panel (ADR 0071); PAL Speed "Panel" brings back 60 Hz.
 - Settings keyed only by file name collide if the same name exists on two systems.
