@@ -526,7 +526,7 @@ class AdbCard:
 
     def sizes(self, rel):
         rc, out = self.run("shell", f'for f in {shlex.quote(self.p(rel))}/*; do [ -f "$f" ] && '
-                                    f'echo "$(wc -c < "$f") ${{f##*/}}"; done; true')
+                                    f'echo "$(stat -c %s "$f") ${{f##*/}}"; done; true')
         rows = [l.rstrip("\r").lstrip().split(" ", 1) for l in out.splitlines()]
         return {r[1]: int(r[0]) for r in rows if len(r) == 2 and r[0].isdigit()}
 
