@@ -1,0 +1,343 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 13:15:30 +0400
+Subject: [PATCH] battery-low
+
+A banner reads Battery Low: 15% and then Battery Low: 10% once each per
+discharge, in a game and on the shelf, above the 5% power-off; plugging
+in re-arms them, and nothing shows behind a shut lid or during a
+shutdown. From marghost/slot_modded 1706a16, adapted from
+suprsomething/slot.advance d495461 (both GPL-3.0), as its own toast
+list so Toast::FIXED and upstream's toast tests stay as they are,
+https://github.com/marghost/slot_modded/commit/1706a16
+https://github.com/suprsomething/slot.advance/commit/d495461
+---
+ crates/slot-ui/src/battery_toast.rs |  35 ++++++++
+ crates/slot-ui/src/lib.rs           |   2 +
+ crates/slot-ui/src/quick_retro.rs   |   3 +-
+ crates/slot-ui/src/toast.rs         |   3 +
+ crates/slot/src/app.rs              |   4 +
+ crates/slot/src/app/battery_warn.rs |  31 +++++++
+ crates/slot/tests/battery_low.rs    | 132 ++++++++++++++++++++++++++++
+ 7 files changed, 209 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-ui/src/battery_toast.rs
+ create mode 100644 crates/slot/src/app/battery_warn.rs
+ create mode 100644 crates/slot/tests/battery_low.rs
+
+diff --git a/crates/slot-ui/src/battery_toast.rs b/crates/slot-ui/src/battery_toast.rs
+new file mode 100644
+index 0000000..312044f
+--- /dev/null
++++ b/crates/slot-ui/src/battery_toast.rs
+@@ -0,0 +1,35 @@
++use crate::Toast;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum BatteryToast {
++    Low15,
++    Low10,
++}
++
++impl BatteryToast {
++    pub const ALL: [BatteryToast; 2] = [BatteryToast::Low15, BatteryToast::Low10];
++
++    pub fn level(self) -> u8 {
++        match self {
++            BatteryToast::Low15 => 15,
++            BatteryToast::Low10 => 10,
++        }
++    }
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            BatteryToast::Low15 => "Battery Low: 15%",
++            BatteryToast::Low10 => "Battery Low: 10%",
++        }
++    }
++}
++
++impl Toast {
++    pub fn battery_index(b: BatteryToast) -> usize {
++        Toast::all().len() + slot_store::RetroShader::ALL.len() + b.index()
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index bb7f811..a27ba55 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -9,6 +9,7 @@ pub use bitmaps::{
+ mod backdrop;
+ mod barcode;
+ mod battery;
++mod battery_toast;
+ mod board;
+ mod cart;
+ mod clock;
+@@ -47,6 +48,7 @@ pub use backdrop::{
+ };
+ pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
+ pub use battery::{draw_gauge, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
++pub use battery_toast::BatteryToast;
+ pub use board::{
+     board_at, board_face, board_from, board_in, board_x, board_zoom, chip_face, chip_shadow_face,
+     grown, lid_at, lid_from, lift_of, on_board, padded, rom_marking, rom_marking_face, shelf_cart,
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 3049fcd..f89be41 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -54,13 +54,14 @@ impl QuickValue {
+ 
+ impl Toast {
+     pub fn disc_index(d: crate::DiscToast) -> usize {
+-        Toast::all().len() + RetroShader::ALL.len() + d.index()
++        Toast::all().len() + RetroShader::ALL.len() + crate::BatteryToast::ALL.len() + d.index()
+     }
+ 
+     pub fn every() -> Vec<Toast> {
+         Toast::all()
+             .into_iter()
+             .chain(RetroShader::ALL.map(Toast::Retro))
++            .chain(crate::BatteryToast::ALL.map(Toast::Battery))
+             .chain(crate::DiscToast::ALL.map(Toast::Disc))
+             .collect()
+     }
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index 2ffeb4d..36ba673 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -26,6 +26,7 @@ pub enum Toast {
+     Palette(GbPalette),
+     Retro(slot_store::RetroShader),
+     Disc(crate::DiscToast),
++    Battery(crate::BatteryToast),
+ }
+ 
+ impl Toast {
+@@ -59,6 +60,7 @@ impl Toast {
+             Toast::Palette(p) => Self::FIXED.len() + p.index(),
+             Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+             Toast::Disc(d) => Toast::disc_index(d),
++            Toast::Battery(b) => Toast::battery_index(b),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -94,6 +96,7 @@ impl Toast {
+             Toast::Palette(p) => p.label(),
+             Toast::Retro(s) => s.toast(),
+             Toast::Disc(d) => d.text(),
++            Toast::Battery(b) => b.text(),
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index e2b117b..9776d6e 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,3 +1,4 @@
++mod battery_warn;
+ mod ps1_discs;
+ 
+ use std::collections::HashMap;
+@@ -405,6 +406,7 @@ pub struct App {
+     headphones: bool,
+     headphones_at: Millis,
+     battery: Option<Battery>,
++    battery_warned: Option<u8>,
+     last_led: Option<LedState>,
+     powering_off: bool,
+     radio: Box<dyn RadioJobs>,
+@@ -559,6 +561,7 @@ impl App {
+             headphones: false,
+             headphones_at: 0,
+             battery: None,
++            battery_warned: None,
+             last_led: None,
+             powering_off: false,
+             shelf_carts: Vec::new(),
+@@ -4329,6 +4332,7 @@ impl App {
+     }
+ 
+     pub fn on_battery(&mut self, b: Battery) {
++        self.warn_battery(b);
+         if b.percent > BATTERY_CRITICAL || self.powering_off {
+             return;
+         }
+diff --git a/crates/slot/src/app/battery_warn.rs b/crates/slot/src/app/battery_warn.rs
+new file mode 100644
+index 0000000..b7a7f94
+--- /dev/null
++++ b/crates/slot/src/app/battery_warn.rs
+@@ -0,0 +1,31 @@
++use slot_power::{Battery, Charge};
++use slot_ui::{BatteryToast, Toast};
++
++use super::{App, Phase, BATTERY_CRITICAL};
++
++impl App {
++    pub(super) fn warn_battery(&mut self, b: Battery) {
++        if matches!(b.charge, Charge::Charging | Charge::Full) {
++            self.battery_warned = None;
++            return;
++        }
++        if b.percent <= BATTERY_CRITICAL
++            || self.shutting_down()
++            || matches!(self.phase, Phase::Doze { .. })
++        {
++            return;
++        }
++        let Some(due) = BatteryToast::ALL
++            .into_iter()
++            .rfind(|t| b.percent <= t.level())
++        else {
++            return;
++        };
++        if self.battery_warned.is_some_and(|w| w <= due.level()) {
++            return;
++        }
++        self.battery_warned = Some(due.level());
++        eprintln!("slot: battery: low at {}%", b.percent);
++        self.hud.toast(Toast::Battery(due), self.now());
++    }
++}
+diff --git a/crates/slot/tests/battery_low.rs b/crates/slot/tests/battery_low.rs
+new file mode 100644
+index 0000000..b2867e6
+--- /dev/null
++++ b/crates/slot/tests/battery_low.rs
+@@ -0,0 +1,132 @@
++mod common;
++
++use common::{app_playing_in, tmp_root_with_carts};
++use slot::app::App;
++use slot_input::Action;
++use slot_power::{Battery, Charge};
++use slot_ui::{BatteryToast, Toast};
++
++fn draining(percent: u8) -> Battery {
++    Battery {
++        percent,
++        charge: Charge::Discharging,
++    }
++}
++
++fn charging(percent: u8) -> Battery {
++    Battery {
++        percent,
++        charge: Charge::Charging,
++    }
++}
++
++fn playing() -> (tempfile::TempDir, App) {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let a = app_playing_in(d.path(), "Emerald");
++    (d, a)
++}
++
++fn later(a: &mut App, now: &mut u64) {
++    *now += 20_000;
++    a.tick_ms(*now);
++}
++
++#[test]
++fn the_battery_banners_upload_in_their_own_place() {
++    let every = Toast::every();
++    for b in BatteryToast::ALL {
++        let t = Toast::Battery(b);
++        assert_eq!(every.get(t.index()), Some(&t), "{b:?}");
++    }
++    assert_eq!(
++        Toast::Battery(BatteryToast::Low15).text(),
++        "Battery Low: 15%"
++    );
++    assert_eq!(
++        Toast::Battery(BatteryToast::Low10).text(),
++        "Battery Low: 10%"
++    );
++}
++
++#[test]
++fn fifteen_percent_warns_once() {
++    let (_d, mut a) = playing();
++    let mut now = 0;
++    a.on_battery(draining(16));
++    assert_eq!(a.toast(), None);
++    a.on_battery(draining(15));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low15)));
++    later(&mut a, &mut now);
++    a.on_battery(draining(14));
++    a.on_battery(draining(12));
++    assert_eq!(a.toast(), None, "the 15% banner came back");
++}
++
++#[test]
++fn ten_percent_warns_after_fifteen() {
++    let (_d, mut a) = playing();
++    let mut now = 0;
++    a.on_battery(draining(15));
++    later(&mut a, &mut now);
++    a.on_battery(draining(10));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low10)));
++    later(&mut a, &mut now);
++    a.on_battery(draining(8));
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn a_reading_past_both_levels_shows_only_the_lower_one() {
++    let (_d, mut a) = playing();
++    let mut now = 0;
++    a.on_battery(draining(9));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low10)));
++    later(&mut a, &mut now);
++    a.on_battery(draining(9));
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn charging_never_warns() {
++    let (_d, mut a) = playing();
++    a.on_battery(charging(12));
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn plugging_in_brings_the_banners_back() {
++    let (_d, mut a) = playing();
++    let mut now = 0;
++    a.on_battery(draining(12));
++    later(&mut a, &mut now);
++    a.on_battery(charging(13));
++    a.on_battery(draining(14));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low15)));
++}
++
++#[test]
++fn a_shut_lid_holds_the_banner_until_it_opens() {
++    let (_d, mut a) = playing();
++    a.apply(Action::LidClose);
++    a.on_battery(draining(14));
++    assert_eq!(a.toast(), None);
++    a.apply(Action::LidOpen);
++    a.on_battery(draining(14));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low15)));
++}
++
++#[test]
++fn the_power_off_level_shows_no_banner() {
++    let (_d, mut a) = playing();
++    a.on_battery(draining(4));
++    assert_eq!(a.toast(), None);
++    assert!(a.powering_off());
++}
++
++#[test]
++fn the_shelf_shows_the_banner_too() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = common::boot(d.path());
++    a.on_battery(draining(15));
++    assert_eq!(a.toast(), Some(Toast::Battery(BatteryToast::Low15)));
++}

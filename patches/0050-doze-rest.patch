@@ -1,0 +1,281 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 13:17:16 +0400
+Subject: [PATCH] doze-rest
+
+While the lid is shut or POWER has dozed the game, the device loop
+draws two dark frames and then stops stepping, drawing and presenting.
+It sleeps 50 ms per turn and still reads input, runs the timers, and
+powers off or restarts on time, so waking costs at most one 50 ms poll.
+A shutdown or a link keeps drawing. It logs when it starts resting and,
+on waking, how long it rested, the presents per second and the CPU time
+spent. From marghost/slot_modded b1f9e24, adapted from
+suprsomething/slot.advance bf810b6 (both GPL-3.0),
+https://github.com/marghost/slot_modded/commit/b1f9e24
+https://github.com/suprsomething/slot.advance/commit/bf810b6
+---
+ crates/slot/src/device_app.rs  |  15 ++++-
+ crates/slot/src/doze_rest.rs   |  79 ++++++++++++++++++++++
+ crates/slot/src/lib.rs         |   1 +
+ crates/slot/tests/doze_rest.rs | 120 +++++++++++++++++++++++++++++++++
+ 4 files changed, 214 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/src/doze_rest.rs
+ create mode 100644 crates/slot/tests/doze_rest.rs
+
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index cd47849..e7ce8e6 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -145,8 +145,17 @@ pub fn run() {
+     let mut pacer = Pacer::new();
+     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+     let mut frame_trace = slot::frame_trace::FrameTrace::new();
++    let mut doze = slot::doze_rest::DozeRest::new();
+     loop {
+-        pacer.wait();
++        let dozing = !frontend.rebuilding_labels() && slot::doze_rest::rests(frontend.app());
++        if let Some(line) = doze.step(dozing, Instant::now()) {
++            eprintln!("{line}");
++        }
++        if doze.resting() {
++            std::thread::sleep(slot::doze_rest::DOZE_POLL);
++        } else {
++            pacer.wait();
++        }
+         let began = Instant::now();
+         frontend.advance(&mut input);
+         if frontend.restarting() {
+@@ -156,6 +165,10 @@ pub fn run() {
+             frontend.poweroff();
+             return;
+         }
++        if doze.resting() {
++            (pacer.last_return, pacer.seen) = (None, None);
++            continue;
++        }
+         frontend.step_emulator(pacer.period, STEP_TIMEOUT);
+         frontend.render(&mut compositor, window);
+         let swap = Instant::now();
+diff --git a/crates/slot/src/doze_rest.rs b/crates/slot/src/doze_rest.rs
+new file mode 100644
+index 0000000..2fa1c53
+--- /dev/null
++++ b/crates/slot/src/doze_rest.rs
+@@ -0,0 +1,79 @@
++use std::time::{Duration, Instant};
++
++use crate::app::{App, Phase};
++
++pub const DOZE_POLL: Duration = Duration::from_millis(50);
++
++pub const DARK_FRAMES: u32 = 2;
++
++const TICK_MS: u64 = 10;
++
++pub fn rests(app: &App) -> bool {
++    matches!(app.phase(), Phase::Doze { .. }) && !app.shutting_down() && !app.link_active()
++}
++
++#[derive(Default)]
++pub struct DozeRest {
++    since: Option<Instant>,
++    cpu: Option<u64>,
++    presents: u32,
++    polls: u32,
++    resting: bool,
++}
++
++impl DozeRest {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    pub fn step(&mut self, dozing: bool, now: Instant) -> Option<String> {
++        if !dozing {
++            self.resting = false;
++            let since = self.since.take()?;
++            let cpu = own_cpu_ms()
++                .zip(self.cpu.take())
++                .map(|(now, then)| now.saturating_sub(then));
++            let line = awake_line(now - since, self.presents, self.polls, cpu);
++            (self.presents, self.polls) = (0, 0);
++            return Some(line);
++        }
++        self.resting = self.presents >= DARK_FRAMES;
++        match self.resting {
++            true => self.polls += 1,
++            false => self.presents += 1,
++        }
++        if self.since.is_some() {
++            return None;
++        }
++        self.since = Some(now);
++        self.cpu = own_cpu_ms();
++        Some(format!(
++            "slot: doze: resting after {DARK_FRAMES} dark frames, polling every {} ms",
++            DOZE_POLL.as_millis()
++        ))
++    }
++
++    pub fn resting(&self) -> bool {
++        self.resting
++    }
++}
++
++pub fn awake_line(dozed: Duration, presents: u32, polls: u32, cpu_ms: Option<u64>) -> String {
++    let secs = dozed.as_secs_f64();
++    let rate = f64::from(presents) / secs.max(0.001);
++    let cpu = cpu_ms.map_or(String::new(), |ms| format!(", {ms} ms of cpu"));
++    format!(
++        "slot: doze: awake after {secs:.1} s, {presents} presents ({rate:.2} per second), {polls} polls{cpu}"
++    )
++}
++
++pub fn cpu_ms(stat: &str) -> Option<u64> {
++    let mut fields = stat.rsplit_once(')')?.1.split_whitespace().skip(11);
++    let user: u64 = fields.next()?.parse().ok()?;
++    let system: u64 = fields.next()?.parse().ok()?;
++    Some((user + system) * TICK_MS)
++}
++
++fn own_cpu_ms() -> Option<u64> {
++    cpu_ms(&std::fs::read_to_string("/proc/self/stat").ok()?)
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index f925c14..f47dada 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -18,6 +18,7 @@ pub mod crash;
+ pub mod crash {
+     pub fn install() {}
+ }
++pub mod doze_rest;
+ pub mod drc;
+ pub mod emu;
+ pub mod face_builder;
+diff --git a/crates/slot/tests/doze_rest.rs b/crates/slot/tests/doze_rest.rs
+new file mode 100644
+index 0000000..3b3a4e7
+--- /dev/null
++++ b/crates/slot/tests/doze_rest.rs
+@@ -0,0 +1,120 @@
++mod common;
++
++use std::time::{Duration, Instant};
++
++use common::{app_playing_in, tmp_root_with_carts};
++use slot::doze_rest::{awake_line, cpu_ms, rests, DozeRest, DARK_FRAMES};
++use slot_input::Action;
++
++#[test]
++fn awake_never_rests() {
++    let mut d = DozeRest::new();
++    let now = Instant::now();
++    for _ in 0..100 {
++        assert_eq!(d.step(false, now), None);
++        assert!(!d.resting());
++    }
++}
++
++#[test]
++fn a_doze_draws_its_dark_frames_then_rests() {
++    let mut d = DozeRest::new();
++    let now = Instant::now();
++    for i in 0..DARK_FRAMES {
++        d.step(true, now);
++        assert!(!d.resting(), "dark frame {i} was skipped");
++    }
++    for _ in 0..100 {
++        d.step(true, now);
++        assert!(d.resting());
++    }
++}
++
++#[test]
++fn waking_draws_at_once_and_the_next_doze_starts_dark_again() {
++    let mut d = DozeRest::new();
++    let now = Instant::now();
++    for _ in 0..10 {
++        d.step(true, now);
++    }
++    d.step(false, now);
++    assert!(!d.resting(), "the opened lid waited for a poll");
++    d.step(true, now);
++    assert!(!d.resting(), "the next doze skipped its dark frames");
++}
++
++#[test]
++fn entering_a_doze_is_logged_once() {
++    let mut d = DozeRest::new();
++    let now = Instant::now();
++    assert_eq!(
++        d.step(true, now).as_deref(),
++        Some("slot: doze: resting after 2 dark frames, polling every 50 ms")
++    );
++    for _ in 0..10 {
++        assert_eq!(d.step(true, now), None);
++    }
++}
++
++#[test]
++fn waking_logs_the_presents_per_second_of_the_doze() {
++    let mut d = DozeRest::new();
++    let began = Instant::now();
++    for _ in 0..202 {
++        d.step(true, began);
++    }
++    let line = d.step(false, began + Duration::from_secs(10)).unwrap();
++    assert!(
++        line.starts_with("slot: doze: awake after 10.0 s, 2 presents (0.20 per second), 200 polls"),
++        "{line}"
++    );
++}
++
++#[test]
++fn the_wake_line_ends_with_the_cpu_time_when_it_is_known() {
++    assert_eq!(
++        awake_line(Duration::from_secs(4), 2, 80, Some(120)),
++        "slot: doze: awake after 4.0 s, 2 presents (0.50 per second), 80 polls, 120 ms of cpu"
++    );
++    assert_eq!(
++        awake_line(Duration::from_secs(4), 2, 80, None),
++        "slot: doze: awake after 4.0 s, 2 presents (0.50 per second), 80 polls"
++    );
++}
++
++#[test]
++fn the_cpu_time_is_user_plus_system_ticks() {
++    let stat = "812 (slot (main)) S 1 812 812 0 -1 4194560 9 0 0 0 1234 56 0 0 20 0 9 0 300";
++    assert_eq!(cpu_ms(stat), Some(12_900));
++    assert_eq!(cpu_ms("garbage"), None);
++}
++
++#[test]
++fn a_shut_lid_rests_and_an_open_one_does_not() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_in(d.path(), "Emerald");
++    assert!(!rests(&a));
++    a.apply(Action::LidClose);
++    assert!(rests(&a));
++    a.apply(Action::LidOpen);
++    assert!(!rests(&a));
++}
++
++#[test]
++fn the_doze_power_off_draws_its_shutdown() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_in(d.path(), "Emerald");
++    a.apply(Action::LidClose);
++    a.on_doze_timeout();
++    assert!(a.shutting_down());
++    assert!(!rests(&a));
++}
++
++#[test]
++fn a_link_that_starts_behind_a_shut_lid_keeps_drawing() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let mut a = app_playing_in(d.path(), "Emerald");
++    a.apply(Action::LidClose);
++    a.begin_link(1);
++    assert!(!rests(&a));
++}
