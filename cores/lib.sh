@@ -6,6 +6,8 @@
 #   make_args optional, extra make variables for both builds                        (USE_BLARGG_APU=1)
 #   device_ldflags  optional, extra LDFLAGS for the device build only. A C++ core sets
 #             "-static-libstdc++ -static-libgcc" because the handheld's OS may lack libstdc++.so.6
+#   device_include  optional, a header under the repo root force-included into every device compile
+#             (cores/mednafen_pce_fast/glibc-2.17.h pins a libm symbol to its GLIBC_2.17 version)
 # then calls core_main "$@". SLOT_PIN holds <core>_commit and <core>_tarball_sha256. The tarball is
 # the corresponding source (see LICENSING.md) and ships beside the core. OUT ending .dylib builds for
 # macOS, OUT ending .so builds for the device (run it through scripts/device-sh.sh).
@@ -14,6 +16,7 @@ set -eu
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 device_cflags="-mcpu=cortex-a53"
 device_ldflags="${device_ldflags:-}"
+device_include="${device_include:-}"
 
 usage() {
 	echo "usage: $0 fetch COMMIT TARBALL | builder | stamp COMMIT host|device | srcmeta COMMIT TARBALL | build COMMIT TARBALL WORKDIR OUT" >&2
@@ -80,6 +83,7 @@ stamp() {
 		echo "recipe=$(recipe unix)"
 		echo "device_cflags=$device_cflags"
 		[ -z "$device_ldflags" ] || echo "device_ldflags=$device_ldflags"
+		[ -z "$device_include" ] || echo "device_include=$device_include"
 		;;
 	*) usage ;;
 	esac
@@ -129,6 +133,9 @@ build() {
 	# CFLAGS and CXXFLAGS come in through the environment so the makefiles' += keeps them.
 	if [ "$kind" = device ]; then
 		export CFLAGS="$device_cflags" CXXFLAGS="$device_cflags"
+		if [ -n "$device_include" ]; then
+			CFLAGS="$CFLAGS -include $root/$device_include" CXXFLAGS="$CXXFLAGS -include $root/$device_include"
+		fi
 		[ -z "$device_ldflags" ] || export LDFLAGS="$device_ldflags"
 	fi
 	make -C "$mdir" ${makefile:+-f "$makefile"} platform=$platform ${make_args:-} \
