@@ -3,7 +3,7 @@
 - Status: Accepted. Drop when the upstream PR lands (0047)
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0047](0047-upstream-first-fixes.md), [ADR 0067](0067-ps1-disk-control-and-disc-in-states.md) (the `DiscToast` pattern), patch `patches/0049-battery-low.patch`, [fork review](../research/fork-review-2026-10-18.md), marghost/slot_modded [1706a16](https://github.com/marghost/slot_modded/commit/1706a16), suprsomething/slot.advance [d495461](https://github.com/suprsomething/slot.advance/commit/d495461), upstream PR text in [docs/contributions/upstream-battery-low-pr.md](../contributions/upstream-battery-low-pr.md)
+- Related: [ADR 0047](0047-upstream-first-fixes.md), [ADR 0067](0067-ps1-disk-control-and-disc-in-states.md) (the `DiscToast` pattern), patch `patches/0050-battery-low.patch`, [fork review](../research/fork-review-2026-10-18.md), marghost/slot_modded [1706a16](https://github.com/marghost/slot_modded/commit/1706a16), suprsomething/slot.advance [d495461](https://github.com/suprsomething/slot.advance/commit/d495461), upstream PR text in [docs/contributions/upstream-battery-low-pr.md](../contributions/upstream-battery-low-pr.md)
 
 ## Context
 

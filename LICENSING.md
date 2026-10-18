@@ -335,14 +335,14 @@ GPL-3.0), which is itself a Rust port of the Logo Only style of Brandon Kowalski
 (github.com/BrandonKowalski/slot-cart-studio, GPL-3.0-or-later). Both are credited in the file and the
 patch commit. No logo ships: `tools/fetch-labels.py` downloads them at user time.
 
-Patch `0049-battery-low` reimplements the Battery Low banners of marghost/slot_modded commit
+Patch `0050-battery-low` reimplements the Battery Low banners of marghost/slot_modded commit
 [1706a16](https://github.com/marghost/slot_modded/commit/1706a16), which adapts
 suprsomething/slot.advance commit [d495461](https://github.com/suprsomething/slot.advance/commit/d495461),
-and ports marghost's tests for them. Patch `0050-doze-rest` reimplements the standby loop of
+and ports marghost's tests for them. Patch `0051-doze-rest` reimplements the standby loop of
 marghost/slot_modded commit [b1f9e24](https://github.com/marghost/slot_modded/commit/b1f9e24),
 which adapts suprsomething/slot.advance commit
-[bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0051-silent-start-hud`
+[bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0052-silent-start-hud`
 follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a) and patch
-`0052-start-closes-picker` jgraving/slot commit
+`0053-start-closes-picker` jgraving/slot commit
 [e047d17](https://github.com/jgraving/slot/commit/e047d17). All three forks are GPL-3.0 and are
 credited in the patch commits.

@@ -3,7 +3,7 @@
 - Status: Accepted. Drop when the upstream PR lands (0047)
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0052-start-closes-picker.patch`, patch `0009-core-picker-pairs`, [fork review](../research/fork-review-2026-10-18.md), jgraving/slot [e047d17](https://github.com/jgraving/slot/commit/e047d17), upstream PR text in [docs/contributions/upstream-start-closes-picker-pr.md](../contributions/upstream-start-closes-picker-pr.md)
+- Related: [ADR 0047](0047-upstream-first-fixes.md), patch `patches/0053-start-closes-picker.patch`, patch `0009-core-picker-pairs`, [fork review](../research/fork-review-2026-10-18.md), jgraving/slot [e047d17](https://github.com/jgraving/slot/commit/e047d17), upstream PR text in [docs/contributions/upstream-start-closes-picker-pr.md](../contributions/upstream-start-closes-picker-pr.md)
 
 ## Context
 
