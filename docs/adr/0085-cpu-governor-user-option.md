@@ -1,7 +1,7 @@
 # 0085. Offer the CPU governor as a General row, Performance by default
 
-- Status: Proposed. Needs the device measurement below, and maintainer approval of upstream test
-  site (j) (the CPU label in `the_rows_run_in_the_order_the_user_chose`)
+- Status: Accepted (2026-10-18; upstream test site (j) approved by the maintainer). Balanced is
+  offered on the strength of the device measurement below; the default stays Performance
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: patches/0053-cpu-governor.patch, [fork-pvaibhav.md](../research/fork-pvaibhav.md) section 2
@@ -39,8 +39,8 @@ above Date & Time).
 - Upstream test site (j): `crates/slot-ui/tests/quick_menu.rs` gains the line `"CPU",` between
   `"Lid Power Off",` and `"Date & Time"` in the General labels, because `QuickRow::GENERAL` is pinned
   there. `scripts/check-upstream-tests.sh` removes exactly that line before comparing, and accepts
-  the file without it. This is a new kind of site (a list entry, like (g)), so it needs the
-  maintainer's approval; until then the patch is a proposal.
+  the file without it. This is a new kind of site (a list entry, like (g)); the maintainer
+  approved it on 2026-10-18.
 
 ## Consequences
 
