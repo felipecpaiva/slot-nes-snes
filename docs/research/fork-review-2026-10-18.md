@@ -92,3 +92,23 @@ In progress on its own branch. Prior art fed to it: nelynes `Owed` (gate lifted 
 - nelynes' Game Gear, NeoGeo Pocket and TG16 live on `slotPlusUltra` only; `main` has WonderSwan, Lynx and the Transparent shader.
 - suprsomething has 20 branches and branches off v1.5.0-25.
 - bphenriques is 5 commits ahead of pvaibhav, not an older copy.
+
+## 120 Hz latency A/B result (2026-10-18, RG34XXSP, rg34xxsp_v1 panel)
+
+pvaibhav's `profile.py` latency mode with its response ROM, GBA on mGBA, 3 rounds x 60 presses per build,
+build order rotated, governor performance, on USB power. Display interrupt 298 confirmed the panel rate
+(about 59 Hz, and 120 Hz during the 120 Hz runs). Every trial passed; 0 starved, 0 dropped in every run.
+
+| Build | Median ms | p95 ms | Per-round medians |
+|---|---|---|---|
+| A: ours (main 5214076), 60 Hz | 30.99 | 38.72 | 32.8, 31.4, 29.7 |
+| A120: ours, panel set to 120 Hz by hand | 25.16 | 42.40 | 25.5, 25.0, 25.5 |
+| F60: pvaibhav, 60 Hz | 41.61 | 49.26 | 41.3, 41.8, 42.1 |
+| F120: pvaibhav, 120 Hz | 29.38 | 36.16 | 30.1, 29.9, 28.9 |
+| U: upstream v1.7.0 unpatched, 60 Hz | 73.23 | 88.23 | 73.1, 76.1, 72.7 |
+
+- Decision rule (F120 at least 6 ms below A, no worse p95): F120 is only 1.6 ms below A. **NO-GO** for the fork's 120 Hz with native pacing.
+- Our 60 Hz build is 10.6 ms faster than the fork at 60 Hz, which confirms the review: the fork's "8.5 ms less" was measured against its own slower 60 Hz pacer.
+- A120 (our pacing, panel at 120 Hz, no code) is 5.8 ms faster at the median but 3.7 ms worse at p95 (uneven cadence under the upstream lock). Not adopted; a 120 Hz option would need its own pacing work and a battery measurement first, and would ship only as a user setting.
+- **Open:** upstream v1.7.0 measured 42 ms slower than ours in all three rounds. Not yet explained. Before quoting it anywhere, find which of our patches (or which difference in the hook build) causes it.
+- Panel registers were restored to the 60 Hz values after every run and the device was rebooted at the end.
