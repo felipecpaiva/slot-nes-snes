@@ -328,3 +328,9 @@ reimplements the stale face check, the face-keeping restock and the selected-ind
 marghost/slot_modded commit 88af60a, and patch `0046-switcher-up-down` takes Up and Down in the save
 state switcher from suprsomething/slot.advance commit 2fe9876. Both forks are GPL-3.0 and are
 credited in the patch commits.
+
+Patch `0049-logo-label` adds `crates/slot-ui/examples/logo_label.rs`, a port of cloudwithax/unslot's
+`crates/slot-ui/src/scraped.rs` ([0b0f3a3](https://github.com/cloudwithax/unslot/commit/0b0f3a307da447d8d048425ab8e70a9fc4aeab43),
+GPL-3.0), which is itself a Rust port of the Logo Only style of Brandon Kowalski's Cart Studio
+(github.com/BrandonKowalski/slot-cart-studio, GPL-3.0-or-later). Both are credited in the file and the
+patch commit. No logo ships: `tools/fetch-labels.py` downloads them at user time.

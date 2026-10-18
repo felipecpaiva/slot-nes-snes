@@ -314,6 +314,16 @@ class Round2(Base):
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.asked()[0]).query)
         self.assertEqual((q["systemeid"], q["recherche"]), (["19"], ["Cosmic Carnage"]))
 
+    def test_a_quota_stop_mid_search_stops_asking_and_the_run_finishes(self):
+        self.rom("MD", "Another Game (U).bin", b"other" * 60)
+        stats = self.search((430, b"", None))
+        self.assertEqual(stats["name_skipped"], 2)
+        self.assertEqual(len(self.asked()), 1, "nothing is asked after the stop")
+        why = "ScreenScraper quota or rate limit reached"
+        self.assertEqual([r.split("\t")[2:4] for r in self.report], [["not searched", why]] * 2)
+        self.assertIn(f"stopped early: {why}", self.out)
+        self.assertIsNone(self.label("MD", "Another Game (U)"))
+
     def test_suggest_names_the_near_game_and_writes_no_art(self):
         sug = os.path.join(self.tmp, "s.tsv")
         stats = self.search(jeux(game("12", ("us", "Brett Hull Hockey 95 Special"))), args=("--suggest", sug))

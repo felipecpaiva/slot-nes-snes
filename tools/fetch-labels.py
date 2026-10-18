@@ -6,6 +6,7 @@ PlayStation the front cover and the disc label.
     python3 tools/fetch-labels.py --device --library ~/ROMS                  # SD card stays in the device, over adb
     python3 tools/fetch-labels.py --device --library ~/ROMS --only GBA --limit 5 --dry-run
     python3 tools/fetch-labels.py --device --library ~/ROMS --by-name --report by-name.tsv
+    python3 tools/fetch-labels.py --device --library ~/ROMS --by-name --logo-fallback   # task labels:logo-tool first
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
@@ -47,8 +48,18 @@ Label sources, in order, per ROM:
      --report <file> writes a TSV row per ROM: system, stem, outcome, source (sibling stem, crc:<crc> or
      ss:<game id>), media. --suggest <file> writes, for each ROM still without a label, the nearest
      candidate (ss:<id> and its name, or sibling:<stem>) and why it was not taken; no art comes from it.
-  A ROM with no source is reported as missing. (libretro Named_Logos on a generated ground needs image code
-  beyond the standard library, so that fallback is not implemented.)
+  4. --logo-fallback (opt in, needs --by-name), for a ROM still without a label after every pass above (ADR 0014):
+     its logo on a generated ground (Cart Studio's Logo Only style), drawn by the slot-ui example logo_label
+     (task labels:logo-tool builds build/slot/target/release/examples/logo_label; SLOT_LOGO_LABEL overrides it)
+     at the label size slot draws for that system. The logo is libretro-thumbnails Named_Logos (none for GBC,
+     GG, PS1; the index and the PNGs are cached under logos/) matched by title_key like a sibling (one title,
+     a cut name only when one title starts with it, never a guess), else the ScreenScraper wheel of the game
+     the name pass (or an ss: alias) matched. A hack ([h..] or "hack") takes a parent's logo only through
+     --aliases (a sibling: alias names the title to look up). The outcome is "logo fallback", source
+     libretro:<name> or ss:<id> wheel. A dry run matches and reports but downloads, renders and writes no logo.
+     A ROM not searched for the quota, a stop or --limit gets none (a later run searches it). A logo label is
+     a label to later runs: delete it or use --force to replace it with real art.
+  A ROM with no source is reported as missing.
 The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
 box) and caches it itself (art.rs, retro_cart.rs, label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
 """
@@ -77,6 +88,10 @@ UA = "slot-nes-snes-fetch-labels/1.0 (+https://github.com/felipecpaiva/slot-nes-
 ART = "https://art.slot-cfw.fyi/"
 DAT = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/"
 SS_API = "https://api.screenscraper.fr/api2/"
+# libretro-thumbnails, served with a directory listing; Named_Logos exists for these (not GBC, GG or PS1)
+LOGOS = "https://thumbnails.libretro.com/"
+# the Logo Only renderer, a slot-ui example (ADR 0014): task labels:logo-tool builds it
+LOGO_TOOL = os.path.join(REPO, "build", "slot", "target", "release", "examples", "logo_label")
 NO_INTRO = "Nintendo - "
 SEGA = "Sega - "
 # system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id). The Sega dat names
@@ -452,6 +467,21 @@ class ScreenScraper:
                 out[kind] = (self.download(dict(m, url=self.with_auth(str(m.get("url", "")), True)), png), t)
                 break
         return out
+
+    def wheel(self, system, gid, ask=True):
+        """--logo-fallback only: the game's wheel (its logo) as PNG bytes (b"" in a dry run), never as a label
+        itself. Cached by game id; None when it has none, or its media list was needed and not asked."""
+        png = os.path.join(self.ctx.cache, "ss", system, "name", "wheel", gid + ".png")
+        if os.path.isfile(png):
+            return slurp(png)
+        try:
+            m = self.pick((self.game(system, gid, SYSTEMS[system][3], ask) or {}).get("medias") or [], "", "wheel")
+            if not m or self.ctx.dry:
+                return b"" if m else None
+            return self.download(dict(m, url=self.with_auth(str(m.get("url", "")), True)), png)
+        except Stop as e:
+            self.stop = str(e)
+            return None
 
     def pick(self, medias, name, kind=LABEL, prefer=None, order=None):
         tag = re.search(r"\(([^)]*)\)", name)
@@ -888,6 +918,64 @@ def pick_sibling(stem, names):
     return min(names, key=lambda n: (-len(own & region_tags(n)), -dump_rank(n), n))
 
 
+def is_hack(stem):
+    """A GoodTools [h..] or a name saying hack: it gets a parent's logo only through --aliases."""
+    return bool(re.search(r"\[h|\bhack\b", stem, re.I))
+
+
+def logo_index(ctx, system):
+    """{title_key: [names]} of libretro-thumbnails Named_Logos for system, {} when it has none. libretro writes
+    & (and : / ? and the like) as _, so a name with _ is also keyed with & read back."""
+    dat = (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    text = cached_text(ctx, f"logos/{dat}.html", LOGOS + urllib.parse.quote(dat) + "/Named_Logos/", 30 * DAY,
+                       optional=True)
+    index = {}
+    for href in re.findall(r'href="([^"?/]+\.png)"', text):
+        name = nfc(urllib.parse.unquote(href)[:-4])
+        for k in {title_key(name, system), title_key(name.replace("_", "&"), system)} - {""}:
+            index.setdefault(k, []).append(name)
+    return index
+
+
+def pick_logo(index, stem, system):
+    """The logo name whose title_key is stem's (the best region, then by name), or for a cut name the one key
+    starting with it. None when there is none or several keys could be meant: never a guess."""
+    key = title_key(stem, system)
+    names = index.get(key) if key else None
+    if not names and key and is_cut(stem, system):
+        keys = [k for k in index if k.startswith(key)]
+        names = index[keys[0]] if len(keys) == 1 else None
+    return pick_sibling(stem, names) if names else None
+
+
+def logo_png(ctx, system, name):
+    """A Named_Logos PNG, cached under logos/<system>/; b"" in a dry run when not cached; None when missing."""
+    p = os.path.join(ctx.cache, "logos", system, name + ".png")
+    if os.path.isfile(p):
+        return slurp(p)
+    if ctx.dry:
+        return b""
+    dat = (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    status, body = fetch(ctx, LOGOS + urllib.parse.quote(f"{dat}/Named_Logos/{name}.png"))
+    if status != 200 or not body.startswith(PNG):
+        return None
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    spit(p, body)
+    return body
+
+
+def render_logo(system, stem, logo):
+    """The Logo Only label PNG for stem, from the slot-ui example (SLOT_LOGO_LABEL overrides its path)."""
+    with tempfile.TemporaryDirectory() as d:
+        src, out = os.path.join(d, "logo.png"), os.path.join(d, "label.png")
+        spit(src, logo)
+        r = subprocess.run([os.environ.get("SLOT_LOGO_LABEL") or LOGO_TOOL, system, stem, src, out],
+                           capture_output=True, text=True)
+        if r.returncode or not os.path.isfile(out):
+            raise Fail(f"logo_label failed: {r.stderr.strip()}")
+        return slurp(out)
+
+
 def note_label(ctx, system, sub, stem):
     """Record a label that is now on the card (or will be, in a dry run) so a later ROM can copy it."""
     ctx.labels.setdefault(sub, set()).add(f"{stem}.png".lower())
@@ -940,9 +1028,11 @@ def shell_value(ctx, args, stem):
 
 STATS = {"alias": "alias", "sibling": "sibling", "crc box": "crc_box", "name": "by_name",
          "name, no art": "name_no_art", "no confident match": "no_match", "not searched": "name_skipped",
-         "error": "errors"}
+         "logo fallback": "logo", "error": "errors"}
 LINES = {"alias": "matched by alias", "sibling": "matched by sibling", "crc box": "matched by CRC, box front",
          "name": "matched by name", "name, no art": "matched by name, no art", "not searched": "not searched by name"}
+# the outcomes that leave a ROM bare, where --logo-fallback steps in
+BARE = {"name, no art", "no confident match", "not searched"}
 
 
 def by_name(ctx, system, left, root, args):
@@ -953,8 +1043,15 @@ def by_name(ctx, system, left, root, args):
     stats, asked = ctx.stats, [0]
     pairs = {kind: sub for kind, sub in PS1_MEDIA} if system == "PS1" else {MEDIA.get(system, LABEL): ""}
     sysid = SYSTEMS[system][3]
+    cur, logos = {}, []
 
     def done(stem, outcome, source="", media=""):
+        # a ROM skipped for quota, a stop or --limit is not bare: a later run still searches it by name
+        skipped_now = outcome == "not searched" and source not in ("dry run", "no SS_DEVID/SS_DEVPASSWORD")
+        if args.logo_fallback and outcome in BARE and not skipped_now and "" in cur["subs"]:
+            got = logo(stem, source)
+            if got:
+                outcome, source, media = "logo fallback", got, "logo"
         stats[STATS[outcome]] += 1
         ctx.report.append((system, stem, outcome, source, media))
         print(f"  {LINES.get(outcome, outcome)}  {system}/{stem}" + (f" ({source}{', ' + media if media else ''})" if source else ""))
@@ -992,6 +1089,28 @@ def by_name(ctx, system, left, root, args):
         if value and (not own or own & region_tags(sib)):
             ctx.shell[stem] = value
         return wrote
+
+    def logo(stem, source):
+        """Write a Logo Only label for a ROM every other pass left bare; returns its source or "". The logo is
+        libretro's Named_Logos by the ROM's title (or an alias's sibling title), else the ScreenScraper wheel of
+        the game the name pass (or an ss: alias) found. A hack takes a logo only through an alias."""
+        how, _, target = ctx.aliases.get((system, nfc(stem)), "").partition(":")
+        auto = not is_hack(stem)
+        try:
+            if not logos:
+                logos.append(logo_index(ctx, system))
+            name = pick_logo(logos[0], target if how == "sibling" else stem, system) if auto or how == "sibling" \
+                else None
+            gid = target if how == "ss" else source[3:] if auto and source.startswith("ss:") else ""
+            body, src = (logo_png(ctx, system, name), f"libretro:{name}") if name else \
+                (ctx.ss.wheel(system, gid, ask()), f"ss:{gid} wheel") if gid else (None, "")
+        except Fail as e:
+            print(f"  no logo for {system}/{stem}: {e}")
+            body = None
+        if body is None:
+            return ""
+        put(stem, "", b"" if ctx.dry else ctx.render(system, stem, body))
+        return src
 
     def ask():
         return not (args.limit and asked[0] >= args.limit)
@@ -1075,9 +1194,12 @@ def by_name(ctx, system, left, root, args):
         ctx.suggest.append((system, stem, "", "", hack + found["why"]))
 
     for stem, subs, crc in left:
-        before = ctx.ss.asked
+        before, cur["subs"] = ctx.ss.asked, subs
         try:
             one(stem, subs, crc)
+        except Stop as e:  # quota or refusal mid-search: stop asking, like the CRC path; the next run resumes
+            ctx.ss.stop = str(e)
+            done(stem, "not searched", ctx.ss.stop)
         except (Fail, OSError) as e:
             done(stem, "error", str(e))
         finally:
@@ -1151,6 +1273,7 @@ class Ctx:
         # --by-name state: per system label listings and title index, and the run's report rows
         self.labels, self.sib, self.lib, self.dat, self.dev, self.stage = {}, {}, {}, None, None, None
         self.shell_have, self.report, self.suggest, self.aliases = None, [], [], {}
+        self.render = render_logo  # --logo-fallback's renderer, a seam for the tests
 
 
 def get_label(ctx, system, crc, rom, name):
@@ -1300,7 +1423,8 @@ def summary(ctx, args):
         for key, label in [("alias", "matched by alias"), ("sibling", "matched by sibling"),
                            ("crc_box", "matched by CRC, box front"), ("by_name", "matched by name"),
                            ("name_no_art", "matched by name, no art"), ("no_match", "no confident match"),
-                           ("name_skipped", "not searched by name")]:
+                           ("name_skipped", "not searched by name")] + \
+                [("logo", "logo fallback")] * bool(args.logo_fallback):
             print(f"  {label:<26}{s[key]}")
     for why in (ctx.art_off, ctx.ss.stop):
         if why:
@@ -1433,6 +1557,9 @@ def main(argv=None, ctx=None):
                                       "without a label and why it was not taken (no art is written from it)")
     ap.add_argument("--aliases", help="with --by-name, a TSV of system, stem, ss:<game id> or sibling:<stem> "
                                       "that forces those matches")
+    ap.add_argument("--logo-fallback", action="store_true",
+                    help="with --by-name, a ROM still without a label gets its logo on a generated ground "
+                         "(libretro Named_Logos, or the ScreenScraper wheel of a game matched by name)")
     args = ap.parse_args(argv)
     if bool(args.card) == args.device:
         ap.error("give exactly one of --card or --device")
@@ -1448,9 +1575,12 @@ def main(argv=None, ctx=None):
             args.only_system = args.only.upper()
         else:
             args.only_stem = args.only
-    if (args.suggest or args.aliases) and not args.by_name:
-        ap.error("--suggest and --aliases need --by-name")
+    if (args.suggest or args.aliases or args.logo_fallback) and not args.by_name:
+        ap.error("--suggest, --aliases and --logo-fallback need --by-name")
     ctx = ctx or Ctx(dry=args.dry_run)
+    tool = os.environ.get("SLOT_LOGO_LABEL") or LOGO_TOOL
+    if args.logo_fallback and not args.dry_run and ctx.render is render_logo and not os.access(tool, os.X_OK):
+        ap.error(f"--logo-fallback needs the renderer at {tool}: run task labels:logo-tool")
     ctx.dry = args.dry_run
     ctx.aliases = load_aliases(os.path.expanduser(args.aliases)) if args.aliases else {}
     try:
