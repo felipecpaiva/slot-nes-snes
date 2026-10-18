@@ -12,7 +12,10 @@ python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound --dry-
 python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # prints the plan, asks y/N
 python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
 python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
+python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run   # a hack not on the card yet
+python3 tools/hacks.py --device --library /Volumes/MuOs/ROMS --add sotn-quality-hack --dry-run  # a PS1 disc hack (needs chdman)
 python3 tools/hacks.py --device --init                                       # write your settings file
+python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
 ```
 
 `--card <root>` works on a mounted card instead of adb. `--yes` skips the question, `--as-version`
@@ -36,12 +39,15 @@ same thing with `-- <flags>`.
    latest builds reads `UPDATE AVAILABLE (installed version unknown)`, which `--all` takes. A patch
    waiting in the incoming folder is built the same way: `UPDATE AVAILABLE (from incoming <version>)`,
    or what is installed when the CRCs agree. Nothing is written to the card, the library or the
-   settings; only the cache dir and, for an identified version, the state file.
+   settings; only the cache dir and, for an identified version, the state file. Without a card, a registry hack
+   that is neither in the library nor in the state file gets no row, only a closing line naming it
+   (install it with `--add <id>`).
 2. **Get the patch.** A `github:` source downloads the one release asset that matches `asset` (cached
    under the cache dir by version). Any other source reads the newest file in
-   `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips` or `.ups`, a ROM, or a `.zip` holding exactly one of
+   `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips`, `.ups`, `.xdelta` or `.ppf`, a ROM, or a `.zip` holding exactly one of
    them (read in memory; a 7z or rar you extract yourself), with an optional `version.txt` naming its
    version (else `--as-version`, else the version in the file name). Nothing downloaded is ever run.
+   Only files directly in the folder count: keep readmes and the original archive in a subfolder (`docs/`).
 3. **Find the base ROM** in `--library` by the whole file's CRC32 (`base_crc32`, or when it is unknown
    the source CRC a BPS or UPS carries in its footer): zip headers first, then loose files. Missing:
    refused.
@@ -50,6 +56,19 @@ same thing with `-- <flags>`.
    pre-patched ROM is checked against `target_crc32` when known. Any mismatch: refused. xdelta
    (VCDIFF, as Delta Patcher and xdelta3 write it: default code table, no secondary compression) is
    applied too, with xdelta's Adler-32 per window checked; it names no base, so `base_crc32` must be set.
+   PPF 1.0, 2.0 and 3.0 are applied in place: PPF2, and PPF3 with its block check, compare 1024 bytes of
+   the image, and PPF3 undo data (the original bytes) is compared too, all before the first write;
+   a PPF with neither gets a note, and the base was found by CRC anyway.
+   **PS1 discs** ([ADR 0089](adr/0089-ps1-disc-hacks-patch-track-1-through-chdman.md)): the base is the
+   library's `<base_name>.chd` (by name; CRCing every disc would read a hundred GB) and `base_crc32` is
+   the redump CRC32 of its track 1. `chdman extractcd --splitbin` writes one bin per track into a temp
+   dir, track 1 must have that CRC, the patch is applied to track 1 (a write past its end is refused),
+   `chdman createcd` packs the cue, and the new `.chd` is extracted again: track 1 must be the patched
+   CRC (`target_crc32` on a PS1 entry), every other track byte-identical and the track layout the same.
+   One disc takes 20 to 30 seconds and about three times its size in the temp dir. `chdman` comes from
+   `brew install rom-tools` (mise has no package); without it a PS1 build is refused. `--check` does not
+   identify an installed PS1 hack by CRC (that would build a disc per check). The state file records
+   the `.chd` file's CRC32 (chdman's output is the same for the same input and version).
 5. **Plan and confirm.** Every refusal (not on the card, seated, no base, CRC, already installed)
    happens before the first write. `--dry-run` prints the plan and stops; a real run prints it and asks.
 6. **Card.** Into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, at the same card paths:
@@ -58,9 +77,14 @@ same thing with `-- <flags>`.
    `gpsp`), the old ROM moved. Then the new ROM is written under the same name.
 7. **Library** (the muOS card mounted on the Mac): only the ROM changes. The old file, loose or
    zipped, is moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so muOS never lists
-   a backup as a game) and the new ROM goes in under the same name (a zip keeps its zip name and member
-   name). RetroArch's own `<stem>.state*` and `.srm` files there are left alone: that card belongs to
-   muOS. A one-line note says its old states may not work with the new version.
+   a backup as a game) and the new ROM goes in loose, since slot reads no zip and the library is what
+   gets pushed to the slot card: a loose copy keeps its name, a zip comes back as its member's name
+   (`Pokemon - Modern Emerald (v2.3.3).zip` holding `Modern Emerald (v2.3.3).gba` becomes the latter),
+   and the state file records the new name. If that loose name already exists, the update refuses: a
+   zip and a loose copy of one hack never sit side by side. muOS keys RetroArch's saves by the file
+   name, so a note lists any `.srm`/`.state*` left under the zip's name. RetroArch's own
+   `<stem>.state*` and `.srm` files there are left alone: that card belongs to muOS. A one-line note
+   says its old states may not work with the new version.
 8. **Record** the new version, CRC32, date and backup paths in
    `~/.config/slot-nes-snes/hacks-state.json`.
 
@@ -69,8 +93,29 @@ backup's `backup.json` is written first, so `--rollback <id>` puts the old files
 written as soon as the card is done, so a library failure afterwards is only a warning. A card written
 from a Mac may spell names in NFD (`Pokémon`); names are compared in NFC and the card's own spelling is used.
 
+`--fix-library-zips` (try `--dry-run` first; needs only `--library`) converts hacks updated before the
+tool unzipped: every hack the state file says this tool updated (it has a `backup`) whose library copy
+is still a zip holding the installed CRC32 is unzipped the same way, the zip moved to a `<stamp>_unzip`
+backup (kind `unzip`, which `--rollback` skips, so a rollback still restores the update's old file). A
+zip holding another CRC is refused. The card is not touched.
+
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
 copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
+
+## Adding a hack that is not on the card yet
+
+`--add <id>` (try `--dry-run` first; needs `--card`/`--device` and `--library`) installs a registry hack
+the card does not have: the patch from `~/ROMHacks/incoming/<id>/` (or the GitHub release) is applied to
+the clean base found in the library by CRC32, exactly as an update builds it, and the result is written
+as a NEW loose file named `card` (in the library, `library` if set, else the same name) on the card and
+in the library. The base game is only read. It refuses, before any write, when the state file already
+has the hack, when the card or library already holds that name, another version of it (the same name
+once version numbers are dropped) or the patched CRC32, or when the card already has saves or states
+under the new name (a new game must not load another file's snapshot), or when the result is a clean
+base game. The CRC checks go by size first: library zip headers (free) and library files of the same
+size; a card file of the same size is read from its library copy of the same name and size when there
+is one, and pulled from the card only when there is none (a disc is hundreds of MB over adb). The state file then records it like
+an update, so `--check` and `--update` handle it from then on.
 
 ## One file per hack, never a duplicate
 
@@ -78,9 +123,9 @@ copies the newest update backup back, on the card and in the library. Nothing is
   names in NFD) and at most one library file (`library` if set, else the copy, loose or zipped, whose
   ROM has the card's stem). None on the card: "not on the card". Two candidates: refused with the list
   ("ambiguous: set `card`/`library` in your settings file"). Never a guess.
-- The update replaces that file in place, under the same name. It adds no file to `Games/<SYS>/` or
-  the library and never leaves the old and new versions side by side; the old one goes only to the
-  backup.
+- The update replaces that file in place, under the same name (a library zip is swapped for its loose
+  member, see step 7). It adds no file to `Games/<SYS>/` or the library and never leaves the old and
+  new versions side by side; the old one goes only to the backup.
 - A clean base game (any registry `base_crc32`, e.g. Emerald, FireRed 1.0, Mother 3 (Japan)) is never
   a target: if the card or library file resolves to one, the update refuses.
 - `--check` warns about files that look like another version of a registry hack (the same name once
@@ -192,3 +237,45 @@ dead), and the GoodTools-tagged hacks. Pokemon Unbound and Radical Red need Fire
 '1636 Squirrels'): Radical Red's thread names that dump and its patch is a UPS, which checks the source
 CRC, and Unbound's thread names none, and its patch (a BPS, per community guides) checks its own source CRC too. FireRed Rev 1
 (84EE4776) is refused by both, so their updates wait until a 1.0 dump is in the library.
+
+### Not on the card yet: Metroid and Castlevania (`--add <id>`)
+
+Researched 2026-10-18 (Metroid Construction, romhacking.net, the authors' GitHub and pages). The
+downloaded patches wait in `~/ROMHacks/incoming/<id>/`; romhacking.net blocks scripts, so the rows
+marked manual need the patch fetched by hand. PS1 disc hacks are built from the library's `.chd`
+(see step 4 of the flow) and written as a new `.chd`.
+
+| id | system | kind | latest seen | format | base | patch |
+|---|---|---|---|---|---|---|
+| `metroid-mother` | NES | QoL / definitive | 1.0 (2014-04-22) | ips | A2C89CB9 | incoming |
+| `metroid-rogue-dawn` | NES | New game (a prequel, play as Dawn Aran) | 1.21 (2017-03-20) | ips | A2C89CB9 | incoming |
+| `junkoid` | NES | New game | 1.1 (2022-02-22) | ips | A2C89CB9 | incoming |
+| `metroid-fusion-special-edition` | GBA | QoL / definitive | 4.2 (2021-08-29) | ips | 6C75479C | incoming |
+| `metroid-oil-spill` | GBA | New game (nonlinear Fusion hack) | 1.5 (2020-03-16) | ips | 6C75479C | incoming |
+| `project-zm` | GBA | QoL / definitive (vanilla+) | 0.8.3 (2022-07-10, still WIP) | ips | 5C61A844 | incoming |
+| `metroid-scrolls-6` | GBA | New game | 1.1 (2021-02-10) | ips | 5C61A844 | incoming |
+| `metroid-dive` | GBA | New game | 1.2 (2026-08-02) | bps | 5C61A844 | incoming |
+| `metroid-ii-ejrtq-colorization` | GBC | QoL / definitive | 1.3 (2019-03-01) | ips | DEE05370 | base missing |
+| `castlevania-1-improved-controls` | NES | QoL | 3.1 (2021-02-27) | ips | 39C879BB | incoming |
+| `castlevania-1-chorus-of-mysteries` | NES | New game | 1.1 (2007) | ips | 12A6CB14 | base missing |
+| `castlevania-2-retranslation` | NES | QoL / definitive | 2.12.1.1 (2022-06-02) | ups | A9C2C503 | incoming |
+| `castlevania-2-improved-controls` | NES | QoL | 2.0 (2026-07-15) | ips | A9C2C503 | incoming |
+| `castlevania-3-redux` | NES | QoL / rebalance | 2.6 (2026-08-21) | ips | 7CC9C669 | manual |
+| `castlevania-3-improved-controls` | NES | QoL | 2.1 (2025-06-20) | ips | 7CC9C669 | incoming |
+| `castlevania-3-color-bugfixes` | NES | Small fix | 1.0 (2005) | ips | 7CC9C669 | incoming |
+| `super-castlevania-4-uncensored` | SNES | Definitive | 2.1 (2021-12-06) | ips | B64FFB12 | manual |
+| `castlevania-dracula-x-r-button-subweapon` | SNES | QoL | 1.0.0 (2026-05-15) | bps | 7C4887E1 | incoming |
+| `castlevania-bloodlines-revised` | MD | QoL / definitive | 1.0 (updated 2024-06-30) | ips | FB1EA6DF | manual |
+| `castlevania-bloodlines-enhanced-colors` | MD | Graphics | 1.0 (2014) | ips | FB1EA6DF | incoming |
+| `castlevania-circle-of-the-moon-definitive-edition` | GBA | QoL / definitive | 1.1 (GitHub, 2024-11); romhacking.net 9010 says 1.0 (2025-05) | ips | 1CC059A4 | incoming |
+| `castlevania-hod-findesiecle` | GBA | Rebalance / definitive | 2.3.75 (2023-02-26) | ips | 88C1B562 | manual |
+| `sotn-quality-hack` | PS1 | Definitive (no black bars, fixes) | 1.3 (2020-11-06) | ppf | track 1 05BE47B2 | incoming |
+| `sotn-improvement-hack` | PS1 | Restores cut content (alternative, not both) | 1.0 (2024-07-07) | xdelta | track 1 05BE47B2 | manual |
+| `castlevania-chronicles-arrange-knockback` | PS1 | Small fix (knockback in Arrange Mode) | 1.0 (2018-09-26) | ppf | track 1 D4F5D6A1 | incoming |
+
+One SotN hack, not two: the Quality hack and the Improvement hack both rework the castle entrance's hatch
+rooms and both want the clean track 1, so they do not stack; the seed picks the Quality hack (36k
+downloads on romhacking.net against about 4k, and the one in the archive.org RHDN dumps). The Improvement hack's patch is not in those dumps
+and romhacking.net no longer serves downloads: drop its `.xdelta` into the incoming folder to build it.
+The Chronicles patch is named `no-knockback.ppf` but restores knockback; romhacking.net names only the
+executable, yet the patch is relative to the bin (it rewrites sector 49's data and its EDC/ECC).

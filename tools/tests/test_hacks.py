@@ -120,6 +120,24 @@ def vcdiff(src, tgt, insts):
     return b"\xd6\xc3\xc4\x00\x00" + bytes([1 | 4]) + vint(len(src)) + vint(0) + vint(len(body)) + body
 
 
+def ppf(ver, records, image=None, undo=False, check=False, diz=False):
+    """A PPF 1.0/2.0/3.0 of (offset, bytes) records; PPF2 (and PPF3 with check) carry image's block at 0x9320,
+    PPF3 with undo the original bytes from image."""
+    head = b"PPF" + ver + bytes([int(ver) // 10 - 1]) + b"test patch".ljust(50)
+    if ver == b"20":
+        head += u32(len(image)) + image[0x9320:0x9320 + 1024]
+    elif ver == b"30":
+        head += bytes([0, int(check), int(undo), 0]) + (image[0x9320:0x9320 + 1024] if check else b"")
+    wide = 8 if ver == b"30" else 4
+    body = b"".join(o.to_bytes(wide, "little") + bytes([len(d)]) + d + (image[o:o + len(d)] if undo else b"")
+                    for o, d in records)
+    tail = b"@BEGIN_FILE_ID.DIZ hello @END_FILE_ID.DIZ" + (24).to_bytes(2, "little") if diz else b""
+    return head + body + tail
+
+
+IMAGE = bytes(range(256)) * 200  # past 0x9320 + 1024, so PPF2's block exists
+
+
 BASE = bytes(range(256)) * 64
 NEW = BASE[:100] + b"HACKED v2" + BASE[109:] + b"tail"
 
@@ -178,6 +196,38 @@ class Patches(unittest.TestCase):
             hk.apply_patch(b"x" + BASE[1:], p, warn=lambda *_: None)
         with self.assertRaisesRegex(hk.PatchError, "secondary compression"):
             hk.apply_patch(BASE, p[:4] + b"\x01" + p[5:])
+
+    def test_ppf_1_2_3_apply_and_ignore_the_file_id_block(self):
+        recs = [(5, b"abc"), (0x9400, b"XY")]
+        want = bytearray(IMAGE)
+        want[5:8], want[0x9400:0x9402] = b"abc", b"XY"
+        for ver, kw in ((b"10", {}), (b"20", {"image": IMAGE}), (b"30", {"image": IMAGE, "undo": True, "check": True}),
+                        (b"30", {"diz": True})):
+            self.assertEqual(hk.apply_patch(IMAGE, ppf(ver, recs, **kw), warn=lambda *_: None), bytes(want), (ver, kw))
+
+    def test_ppf_refuses_another_image_and_writes_nothing(self):
+        other = bytearray(IMAGE)
+        other[0x9330] ^= 1
+        for p, why in ((ppf(b"20", [(5, b"abc")], IMAGE), "block check"),
+                       (ppf(b"20", [(5, b"abc")], IMAGE + b"x"), "size mismatch"),
+                       (ppf(b"30", [(5, b"abc")], IMAGE, check=True), "block check")):
+            buf = bytearray(other)
+            with self.assertRaisesRegex(hk.PatchError, why):
+                hk.apply_ppf(buf, p)
+            self.assertEqual(buf, other)
+        buf = bytearray(IMAGE)
+        buf[6] ^= 1
+        before = bytes(buf)
+        with self.assertRaisesRegex(hk.PatchError, "undo data mismatch"):  # the second record is checked first, nothing written
+            hk.apply_ppf(buf, ppf(b"30", [(0x9400, b"XY"), (5, b"abc")], IMAGE, undo=True))
+        self.assertEqual(bytes(buf), before)
+        with self.assertRaisesRegex(hk.PatchError, "past the end"):
+            hk.apply_ppf(bytearray(IMAGE), ppf(b"30", [(len(IMAGE) - 1, b"ab")]))
+        with self.assertRaisesRegex(hk.PatchError, "truncated"):
+            hk.apply_ppf(bytearray(IMAGE), ppf(b"30", [(5, b"abc")])[:-1])
+        said = []
+        hk.apply_patch(IMAGE, ppf(b"30", [(5, b"abc")]), warn=said.append)
+        self.assertIn("no block check", said[0])
 
 
 class Base(unittest.TestCase):
@@ -359,9 +409,9 @@ class Update(Base):
             "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.state", "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.png",
             "States/GBA/mgba/Hack (v1)/resume.state", "States/GBA/gpsp/Hack (v1)/resume.state"]))
         self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
-        # the library: same zip and member name; RetroArch's state and .srm left alone
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        # the library: the zip comes back loose under its member's name; RetroArch's state and .srm left alone
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".zip")))
         self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".state.auto")), b"ra")
         self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".srm")), b"ra-save")
         self.assertIn("may not work with the new version", out)
@@ -369,6 +419,7 @@ class Update(Base):
         self.assertEqual(sorted(os.listdir(lb)), ["Hack (v1).zip", "backup.json"])
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
         self.assertEqual((state["hack"]["version"], state["hack"]["crc32"]), ("2", hk.crc_hex(NEW)))
+        self.assertEqual(state["hack"]["library"], self.STEM + ".gba")
         # a second run finds nothing to do
         r, out = self.update("--yes")
         self.assertIn("already installed", out)
@@ -401,6 +452,7 @@ class Update(Base):
         self.assertEqual(rd(self.at("States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
         with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
             self.assertEqual(z.read(self.STEM + ".gba"), self.old)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".gba")))
         # nothing lost: the new version's ROM, save and state sit in the rollback backup
         safety = [n for n in os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)) if n.endswith("_rollback")]
         s = self.at("Backups", "hacks", "GBA", self.STEM, safety[0])
@@ -437,6 +489,9 @@ class Update(Base):
         (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
         b = self.at("Backups", "hacks", "GBA", self.STEM, label)
         self.assertEqual(rd(os.path.join(b, "States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
+        self.write(self.at("Games", "GBA", "it's a & b.gba"), b"12345")
+        self.assertEqual(hk.AdbCard(adb, self.card).sizes("Games/GBA"),
+                         {self.STEM + ".gba": len(NEW), "it's a & b.gba": 5})
 
     def test_a_move_across_filesystems_still_lands(self):
         real = os.rename
@@ -448,8 +503,7 @@ class Update(Base):
         with mock.patch("os.rename", rename):
             r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
 
     def test_a_failure_mid_update_can_be_rolled_back(self):
         real = hk.LocalCard.apply
@@ -532,6 +586,9 @@ class Update(Base):
         rows = self.run_main("--card", self.card, "--library", self.lib)[0]
         row = [r for r in rows if r[1] == "hack"][0]
         self.assertEqual(row[4], "UPDATE AVAILABLE (from incoming 2)")
+        out = self.run_main("--library", self.lib)[1]
+        self.assertIn("in neither the library nor the state file (install with --add <id>): gh", out)
+        self.assertNotIn("not in library", out)
 
     def settings(self, **fields):
         self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"hack": fields}))
@@ -541,7 +598,8 @@ class Update(Base):
         r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
         self.assertEqual(sorted(os.listdir(self.at("Games", "GBA"))), games)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "gba"))), lib)
+        lib[lib.index(self.STEM + ".zip")] = self.STEM + ".gba"  # the zip is swapped for its loose ROM
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "gba"))), sorted(lib))
 
     def test_two_library_copies_are_ambiguous_until_the_settings_name_one(self):
         loose = os.path.join(self.lib, "gba", self.STEM + ".gba")
@@ -551,12 +609,17 @@ class Update(Base):
         self.assertIn("ambiguous", out)
         self.assertIn("Hack (v1).gba", out)
         self.assertEqual(self.tree(self.tmp), before)
-        self.settings(library=self.STEM + ".zip")
+        self.settings(library=self.STEM + ".zip")  # unzipping it would put a second loose copy beside the first
+        before = self.tree(self.tmp)
+        r, out = self.update("--yes")
+        self.assertIn("already sits next to", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        self.settings(library=self.STEM + ".gba")
         r, out = self.update("--yes")
         self.assertEqual(r, 0, out)
-        self.assertEqual(rd(loose), self.old)  # the other copy is never touched
-        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:
-            self.assertEqual(z.read(self.STEM + ".gba"), NEW)
+        self.assertEqual(rd(loose), NEW)
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", self.STEM + ".zip")) as z:  # never touched
+            self.assertEqual(z.read(self.STEM + ".gba"), self.old)
 
     def test_a_clean_base_game_is_never_a_target(self):
         self.write(self.at("Games", "GBA", "Base (USA).gba"), BASE)
@@ -582,7 +645,58 @@ class Update(Base):
         r, out = self.update("--yes", "--accept-rename")
         self.assertEqual(r, 0, out)
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
-        self.assertEqual((state["hack"]["card"], state["hack"]["library"]), (self.STEM + ".gba", self.STEM + ".zip"))
+        self.assertEqual((state["hack"]["card"], state["hack"]["library"]), (self.STEM + ".gba", self.STEM + ".gba"))
+
+    def test_fix_library_zips_unzips_an_updated_hack_and_rollback_still_finds_the_old_rom(self):
+        # an update made before the tool unzipped: the library zip (another name, a __MACOSX member) holds NEW
+        zpath = os.path.join(self.lib, "gba", "Pokemon - Hack (v1).zip")
+        os.remove(os.path.join(self.lib, "gba", self.STEM + ".zip"))
+        with zipfile.ZipFile(zpath, "w") as z:
+            z.writestr(self.STEM + ".gba", self.old)
+            z.writestr("__MACOSX/._" + self.STEM + ".gba", b"apple")
+        self.settings(library="Pokemon - Hack (v1).zip")
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        old_backup = os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "GBA", self.STEM)
+        (label,) = os.listdir(old_backup)
+        os.remove(os.path.join(self.lib, "gba", self.STEM + ".gba"))  # the old tool rezipped instead
+        with zipfile.ZipFile(zpath, "w") as z:
+            z.writestr(self.STEM + ".gba", NEW)
+        state_path = os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")
+        state = json.loads(rd(state_path))
+        state["hack"]["library"] = "Pokemon - Hack (v1).zip"
+        hk.write_state(state_path, state)
+        self.write(os.path.join(self.lib, "gba", "Pokemon - Hack (v1).srm"), b"ra")
+
+        fix = lambda *a: self.run_main("--library", self.lib, "--fix-library-zips", *a)
+        before = self.tree(self.tmp)
+        r, out = fix("--dry-run")
+        self.assertIn("Pokemon - Hack (v1).zip -> Hack (v1).gba", out)
+        self.assertIn("stop attaching", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        r, out = fix("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.STEM + ".gba")), NEW)
+        self.assertFalse(os.path.exists(zpath))
+        self.assertEqual(json.loads(rd(state_path))["hack"]["library"], self.STEM + ".gba")
+        self.assertIn("already loose", fix("--yes")[1])
+        # rollback skips the unzip backup (it holds NEW) and brings back the update's old zip
+        self.settings()
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        with zipfile.ZipFile(zpath) as z:
+            self.assertEqual(z.read(self.STEM + ".gba"), self.old)
+        self.assertFalse(os.path.exists(os.path.join(self.lib, "gba", self.STEM + ".gba")))
+
+    def test_fix_library_zips_refuses_a_zip_that_is_not_the_installed_version(self):
+        hk.write_state(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json"),
+                       {"hack": {"version": "2", "crc32": hk.crc_hex(NEW), "card": self.STEM + ".gba", "backup": "x"},
+                        "gh": {"version": "v1.0", "crc32": "0"}})
+        before = self.tree(self.tmp)
+        r, out = self.run_main("--library", self.lib, "--fix-library-zips", "--yes")
+        self.assertIn("the state file says", out)
+        self.assertIn("gh: skipped, never updated", out)
+        self.assertEqual(self.tree(self.tmp), before)
 
     def test_zip_with_two_roms_is_refused(self):
         inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "hack")
@@ -592,6 +706,175 @@ class Update(Base):
             z.writestr("b.gba", NEW)
         r, out = self.update("--yes")
         self.assertIn("want exactly one", out)
+
+
+class Add(Base):
+    NAME = "Base Remix (v1.0).gba"
+
+    def setUp(self):
+        super().setUp()
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"remix": {
+            "name": "Base Remix", "system": "GBA", "card": self.NAME, "source": "manual", "format": "bps",
+            "base_crc32": hk.crc_hex(BASE), "cite": ["https://example.test"]}}))
+        self.write(self.at("Games", "GBA", "Other.gba"), b"other")
+        self.write(os.path.join(self.lib, "gba", "Base (USA).gba"), BASE)
+        inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "remix")
+        self.write(os.path.join(inc, "remix.bps"), bps(BASE, NEW, [(1, NEW)]))
+        self.write(os.path.join(inc, "version.txt"), "1.0\n")
+
+    def add(self, *extra):
+        return self.run_main("--card", self.card, "--library", self.lib, "--add", "remix", *extra)
+
+    def test_add_writes_a_new_loose_file_on_both_and_check_and_update_track_it(self):
+        before = self.tree(self.tmp)
+        r, out = self.add("--dry-run")
+        self.assertIn("DRY RUN", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        r, out = self.add("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.NAME)), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.NAME)), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", "Base (USA).gba")), BASE)  # the base is never touched
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))["remix"]
+        self.assertEqual((state["version"], state["crc32"], state["library"]), ("1.0", hk.crc_hex(NEW), self.NAME))
+        row = [r for r in self.run_main("--card", self.card, "--library", self.lib)[0] if r[1] == "remix"][0]
+        self.assertEqual(row[2], "1.0")
+        self.assertIn("already installed", self.add("--yes")[1])
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "remix", "--yes")
+        self.assertIn("already installed", out)  # --update finds the added file
+
+    def test_add_refuses_another_version_or_the_same_rom_under_another_name(self):
+        tree = lambda: self.tree(self.tmp)
+        self.write(self.at("Games", "GBA", "Base Remix (v0.9).gba"), b"older")
+        before = tree()
+        self.assertIn("the card already has Base Remix (v0.9).gba", self.add("--yes")[1])
+        self.assertEqual(tree(), before)
+        os.remove(self.at("Games", "GBA", "Base Remix (v0.9).gba"))
+        self.write(self.at("Games", "GBA", "renamed.gba"), NEW)
+        before = tree()
+        self.assertIn("the card already has this ROM", self.add("--yes")[1])
+        self.assertEqual(tree(), before)
+        os.remove(self.at("Games", "GBA", "renamed.gba"))
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", "x.zip"), "w") as z:
+            z.writestr("x.gba", NEW)
+        self.assertIn("the library already has this ROM", self.add("--yes")[1])
+        self.assertFalse(os.path.exists(self.at("Games", "GBA", self.NAME)))
+
+    def test_add_reads_a_same_size_card_file_from_its_library_copy_and_pulls_only_without_one(self):
+        self.write(self.at("Games", "GBA", "same.gba"), b"x" * len(NEW))
+        self.write(os.path.join(self.lib, "gba", "same.gba"), b"x" * len(NEW))
+        self.write(self.at("Games", "GBA", "card only.gba"), b"y" * len(NEW))
+        pulled = []
+        real = hk.LocalCard.read
+        with mock.patch.object(hk.LocalCard, "read", lambda c, rel: pulled.append(rel) or real(c, rel)):
+            r, out = self.add("--dry-run")
+        self.assertIn("DRY RUN", out)
+        self.assertEqual([p for p in pulled if p.startswith("Games/")], ["Games/GBA/card only.gba"])
+
+    def test_add_refuses_leftover_saves_or_states_for_the_new_name(self):
+        self.write(self.at("States", "GBA", "mgba", "Base Remix (v1.0)", "slot1.state"), b"s")
+        self.assertIn("already has saves or states", self.add("--yes")[1])
+        self.assertFalse(os.path.exists(self.at("Games", "GBA", self.NAME)))
+
+    tree = Update.tree
+
+
+def track(n, seed):
+    return bytes((i * seed + i // 7) & 0xff for i in range(n * 2352))
+
+
+@unittest.skipUnless(shutil.which("chdman"), "chdman not installed (brew install rom-tools): disc pipeline not tested")
+class Disc(Base):
+    """A two-track disc (data + audio with a pregap) as a .chd built here with chdman, patched by --add."""
+    NAME = "Disc Hack (v1.0).chd"
+
+    def setUp(self):
+        super().setUp()
+        self.t1, self.t2 = track(300, 3), track(200, 5)
+        d = os.path.join(self.tmp, "src")
+        self.write(os.path.join(d, "t1.bin"), self.t1)
+        self.write(os.path.join(d, "t2.bin"), self.t2)
+        self.write(os.path.join(d, "disc.cue"), 'FILE "t1.bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n'
+                   'FILE "t2.bin" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:02:00\n')
+        self.base = os.path.join(self.lib, "psx", "Disc (USA).chd")
+        os.makedirs(os.path.dirname(self.base))
+        subprocess.run(["chdman", "createcd", "-i", os.path.join(d, "disc.cue"), "-o", self.base], check=True,
+                       capture_output=True)
+        self.entry(hk.crc_hex(self.t1))
+        self.inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "disc")
+        self.patch([(1000, b"HACKED"), (len(self.t1) - 4, b"END!")])
+        os.makedirs(self.at("Games", "PS1"))
+
+    def entry(self, base_crc):
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"disc": {
+            "name": "Disc Hack", "system": "PS1", "card": self.NAME, "source": "manual", "format": "ppf",
+            "base_name": "Disc (USA)", "base_crc32": base_crc}}))
+
+    def patch(self, recs):
+        self.write(os.path.join(self.inc, "disc.ppf"), ppf(b"30", recs))
+
+    def add(self, *extra):
+        return self.run_main("--card", self.card, "--library", self.lib, "--add", "disc", *extra)
+
+    def test_add_patches_track_1_keeps_track_2_and_the_base_disc(self):
+        base = rd(self.base)
+        r, out = self.add("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertIn("round trip checked", out)
+        new = self.at("Games", "PS1", self.NAME)
+        self.assertEqual(rd(os.path.join(self.lib, "psx", self.NAME)), rd(new))
+        self.assertEqual(rd(self.base), base)
+        bins = hk.extract_disc(new, os.path.join(self.tmp, "x"))
+        want = bytearray(self.t1)
+        want[1000:1006], want[-4:] = b"HACKED", b"END!"
+        self.assertEqual([rd(b) for b in bins], [bytes(want), self.t2])
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "x", "disc.cue")))
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))["disc"]
+        self.assertEqual(state["crc32"], hk.crc_hex(rd(new)))
+        self.assertIn("already installed", self.add("--yes")[1])
+
+    def test_update_replaces_the_disc_keeps_the_memory_card_and_moves_the_states(self):
+        self.assertEqual(self.add("--yes")[0], 0)
+        stem = os.path.splitext(self.NAME)[0]
+        self.write(self.at("States", "PS1", "pcsx_rearmed", stem, "x.state"), b"state")
+        self.write(self.at("Saves", "PS1", stem + ".sav"), b"memcard")
+        self.write(self.at("Saves", "PS1", stem + ".disc"), b"disc")
+        old = rd(self.at("Games", "PS1", self.NAME))
+        self.patch([(2000, b"VERSION 2")])
+        self.write(os.path.join(self.inc, "version.txt"), "2.0\n")
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "disc", "--yes")
+        self.assertEqual(r, 0, out)
+        new = self.at("Games", "PS1", self.NAME)
+        self.assertNotEqual(rd(new), old)
+        self.assertEqual(rd(os.path.join(self.lib, "psx", self.NAME)), rd(new))
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "psx"))), ["Disc (USA).chd", self.NAME])
+        self.assertEqual(rd(self.at("Saves", "PS1", stem + ".sav")), b"memcard")  # the memory card stays
+        self.assertEqual(rd(self.at("Saves", "PS1", stem + ".disc")), b"disc")
+        self.assertFalse(os.path.exists(self.at("States", "PS1", "pcsx_rearmed", stem)))
+        (b,) = os.listdir(self.at("Backups", "hacks", "PS1", stem))
+        bdir = self.at("Backups", "hacks", "PS1", stem, b)
+        self.assertEqual(rd(os.path.join(bdir, "States", "PS1", "pcsx_rearmed", stem, "x.state")), b"state")
+        self.assertEqual(rd(os.path.join(bdir, "Saves", "PS1", stem + ".sav")), b"memcard")
+        self.assertEqual(rd(os.path.join(bdir, "Games", "PS1", self.NAME)), old)
+        (lb,) = os.listdir(os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "PS1", stem))
+        self.assertEqual(rd(os.path.join(self.env["SLOT_HACKS_HOME"], "backups", "PS1", stem, lb, self.NAME)), old)
+
+    def test_a_wrong_base_track_or_a_write_past_track_1_is_refused(self):
+        self.entry("DEADBEEF")
+        self.assertIn("track 1 of Disc (USA).chd is", self.add("--yes")[1])
+        self.entry(hk.crc_hex(self.t1))
+        self.patch([(len(self.t1), b"into track 2")])
+        self.assertIn("past the end", self.add("--yes")[1])
+        self.assertEqual(os.listdir(self.at("Games", "PS1")), [])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "psx"))), ["Disc (USA).chd"])
+
+    def test_the_base_disc_is_never_an_update_target(self):
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"disc": {
+            "name": "Disc Hack", "system": "PS1", "card": "Disc (USA).chd", "source": "manual", "format": "ppf",
+            "base_name": "Disc (USA)", "base_crc32": hk.crc_hex(self.t1)}}))
+        shutil.copy(self.base, self.at("Games", "PS1", "Disc (USA).chd"))
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "disc", "--yes")
+        self.assertIn("clean base game", out)
 
 
 if __name__ == "__main__":

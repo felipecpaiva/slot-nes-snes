@@ -7,7 +7,9 @@
     python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound
     python3 tools/hacks.py --device --library ~/ROMS --all --dry-run
     python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
+    python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run  # a new hack, new file
     python3 tools/hacks.py --device --init                                    # write the user settings file
+    python3 tools/hacks.py --library ~/ROMS --fix-library-zips --dry-run      # unzip updated hacks' library copies
 
 Registry: tools/hacks.json (the researched seed) with the user's ~/.config/slot-nes-snes/hacks.json read on
 top: an entry with a seed id overrides those fields, a new id adds a hack (it needs system, card, source).
@@ -22,10 +24,11 @@ cache dir so a later check can say "page changed".
 
 --update <id>|--all (always try --dry-run first; a real run prints the plan and asks): the patch comes from
 the GitHub release asset matching the entry's asset pattern, or from ~/ROMHacks/incoming/<id>/ (the newest
-.bps .ips .ups, ROM, or a .zip holding exactly one of them). Nothing downloaded is ever executed. A patch is
-applied in pure Python to the clean base ROM found in --library by CRC32 (BPS and UPS check the source,
-target and patch CRCs; xdelta checks each window's Adler-32; IPS has none, so the entry's target_crc32 is
-checked when known, else a warning).
+.bps .ips .ups .xdelta .ppf, ROM, or a .zip holding exactly one of them). Nothing downloaded is ever executed. A
+patch is applied in pure Python to the clean base ROM found in --library by CRC32 (BPS and UPS check the source,
+target and patch CRCs; xdelta checks each window's Adler-32; PPF2/3 their block check and undo data; IPS has none,
+so the entry's target_crc32 is checked when known, else a warning). A PS1 disc (.chd) is extracted with chdman,
+track 1 checked against base_crc32 (redump) and patched, packed back and checked again (ADR 0089).
 Any mismatch refuses. Then, on the card (ADR 0082):
   - refuses while Config/slot.state has the game seated (cart= and cart_platform=): eject it first;
   - Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/ gets the old ROM (moved), the .sav/.srm (copied:
@@ -35,8 +38,9 @@ Any mismatch refuses. Then, on the card (ADR 0082):
     backup.json listing them;
   - the new ROM is written under the SAME file name, so labels, cart_shell, video_mode, selected_core,
     favourites, recents and the shelf memory stay attached.
-The library copy gets the same: the old file (loose or zip, rewritten under the same zip and member name)
-is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/. The library is the muOS card: its RetroArch
+The library copy gets the same: the old file is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/ and the
+new ROM is written loose (slot reads no zip): a zip comes back as its member's name, never beside a loose
+copy. --fix-library-zips does that for hacks updated while the library copy stayed a zip. The library is the muOS card: its RetroArch
 <stem>.state* and .srm files are left alone (a note says old states there may not load). Nothing is
 deleted anywhere.
 --rollback <id> moves the current ROM, saves and states into a new backup and copies the newest update
@@ -48,10 +52,12 @@ import hashlib
 import importlib.util
 import io
 import json
+import mmap
 import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -67,9 +73,9 @@ fl.UA = "slot-nes-snes-hacks/1.0 (+https://github.com/felipecpaiva/slot-nes-snes
 
 SEED = os.path.join(HERE, "hacks.json")
 GITHUB = "https://api.github.com/repos/"
-PATCH_EXTS = (".bps", ".ips", ".ups", ".xdelta", ".vcdiff")
+PATCH_EXTS = (".bps", ".ips", ".ups", ".xdelta", ".vcdiff", ".ppf")
 SOURCE = re.compile(r"github:[\w.-]+/[\w.-]+|page:https?://\S+|manual(:https?://\S+)?|")
-FORMATS = {"bps", "ips", "ups", "xdelta", "rom", "unknown"}
+FORMATS = {"bps", "ips", "ups", "xdelta", "ppf", "rom", "unknown"}
 FIELDS = {"name", "system", "card", "source", "asset", "version_regex", "format", "base_name", "base_crc32",
           "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes", "status", "library"}
 HOUR = 3600
@@ -387,6 +393,46 @@ def apply_vcdiff(src, p):
     return bytes(out)
 
 
+def apply_ppf(buf, p):
+    """PPF 1.0, 2.0 and 3.0 (PPF-O-Matic's formats) applied in place to buf (a bytearray, or an mmap of a disc
+    track: an image never grows). PPF2, and PPF3 with its block check, compare 1024 bytes of the image; PPF3
+    undo data is the original bytes, compared too. Every check runs before the first write."""
+    ver = p[3:5]
+    if p[:3] != b"PPF" or ver not in (b"10", b"20", b"30"):
+        raise PatchError("not a PPF patch")
+    end = p.rfind(b"@BEGIN_FILE_ID.DIZ")  # PPF2/3 may end with a text block
+    end, i, wide, undo, block, at = len(p) if end < 56 else end, 56, 4, False, None, 0x9320
+    if ver == b"20":
+        if int.from_bytes(p[56:60], "little") != len(buf):
+            raise PatchError(f"image size mismatch: {len(buf)}, the patch wants {int.from_bytes(p[56:60], 'little')}")
+        block, i = p[60:1084], 1084
+    elif ver == b"30":
+        wide, undo, i = 8, bool(p[58]), 60
+        if p[57]:
+            block, at, i = p[60:1084], 0x80A0 if p[56] else 0x9320, 1084
+    if block is not None and bytes(buf[at:at + 1024]) != block:
+        raise PatchError("PPF block check mismatch: not the image this patch was made for")
+    recs = []
+    try:
+        while i < end:
+            off, n = int.from_bytes(p[i:i + wide], "little"), p[i + wide]
+            data, i = p[i + wide + 1:i + wide + 1 + n], i + wide + 1 + n
+            if undo:
+                old, i = p[i:i + n], i + n
+                if bytes(buf[off:off + n]) != old:
+                    raise PatchError(f"PPF undo data mismatch at {off:#x}: not the image this patch was made for")
+            if len(data) != n or i > end:
+                raise IndexError
+            if off + n > len(buf):
+                raise PatchError(f"the PPF writes past the end of the image ({off + n} > {len(buf)})")
+            recs.append((off, data))
+    except IndexError:
+        raise PatchError("the PPF patch is truncated") from None
+    for off, data in recs:
+        buf[off:off + len(data)] = data
+    return block is not None or undo
+
+
 def apply_patch(src, p, target_crc=None, warn=print):
     """The patched ROM, or PatchError. The format is read from the patch's magic, not trusted from the name."""
     if p[:4] == b"BPS1":
@@ -401,6 +447,11 @@ def apply_patch(src, p, target_crc=None, warn=print):
         out = apply_vcdiff(src, p)
         if not target_crc:
             warn("  note: xdelta checks each window (Adler-32) but not the base; the base was found by CRC")
+    elif p[:3] == b"PPF":
+        out = bytearray(src)
+        if not apply_ppf(out, p) and not target_crc:
+            warn("  note: this PPF carries no block check or undo data; the base was found by CRC")
+        out = bytes(out)
     else:
         raise PatchError("unknown patch format")
     if target_crc and crc_hex(out) != target_crc.upper():
@@ -433,6 +484,9 @@ class LocalCard:
             return fl.slurp(self.p(rel))
         except OSError:
             return None
+
+    def sizes(self, rel):
+        return {n: os.path.getsize(os.path.join(self.p(rel), n)) for n in self.names(rel)}
 
     def apply(self, op, src, dst):
         d = self.p(dst)
@@ -469,6 +523,12 @@ class AdbCard:
 
     def names(self, rel):
         return self.dev.names(self.p(rel))
+
+    def sizes(self, rel):
+        rc, out = self.run("shell", f'for f in {shlex.quote(self.p(rel))}/*; do [ -f "$f" ] && '
+                                    f'echo "$(ls -ln "$f" | awk \'{{print $5}}\') ${{f##*/}}"; done; true')
+        rows = [l.rstrip("\r").lstrip().split(" ", 1) for l in out.splitlines()]
+        return {r[1]: int(r[0]) for r in rows if len(r) == 2 and r[0].isdigit()}
 
     def read(self, rel):
         with tempfile.TemporaryDirectory() as d:
@@ -567,7 +627,8 @@ def library_target(lib, h):
         if not p.lower().endswith(".zip"):
             return p, None
         with zipfile.ZipFile(p) as z:
-            roms = [i.filename for i in z.infolist() if os.path.splitext(i.filename)[1].lower() in exts]
+            roms = [i.filename for i in z.infolist() if os.path.splitext(i.filename)[1].lower() in exts
+                    and not os.path.basename(i.filename).startswith("._") and not i.filename.startswith("__MACOSX/")]
         if len(roms) != 1:
             raise Refuse(f"{hits[0]} holds {len(roms)} ROMs, want exactly one")
         return p, roms[0]
@@ -633,13 +694,94 @@ def find_base(lib, system, crc):
     return None, None
 
 
-def rezip(path, member, data):
-    """path's zip rewritten with member holding data (the other members kept)."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(path) as old, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as new:
-        for i in old.infolist():
-            new.writestr(i, data if i.filename == member else old.read(i))
-    return buf.getvalue()
+# ---- PS1 discs: .chd <-> bin/cue with chdman (ADR 0089) ----------------------------------------------
+
+def chdman(*args):
+    """stdout of one chdman run (MAME's tool: brew install rom-tools); Refuse when it is missing or fails."""
+    exe = shutil.which("chdman")
+    if not exe:
+        raise Refuse("chdman not found: brew install rom-tools (PS1 discs are .chd)")
+    r = subprocess.run([exe, *args], capture_output=True, text=True)
+    if r.returncode:
+        raise Refuse(f"chdman {args[0]} failed: {(r.stderr or r.stdout).strip()[-300:]}")
+    return r.stdout
+
+
+def extract_disc(chd, folder):
+    """[track bin paths] of chd written as one bin per track plus disc.cue in folder."""
+    os.makedirs(folder)
+    cue = os.path.join(folder, "disc.cue")
+    chdman("extractcd", "-i", chd, "-o", cue, "-sb")
+    return [os.path.join(folder, n) for n in re.findall(r'^\s*FILE\s+"([^"]+)"', fl.slurp(cue, "r"), re.M)]
+
+
+def disc_tracks(chd):
+    """The CHT2 track lines of `chdman info`: type, frames and pregap of every track."""
+    return [l.strip() for l in chdman("info", "-i", chd).splitlines() if "TRACK:" in l]
+
+
+def disc_base(library, h):
+    """The clean base disc: <base_name>.chd in the library's psx folder (by name: CRCing every disc in the
+    folder would read a hundred GB). Its track 1 CRC is checked when it is built."""
+    folder = os.path.join(library, fl.SYSTEMS[h["system"]][0])
+    want = fl.nfc((h.get("base_name") or "") + ".chd")
+    hits = [n for n in (os.listdir(folder) if os.path.isdir(folder) else []) if fl.nfc(n) == want]
+    if not h.get("base_name") or not hits:
+        raise Refuse(f"no base disc {want} in {folder} (PS1 entries name their base: base_name)")
+    return os.path.join(folder, hits[0])
+
+
+def build_disc(h, base, patch, say=print):
+    """(chd bytes, patched track 1 CRC32): base extracted to bin/cue in a temp dir, track 1 checked against
+    the registry's base_crc32 (the redump track CRC), patched, packed with createcd, then extracted again:
+    track 1 must be the patched CRC and every other track and the track layout must be unchanged."""
+    want = (h.get("base_crc32") or "").upper()
+    if not want:
+        raise Refuse("a PS1 entry needs base_crc32: the redump CRC32 of track 1")
+    with tempfile.TemporaryDirectory(prefix="slot-hacks-") as t:
+        bins = extract_disc(base, os.path.join(t, "in"))
+        crcs = [fl.file_crc(b) for b in bins]
+        if crcs[0] != want:
+            raise Refuse(f"track 1 of {os.path.basename(base)} is {crcs[0]}, the patch wants {want}")
+        if patch[:3] == b"PPF":  # in place: a track is hundreds of MB
+            with open(bins[0], "r+b") as f, mmap.mmap(f.fileno(), 0) as m:
+                apply_ppf(m, patch)
+        else:
+            fl.spit(bins[0], apply_patch(fl.slurp(bins[0]), patch, warn=say))
+        new = fl.file_crc(bins[0])
+        if h.get("target_crc32") and new != h["target_crc32"].upper():
+            raise Refuse(f"patched track 1 is {new}, the registry wants {h['target_crc32'].upper()}")
+        out = os.path.join(t, "new.chd")
+        # the codecs every PS1 .chd here uses (and slot reads); pinned so a chdman upgrade cannot switch them
+        chdman("createcd", "-i", os.path.join(t, "in", "disc.cue"), "-o", out, "-c", "cdlz,cdzl,cdfl")
+        back = [fl.file_crc(b) for b in extract_disc(out, os.path.join(t, "back"))]
+        if back != [new] + crcs[1:] or disc_tracks(out) != disc_tracks(base):
+            raise Refuse(f"the packed disc does not extract to the patched tracks ({back} != {[new] + crcs[1:]})")
+        say(f"  disc: {len(bins)} track(s), track 1 {want} -> {new}, other tracks unchanged, round trip checked")
+        return fl.slurp(out), new
+
+
+def library_ops(ctx, lib, system, stem, label, new, meta):
+    """(ops, backup dir, library name) for one library copy: the old file moved to the Mac backup, the new
+    ROM written loose. slot reads no zip, so a zipped copy comes back as the loose ROM under its member's
+    name, and a zip and a loose copy of one hack never sit side by side (the one-file rule)."""
+    path, member = lib
+    folder = os.path.dirname(path)
+    name = os.path.basename(member) if member else os.path.basename(path)
+    if member and any(fl.nfc(n) == fl.nfc(name) for n in os.listdir(folder)):
+        raise Refuse(f"{name} already sits next to {os.path.basename(path)} in the library: keep one copy, "
+                     "set `library` to it")
+    ldir = free_dir(LocalCard(folder), os.path.join(ctx.home, "backups", system, stem), label)
+    return update_ops([(path, "move")], ldir, lib_map(ldir), [(new, os.path.join(folder, name))], meta), ldir, name
+
+
+def zip_stem_note(path):
+    """muOS keys RetroArch's .srm and .state* by the file stem: unzipping renames the stem."""
+    stem = fl.nfc(os.path.splitext(os.path.basename(path))[0])
+    left = [n for n in os.listdir(os.path.dirname(path))
+            if fl.nfc(n).startswith(stem + ".state") or fl.nfc(n) == stem + ".srm"]
+    if left:
+        print(f"  note: muOS files keyed to the zip's name stop attaching to the loose ROM: {', '.join(sorted(left))}")
 
 
 # ---- plans -----------------------------------------------------------------------------------------
@@ -834,7 +976,7 @@ def unpack(name, data, system):
                 raise Refuse(f"{name} holds {len(hits)} patches/ROMs, want exactly one")
             name, data = os.path.basename(hits[0].filename), z.read(hits[0])
     ext = os.path.splitext(name)[1].lower()
-    if ext in PATCH_EXTS or data[:4] in (b"BPS1", b"UPS1") or data[:5] == b"PATCH":
+    if ext in PATCH_EXTS or data[:4] in (b"BPS1", b"UPS1") or data[:5] == b"PATCH" or data[:3] == b"PPF":
         return "patch", name, data
     if ext in exts:
         return "rom", name, data
@@ -860,7 +1002,7 @@ def installed_version(state, hid, h):
 def cmd_check(ctx, reg, args, card):
     state = read_state(os.path.join(ctx.config, "hacks-state.json"))
     on = card_listing(card, {h["system"] for h in reg.values()}) if card else None
-    rows = []
+    rows, absent = [], []
     for hid, h in sorted(reg.items(), key=lambda kv: (kv[1]["system"], kv[1]["name"].lower())):
         if on is not None and fl.nfc(h["card"]) not in on[h["system"]]:
             continue
@@ -870,9 +1012,13 @@ def cmd_check(ctx, reg, args, card):
                 where = "" if library_target(args.library, h) else "not in library"
             except (Refuse, zipfile.BadZipFile) as e:
                 where = str(e)
+            if where == "not in library" and hid not in state:
+                absent.append(hid)  # never installed: no feed to fetch, no row
+                continue
         inst = installed_version(state, hid, h)
         latest, status, link = check_one(ctx, hid, h, inst)
-        if args.library and (inst == "unknown" or not h["source"].startswith("github")):
+        # not for discs: identifying one by CRC means a full disc build (a minute) on every --check
+        if args.library and h["system"] != "PS1" and (inst == "unknown" or not h["source"].startswith("github")):
             inst, status = by_crc(ctx, hid, h, args, card, state, inst, latest, status)
         rows.append((h["system"], hid, inst, latest, status + (f" [{where}]" if where else ""), link))
     for system, hid, inst, latest, status, link in rows:
@@ -886,6 +1032,9 @@ def cmd_check(ctx, reg, args, card):
     for system, mine, other in duplicates(reg, listing):
         print(f"warning: possible duplicate on the {'card' if on is not None else 'library'}: {system}/{other} "
               f"looks like another version of {mine} (left alone)")
+    if absent:
+        print(f"{len(absent)} registry hack(s) in neither the library nor the state file (install with --add <id>): "
+              f"{', '.join(absent)}")
     print(f"\n{len(rows)} hack(s) checked. Nothing written to the card, the library or the settings; a version "
           "identified by CRC is recorded in hacks-state.json.")
     return rows
@@ -932,10 +1081,13 @@ def plan_update(ctx, hid, h, args, card, state, bases=()):
     if moved and not args.accept_rename:
         raise Refuse(f"the file is not the one recorded at install ({'; '.join(moved)}): check it, then rerun "
                      "with --accept-rename")
-    data = card.read(f"Games/{system}/{rom}")
+    if h.get("base_name") and fl.nfc(stem) == fl.nfc(h["base_name"]):
+        raise Refuse(f"{rom} is the clean base game, never a hack target: fix `card`")
+    data = card.read(f"Games/{system}/{rom}")  # the card's own bytes: the backup records their CRC
     if data is None:
         raise Refuse(f"could not read Games/{system}/{rom}")
     card_crc = crc_hex(data)
+    del data
     for where, crc in (("card file", card_crc), ("library file", target_crc(lib) if lib else None)):
         if crc and crc in bases:
             raise Refuse(f"the {where} is a clean base game ({crc}), never a hack target: fix `card`/`library`")
@@ -953,15 +1105,10 @@ def plan_update(ctx, hid, h, args, card, state, bases=()):
     cbase = f"Backups/hacks/{system}/{stem}"
     cdir = free_dir(card, cbase, label)
     card_ops = update_ops(card_items(card, system, stem, rom), cdir, card_map(cdir), [(new, f"Games/{system}/{rom}")], meta)
-    lbase = os.path.join(ctx.home, "backups", system, stem)
-    local = LocalCard(args.library)
-    ldir = free_dir(local, lbase, label)
-    lib_ops = update_ops([(lib[0], "move")], ldir, lib_map(ldir),
-                         [(rezip(lib[0], lib[1], new) if lib[1] else new, lib[0])], meta) if lib else []
+    lib_ops, ldir, lname = library_ops(ctx, lib, system, stem, label, new, meta) if lib else ([], None, None)
     record = {"version": version, "crc32": new_crc, "date": time.strftime("%Y-%m-%d"), "card": rom,
-              "library": os.path.basename(lib[0]) if lib else None, "backup": cdir,
-              "library_backup": ldir if lib else None}
-    return card_ops, lib_ops, record, h["saves_carry_over"]
+              "library": lname, "backup": cdir, "library_backup": ldir}
+    return card_ops, lib_ops, record, h["saves_carry_over"], lib
 
 
 def build(h, library, name, data, say=print):
@@ -979,6 +1126,10 @@ def build(h, library, name, data, say=print):
         want = f"{int.from_bytes(data[-12:-8], 'little'):08X}"  # the patch names its own source
     if not want:
         raise Refuse("the registry has no base_crc32 for this hack and an IPS names no source")
+    if system == "PS1":
+        base = disc_base(library, h)
+        say(f"  base {os.path.basename(base)} track 1 ({want}), patch {name}")
+        return build_disc(dict(h, base_crc32=want), base, data, say)[0]
     base, where = find_base(library, system, want)
     if base is None:
         raise Refuse(f"no clean base ROM with CRC32 {want} ({h.get('base_name') or '?'}) in "
@@ -1055,7 +1206,7 @@ def cmd_update(ctx, reg, ids, args, card):
         h = reg[hid]
         print(f"\n{hid}: {h['name']} ({h['system']}/{h['card']})")
         try:
-            card_ops, lib_ops, record, saves = plan_update(ctx, hid, h, args, card, state, bases)
+            card_ops, lib_ops, record, saves, lib = plan_update(ctx, hid, h, args, card, state, bases)
         except (Refuse, fl.Fail, OSError, ValueError, zipfile.BadZipFile) as e:
             print(f"  refused: {e}")
             failed += 1
@@ -1069,6 +1220,8 @@ def cmd_update(ctx, reg, ids, args, card):
         elif saves == "unknown":
             print("  note: save compatibility across versions is unknown; the .sav stays in place and is backed up.")
         print("  all state folders move to the backup: slot must never load an old version's snapshot")
+        if lib and lib[1]:
+            zip_stem_note(lib[0])
         if library_states(args.library, h["system"], os.path.splitext(h["card"])[0]):
             print("  note: the library card's own RetroArch states are left alone; they may not work with the new version")
         if args.dry_run:
@@ -1089,6 +1242,135 @@ def cmd_update(ctx, reg, ids, args, card):
             failed += 1
             continue
         print(f"  installed {record['version']}; backup {record['backup']}")
+    return failed
+
+
+def plan_add(ctx, hid, h, args, card, state, bases):
+    """(card ops, library ops, record) that write a hack not on the card yet as a NEW loose file named
+    `card` (and `library`, else the same) on the card and in the library. The base game is only read.
+    Refuses, before any write, a name or a CRC32 that is already there."""
+    system, name = h["system"], h["card"]
+    lname, stem = h.get("library") or name, os.path.splitext(name)[0]
+    if (state.get(hid) or {}).get("crc32"):
+        raise Refuse(f"already installed ({state[hid]['crc32']} as {state[hid].get('card')}): use --update")
+    folder = os.path.join(args.library, fl.SYSTEMS[system][0])
+    on = {"card": card.names(f"Games/{system}"), "library": os.listdir(folder) if os.path.isdir(folder) else []}
+    for where, names in on.items():
+        same = [n for n in names if fl.nfc(os.path.splitext(n)[0]) in (fl.nfc(stem), fl.nfc(os.path.splitext(lname)[0]))]
+        same += [other for _, _, other in duplicates({hid: h}, {system: set(names)})]
+        if same:
+            raise Refuse(f"the {where} already has {', '.join(sorted(set(same)))}: no duplicates (set `card` to it "
+                         "in your settings and use --update)")
+    left = [p for p, _ in card_items(card, system, stem, name)[1:]]
+    if left:
+        raise Refuse(f"the card already has saves or states for {stem}: {', '.join(left)} (move them first: a new "
+                     "game must not load another file's snapshot)")
+    pname, data, version = get_payload(ctx, hid, h, args.as_version)
+    new = build(h, args.library, pname, data)
+    crc = crc_hex(new)
+    if crc in bases:
+        raise Refuse(f"the patched ROM is a clean base game ({crc})")
+    # Size first, then CRC: a library file is read on the Mac; a card file is read from its library copy of the
+    # same name and size when there is one, and pulled from the card only when there is none.
+    lib = {fl.nfc(n): os.path.join(folder, n) for n in on["library"]
+           if os.path.isfile(os.path.join(folder, n)) and not n.startswith("._")}
+    for n, p in sorted(lib.items()):
+        if p.lower().endswith(".zip"):  # zip headers carry the CRC: free
+            try:
+                with zipfile.ZipFile(p) as z:
+                    hit = any(f"{i.CRC:08X}" == crc for i in z.infolist())
+            except zipfile.BadZipFile:
+                hit = False
+        else:
+            hit = os.path.getsize(p) == len(new) and fl.file_crc(p) == crc
+        if hit:
+            raise Refuse(f"the library already has this ROM ({crc}) as {n}")
+    for n, size in card.sizes(f"Games/{system}").items():
+        if size != len(new):
+            continue
+        p = lib.get(fl.nfc(n))  # ponytail: same name and size taken as the same file; pull it if that ever lies
+        got = fl.file_crc(p) if p and os.path.getsize(p) == size else crc_hex(card.read(f"Games/{system}/{n}") or b"")
+        if got == crc:
+            raise Refuse(f"the card already has this ROM ({crc}) as Games/{system}/{n}")
+    card_ops = [("write", new, f"Games/{system}/{name}")]
+    lib_ops = [("write", new, os.path.join(folder, lname))]
+    record = {"version": version, "crc32": crc, "date": time.strftime("%Y-%m-%d"), "card": name, "library": lname,
+              "added": True}
+    return card_ops, lib_ops, record
+
+
+def cmd_add(ctx, reg, hid, args, card):
+    path = os.path.join(ctx.config, "hacks-state.json")
+    state, h = read_state(path), reg[hid]
+    print(f"\n{hid}: {h['name']} -> {h['system']}/{h['card']}")
+    try:
+        card_ops, lib_ops, record = plan_add(ctx, hid, h, args, card, state,
+                                             {(x.get("base_crc32") or "").upper() for x in reg.values()} - {""})
+    except (Refuse, fl.Fail, OSError, ValueError, zipfile.BadZipFile) as e:
+        print(f"  refused: {e}")
+        return 1
+    print(f"  new {record['version']} (CRC32 {record['crc32']}); the base game is not touched")
+    show(card_ops, "card")
+    show(lib_ops, "library")
+    if args.dry_run:
+        print("  DRY RUN, nothing written")
+        return 0
+    if not confirm(args, f"  add {hid}?"):
+        print("  skipped")
+        return 0
+    if not execute(card, card_ops, "card"):
+        return 1
+    state[hid] = record
+    write_state(path, state)
+    if not execute(LocalCard(args.library), lib_ops, "library"):
+        print("  WARNING: on the card but not in the library")
+        return 1
+    print(f"  added {record['version']}; --check and --update now track it")
+    return 0
+
+
+def cmd_fix_zips(ctx, reg, args):
+    """Unzip the library copy of every hack this tool updated (a `backup` in the state file) whose library
+    copy is still a zip holding the installed ROM (its CRC is the state's crc32)."""
+    path = os.path.join(ctx.config, "hacks-state.json")
+    state, failed = read_state(path), 0
+    for hid, st in sorted(state.items()):
+        h = reg.get(hid)
+        if not h or not st.get("backup"):
+            print(f"{hid}: skipped, {'not in the registry' if not h else 'never updated by this tool'}")
+            continue
+        try:
+            lib = library_target(args.library, dict(h, library=st.get("library") or h.get("library")))
+            if not lib or not lib[1]:
+                print(f"{hid}: {'no library copy' if not lib else 'already loose'}")
+                continue
+            crc = target_crc(lib)
+            if crc != st.get("crc32"):
+                raise Refuse(f"{os.path.basename(lib[0])} holds {crc}, the state file says {st.get('crc32')} is installed")
+            with zipfile.ZipFile(lib[0]) as z:
+                data = z.read(lib[1])  # zipfile checks the member's CRC
+            stem = os.path.splitext(st.get("card") or h["card"])[0]
+            # not "update": --rollback must skip this backup (it holds the new version) for the update's one
+            meta = {"kind": "unzip", "hack": hid, "crc32": crc}
+            ops, _, name = library_ops(ctx, lib, h["system"], stem, f"{stamp()}_unzip", data, meta)
+        except (Refuse, OSError, zipfile.BadZipFile) as e:
+            print(f"{hid}: refused: {e}")
+            failed += 1
+            continue
+        print(f"{hid}: {os.path.basename(lib[0])} -> {name}")
+        show(ops, "library")
+        zip_stem_note(lib[0])
+        if args.dry_run:
+            print("  DRY RUN, nothing written")
+            continue
+        if not confirm(args, f"  unzip {hid}?"):
+            print("  skipped")
+            continue
+        if not execute(LocalCard(args.library), ops, "library"):
+            failed += 1
+            continue
+        state[hid] = dict(st, library=name)
+        write_state(path, state)
     return failed
 
 
@@ -1175,7 +1457,10 @@ def main(argv=None, ctx=None):
     ap.add_argument("--update", metavar="ID", help="update one hack (id or name)")
     ap.add_argument("--all", action="store_true", help="update every hack on the card that has an update")
     ap.add_argument("--rollback", metavar="ID", help="restore the newest update backup of one hack")
+    ap.add_argument("--add", metavar="ID", help="install a registry hack that is not on the card yet, as a new file")
     ap.add_argument("--init", action="store_true", help="write a commented example user settings file")
+    ap.add_argument("--fix-library-zips", action="store_true",
+                    help="unzip the library copies of updated hacks still in a zip (library only)")
     ap.add_argument("--card", help="a mounted SD card root")
     ap.add_argument("--device", action="store_true", help="the card inside the device, over adb")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
@@ -1197,15 +1482,21 @@ def main(argv=None, ctx=None):
     reg = load_registry(SEED, os.path.join(ctx.config, "hacks.json"))
     if args.init:
         return cmd_init(ctx, reg, card, args.library)
-    if args.update or args.all or args.rollback:
+    if args.fix_library_zips:
+        if not args.library:
+            ap.error("--fix-library-zips needs --library")
+        return cmd_fix_zips(ctx, reg, args)
+    if args.update or args.all or args.rollback or args.add:
         if not card or not args.library:
-            ap.error("--update, --all and --rollback need --card or --device, and --library")
+            ap.error("--update, --all, --rollback and --add need --card or --device, and --library")
 
         def resolve(name):
             hit = [k for k, h in reg.items() if name.lower() in (k, h["name"].lower())]
             if not hit:
                 ap.error(f"no hack {name!r} in the registry (ids: {', '.join(sorted(reg))})")
             return hit[0]
+        if args.add:
+            return cmd_add(ctx, reg, resolve(args.add), args, card)
         try:
             if args.rollback:
                 return cmd_rollback(ctx, reg, resolve(args.rollback), args, card)
