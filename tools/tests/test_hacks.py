@@ -120,6 +120,24 @@ def vcdiff(src, tgt, insts):
     return b"\xd6\xc3\xc4\x00\x00" + bytes([1 | 4]) + vint(len(src)) + vint(0) + vint(len(body)) + body
 
 
+def ppf(ver, records, image=None, undo=False, check=False, diz=False):
+    """A PPF 1.0/2.0/3.0 of (offset, bytes) records; PPF2 (and PPF3 with check) carry image's block at 0x9320,
+    PPF3 with undo the original bytes from image."""
+    head = b"PPF" + ver + bytes([int(ver) // 10 - 1]) + b"test patch".ljust(50)
+    if ver == b"20":
+        head += u32(len(image)) + image[0x9320:0x9320 + 1024]
+    elif ver == b"30":
+        head += bytes([0, int(check), int(undo), 0]) + (image[0x9320:0x9320 + 1024] if check else b"")
+    wide = 8 if ver == b"30" else 4
+    body = b"".join(o.to_bytes(wide, "little") + bytes([len(d)]) + d + (image[o:o + len(d)] if undo else b"")
+                    for o, d in records)
+    tail = b"@BEGIN_FILE_ID.DIZ hello @END_FILE_ID.DIZ" + (24).to_bytes(2, "little") if diz else b""
+    return head + body + tail
+
+
+IMAGE = bytes(range(256)) * 200  # past 0x9320 + 1024, so PPF2's block exists
+
+
 BASE = bytes(range(256)) * 64
 NEW = BASE[:100] + b"HACKED v2" + BASE[109:] + b"tail"
 
@@ -178,6 +196,38 @@ class Patches(unittest.TestCase):
             hk.apply_patch(b"x" + BASE[1:], p, warn=lambda *_: None)
         with self.assertRaisesRegex(hk.PatchError, "secondary compression"):
             hk.apply_patch(BASE, p[:4] + b"\x01" + p[5:])
+
+    def test_ppf_1_2_3_apply_and_ignore_the_file_id_block(self):
+        recs = [(5, b"abc"), (0x9400, b"XY")]
+        want = bytearray(IMAGE)
+        want[5:8], want[0x9400:0x9402] = b"abc", b"XY"
+        for ver, kw in ((b"10", {}), (b"20", {"image": IMAGE}), (b"30", {"image": IMAGE, "undo": True, "check": True}),
+                        (b"30", {"diz": True})):
+            self.assertEqual(hk.apply_patch(IMAGE, ppf(ver, recs, **kw), warn=lambda *_: None), bytes(want), (ver, kw))
+
+    def test_ppf_refuses_another_image_and_writes_nothing(self):
+        other = bytearray(IMAGE)
+        other[0x9330] ^= 1
+        for p, why in ((ppf(b"20", [(5, b"abc")], IMAGE), "block check"),
+                       (ppf(b"20", [(5, b"abc")], IMAGE + b"x"), "size mismatch"),
+                       (ppf(b"30", [(5, b"abc")], IMAGE, check=True), "block check")):
+            buf = bytearray(other)
+            with self.assertRaisesRegex(hk.PatchError, why):
+                hk.apply_ppf(buf, p)
+            self.assertEqual(buf, other)
+        buf = bytearray(IMAGE)
+        buf[6] ^= 1
+        before = bytes(buf)
+        with self.assertRaisesRegex(hk.PatchError, "undo data mismatch"):  # the second record is checked first, nothing written
+            hk.apply_ppf(buf, ppf(b"30", [(0x9400, b"XY"), (5, b"abc")], IMAGE, undo=True))
+        self.assertEqual(bytes(buf), before)
+        with self.assertRaisesRegex(hk.PatchError, "past the end"):
+            hk.apply_ppf(bytearray(IMAGE), ppf(b"30", [(len(IMAGE) - 1, b"ab")]))
+        with self.assertRaisesRegex(hk.PatchError, "truncated"):
+            hk.apply_ppf(bytearray(IMAGE), ppf(b"30", [(5, b"abc")])[:-1])
+        said = []
+        hk.apply_patch(IMAGE, ppf(b"30", [(5, b"abc")]), warn=said.append)
+        self.assertIn("no block check", said[0])
 
 
 class Base(unittest.TestCase):
@@ -710,7 +760,95 @@ class Add(Base):
         self.assertIn("the library already has this ROM", self.add("--yes")[1])
         self.assertFalse(os.path.exists(self.at("Games", "GBA", self.NAME)))
 
+    def test_add_reads_a_same_size_card_file_from_its_library_copy_and_pulls_only_without_one(self):
+        self.write(self.at("Games", "GBA", "same.gba"), b"x" * len(NEW))
+        self.write(os.path.join(self.lib, "gba", "same.gba"), b"x" * len(NEW))
+        self.write(self.at("Games", "GBA", "card only.gba"), b"y" * len(NEW))
+        pulled = []
+        real = hk.LocalCard.read
+        with mock.patch.object(hk.LocalCard, "read", lambda c, rel: pulled.append(rel) or real(c, rel)):
+            r, out = self.add("--dry-run")
+        self.assertIn("DRY RUN", out)
+        self.assertEqual([p for p in pulled if p.startswith("Games/")], ["Games/GBA/card only.gba"])
+
+    def test_add_refuses_leftover_saves_or_states_for_the_new_name(self):
+        self.write(self.at("States", "GBA", "mgba", "Base Remix (v1.0)", "slot1.state"), b"s")
+        self.assertIn("already has saves or states", self.add("--yes")[1])
+        self.assertFalse(os.path.exists(self.at("Games", "GBA", self.NAME)))
+
     tree = Update.tree
+
+
+def track(n, seed):
+    return bytes((i * seed + i // 7) & 0xff for i in range(n * 2352))
+
+
+@unittest.skipUnless(shutil.which("chdman"), "chdman not installed (brew install rom-tools): disc pipeline not tested")
+class Disc(Base):
+    """A two-track disc (data + audio with a pregap) as a .chd built here with chdman, patched by --add."""
+    NAME = "Disc Hack (v1.0).chd"
+
+    def setUp(self):
+        super().setUp()
+        self.t1, self.t2 = track(300, 3), track(200, 5)
+        d = os.path.join(self.tmp, "src")
+        self.write(os.path.join(d, "t1.bin"), self.t1)
+        self.write(os.path.join(d, "t2.bin"), self.t2)
+        self.write(os.path.join(d, "disc.cue"), 'FILE "t1.bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n'
+                   'FILE "t2.bin" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:02:00\n')
+        self.base = os.path.join(self.lib, "psx", "Disc (USA).chd")
+        os.makedirs(os.path.dirname(self.base))
+        subprocess.run(["chdman", "createcd", "-i", os.path.join(d, "disc.cue"), "-o", self.base], check=True,
+                       capture_output=True)
+        self.entry(hk.crc_hex(self.t1))
+        self.inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "disc")
+        self.patch([(1000, b"HACKED"), (len(self.t1) - 4, b"END!")])
+        os.makedirs(self.at("Games", "PS1"))
+
+    def entry(self, base_crc):
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"disc": {
+            "name": "Disc Hack", "system": "PS1", "card": self.NAME, "source": "manual", "format": "ppf",
+            "base_name": "Disc (USA)", "base_crc32": base_crc}}))
+
+    def patch(self, recs):
+        self.write(os.path.join(self.inc, "disc.ppf"), ppf(b"30", recs))
+
+    def add(self, *extra):
+        return self.run_main("--card", self.card, "--library", self.lib, "--add", "disc", *extra)
+
+    def test_add_patches_track_1_keeps_track_2_and_the_base_disc(self):
+        base = rd(self.base)
+        r, out = self.add("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertIn("round trip checked", out)
+        new = self.at("Games", "PS1", self.NAME)
+        self.assertEqual(rd(os.path.join(self.lib, "psx", self.NAME)), rd(new))
+        self.assertEqual(rd(self.base), base)
+        bins = hk.extract_disc(new, os.path.join(self.tmp, "x"))
+        want = bytearray(self.t1)
+        want[1000:1006], want[-4:] = b"HACKED", b"END!"
+        self.assertEqual([rd(b) for b in bins], [bytes(want), self.t2])
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "x", "disc.cue")))
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))["disc"]
+        self.assertEqual(state["crc32"], hk.crc_hex(rd(new)))
+        self.assertIn("already installed", self.add("--yes")[1])
+
+    def test_a_wrong_base_track_or_a_write_past_track_1_is_refused(self):
+        self.entry("DEADBEEF")
+        self.assertIn("track 1 of Disc (USA).chd is", self.add("--yes")[1])
+        self.entry(hk.crc_hex(self.t1))
+        self.patch([(len(self.t1), b"into track 2")])
+        self.assertIn("past the end", self.add("--yes")[1])
+        self.assertEqual(os.listdir(self.at("Games", "PS1")), [])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.lib, "psx"))), ["Disc (USA).chd"])
+
+    def test_the_base_disc_is_never_an_update_target(self):
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"disc": {
+            "name": "Disc Hack", "system": "PS1", "card": "Disc (USA).chd", "source": "manual", "format": "ppf",
+            "base_name": "Disc (USA)", "base_crc32": hk.crc_hex(self.t1)}}))
+        shutil.copy(self.base, self.at("Games", "PS1", "Disc (USA).chd"))
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "disc", "--yes")
+        self.assertIn("clean base game", out)
 
 
 if __name__ == "__main__":

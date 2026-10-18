@@ -13,6 +13,7 @@ python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # p
 python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
 python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
 python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run   # a hack not on the card yet
+python3 tools/hacks.py --device --library /Volumes/MuOs/ROMS --add sotn-quality-hack --dry-run  # a PS1 disc hack (needs chdman)
 python3 tools/hacks.py --device --init                                       # write your settings file
 python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
 ```
@@ -43,9 +44,10 @@ same thing with `-- <flags>`.
    (install it with `--add <id>`).
 2. **Get the patch.** A `github:` source downloads the one release asset that matches `asset` (cached
    under the cache dir by version). Any other source reads the newest file in
-   `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips` or `.ups`, a ROM, or a `.zip` holding exactly one of
+   `~/ROMHacks/incoming/<id>/`: a `.bps`, `.ips`, `.ups`, `.xdelta` or `.ppf`, a ROM, or a `.zip` holding exactly one of
    them (read in memory; a 7z or rar you extract yourself), with an optional `version.txt` naming its
    version (else `--as-version`, else the version in the file name). Nothing downloaded is ever run.
+   Only files directly in the folder count: keep readmes and the original archive in a subfolder (`docs/`).
 3. **Find the base ROM** in `--library` by the whole file's CRC32 (`base_crc32`, or when it is unknown
    the source CRC a BPS or UPS carries in its footer): zip headers first, then loose files. Missing:
    refused.
@@ -54,6 +56,19 @@ same thing with `-- <flags>`.
    pre-patched ROM is checked against `target_crc32` when known. Any mismatch: refused. xdelta
    (VCDIFF, as Delta Patcher and xdelta3 write it: default code table, no secondary compression) is
    applied too, with xdelta's Adler-32 per window checked; it names no base, so `base_crc32` must be set.
+   PPF 1.0, 2.0 and 3.0 are applied in place: PPF2, and PPF3 with its block check, compare 1024 bytes of
+   the image, and PPF3 undo data (the original bytes) is compared too, all before the first write;
+   a PPF with neither gets a note, and the base was found by CRC anyway.
+   **PS1 discs** ([ADR 0085](adr/0085-ps1-disc-hacks-patch-track-1-through-chdman.md)): the base is the
+   library's `<base_name>.chd` (by name; CRCing every disc would read a hundred GB) and `base_crc32` is
+   the redump CRC32 of its track 1. `chdman extractcd --splitbin` writes one bin per track into a temp
+   dir, track 1 must have that CRC, the patch is applied to track 1 (a write past its end is refused),
+   `chdman createcd` packs the cue, and the new `.chd` is extracted again: track 1 must be the patched
+   CRC (`target_crc32` on a PS1 entry), every other track byte-identical and the track layout the same.
+   One disc takes 20 to 30 seconds and about three times its size in the temp dir. `chdman` comes from
+   `brew install rom-tools` (mise has no package); without it a PS1 build is refused. `--check` does not
+   identify an installed PS1 hack by CRC (that would build a disc per check). The state file records
+   the `.chd` file's CRC32 (chdman's output is the same for the same input and version).
 5. **Plan and confirm.** Every refusal (not on the card, seated, no base, CRC, already installed)
    happens before the first write. `--dry-run` prints the plan and stops; a real run prints it and asks.
 6. **Card.** Into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, at the same card paths:
@@ -95,8 +110,11 @@ the clean base found in the library by CRC32, exactly as an update builds it, an
 as a NEW loose file named `card` (in the library, `library` if set, else the same name) on the card and
 in the library. The base game is only read. It refuses, before any write, when the state file already
 has the hack, when the card or library already holds that name, another version of it (the same name
-once version numbers are dropped) or the patched CRC32 (library: every file and zip header; card: every
-file of the same size), or when the result is a clean base game. The state file then records it like
+once version numbers are dropped) or the patched CRC32, or when the card already has saves or states
+under the new name (a new game must not load another file's snapshot), or when the result is a clean
+base game. The CRC checks go by size first: library zip headers (free) and library files of the same
+size; a card file of the same size is read from its library copy of the same name and size when there
+is one, and pulled from the card only when there is none (a disc is hundreds of MB over adb). The state file then records it like
 an update, so `--check` and `--update` handle it from then on.
 
 ## One file per hack, never a duplicate
@@ -224,8 +242,8 @@ CRC, and Unbound's thread names none, and its patch (a BPS, per community guides
 
 Researched 2026-10-18 (Metroid Construction, romhacking.net, the authors' GitHub and pages). The
 downloaded patches wait in `~/ROMHacks/incoming/<id>/`; romhacking.net blocks scripts, so the rows
-marked manual need the patch fetched by hand. PS1 disc hacks (SotN, Chronicles) are left out: the
-tool cannot patch a disc image.
+marked manual need the patch fetched by hand. PS1 disc hacks are built from the library's `.chd`
+(see step 4 of the flow) and written as a new `.chd`.
 
 | id | system | kind | latest seen | format | base | patch |
 |---|---|---|---|---|---|---|
@@ -251,3 +269,13 @@ tool cannot patch a disc image.
 | `castlevania-bloodlines-enhanced-colors` | MD | Graphics | 1.0 (2014) | ips | FB1EA6DF | incoming |
 | `castlevania-circle-of-the-moon-definitive-edition` | GBA | QoL / definitive | 1.1 (GitHub, 2024-11); romhacking.net 9010 says 1.0 (2025-05) | ips | 1CC059A4 | incoming |
 | `castlevania-hod-findesiecle` | GBA | Rebalance / definitive | 2.3.75 (2023-02-26) | ips | 88C1B562 | manual |
+| `sotn-quality-hack` | PS1 | Definitive (no black bars, fixes) | 1.3 (2020-11-06) | ppf | track 1 05BE47B2 | incoming |
+| `sotn-improvement-hack` | PS1 | Restores cut content (alternative, not both) | 1.0 (2024-07-07) | xdelta | track 1 05BE47B2 | manual |
+| `castlevania-chronicles-arrange-knockback` | PS1 | Small fix (knockback in Arrange Mode) | 1.0 (2018-09-26) | ppf | track 1 D4F5D6A1 | incoming |
+
+One SotN hack, not two: the Quality hack and the Improvement hack both rework the castle entrance's hatch
+rooms and both want the clean track 1, so they do not stack; the seed picks the Quality hack (the most
+downloaded, and the one in the archive.org RHDN dumps). The Improvement hack's patch is not in those dumps
+and romhacking.net no longer serves downloads: drop its `.xdelta` into the incoming folder to build it.
+The Chronicles patch is named `no-knockback.ppf` but restores knockback; romhacking.net names only the
+executable, yet the patch is relative to the bin (it rewrites sector 49's data and its EDC/ECC).
