@@ -12,6 +12,7 @@ python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound --dry-
 python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound    # prints the plan, asks y/N
 python3 tools/hacks.py --device --library ~/ROMS --all --dry-run             # every hack with an update
 python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
+python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-revamped --dry-run   # a hack not on the card yet
 python3 tools/hacks.py --device --init                                       # write your settings file
 python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
 ```
@@ -64,8 +65,9 @@ same thing with `-- <flags>`.
    (`Pokemon - Modern Emerald (v2.3.3).zip` holding `Modern Emerald (v2.3.3).gba` becomes the latter),
    and the state file records the new name. If that loose name already exists, the update refuses: a
    zip and a loose copy of one hack never sit side by side. muOS keys RetroArch's saves by the file
-   name, so a note lists any `.srm`/`.state*` left under the zip's name. RetroArch's own `<stem>.state*` and `.srm` files there are left alone: that card belongs to
-   muOS. A one-line note says its old states may not work with the new version.
+   name, so a note lists any `.srm`/`.state*` left under the zip's name. RetroArch's own
+   `<stem>.state*` and `.srm` files there are left alone: that card belongs to muOS. A one-line note
+   says its old states may not work with the new version.
 8. **Record** the new version, CRC32, date and backup paths in
    `~/.config/slot-nes-snes/hacks-state.json`.
 
@@ -82,6 +84,18 @@ zip holding another CRC is refused. The card is not touched.
 
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
 copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
+
+## Adding a hack that is not on the card yet
+
+`--add <id>` (try `--dry-run` first; needs `--card`/`--device` and `--library`) installs a registry hack
+the card does not have: the patch from `~/ROMHacks/incoming/<id>/` (or the GitHub release) is applied to
+the clean base found in the library by CRC32, exactly as an update builds it, and the result is written
+as a NEW loose file named `card` (in the library, `library` if set, else the same name) on the card and
+in the library. The base game is only read. It refuses, before any write, when the state file already
+has the hack, when the card or library already holds that name, another version of it (the same name
+once version numbers are dropped) or the patched CRC32 (library: every file and zip header; card: every
+file of the same size), or when the result is a clean base game. The state file then records it like
+an update, so `--check` and `--update` handle it from then on.
 
 ## One file per hack, never a duplicate
 
@@ -203,3 +217,35 @@ dead), and the GoodTools-tagged hacks. Pokemon Unbound and Radical Red need Fire
 '1636 Squirrels'): Radical Red's thread names that dump and its patch is a UPS, which checks the source
 CRC, and Unbound's thread names none, and its patch (a BPS, per community guides) checks its own source CRC too. FireRed Rev 1
 (84EE4776) is refused by both, so their updates wait until a 1.0 dump is in the library.
+
+### Not on the card yet: Metroid and Castlevania (`--add <id>`)
+
+Researched 2026-10-18 (Metroid Construction, romhacking.net, the authors' GitHub and pages). The
+downloaded patches wait in `~/ROMHacks/incoming/<id>/`; romhacking.net blocks scripts, so the rows
+marked manual need the patch fetched by hand. PS1 disc hacks (SotN, Chronicles) are left out: the
+tool cannot patch a disc image.
+
+| id | system | kind | latest seen | format | base | patch |
+|---|---|---|---|---|---|---|
+| `metroid-mother` | NES | QoL / definitive | 1.0 (2014-04-22) | ips | A2C89CB9 | incoming |
+| `metroid-rogue-dawn` | NES | New game (a prequel, play as Dawn Aran) | 1.21 (2017-03-20) | ips | A2C89CB9 | incoming |
+| `junkoid` | NES | New game | 1.1 (2022-02-22) | ips | A2C89CB9 | incoming |
+| `metroid-fusion-special-edition` | GBA | QoL / definitive | 4.2 (2021-08-29) | ips | 6C75479C | incoming |
+| `metroid-oil-spill` | GBA | New game (nonlinear Fusion hack) | 1.5 (2020-03-16) | ips | 6C75479C | incoming |
+| `project-zm` | GBA | QoL / definitive (vanilla+) | 0.8.3 (2022-07-10, still WIP) | ips | 5C61A844 | incoming |
+| `metroid-scrolls-6` | GBA | New game | 1.1 (2021-02-10) | ips | 5C61A844 | incoming |
+| `metroid-dive` | GBA | New game | 1.2 (2026-08-02) | bps | 5C61A844 | incoming |
+| `metroid-ii-ejrtq-colorization` | GBC | QoL / definitive | 1.3 (2019-03-01) | ips | DEE05370 | base missing |
+| `castlevania-1-improved-controls` | NES | QoL | 3.1 (2021-02-27) | ips | 39C879BB | incoming |
+| `castlevania-1-chorus-of-mysteries` | NES | New game | 1.1 (2007) | ips | 12A6CB14 | base missing |
+| `castlevania-2-retranslation` | NES | QoL / definitive | 2.12.1.1 (2022-06-02) | ups | A9C2C503 | incoming |
+| `castlevania-2-improved-controls` | NES | QoL | 2.0 (2026-07-15) | ips | A9C2C503 | incoming |
+| `castlevania-3-redux` | NES | QoL / rebalance | 2.6 (2026-08-21) | ips | 7CC9C669 | manual |
+| `castlevania-3-improved-controls` | NES | QoL | 2.1 (2025-06-20) | ips | 7CC9C669 | incoming |
+| `castlevania-3-color-bugfixes` | NES | Small fix | 1.0 (2005) | ips | 7CC9C669 | incoming |
+| `super-castlevania-4-uncensored` | SNES | Definitive | 2.1 (2021-12-06) | ips | B64FFB12 | manual |
+| `castlevania-dracula-x-r-button-subweapon` | SNES | QoL | 1.0.0 (2026-05-15) | bps | 7C4887E1 | incoming |
+| `castlevania-bloodlines-revised` | MD | QoL / definitive | 1.0 (updated 2024-06-30) | ips | FB1EA6DF | manual |
+| `castlevania-bloodlines-enhanced-colors` | MD | Graphics | 1.0 (2014) | ips | FB1EA6DF | incoming |
+| `castlevania-circle-of-the-moon-definitive-edition` | GBA | QoL / definitive | 1.1 (GitHub, 2024-11); romhacking.net 9010 says 1.0 (2025-05) | ips | 1CC059A4 | incoming |
+| `castlevania-hod-findesiecle` | GBA | Rebalance / definitive | 2.3.75 (2023-02-26) | ips | 88C1B562 | manual |

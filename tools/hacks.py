@@ -7,6 +7,7 @@
     python3 tools/hacks.py --device --library ~/ROMS --update pokemon-unbound
     python3 tools/hacks.py --device --library ~/ROMS --all --dry-run
     python3 tools/hacks.py --device --library ~/ROMS --rollback pokemon-unbound
+    python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-revamped --dry-run  # a new hack, new file
     python3 tools/hacks.py --device --init                                    # write the user settings file
     python3 tools/hacks.py --library ~/ROMS --fix-library-zips --dry-run      # unzip updated hacks' library copies
 
@@ -436,6 +437,9 @@ class LocalCard:
         except OSError:
             return None
 
+    def sizes(self, rel):
+        return {n: os.path.getsize(os.path.join(self.p(rel), n)) for n in self.names(rel)}
+
     def apply(self, op, src, dst):
         d = self.p(dst)
         if os.path.exists(d):
@@ -471,6 +475,12 @@ class AdbCard:
 
     def names(self, rel):
         return self.dev.names(self.p(rel))
+
+    def sizes(self, rel):
+        rc, out = self.run("shell", f'for f in {shlex.quote(self.p(rel))}/*; do [ -f "$f" ] && '
+                                    f'echo "$(wc -c < "$f") ${{f##*/}}"; done; true')
+        rows = [l.rstrip("\r").lstrip().split(" ", 1) for l in out.splitlines()]
+        return {r[1]: int(r[0]) for r in rows if len(r) == 2 and r[0].isdigit()}
 
     def read(self, rel):
         with tempfile.TemporaryDirectory() as d:
@@ -1106,6 +1116,70 @@ def cmd_update(ctx, reg, ids, args, card):
     return failed
 
 
+def plan_add(ctx, hid, h, args, card, state, bases):
+    """(card ops, library ops, record) that write a hack not on the card yet as a NEW loose file named
+    `card` (and `library`, else the same) on the card and in the library. The base game is only read.
+    Refuses, before any write, a name or a CRC32 that is already there."""
+    system, name = h["system"], h["card"]
+    lname, stem = h.get("library") or name, os.path.splitext(name)[0]
+    if (state.get(hid) or {}).get("crc32"):
+        raise Refuse(f"already installed ({state[hid]['crc32']} as {state[hid].get('card')}): use --update")
+    folder = os.path.join(args.library, fl.SYSTEMS[system][0])
+    on = {"card": card.names(f"Games/{system}"), "library": os.listdir(folder) if os.path.isdir(folder) else []}
+    for where, names in on.items():
+        same = [n for n in names if fl.nfc(os.path.splitext(n)[0]) in (fl.nfc(stem), fl.nfc(os.path.splitext(lname)[0]))]
+        same += [other for _, _, other in duplicates({hid: h}, {system: set(names)})]
+        if same:
+            raise Refuse(f"the {where} already has {', '.join(sorted(set(same)))}: no duplicates (set `card` to it "
+                         "in your settings and use --update)")
+    pname, data, version = get_payload(ctx, hid, h, args.as_version)
+    new = build(h, args.library, pname, data)
+    crc = crc_hex(new)
+    if crc in bases:
+        raise Refuse(f"the patched ROM is a clean base game ({crc})")
+    if find_base(args.library, system, crc)[1]:
+        raise Refuse(f"the library already has this ROM ({crc}) as {find_base(args.library, system, crc)[1]}")
+    # ponytail: the card is CRC-checked only where the size matches; over adb that still pulls every same-size ROM
+    for n, size in card.sizes(f"Games/{system}").items():
+        if size == len(new) and crc_hex(card.read(f"Games/{system}/{n}") or b"") == crc:
+            raise Refuse(f"the card already has this ROM ({crc}) as Games/{system}/{n}")
+    card_ops = [("write", new, f"Games/{system}/{name}")]
+    lib_ops = [("write", new, os.path.join(folder, lname))]
+    record = {"version": version, "crc32": crc, "date": time.strftime("%Y-%m-%d"), "card": name, "library": lname,
+              "added": True}
+    return card_ops, lib_ops, record
+
+
+def cmd_add(ctx, reg, hid, args, card):
+    path = os.path.join(ctx.config, "hacks-state.json")
+    state, h = read_state(path), reg[hid]
+    print(f"\n{hid}: {h['name']} -> {h['system']}/{h['card']}")
+    try:
+        card_ops, lib_ops, record = plan_add(ctx, hid, h, args, card, state,
+                                             {(x.get("base_crc32") or "").upper() for x in reg.values()} - {""})
+    except (Refuse, fl.Fail, OSError, ValueError, zipfile.BadZipFile) as e:
+        print(f"  refused: {e}")
+        return 1
+    print(f"  new {record['version']} (CRC32 {record['crc32']}); the base game is not touched")
+    show(card_ops, "card")
+    show(lib_ops, "library")
+    if args.dry_run:
+        print("  DRY RUN, nothing written")
+        return 0
+    if not confirm(args, f"  add {hid}?"):
+        print("  skipped")
+        return 0
+    if not execute(card, card_ops, "card"):
+        return 1
+    state[hid] = record
+    write_state(path, state)
+    if not execute(LocalCard(args.library), lib_ops, "library"):
+        print("  WARNING: on the card but not in the library")
+        return 1
+    print(f"  added {record['version']}; --check and --update now track it")
+    return 0
+
+
 def cmd_fix_zips(ctx, reg, args):
     """Unzip the library copy of every hack this tool updated (a `backup` in the state file) whose library
     copy is still a zip holding the installed ROM (its CRC is the state's crc32)."""
@@ -1234,6 +1308,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--update", metavar="ID", help="update one hack (id or name)")
     ap.add_argument("--all", action="store_true", help="update every hack on the card that has an update")
     ap.add_argument("--rollback", metavar="ID", help="restore the newest update backup of one hack")
+    ap.add_argument("--add", metavar="ID", help="install a registry hack that is not on the card yet, as a new file")
     ap.add_argument("--init", action="store_true", help="write a commented example user settings file")
     ap.add_argument("--fix-library-zips", action="store_true",
                     help="unzip the library copies of updated hacks still in a zip (library only)")
@@ -1262,15 +1337,17 @@ def main(argv=None, ctx=None):
         if not args.library:
             ap.error("--fix-library-zips needs --library")
         return cmd_fix_zips(ctx, reg, args)
-    if args.update or args.all or args.rollback:
+    if args.update or args.all or args.rollback or args.add:
         if not card or not args.library:
-            ap.error("--update, --all and --rollback need --card or --device, and --library")
+            ap.error("--update, --all, --rollback and --add need --card or --device, and --library")
 
         def resolve(name):
             hit = [k for k, h in reg.items() if name.lower() in (k, h["name"].lower())]
             if not hit:
                 ap.error(f"no hack {name!r} in the registry (ids: {', '.join(sorted(reg))})")
             return hit[0]
+        if args.add:
+            return cmd_add(ctx, reg, resolve(args.add), args, card)
         try:
             if args.rollback:
                 return cmd_rollback(ctx, reg, resolve(args.rollback), args, card)

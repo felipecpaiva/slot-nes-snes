@@ -439,6 +439,9 @@ class Update(Base):
         (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
         b = self.at("Backups", "hacks", "GBA", self.STEM, label)
         self.assertEqual(rd(os.path.join(b, "States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
+        self.write(self.at("Games", "GBA", "it's a & b.gba"), b"12345")
+        self.assertEqual(hk.AdbCard(adb, self.card).sizes("Games/GBA"),
+                         {self.STEM + ".gba": len(NEW), "it's a & b.gba": 5})
 
     def test_a_move_across_filesystems_still_lands(self):
         real = os.rename
@@ -650,6 +653,61 @@ class Update(Base):
             z.writestr("b.gba", NEW)
         r, out = self.update("--yes")
         self.assertIn("want exactly one", out)
+
+
+class Add(Base):
+    NAME = "Base Remix (v1.0).gba"
+
+    def setUp(self):
+        super().setUp()
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"remix": {
+            "name": "Base Remix", "system": "GBA", "card": self.NAME, "source": "manual", "format": "bps",
+            "base_crc32": hk.crc_hex(BASE), "cite": ["https://example.test"]}}))
+        self.write(self.at("Games", "GBA", "Other.gba"), b"other")
+        self.write(os.path.join(self.lib, "gba", "Base (USA).gba"), BASE)
+        inc = os.path.join(self.env["SLOT_HACKS_HOME"], "incoming", "remix")
+        self.write(os.path.join(inc, "remix.bps"), bps(BASE, NEW, [(1, NEW)]))
+        self.write(os.path.join(inc, "version.txt"), "1.0\n")
+
+    def add(self, *extra):
+        return self.run_main("--card", self.card, "--library", self.lib, "--add", "remix", *extra)
+
+    def test_add_writes_a_new_loose_file_on_both_and_check_and_update_track_it(self):
+        before = self.tree(self.tmp)
+        r, out = self.add("--dry-run")
+        self.assertIn("DRY RUN", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        r, out = self.add("--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.NAME)), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", self.NAME)), NEW)
+        self.assertEqual(rd(os.path.join(self.lib, "gba", "Base (USA).gba")), BASE)  # the base is never touched
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))["remix"]
+        self.assertEqual((state["version"], state["crc32"], state["library"]), ("1.0", hk.crc_hex(NEW), self.NAME))
+        row = [r for r in self.run_main("--card", self.card, "--library", self.lib)[0] if r[1] == "remix"][0]
+        self.assertEqual(row[2], "1.0")
+        self.assertIn("already installed", self.add("--yes")[1])
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--update", "remix", "--yes")
+        self.assertIn("already installed", out)  # --update finds the added file
+
+    def test_add_refuses_another_version_or_the_same_rom_under_another_name(self):
+        tree = lambda: self.tree(self.tmp)
+        self.write(self.at("Games", "GBA", "Base Remix (v0.9).gba"), b"older")
+        before = tree()
+        self.assertIn("the card already has Base Remix (v0.9).gba", self.add("--yes")[1])
+        self.assertEqual(tree(), before)
+        os.remove(self.at("Games", "GBA", "Base Remix (v0.9).gba"))
+        self.write(self.at("Games", "GBA", "renamed.gba"), NEW)
+        before = tree()
+        self.assertIn("the card already has this ROM", self.add("--yes")[1])
+        self.assertEqual(tree(), before)
+        os.remove(self.at("Games", "GBA", "renamed.gba"))
+        with zipfile.ZipFile(os.path.join(self.lib, "gba", "x.zip"), "w") as z:
+            z.writestr("x.gba", NEW)
+        self.assertIn("the library already has this ROM", self.add("--yes")[1])
+        self.assertFalse(os.path.exists(self.at("Games", "GBA", self.NAME)))
+
+    tree = Update.tree
 
 
 if __name__ == "__main__":
