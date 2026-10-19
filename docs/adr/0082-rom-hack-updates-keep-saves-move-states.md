@@ -45,3 +45,29 @@ that old states there may not load: only the slot card's states are moved aside.
 - No slot change is needed. If slot ever keys a file by ROM content or adds a stem-keyed file, the
   list in `card_items` (tools/hacks.py) has to follow; check on each upstream rebase that the state
   and save paths above are unchanged.
+
+## Amendment (2026-10-19): the backups can live off the card
+
+PS1 discs fill the card, and every update keeps a whole old disc in `Backups/hacks/`. A `backups`
+setting (in `~/.config/slot-nes-snes/hacks.json`, overridden for one run by `--backups card|DIR`) names
+where the backup goes: `card` (the default, the behaviour above) or a mounted folder on the Mac, such as
+a backup drive. Off the card the layout is the same, `<DIR>/<SYS>/<stem>/<stamp>_<old version>/` with
+the files at their card paths, and the order changes so the old version is never lost:
+
+- every file (old ROM, saves, state folders) is copied from the card to the folder and checked, size
+  and CRC32 of the copy against the bytes read from the card; only when all of them check are the old
+  ROM and the state folders removed from the card, and only then is the new ROM written;
+- a rollback copies the saved files back the same way, each copy checked on the card;
+- the folder must be reachable (it is created if missing, then a probe file is written): an unmounted
+  drive or a folder that cannot be written refuses the update before anything is written. It never
+  falls back to the card on its own; `--backups card` keeps that run's backup on the card.
+
+`hacks-state.json` records each backup's path (relative to the card, or absolute off it), and rollback
+looks for the newest update backup on the card, in the configured folder and where the state file says
+the last one is, so a backup made before the setting still rolls back. A rollback reads the saved files
+from where the backup is now, not from the paths `backup.json` wrote on the day, so a moved backup works.
+`--migrate-backups` moves the card's existing `Backups/hacks/` into the folder with the same check
+before each removal, and points the state file at the new place.
+
+This replaces "Nothing is deleted" for the off-card case: the card copy of the old version is deleted,
+after its copy off the card has checked. On the card nothing changes.

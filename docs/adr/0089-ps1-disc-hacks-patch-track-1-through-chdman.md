@@ -38,6 +38,8 @@ there is none. A new game whose name already has saves or states on the card is 
 - PS1 hacks install like cartridge hacks: one new file, never a duplicate, the original untouched. One
   disc build takes 20 to 30 seconds on the M5 Max and needs about three times the disc's size free in
   the temp dir.
+- Each disc update keeps the old disc as its backup. On a full card, set `backups` to a folder off the
+  card (ADR 0082, amendment of 2026-10-19).
 - `chdman` must be installed (`brew install rom-tools`; mise has no package for it). Without it a PS1
   build is refused and its tests are skipped.
 - `createcd` is pinned to the library's codecs (cdlz, cdzl, cdfl). If a chdman upgrade still changes

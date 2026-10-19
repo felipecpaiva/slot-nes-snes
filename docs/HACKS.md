@@ -16,6 +16,7 @@ python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslati
 python3 tools/hacks.py --device --library /Volumes/MuOs/ROMS --add sotn-quality-hack --dry-run  # a PS1 disc hack (needs chdman)
 python3 tools/hacks.py --device --init                                       # write your settings file
 python3 tools/hacks.py --library /Volumes/MuOs/ROMS --fix-library-zips --dry-run  # unzip updated hacks
+python3 tools/hacks.py --device --migrate-backups --dry-run                  # move card backups off the card
 ```
 
 `--card <root>` works on a mounted card instead of adb. `--yes` skips the question, `--as-version`
@@ -74,7 +75,9 @@ same thing with `-- <flags>`.
 6. **Card.** Into `Backups/hacks/<SYS>/<stem>/<stamp>_<old version>/`, at the same card paths:
    `backup.json` (what is where), the battery saves copied (`Saves/<SYS>/<stem>.sav`, `.srm`, PS1
    `.disc`), every `States/<SYS>/<core>/<stem>/` folder moved (all cores: GBA can have both `mgba` and
-   `gpsp`), the old ROM moved. Then the new ROM is written under the same name.
+   `gpsp`), the old ROM moved. Then the new ROM is written under the same name. With the `backups`
+   setting pointing off the card, the same files go to `<backups>/<SYS>/<stem>/<stamp>_<old version>/`
+   instead (see [Backups off the card](#backups-off-the-card)).
 7. **Library** (the muOS card mounted on the Mac): only the ROM changes. The old file, loose or
    zipped, is moved to `~/ROMHacks/backups/<SYS>/<stem>/<label>/` (outside `ROMS/`, so muOS never lists
    a backup as a game) and the new ROM goes in loose, since slot reads no zip and the library is what
@@ -100,7 +103,48 @@ backup (kind `unzip`, which `--rollback` skips, so a rollback still restores the
 zip holding another CRC is refused. The card is not touched.
 
 `--rollback <id>` moves the current ROM, saves and states into a new `<stamp>_rollback` backup and
-copies the newest update backup back, on the card and in the library. Nothing is ever deleted.
+copies the newest update backup back, on the card and in the library. With backups on the card,
+nothing is ever deleted.
+
+## Backups off the card
+
+PS1 discs fill the card, and every update keeps the old version in `Backups/hacks/`. The `backups`
+setting moves those backups to a folder on the Mac, such as a backup drive
+([ADR 0082](adr/0082-rom-hack-updates-keep-saves-move-states.md), amendment of 2026-10-19):
+
+```json
+// ~/.config/slot-nes-snes/hacks.json
+{
+  "backups": "/Volumes/B3Tb/Emulation/_hack-backups/RG34XXSP"
+}
+```
+
+`"card"` (the default when the key is missing) keeps today's `Backups/hacks/` on the card.
+`--backups card` or `--backups <folder>` overrides the setting for one run; `--init --backups <folder>`
+writes it into a new settings file. Off the card:
+
+- the layout is the card's, rooted at the folder: `<folder>/<SYS>/<stem>/<stamp>_<old version>/` with
+  the files at their card paths and a `backup.json`;
+- an update copies the old ROM, the saves and the state folders from the card to the folder, checks
+  every copy (size and CRC32 against the bytes read from the card), and only then removes the old ROM
+  and the state folders from the card and writes the new ROM. A copy that does not check stops the
+  update with nothing removed;
+- a rollback copies the backup back to the card, each file checked the same way, after moving the
+  current files into a `<stamp>_rollback` backup in the folder;
+- the folder must be reachable: it is created if missing and a probe file is written (a dry run only
+  looks). An unmounted drive or a folder that cannot be written refuses before anything is written,
+  and the tool never falls back to the card by itself: rerun with `--backups card` to keep that run's
+  backup on the card.
+
+`hacks-state.json` records each backup's path (card relative, or absolute off the card). A rollback
+looks for the newest update backup on the card, in the configured folder and where the state file says
+the last backup is, so backups made before the setting still roll back.
+
+`--migrate-backups` (try `--dry-run` first; needs `--card`/`--device`, not `--library`) moves the card's
+existing `Backups/hacks/` into the folder: each backup folder is copied file by file, checked, and only
+then removed from the card, and the state file is pointed at the new path. A backup folder already in
+the destination with the same files (size and CRC32) is only removed from the card; one that differs is
+left alone and reported. The dry run lists names and sizes only and reads no file from the card.
 
 ## Adding a hack that is not on the card yet
 
@@ -155,7 +199,8 @@ a seed id overrides just the fields it gives, a new id adds a hack (it needs `sy
 `source`), an unknown field or an override for an id that is not in the seed is ignored with a warning.
 Both are JSON with whole-line `//` comments (the repo's Python is 3.9, which has no `tomllib`). What
 is installed lives in `hacks-state.json`, never in your settings, so the file stays hand-written and
-diffable. `--init` writes a commented example (the seed hacks found on the card as commented override
+diffable. The one key that is not a hack id is `backups` (see [Backups off the card](#backups-off-the-card)).
+`--init` writes a commented example (the seed hacks found on the card as commented override
 lines, and the card's other hack-looking files, by a version number or `hack` in the name, as new
 entries with a blank source); it never overwrites an existing file.
 
