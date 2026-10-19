@@ -19,6 +19,8 @@ vars:
     sh: . ./SLOT_PIN && echo "$mednafen_wswan_commit"
   MEDNAFEN_LYNX_COMMIT:
     sh: . ./SLOT_PIN && echo "$mednafen_lynx_commit"
+  MEDNAFEN_NGP_COMMIT:
+    sh: . ./SLOT_PIN && echo "$mednafen_ngp_commit"
 
 tasks:
   default:
@@ -215,9 +217,28 @@ tasks:
     cmds:
       - sh cores/mednafen_lynx/build.sh build {{.MEDNAFEN_LYNX_COMMIT}} vendor/mednafen_lynx-src.tar.gz build/mednafen_lynx-host vendor/mednafen_lynx_libretro.dylib
 
+  core:mednafen_ngp:src:
+    desc: Fetch the pinned Beetle NeoPop (beetle-ngp-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/mednafen_ngp-src.tar.gz
+      - test "$(cat vendor/mednafen_ngp-src.sha 2>/dev/null)" = "{{.MEDNAFEN_NGP_COMMIT}}"
+    cmds:
+      - rm -f vendor/mednafen_ngp-src.tar.gz vendor/mednafen_ngp-src.sha
+      - sh cores/mednafen_ngp/build.sh fetch {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz
+      - echo "{{.MEDNAFEN_NGP_COMMIT}}" > vendor/mednafen_ngp-src.sha
+
+  core:mednafen_ngp:host:
+    desc: Build the Beetle NeoPop host dylib into vendor/ (core:host builds it too)
+    deps: [core:mednafen_ngp:src]
+    status:
+      - test -f vendor/mednafen_ngp_libretro.dylib
+      - test "$(cat vendor/mednafen_ngp_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_ngp/build.sh stamp {{.MEDNAFEN_NGP_COMMIT}} host)"
+    cmds:
+      - sh cores/mednafen_ngp/build.sh build {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz build/mednafen_ngp-host vendor/mednafen_ngp_libretro.dylib
+
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast and Beetle Cygne and Beetle Lynx from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx and Beetle NeoPop from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -258,9 +279,13 @@ tasks:
         test -f vendor/mednafen_lynx_libretro.dylib &&
           test "$(cat vendor/mednafen_lynx_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_lynx/build.sh stamp {{.MEDNAFEN_LYNX_COMMIT}} host)" ||
           sh cores/mednafen_lynx/build.sh build {{.MEDNAFEN_LYNX_COMMIT}} vendor/mednafen_lynx-src.tar.gz build/mednafen_lynx-host vendor/mednafen_lynx_libretro.dylib
+      - |
+        test -f vendor/mednafen_ngp_libretro.dylib &&
+          test "$(cat vendor/mednafen_ngp_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_ngp/build.sh stamp {{.MEDNAFEN_NGP_COMMIT}} host)" ||
+          sh cores/mednafen_ngp/build.sh build {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz build/mednafen_ngp-host vendor/mednafen_ngp_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne and Beetle Lynx cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx and Beetle NeoPop cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -271,6 +296,7 @@ tasks:
       - task: core:device:mednafen_pce_fast
       - task: core:device:mednafen_wswan
       - task: core:device:mednafen_lynx
+      - task: core:device:mednafen_ngp
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -408,6 +434,21 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/mednafen_lynx_libretro.so && needs_old_glibc_only vendor/mednafen_lynx_libretro.so'
       - 'echo "built vendor/mednafen_lynx_libretro.so from vendor/mednafen_lynx-src.tar.gz @ {{.MEDNAFEN_LYNX_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/mednafen_lynx_libretro.so")"'
 
+  core:device:mednafen_ngp:
+    desc: Build the aarch64 linux Beetle NeoPop core into vendor/mednafen_ngp_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older (the C++ runtime is linked in)
+    deps: [core:mednafen_ngp:src]
+    status:
+      - test -f vendor/mednafen_ngp_libretro.so
+      - test "$(cat vendor/mednafen_ngp-src.meta 2>/dev/null)" = "$(sh cores/mednafen_ngp/build.sh srcmeta {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz)"
+      - test "$(cat vendor/mednafen_ngp_libretro.so.meta 2>/dev/null)" = "$(sh cores/mednafen_ngp/build.sh stamp {{.MEDNAFEN_NGP_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/mednafen_ngp/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/mednafen_ngp/build.sh build {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz
+        build/mednafen_ngp-device vendor/mednafen_ngp_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/mednafen_ngp_libretro.so && needs_old_glibc_only vendor/mednafen_ngp_libretro.so'
+      - 'echo "built vendor/mednafen_ngp_libretro.so from vendor/mednafen_ngp-src.tar.gz @ {{.MEDNAFEN_NGP_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/mednafen_ngp_libretro.so")"'
+
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     deps: [upstream:build]
@@ -433,6 +474,7 @@ tasks:
       - test -f vendor/mednafen_pce_fast_libretro.dylib
       - test -f vendor/mednafen_wswan_libretro.dylib
       - test -f vendor/mednafen_lynx_libretro.dylib
+      - test -f vendor/mednafen_ngp_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
@@ -545,7 +587,7 @@ tasks:
       - sh evals/eval-frontend-cost.sh
 
   dist:device:
-    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne and Beetle Lynx cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx and Beetle NeoPop cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
     deps: [build, core:device]
     vars:
       NAME:
@@ -575,6 +617,8 @@ tasks:
       - vendor/mednafen_wswan-src.*
       - vendor/mednafen_lynx_libretro.so*
       - vendor/mednafen_lynx-src.*
+      - vendor/mednafen_ngp_libretro.so*
+      - vendor/mednafen_ngp-src.*
       - scripts/dist-device.sh
       - scripts/device-sh.sh
       - scripts/fetch-task.sh
@@ -623,7 +667,7 @@ tasks:
         for f in "$sys"/licenses/*; do
           case "$f" in */slot-nes-snes-src-*) ;; *) adb push "$f" '{{.SD}}/System/licenses/' ;; esac
         done
-      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so {{.SD}}/System/nestopia_libretro.so {{.SD}}/System/snes9x2005_plus_libretro.so {{.SD}}/System/genesis_plus_gx_libretro.so {{.SD}}/System/pcsx_rearmed_libretro.so && sync'
+      - adb shell 'chmod +x {{.SD}}/System/slot {{.SD}}/System/fceumm_libretro.so {{.SD}}/System/snes9x_libretro.so {{.SD}}/System/nestopia_libretro.so {{.SD}}/System/snes9x2005_plus_libretro.so {{.SD}}/System/genesis_plus_gx_libretro.so {{.SD}}/System/pcsx_rearmed_libretro.so {{.SD}}/System/mednafen_ngp_libretro.so && sync'
       - adb reboot
       - adb wait-for-device
       - 'echo "deployed to {{.SD}}, device rebooting"'

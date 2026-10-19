@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:32:11 +0400
+Subject: [PATCH] ngp-options
+
+Beetle NeoPop declares one option, ngp_language (english or japanese,
+english by default), and slot now answers it with english, so the core
+runs in English whatever its build default becomes. ADR 0064's
+declared-defaults answer is not extended to NeoPop: the one key it
+declares is answered explicitly, and a key a future pin adds keeps the
+core's own default until slot answers it.
+---
+ crates/slot/src/core_options_policy.rs |  6 ++--
+ crates/slot/tests/core_option_keys.rs  | 29 +++++++++++++++++
+ crates/slot/tests/ngp_options.rs       | 43 ++++++++++++++++++++++++++
+ 3 files changed, 76 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/ngp_options.rs
+
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 022fdab..6980b06 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -65,6 +65,8 @@ pub const BEETLE_LYNX: [(&str, &str); 3] = [
+     ("lynx_pix_format", "16"),
+ ];
+ 
++const MEDNAFEN_NGP: [(&str, &str); 1] = [("ngp_language", "english")];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -131,12 +133,12 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus
+-        | Core::MednafenNgp => &[],
++        | Core::Snes9x2005Plus => &[],
+         Core::PcsxRearmed => &PCSX_REARMED,
+         Core::MednafenPceFast => &PCE_FAST,
+         Core::MednafenWswan => &MEDNAFEN_WSWAN,
+         Core::MednafenLynx => &BEETLE_LYNX,
++        Core::MednafenNgp => &MEDNAFEN_NGP,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/tests/core_option_keys.rs b/crates/slot/tests/core_option_keys.rs
+index ecddbe4..1298f6a 100644
+--- a/crates/slot/tests/core_option_keys.rs
++++ b/crates/slot/tests/core_option_keys.rs
+@@ -155,3 +155,32 @@ fn snes9x_2005_plus_gets_its_frameskip_set_under_its_own_prefix() {
+         Some("auto")
+     );
+ }
++
++#[test]
++fn every_key_slot_sets_for_mednafen_ngp_is_declared_by_the_core() {
++    let _g = core_lock();
++    let Some(dylib) = require_core("mednafen_ngp") else {
++        return;
++    };
++    let mut core = LibretroCore::open(&dylib).expect("open mednafen_ngp");
++    apply_core_options(
++        &mut core,
++        Core::MednafenNgp,
++        Platform::Ngp,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    let set = core.options();
++    assert!(!set.is_empty(), "slot set no option for mednafen_ngp");
++    for (key, value) in set {
++        let declared = core.declared_options().get(&key).cloned();
++        assert!(
++            declared
++                .as_ref()
++                .is_some_and(|values| values.contains(&value)),
++            "mednafen_ngp declares {key} as {declared:?}, slot set {value}"
++        );
++    }
++}
+diff --git a/crates/slot/tests/ngp_options.rs b/crates/slot/tests/ngp_options.rs
+new file mode 100644
+index 0000000..1d58300
+--- /dev/null
++++ b/crates/slot/tests/ngp_options.rs
+@@ -0,0 +1,43 @@
++mod common;
++mod core_common;
++mod ngp_common;
++
++use common::core_lock;
++use ngp_common::{cart, neopop};
++use slot::core::apply_core_options;
++use slot::core_options_policy::answers_declared_defaults;
++use slot_retro::{LibretroCore, RetroCore};
++use slot_store::{Core, Platform};
++
++fn opened(root: &std::path::Path) -> Option<LibretroCore> {
++    let dylib = neopop()?;
++    let mut core = LibretroCore::open_with(&dylib, root, root).expect("open Beetle NeoPop");
++    apply_core_options(
++        &mut core,
++        Core::MednafenNgp,
++        Platform::Ngp,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    Some(core)
++}
++
++#[test]
++fn neopop_runs_in_english() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().expect("tempdir");
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Lang", false))
++        .expect("Beetle NeoPop refused the cart");
++    assert_eq!(core.option("ngp_language").as_deref(), Some("english"));
++    assert_eq!(core.options().len(), 1, "{:?}", core.options());
++}
++
++#[test]
++fn neopops_declared_defaults_are_not_answered_beyond_the_language() {
++    assert!(!answers_declared_defaults(Core::MednafenNgp));
++}

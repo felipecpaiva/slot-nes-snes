@@ -426,6 +426,50 @@ The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the 
 nelynes/slotPlus ([749523c](https://github.com/nelynes/slotPlus/commit/749523c), GPL-3.0) and are
 credited in the commit that added the build.
 
+## Beetle NeoPop (NeoGeo Pocket)
+
+Checked at commit `a50d5ac288a81f2104ddf43195a4efdd15c72227` of libretro/beetle-ngp-libretro, the
+commit `SLOT_PIN` pins as `mednafen_ngp_commit` (tarball sha256 `mednafen_ngp_tarball_sha256`). It is
+built by `cores/mednafen_ngp/build.sh` for NeoGeo Pocket and Pocket Color (ADR 0090) and ships from
+the NGP platform patch on (issue 72): `dist:device` copies it and `zip-check.sh` checks it. Its licence,
+the root `COPYING` of that source copied verbatim and whole, is `licenses/mednafen_ngp-GPL-2.0.txt`.
+The exact source ships with the core as `mednafen_ngp-src.tar.gz`, with `mednafen_ngp-src.meta`
+recording its sha256.
+
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+
+- `COPYING` is the GNU GPL version 2 text. `readme.md` has no licence line. The NeoPop files say
+  "Copyright (c) 2001-2002 by neopop_uk"; the Z80 is Philip Kendall's FUSE core; the sound buffers
+  are Shay Green's Blip_Buffer.
+- Scope of the counts: the 68 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.c` and
+  `libretro_core_options.h` at the root, 70 files (the same scope as docs/research/fork-nelynes.md).
+  - 49 say "any later version". 47 are GPL-2.0-or-later, `libretro.c` among them.
+    `mednafen/sound/Blip_Buffer.cpp` and `mednafen/ngp/T6W28_Apu.cpp` are LGPL-2.1-or-later.
+  - `mednafen/include/blip/Stereo_Buffer.h` says "GNU GPL license" with no version (Shay Green).
+  - No file says version 2 only and none says version 3.
+  - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name
+    '*.h' -o -name '*.cpp' \); ls libretro.c libretro_core_options.h; } | xargs grep -l -i 'any
+    later version' | wc -l`.
+- **Headerless files, a judgement.** 20 of the 70 have no licence text in their first 60 lines. They
+  are listed in `licenses/mednafen_ngp-headerless-files.txt` with the command that
+  produced the list, and they include `mednafen/ngp/system.c` (the flash file I/O) and
+  `mednafen/ngp/sound.cpp`. We treat them as covered by `COPYING`. That is a judgement, not a quote.
+- `libretro-common/` carries the RetroArch team's MIT text in 36 of its 38 `.c` and `.h` files. The
+  other two, `include/compat/ifaddrs.h` and `include/compat/msvc/stdint.h`, are not compiled on
+  unix or osx. The objects linked come from the pinned `Makefile` build:
+  - `streams/file_stream`, `vfs/vfs_implementation`, `file/file_path` and `time/rtime`;
+  - `string/stdstring` and `encodings/encoding_utf`;
+  - `compat/fopen_utf8`, `compat_strl`, `compat_snprintf` and `compat_posix_string`.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The core is C with five C++ files (Blip_Buffer, Stereo_Buffer, the T6W28 APU, sound and the
+  memory patcher). The device build links the C++ runtime statically and needs only `libc.so.6` at
+  GLIBC_2.17 or older, which `task core:device:mednafen_ngp` checks.
+- No BIOS is shipped or needed. NeoPop installs its own HLE BIOS.
+
+The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
+nelynes/slotPlus ([a8eae4c](https://github.com/nelynes/slotPlus/commit/a8eae4c), GPL-3.0) and are
+credited in the commit that added the build.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
@@ -563,3 +607,8 @@ by-title rotation list, the override file and the turned play
 [185257a](https://github.com/nelynes/slotPlus/commit/185257a), patch `0077-lynx-rotation`) and the
 flat card ([98419f4](https://github.com/nelynes/slotPlus/commit/98419f4), patch `0078-lynx-carts`,
 drawn by our own generator, no asset copied).
+
+Patch `0080-ngp-core-tests` builds its synthetic NeoGeo Pocket Color cart (the SNK header, the start
+address at 0x1c, the colour byte at 0x23 and a `jr t,-2` spin) after nelynes/slotPlus's
+`crates/slot/tests/ngp_core.rs` ([a8eae4c](https://github.com/nelynes/slotPlus/commit/a8eae4c),
+GPL-3.0). The paint and flash-command code is new. The fork is credited in the patch commit.

@@ -447,6 +447,46 @@ class Lynx(Base):
         self.assertEqual(stats["written"], 1)
 
 
+def ngp_rom(colour):
+    rom = bytearray(0x1000)
+    rom[:28] = b"COPYRIGHT BY SNK CORPORATION"
+    rom[0x23] = 0x10 if colour else 0x00
+    rom[0x24:0x30] = b"POCKET GAME "
+    return bytes(rom)
+
+
+class NeoGeoPocket(NesSnes):
+    def ngp_dats(self, mono, color):
+        return {fl.DAT + urllib.parse.quote(n) + ".dat": (200, dat_text(g).encode(), None)
+                for n, g in zip(fl.SYSTEMS["NGP"][2], (mono, color))}
+
+    def systemeids(self):
+        return [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["systemeid"][0]
+                for u in self.http.calls if u.startswith(fl.SS_API + "jeuInfos.php")]
+
+    def test_the_ngp_shelf_names_its_folder_extensions_both_dats_and_the_mono_id(self):
+        self.assertEqual(fl.SYSTEMS["NGP"][:2], ("ngp", {".ngp", ".ngc", ".ngpc"}))
+        self.assertEqual(fl.SYSTEMS["NGP"][2], ["SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color"])
+        self.assertEqual((fl.SYSTEMS["NGP"][3], fl.NGP_COLOR_ID), (25, 82))
+
+    def test_a_color_header_asks_screenscraper_for_82_and_a_mono_one_for_25(self):
+        color, mono = ngp_rom(True), ngp_rom(False)
+        self.rom("NGP", "Sonic.ngp", color)
+        self.rom("NGP", "Baseball.ngc", mono)
+        r = self.ngp_dats(("Baseball Stars (Japan, Europe)", crc(mono)),
+                          ("Sonic the Hedgehog - Pocket Adventure (World)", crc(color)))
+        stats = self.run_ss("NGP", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "NGP"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (2, 2, 0))
+        self.assertEqual(self.label("NGP", "Sonic"), PNG)
+        self.assertEqual(self.label("NGP", "Baseball"), PNG)
+        self.assertEqual(sorted(self.systemeids()), ["25", "82"])
+
+    def test_a_short_or_unsigned_ngp_file_asks_under_the_mono_id(self):
+        rom = fl.Rom("Tiny", 4, lambda: b"\x00\x01\x02\x03")
+        self.assertEqual(fl.ss_id("NGP", rom), 25)
+        self.assertEqual(fl.ss_id("GG", rom), 21)
+
+
 class ArtHost(Base):
     def routes(self, **extra):
         index = {"AAAAAAAA": {"support-texture": "GBA/support-texture/AAAAAAAA.png"}}

@@ -104,3 +104,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [110](110-lynx-tests.md) | Test Lynx with a homebrew image, synthetic carts and the real BIOS when present | 12 | tests | test | S | 102-lynx-core-build |
 | [111](111-lynx-carts.md) | Draw Lynx cards and fetch their labels | 12 | ui-art | feature | M | 103-platform-lynx |
 | [112](112-lynx-device-gate.md) | Lynx device gate on the RG34XXSP | 12 | device | chore | S | 104-lynx-bios-check, 107-lynx-pacing, 109-lynx-input-rotation |
+| [70](70-ngp-tracking.md) | NeoGeo Pocket: NGP and Pocket Color on Beetle NeoPop, built the NES and SNES way | 9 | device | tracking | L | 56-ps1-tracking |
+| [71](71-ngp-core-build.md) | Build Beetle NeoPop from a pinned commit for host and device and record its licence | 9 | cores | feature | S | 70-ngp-tracking |
+| [72](72-platform-ngp.md) | Add Platform::Ngp with its own shelf, scan and explicit policy | 9 | platform | feature | M | 71-ngp-core-build |
+| [73](73-ngp-options.md) | Set the NGP core options and answer NeoPop's declared defaults | 9 | cores | feature | S | 72-platform-ngp |
+| [74](74-ngp-canvas-screen.md) | Give NGP a 240x160 canvas and its own Screen section with Shader and Picture rows | 9 | video | feature | S | 73-ngp-options |
+| [75](75-ngp-flash-saves.md) | Keep NGP cart flash safe: core save dir, atomic publish, flush by reload | 9 | platform | feature | M | 72-platform-ngp |
+| [76](76-ngp-input.md) | Map the NGP A, B and Option buttons | 9 | input | feature | S | 72-platform-ngp |
+| [77](77-ngp-tests.md) | Test NGP with a generated cart that paints and writes flash | 9 | tests | test | S | 71-ngp-core-build |
+| [78](78-ngp-carts.md) | Draw NGP carts (mono and Color shells) and fetch their labels | 9 | ui-art | feature | M | 72-platform-ngp |
+| [79](79-ngp-device-gate.md) | NGP device gate on the RG34XXSP | 9 | device | chore | S | 74-ngp-canvas-screen, 75-ngp-flash-saves, 76-ngp-input |
