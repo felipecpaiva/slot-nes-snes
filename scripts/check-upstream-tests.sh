@@ -103,9 +103,9 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot/tests/gpsp.rs)
-		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)?( \| Core::GenesisPlusGx)?( \| Core::PcsxRearmed)? => "gpsp_color_correction",$'
+		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)?( \| Core::GenesisPlusGx)?( \| Core::PcsxRearmed)?( \| Core::MednafenNgp)? => "gpsp_color_correction",$'
 		if [ "$(grep -cE "$mgba" "$ours/$f")" = 1 ] &&
-			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)?( \\| Core::GenesisPlusGx)?( \\| Core::PcsxRearmed)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
+			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)?( \\| Core::GenesisPlusGx)?( \\| Core::PcsxRearmed)?( \\| Core::MednafenNgp)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exception (new cores on the Core::Mgba colour-correction arm)"
 		else
@@ -113,10 +113,10 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot-ui/tests/quick_menu.rs)
-		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?\]$'
-		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$'
+		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "Neo Geo Pocket")?)?)?\]$'
+		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenNgp)?)?)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
-			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation")?)?(\])$/$1$4/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1)?)?$/$1/' "$ours/$f" >"$tmp/x" &&
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "Neo Geo Pocket")?)?)?(\])$/$1$5/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenNgp)?)?)?$/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems and PlayStation after Game Boy in the Screen labels and the rows that open pages)"
 		else
@@ -129,7 +129,7 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	# | $prefix::Snes, | $prefix::Gg, | $prefix::Sms, | $prefix::Md and | $prefix::Ps1 in that order; everything
 	# else, whitespace and final newline included, must be byte-identical. A reflowed arm fails
 	# here on purpose: that is a decision for a human.
-	tail="( \\| $prefix::Snes( \\| $prefix::Gg( \\| $prefix::Sms( \\| $prefix::Md( \\| $prefix::Ps1)?)?)?)?)?"
+	tail="( \\| $prefix::Snes( \\| $prefix::Gg( \\| $prefix::Sms( \\| $prefix::Md( \\| $prefix::Ps1( \\| $prefix::Ngp)?)?)?)?)?)?"
 	arm="^[[:space:]]*$prefix::Gb \\| $prefix::Gbc \\| $prefix::Nes$tail =>"
 	if [ "$(grep -cE "$arm" "$ours/$f")" = 1 ] &&
 		perl -pe "s/^([ \\t]*$prefix::Gb \\| $prefix::Gbc) \\| $prefix::Nes$tail =>/\$1 =>/" "$ours/$f" >"$tmp/x" &&

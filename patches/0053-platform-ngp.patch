@@ -1,0 +1,1416 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:31:13 +0400
+Subject: [PATCH] platform-ngp
+
+NeoGeo Pocket and Pocket Color get one shelf, Games/NGP, on Beetle NeoPop
+(mednafen_ngp) alone. Platform::Ngp is appended to SHELVES and
+Core::MednafenNgp to EVERY; upstream's ALL lists stay as they are. Carts
+are .ngp, .ngc and .ngpc (.npc is in no No-Intro dat) and list under
+their file stem. slot_store::ngp reads the header: the SNK signature, the
+colour byte at 0x23 (0x10 Color, anything else mono) and the 12-byte
+title; a short or unsigned file still lists, as mono.
+
+Every policy method answers NGP explicitly: slot keeps L1 and R1, X and
+Y stay turbo, Select+X flips the picture, no core picker, no crop or
+overscan, rewind on, and the 160x152 picture sits in the GBA-sized
+240x160 canvas. Its shader is stored in Config/ngp_shader.txt and offers
+the Game Gear list (Off, LCD3x, then the retro list). Saves/NGP,
+States/NGP and Labels/NGP are made at boot. The shelf shows a
+placeholder GBA shape until the NGP carts land.
+
+The shelf shape follows nelynes/slotPlus a8eae4c (GPL-3.0), reimplemented.
+The generated test cart moves to ngp_common for every NGP test.
+---
+ crates/slot-store/src/bindings.rs            |   9 +-
+ crates/slot-store/src/core.rs                |  35 +++-
+ crates/slot-store/src/core_policy.rs         |  12 +-
+ crates/slot-store/src/lib.rs                 |   4 +-
+ crates/slot-store/src/ngp.rs                 |  48 +++++
+ crates/slot-store/src/platform.rs            |   5 +
+ crates/slot-store/src/platform_policy.rs     |  43 ++--
+ crates/slot-store/src/scan.rs                |   2 +-
+ crates/slot-store/src/sega_shader.rs         |  10 +-
+ crates/slot-store/tests/ngp_platform.rs      | 210 +++++++++++++++++++
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-ui/src/cart.rs                   |   7 +-
+ crates/slot-ui/src/retro_cart.rs             |   4 +-
+ crates/slot-ui/src/shell.rs                  |   1 +
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot/src/app.rs                       |  23 +-
+ crates/slot/src/core.rs                      |   3 +-
+ crates/slot/src/core_options_policy.rs       |  12 +-
+ crates/slot/src/platform_video.rs            |   9 +-
+ crates/slot/src/retro_quick.rs               |   5 +-
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/snes_input.rs                |   4 +-
+ crates/slot/tests/crop_overscan.rs           |   3 +-
+ crates/slot/tests/gpsp.rs                    |   2 +-
+ crates/slot/tests/ngp_common/mod.rs          |  83 ++++++++
+ crates/slot/tests/ngp_core.rs                |  68 +-----
+ crates/slot/tests/ngp_seat.rs                |  26 +++
+ crates/slot/tests/snes_select.rs             |   2 +-
+ crates/slot/tests/system_picture.rs          |   2 +-
+ 29 files changed, 520 insertions(+), 121 deletions(-)
+ create mode 100644 crates/slot-store/src/ngp.rs
+ create mode 100644 crates/slot-store/tests/ngp_platform.rs
+ create mode 100644 crates/slot/tests/ngp_common/mod.rs
+ create mode 100644 crates/slot/tests/ngp_seat.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index d13fdaf..108aa31 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -205,9 +205,12 @@ impl GameButton {
+     pub fn of(platform: Platform) -> &'static [GameButton] {
+         match platform {
+             Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 => &GameButton::ALL,
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => {
+-                &GameButton::ALL[..8]
+-            }
++            Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Ngp => &GameButton::ALL[..8],
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 15446ee..955ce31 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -16,6 +16,7 @@ pub enum Core {
+     Snes9x2005Plus,
+     GenesisPlusGx,
+     PcsxRearmed,
++    MednafenNgp,
+ }
+ 
+ impl Core {
+@@ -31,6 +32,7 @@ impl Core {
+             Core::Snes9x2005Plus => "snes9x2005_plus",
+             Core::GenesisPlusGx => "genesis_plus_gx",
+             Core::PcsxRearmed => "pcsx_rearmed",
++            Core::MednafenNgp => "mednafen_ngp",
+         }
+     }
+ 
+@@ -48,6 +50,7 @@ impl Core {
+             Core::Snes9x2005Plus => "Snes9x 2005+",
+             Core::GenesisPlusGx => "Genesis Plus GX",
+             Core::PcsxRearmed => "PCSX ReARMed",
++            Core::MednafenNgp => "Beetle NeoPop",
+         }
+     }
+ 
+@@ -61,6 +64,7 @@ impl Core {
+             "snes9x2005_plus" => Some(Core::Snes9x2005Plus),
+             "genesis_plus_gx" => Some(Core::GenesisPlusGx),
+             "pcsx_rearmed" => Some(Core::PcsxRearmed),
++            "mednafen_ngp" => Some(Core::MednafenNgp),
+             _ => None,
+         }
+     }
+@@ -74,7 +78,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Ngp => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+@@ -85,7 +90,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Ngp => false,
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+@@ -96,7 +102,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Ngp => false,
+             },
+             Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+@@ -107,7 +114,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Ngp => false,
+             },
+             Core::GenesisPlusGx => match platform {
+                 Platform::Gg | Platform::Sms | Platform::Md => true,
+@@ -116,7 +124,8 @@ impl Core {
+                 | Platform::Gbc
+                 | Platform::Nes
+                 | Platform::Snes
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Ngp => false,
+             },
+             Core::PcsxRearmed => match platform {
+                 Platform::Ps1 => true,
+@@ -127,7 +136,20 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md => false,
++                | Platform::Md
++                | Platform::Ngp => false,
++            },
++            Core::MednafenNgp => match platform {
++                Platform::Ngp => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+         }
+     }
+@@ -139,6 +161,7 @@ impl Core {
+             Platform::Snes => Core::Snes9x,
+             Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
+             Platform::Ps1 => Core::PcsxRearmed,
++            Platform::Ngp => Core::MednafenNgp,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 68faf87..ebce4c7 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 8] = [
++    pub const EVERY: [Core; 9] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -11,6 +11,7 @@ impl Core {
+         Core::Snes9x2005Plus,
+         Core::GenesisPlusGx,
+         Core::PcsxRearmed,
++        Core::MednafenNgp,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -23,6 +24,7 @@ impl Core {
+             Core::Snes9x2005Plus => "snes9x_2005",
+             Core::GenesisPlusGx => "genesis_plus_gx",
+             Core::PcsxRearmed => "pcsx_rearmed",
++            Core::MednafenNgp => "ngp",
+         }
+     }
+ 
+@@ -33,6 +35,7 @@ impl Core {
+             Core::Snes9x | Core::Snes9x2005Plus => (Core::Snes9x, Core::Snes9x2005Plus),
+             Core::GenesisPlusGx => (Core::GenesisPlusGx, Core::GenesisPlusGx),
+             Core::PcsxRearmed => (Core::PcsxRearmed, Core::PcsxRearmed),
++            Core::MednafenNgp => (Core::MednafenNgp, Core::MednafenNgp),
+         }
+     }
+ 
+@@ -49,9 +52,11 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => (360, 240),
++                | Platform::Ps1
++                | Platform::Ngp => (360, 240),
+             },
+             Core::PcsxRearmed => (640, 480),
++            Core::MednafenNgp => (240, 160),
+         }
+     }
+ 
+@@ -68,7 +73,8 @@ impl Core {
+             | Core::Nestopia
+             | Core::Snes9x2005Plus
+             | Core::GenesisPlusGx
+-            | Core::PcsxRearmed => false,
++            | Core::PcsxRearmed
++            | Core::MednafenNgp => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 6e434c1..76bf8cb 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -9,6 +9,7 @@ mod gb_palette;
+ mod gba;
+ pub mod ini;
+ pub mod nes;
++pub mod ngp;
+ mod platform;
+ mod platform_policy;
+ pub mod ps1;
+@@ -40,7 +41,8 @@ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+-    read_sega_shaders, write_sega_shaders, SegaShaders, PS1_SHADER_FILE, SEGA_SHADERS_FILE,
++    read_sega_shaders, write_sega_shaders, SegaShaders, NGP_SHADER_FILE, PS1_SHADER_FILE,
++    SEGA_SHADERS_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/ngp.rs b/crates/slot-store/src/ngp.rs
+new file mode 100644
+index 0000000..7cdffcf
+--- /dev/null
++++ b/crates/slot-store/src/ngp.rs
+@@ -0,0 +1,48 @@
++use std::fs::File;
++use std::io::Read;
++use std::path::Path;
++
++pub const HEADER_LEN: usize = 0x30;
++const COLOUR_OFF: usize = 0x23;
++const COLOUR: u8 = 0x10;
++const TITLE_OFF: usize = 0x24;
++const TITLE_LEN: usize = 12;
++const SIGNATURES: [&[u8]; 2] = [
++    b"COPYRIGHT BY SNK CORPORATION",
++    b" LICENSED BY SNK CORPORATION",
++];
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct Header {
++    pub colour: bool,
++    pub title: String,
++}
++
++impl Header {
++    pub fn parse(bytes: &[u8]) -> Option<Header> {
++        let bytes = bytes.get(..HEADER_LEN)?;
++        if !SIGNATURES.iter().any(|s| bytes.starts_with(s)) {
++            return None;
++        }
++        let title = &bytes[TITLE_OFF..TITLE_OFF + TITLE_LEN];
++        let end = title.iter().position(|b| *b == 0).unwrap_or(TITLE_LEN);
++        Some(Header {
++            colour: bytes[COLOUR_OFF] == COLOUR,
++            title: String::from_utf8_lossy(&title[..end]).trim().to_string(),
++        })
++    }
++}
++
++pub fn header(rom: &Path) -> Option<Header> {
++    let mut bytes = Vec::with_capacity(HEADER_LEN);
++    File::open(rom)
++        .ok()?
++        .take(HEADER_LEN as u64)
++        .read_to_end(&mut bytes)
++        .ok()?;
++    Header::parse(&bytes)
++}
++
++pub fn is_colour(rom: &Path) -> bool {
++    header(rom).is_some_and(|h| h.colour)
++}
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index fc1379c..76b6f21 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -12,6 +12,7 @@ pub enum Platform {
+     Sms,
+     Md,
+     Ps1,
++    Ngp,
+ }
+ 
+ impl Platform {
+@@ -28,6 +29,7 @@ impl Platform {
+             Platform::Sms => "Sega Master System",
+             Platform::Md => "Sega Mega Drive",
+             Platform::Ps1 => "Sony PlayStation",
++            Platform::Ngp => "SNK Neo Geo Pocket",
+         }
+     }
+ 
+@@ -42,6 +44,7 @@ impl Platform {
+             Platform::Sms => "SMS",
+             Platform::Md => "MD",
+             Platform::Ps1 => "PS1",
++            Platform::Ngp => "NGP",
+         }
+     }
+ 
+@@ -55,6 +58,7 @@ impl Platform {
+             Platform::Sms => &["sms"],
+             Platform::Md => &["md", "gen", "bin"],
+             Platform::Ps1 => &["cue", "chd", "pbp", "m3u"],
++            Platform::Ngp => &["ngp", "ngc", "ngpc"],
+         }
+     }
+ 
+@@ -68,6 +72,7 @@ impl Platform {
+             Platform::Sms => (256, 192),
+             Platform::Md => (320, 224),
+             Platform::Ps1 => (640, 480),
++            Platform::Ngp => (160, 152),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 6215838..de0bef1 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -3,7 +3,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 9] = [
++    pub const SHELVES: [Platform; 10] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -13,6 +13,7 @@ impl Platform {
+         Platform::Sms,
+         Platform::Md,
+         Platform::Ps1,
++        Platform::Ngp,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -23,7 +24,8 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Ngp => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+@@ -31,7 +33,12 @@ impl Platform {
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+             Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 => false,
+-            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => true,
++            Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Ngp => true,
+         }
+     }
+ 
+@@ -43,13 +50,14 @@ impl Platform {
+             | Platform::Gbc
+             | Platform::Nes
+             | Platform::Gg
+-            | Platform::Sms => false,
++            | Platform::Sms
++            | Platform::Ngp => false,
+         }
+     }
+ 
+     pub fn select_x_toggles_picture(self) -> bool {
+         match self {
+-            Platform::Snes | Platform::Md | Platform::Ps1 => true,
++            Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Ngp => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -69,14 +77,15 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => None,
++            | Platform::Ps1
++            | Platform::Ngp => None,
+         }
+     }
+ 
+     pub fn stretch_crops_height(self) -> bool {
+         match self {
+             Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => false,
+-            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => true,
++            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Ngp => true,
+         }
+     }
+ 
+@@ -90,7 +99,8 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => (0, 0),
++            | Platform::Ps1
++            | Platform::Ngp => (0, 0),
+         }
+     }
+ 
+@@ -98,7 +108,7 @@ impl Platform {
+         match self {
+             Platform::Gba => &Shader::GBA,
+             Platform::Gb | Platform::Gbc => &Shader::GB,
+-            Platform::Gg => &Shader::GG,
++            Platform::Gg | Platform::Ngp => &Shader::GG,
+             Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Ps1 => {
+                 &Shader::RETRO
+             }
+@@ -115,7 +125,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Ngp => false,
+         }
+     }
+ 
+@@ -129,7 +140,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => true,
++            | Platform::Md
++            | Platform::Ngp => true,
+         }
+     }
+ 
+@@ -143,7 +155,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => false,
++            | Platform::Md
++            | Platform::Ngp => false,
+         }
+     }
+ 
+@@ -157,7 +170,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => false,
++            | Platform::Md
++            | Platform::Ngp => false,
+         }
+     }
+ 
+@@ -171,7 +185,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => true,
++            | Platform::Md
++            | Platform::Ngp => true,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 0bd625f..e061197 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -30,7 +30,7 @@ impl Cart {
+                     self.title = title;
+                 }
+             }
+-            Platform::Nes | Platform::Gg | Platform::Sms => {}
++            Platform::Nes | Platform::Gg | Platform::Sms | Platform::Ngp => {}
+             Platform::Md => {
+                 if let Some(title) = crate::sega::md_title(&self.rom) {
+                     self.title = title;
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index 64c6a58..4948e40 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -6,6 +6,7 @@ use crate::Platform;
+ 
+ pub const SEGA_SHADERS_FILE: &str = "sega_shaders.txt";
+ pub const PS1_SHADER_FILE: &str = "ps1_shader.txt";
++pub const NGP_SHADER_FILE: &str = "ngp_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -13,6 +14,7 @@ pub struct SegaShaders {
+     pub sms: Shader,
+     pub md: Shader,
+     pub ps1: Shader,
++    pub ngp: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -22,13 +24,14 @@ impl Default for SegaShaders {
+             sms: Shader::Off,
+             md: Shader::Off,
+             ps1: Shader::Off,
++            ngp: Shader::Off,
+         }
+     }
+ }
+ 
+ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+     let mut s = SegaShaders::default();
+-    for file in [SEGA_SHADERS_FILE, PS1_SHADER_FILE] {
++    for file in [SEGA_SHADERS_FILE, PS1_SHADER_FILE, NGP_SHADER_FILE] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+             let (shader, platform) = match (file, key.trim()) {
+@@ -36,6 +39,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (SEGA_SHADERS_FILE, "sms") => (&mut s.sms, Platform::Sms),
+                 (SEGA_SHADERS_FILE, "md") => (&mut s.md, Platform::Md),
+                 (PS1_SHADER_FILE, "ps1") => (&mut s.ps1, Platform::Ps1),
++                (NGP_SHADER_FILE, "ngp") => (&mut s.ngp, Platform::Ngp),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -61,7 +65,9 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let sega_default = (s.gg, s.sms, s.md) == (d.gg, d.sms, d.md);
+     write_unless_unchanged(root, SEGA_SHADERS_FILE, &sega, sega_default)?;
+     let ps1 = format!("ps1={}\n", s.ps1.name());
+-    write_unless_unchanged(root, PS1_SHADER_FILE, &ps1, s.ps1 == d.ps1)
++    write_unless_unchanged(root, PS1_SHADER_FILE, &ps1, s.ps1 == d.ps1)?;
++    let ngp = format!("ngp={}\n", s.ngp.name());
++    write_unless_unchanged(root, NGP_SHADER_FILE, &ngp, s.ngp == d.ngp)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/ngp_platform.rs b/crates/slot-store/tests/ngp_platform.rs
+new file mode 100644
+index 0000000..ac8dc0d
+--- /dev/null
++++ b/crates/slot-store/tests/ngp_platform.rs
+@@ -0,0 +1,210 @@
++mod common;
++
++use std::path::{Path, PathBuf};
++
++use common::tmp_root;
++use slot_store::ngp::{header, is_colour, Header};
++use slot_store::{
++    read_sega_shaders, read_slot_state, scan, write_sega_shaders, write_slot_state, Cart, Core,
++    Platform, RetroShader, SegaShaders, Shader, SlotState, NGP_SHADER_FILE,
++};
++
++fn rom(colour: u8) -> Vec<u8> {
++    let mut rom = vec![0u8; 0x200];
++    rom[..28].copy_from_slice(b"COPYRIGHT BY SNK CORPORATION");
++    rom[0x23] = colour;
++    rom[0x24..0x30].copy_from_slice(b"SONIC POCKET");
++    rom
++}
++
++fn put(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
++    let dir = root.join("Games/NGP");
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let p = dir.join(name);
++    std::fs::write(&p, bytes).expect("write");
++    p
++}
++
++fn ngp(root: &Path) -> Vec<Cart> {
++    scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == Platform::Ngp)
++        .collect()
++}
++
++#[test]
++fn the_neogeo_pocket_is_the_last_shelf_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES[9], Platform::Ngp);
++    assert_eq!(Platform::SHELVES.len(), 10);
++    assert_eq!(Platform::ALL.len(), 3);
++}
++
++#[test]
++fn an_ngc_cart_lands_on_the_ngp_shelf() {
++    let d = tmp_root();
++    put(
++        d.path(),
++        "Sonic the Hedgehog Pocket Adventure (World).ngc",
++        &rom(0x10),
++    );
++    put(d.path(), "Metal Slug 2nd Mission (World).NGP", &rom(0x10));
++    put(d.path(), "Neo Turf Masters (World).ngpc", &rom(0x00));
++    put(
++        d.path(),
++        "._Sonic the Hedgehog Pocket Adventure (World).ngc",
++        &rom(0x10),
++    );
++    put(d.path(), "Homebrew.npc", &rom(0x10));
++    put(d.path(), "Notes.txt", b"");
++    let mut carts = ngp(d.path());
++    let stems: Vec<&str> = carts.iter().map(|c| c.stem.as_str()).collect();
++    assert_eq!(
++        stems,
++        [
++            "Metal Slug 2nd Mission (World)",
++            "Neo Turf Masters (World)",
++            "Sonic the Hedgehog Pocket Adventure (World)",
++        ]
++    );
++    for c in &mut carts {
++        c.read_header();
++        assert!(c.title.is_empty(), "{} took a header title", c.stem);
++        assert!(c.code.is_empty());
++        assert_eq!(c.rom.parent(), Some(d.path().join("Games/NGP").as_path()));
++    }
++    assert_eq!(Platform::Ngp.dir_name(), "NGP");
++    assert_eq!(Platform::Ngp.name(), "SNK Neo Geo Pocket");
++}
++
++#[test]
++fn the_header_colour_byte_picks_color_or_mono() {
++    let d = tmp_root();
++    let color = put(d.path(), "Color.ngp", &rom(0x10));
++    let mono = put(d.path(), "Mono.ngc", &rom(0x00));
++    let short = put(d.path(), "Short.ngc", &rom(0x10)[..0x2f]);
++    assert!(is_colour(&color), "a Color cart in a .ngp file");
++    assert!(!is_colour(&mono));
++    assert!(!is_colour(&short));
++    assert_eq!(
++        header(&color),
++        Some(Header {
++            colour: true,
++            title: "SONIC POCKET".into()
++        })
++    );
++    assert_eq!(header(&short), None);
++}
++
++#[test]
++fn a_licensed_by_snk_cart_is_read_and_an_unsigned_one_is_mono() {
++    let mut licensed = rom(0x10);
++    licensed[..28].copy_from_slice(b" LICENSED BY SNK CORPORATION");
++    assert_eq!(Header::parse(&licensed).map(|h| h.colour), Some(true));
++    let mut unsigned = rom(0x10);
++    unsigned[..28].copy_from_slice(&[0xff; 28]);
++    assert_eq!(Header::parse(&unsigned), None);
++}
++
++#[test]
++fn a_short_or_unsigned_file_still_lists_with_its_stem_as_title() {
++    let d = tmp_root();
++    put(d.path(), "Tiny.ngc", b"\x01\x02");
++    put(d.path(), "Empty.ngp", b"");
++    let mut carts = ngp(d.path());
++    let stems: Vec<&str> = carts.iter().map(|c| c.stem.as_str()).collect();
++    assert_eq!(stems, ["Empty", "Tiny"]);
++    for c in &mut carts {
++        c.read_header();
++        assert!(c.title.is_empty());
++        assert!(!is_colour(&c.rom));
++    }
++}
++
++#[test]
++fn the_neogeo_pocket_keeps_slots_shoulders_and_turbo_and_answers_every_policy() {
++    let p = Platform::Ngp;
++    assert!(p.owns_shoulders());
++    assert!(!p.passes_xy_through());
++    assert!(p.select_x_toggles_picture());
++    assert_eq!(p.picker_cores(), None);
++    assert!(p.stretch_crops_height());
++    assert_eq!(p.overscan(), (0, 0));
++    assert!(!p.follows_frame_width());
++    assert!(!p.has_gb_palettes());
++    assert!(p.rewinds());
++    assert!(!p.fills_canvas());
++    assert!(!p.swaps_discs());
++    assert!(p.owns_triggers());
++    assert_eq!(p.picture(), (160, 152));
++    assert_eq!(p.shader_choices(), &Shader::GG);
++}
++
++#[test]
++fn the_neogeo_pocket_runs_on_beetle_neopop_alone_on_the_gba_sized_canvas() {
++    assert_eq!(Core::default_for(Platform::Ngp), Core::MednafenNgp);
++    assert_eq!(Core::EVERY[8], Core::MednafenNgp);
++    for core in Core::EVERY {
++        assert_eq!(
++            core.runs(Platform::Ngp),
++            core == Core::MednafenNgp,
++            "{core:?}"
++        );
++    }
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            Core::MednafenNgp.runs(platform),
++            platform == Platform::Ngp,
++            "{platform:?}"
++        );
++    }
++    assert_eq!(Core::MednafenNgp.canvas(Platform::Ngp), (240, 160));
++    assert_eq!(Core::MednafenNgp.as_str(), "mednafen_ngp");
++    assert_eq!(Core::MednafenNgp.option_prefix(), "ngp");
++    assert_eq!(
++        Core::MednafenNgp.pair(),
++        (Core::MednafenNgp, Core::MednafenNgp)
++    );
++    assert_eq!(Core::parse("mednafen_ngp"), Some(Core::MednafenNgp));
++    assert!(!Core::MednafenNgp.has_colour_correction());
++}
++
++#[test]
++fn a_neogeo_pocket_game_resumes_as_a_neogeo_pocket_game() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Sonic the Hedgehog Pocket Adventure (World)".into()),
++        cart_platform: Some(Platform::Ngp),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    assert!(text.lines().any(|l| l == "cart_platform=ngp"), "{text:?}");
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn the_ngp_shader_lives_in_its_own_file_and_leaves_the_others_alone() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        ngp: Shader::Lcd3x,
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config").join(NGP_SHADER_FILE)).expect("read"),
++        "ngp=lcd3x\n"
++    );
++    assert!(!d.path().join("Config/sega_shaders.txt").exists());
++    assert!(!d.path().join("Config/ps1_shader.txt").exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++    let file = d.path().join("Config").join(NGP_SHADER_FILE);
++    std::fs::write(&file, "ngp=crt-pi\n").expect("write");
++    assert_eq!(
++        read_sega_shaders(d.path()).ngp,
++        Shader::Retro(RetroShader::CrtPi)
++    );
++    std::fs::write(&file, "ngp=simpletex\n").expect("write");
++    assert_eq!(read_sega_shaders(d.path()).ngp, Shader::Off);
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index 265680c..98ae1e2 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -21,6 +21,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         sms: Shader::Grid,
+         md: Shader::Retro(RetroShader::Line),
+         ps1: Shader::Off,
++        ngp: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 40a567d..2889a7b 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -93,7 +93,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => None,
++        | Platform::Ps1
++        | Platform::Ngp => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -174,7 +175,7 @@ const GB_SEATED_H: u32 = 259;
+ 
+ pub fn seated_box(platform: Platform) -> (u32, u32) {
+     match platform {
+-        Platform::Gba => (SEATED_W, SEATED_H),
++        Platform::Gba | Platform::Ngp => (SEATED_W, SEATED_H),
+         Platform::Ps1 => (SEATED_W, PS1_SEATED_H),
+         Platform::Nes => (SEATED_W, NES_SEATED_H),
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+@@ -187,7 +188,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+ 
+ pub fn cart_box(platform: Platform) -> (u32, u32) {
+     let s = spec(match platform {
+-        Platform::Gba => Shape::Gba,
++        Platform::Gba | Platform::Ngp => Shape::Gba,
+         Platform::Ps1 => return retro_box(RetroShell::Ps1(Ps1Case::Us)),
+         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+         Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 242699a..25e707a 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -207,7 +207,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+                 .unwrap_or(SegaShell::Genesis),
+         )),
+         Platform::Ps1 => Some(RetroShell::Ps1(crate::ps1_case::case_of(cart))),
+-        Platform::Gba | Platform::Gb | Platform::Gbc => None,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ngp => None,
+     }
+ }
+ 
+@@ -360,7 +360,7 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         Platform::Nes | Platform::Snes | Platform::Gg | Platform::Md => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+-        Platform::Gba | Platform::Gb | Platform::Gbc => sh,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ngp => sh,
+     };
+     let top = src.get(..(sw as usize * rows as usize * 4))?;
+     cover_rgba(top, sw, rows, w, h)
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index 11dac5f..2eaf465 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -96,6 +96,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::Ps1 => crate::retro_shell::plastic_for(cart),
++        Platform::Ngp => DEFAULT_SHELL,
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index f994f18..a25ab6d 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Ngp => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9c5fefb..29d4040 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1184,7 +1184,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => Vec::new(),
++            | Platform::Ps1
++            | Platform::Ngp => Vec::new(),
+             Platform::Gb | Platform::Gbc => self
+                 .root()
+                 .map(|root| crate::bezel::list(root, platform))
+@@ -1212,7 +1213,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &mut self.state.bezel_gba,
++            | Platform::Ps1
++            | Platform::Ngp => &mut self.state.bezel_gba,
+             Platform::Gb => &mut self.state.bezel_gb,
+             Platform::Gbc => &mut self.state.bezel_gbc,
+         }
+@@ -1226,7 +1228,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &self.state.bezel_gba,
++            | Platform::Ps1
++            | Platform::Ngp => &self.state.bezel_gba,
+             Platform::Gb => &self.state.bezel_gb,
+             Platform::Gbc => &self.state.bezel_gbc,
+         };
+@@ -2140,6 +2143,7 @@ impl App {
+             Platform::Sms => self.sega_shaders.sms,
+             Platform::Md => self.sega_shaders.md,
+             Platform::Ps1 => self.sega_shaders.ps1,
++            Platform::Ngp => self.sega_shaders.ngp,
+         }
+     }
+ 
+@@ -2165,7 +2169,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Ngp => false,
+         }
+     }
+ 
+@@ -2938,6 +2943,7 @@ impl App {
+             Platform::Sms => (&mut self.sega_shaders.sms, &Shader::RETRO[..]),
+             Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
+             Platform::Ps1 => (&mut self.sega_shaders.ps1, &Shader::RETRO[..]),
++            Platform::Ngp => (&mut self.sega_shaders.ngp, &Shader::GG[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -2997,7 +3003,8 @@ impl App {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => return false,
++                | Platform::Ps1
++                | Platform::Ngp => return false,
+             };
+             self.change_setting(row, true);
+             let said = match self.colour_correction() {
+@@ -3397,7 +3404,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => [0xe6, 0xe4, 0xda],
++            | Platform::Ps1
++            | Platform::Ngp => [0xe6, 0xe4, 0xda],
+         };
+         let k = (self.blank_s / BLANK_WARM_S).min(1.0);
+         let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
+@@ -5577,7 +5585,8 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => 0,
++        | Platform::Ps1
++        | Platform::Ngp => 0,
+         Platform::Gb => 1,
+         Platform::Gbc => 2,
+     }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 3ad74b5..79b9a7f 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -191,7 +191,8 @@ pub fn colour_option(
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+         | Core::GenesisPlusGx
+-        | Core::PcsxRearmed => None,
++        | Core::PcsxRearmed
++        | Core::MednafenNgp => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 12a3d23..19b2f5a 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -42,7 +42,8 @@ pub fn answers_declared_defaults(which: Core) -> bool {
+         | Core::Snes9x
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+-        | Core::GenesisPlusGx => false,
++        | Core::GenesisPlusGx
++        | Core::MednafenNgp => false,
+     }
+ }
+ 
+@@ -79,7 +80,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Snes9x
+         | Core::Snes9x2005Plus
+         | Core::GenesisPlusGx
+-        | Core::PcsxRearmed => &[],
++        | Core::PcsxRearmed
++        | Core::MednafenNgp => &[],
+     };
+     for key in overscan {
+         core.set_option(key, "0");
+@@ -91,7 +93,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus => &[],
++        | Core::Snes9x2005Plus
++        | Core::MednafenNgp => &[],
+         Core::PcsxRearmed => &PCSX_REARMED,
+     };
+     for (key, value) in fixed {
+@@ -111,6 +114,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::Snes9x
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+-        | Core::GenesisPlusGx => None,
++        | Core::GenesisPlusGx
++        | Core::MednafenNgp => None,
+     }
+ }
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 16b5b66..acc897d 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -19,9 +19,12 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 6] = [
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+     match platform {
+-        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => {
+-            VideoMode::Actual
+-        }
++        Platform::Gba
++        | Platform::Gb
++        | Platform::Gbc
++        | Platform::Gg
++        | Platform::Ps1
++        | Platform::Ngp => VideoMode::Actual,
+         Platform::Nes | Platform::Snes => VideoMode::Crop,
+         Platform::Sms | Platform::Md => VideoMode::Stretch,
+     }
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 1f5f107..0cd273e 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -30,7 +30,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => {
++        | Platform::Ps1
++        | Platform::Ngp => {
+             let mut hidden = vec![QuickRow::ColourCorrection, QuickRow::Palette];
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
+@@ -44,7 +45,7 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 5] {
+     let mut seen = [false; 5];
+     for platform in platforms {
+         let at = match platform {
+-            Platform::Gba | Platform::Gb | Platform::Gbc => continue,
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ngp => continue,
+             Platform::Nes | Platform::Snes => 0,
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 83364c9..5ff9160 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 48] = [
++pub const DIRS: [&str; 52] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -16,6 +16,7 @@ pub const DIRS: [&str; 48] = [
+     "Games/SMS",
+     "Games/MD",
+     "Games/PS1",
++    "Games/NGP",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -27,6 +28,7 @@ pub const DIRS: [&str; 48] = [
+     "Labels/SMS",
+     "Labels/MD",
+     "Labels/PS1",
++    "Labels/NGP",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -37,6 +39,7 @@ pub const DIRS: [&str; 48] = [
+     "Saves/SMS",
+     "Saves/MD",
+     "Saves/PS1",
++    "Saves/NGP",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -47,6 +50,7 @@ pub const DIRS: [&str; 48] = [
+     "States/SMS",
+     "States/MD",
+     "States/PS1",
++    "States/NGP",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 0db0051..85bc423 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -5,7 +5,9 @@ use crate::video_mode::VideoMode;
+ impl VideoMode {
+     pub fn flipped(self, platform: Platform) -> VideoMode {
+         match (platform, self) {
+-            (Platform::Snes | Platform::Md | Platform::Ps1, mode) => mode.stepped(platform, true),
++            (Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Ngp, mode) => {
++                mode.stepped(platform, true)
++            }
+             (
+                 Platform::Gba
+                 | Platform::Gb
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index cb5edca..c80f635 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -77,7 +77,8 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &[Stretch, Actual],
++            | Platform::Ps1
++            | Platform::Ngp => &[Stretch, Actual],
+         };
+         assert_eq!(picture_choices(platform), want, "{platform:?}");
+     }
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index 16e2f91..67d3b55 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenNgp => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/ngp_common/mod.rs b/crates/slot/tests/ngp_common/mod.rs
+new file mode 100644
+index 0000000..9616505
+--- /dev/null
++++ b/crates/slot/tests/ngp_common/mod.rs
+@@ -0,0 +1,83 @@
++#![allow(dead_code)]
++// The synthetic cart follows nelynes/slotPlus's ngp_core.rs
++// (https://github.com/nelynes/slotPlus/commit/a8eae4c, GPL-3.0): the SNK header, the start address at
++// 0x1c, the colour byte at 0x23 and a `jr t,-2` spin. The paint and flash-command code is ours.
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub const ROM_START: usize = 0x20_0000;
++pub const FLASH_AT: usize = 0x20_f000;
++pub const MARK: u8 = 0x5a;
++// FlashFileHeader (8 bytes), one FlashFileBlockHeader (6, padded to 8), then the 256-byte block.
++pub const FLASH_LEN: usize = 8 + 8 + 256;
++pub const RED: u16 = 0x000f;
++
++pub fn neopop() -> Option<PathBuf> {
++    require_core("mednafen_ngp")
++}
++
++fn ld24(addr: usize, byte: u8) -> [u8; 6] {
++    // LD (n24),#: the 24-bit memory prefix 0xf2, the address low byte first, DST LD.B #, the byte.
++    let [a0, a1, a2, _] = (addr as u32).to_le_bytes();
++    [0xf2, a0, a1, a2, 0x00, byte]
++}
++
++fn ldw16(addr: u16, word: u16) -> [u8; 6] {
++    // LD.W (n16),#: the 16-bit memory prefix 0xf1, the address, DST LD.W #, the word.
++    let [a0, a1] = addr.to_le_bytes();
++    let [w0, w1] = word.to_le_bytes();
++    [0xf1, a0, a1, 0x02, w0, w1]
++}
++
++/// A 64 KB cart that paints the whole screen red (the background and out-of-window palette
++/// entries), optionally writes `mark` to cart flash at `FLASH_AT` through the AA/55/A0 command,
++/// then spins. Byte 0x23 is 0x10 for a Pocket Color cart and 0x00 for a mono one.
++pub fn cart_bytes(write_flash: Option<u8>, colour: bool) -> Vec<u8> {
++    let mut rom = vec![0u8; 0x10000];
++    rom[..28].copy_from_slice(b"COPYRIGHT BY SNK CORPORATION");
++    rom[0x1c..0x20].copy_from_slice(&(ROM_START as u32 + 0x40).to_le_bytes());
++    rom[0x23] = if colour { 0x10 } else { 0x00 };
++    rom[0x24..0x30].copy_from_slice(b"SLOT NGP    ");
++    let mut code = Vec::new();
++    code.extend(ldw16(0x83e0, RED));
++    code.extend(ldw16(0x83f0, RED));
++    if let Some(mark) = write_flash {
++        code.extend(ld24(0x20_5555, 0xaa));
++        code.extend(ld24(0x20_2aaa, 0x55));
++        code.extend(ld24(0x20_5555, 0xa0));
++        code.extend(ld24(FLASH_AT, mark));
++    }
++    code.extend([0x68, 0xfe]);
++    rom[0x40..0x40 + code.len()].copy_from_slice(&code);
++    rom
++}
++
++pub fn cart(dir: &Path, stem: &str, write_flash: bool) -> PathBuf {
++    let path = dir.join(format!("{stem}.ngc"));
++    std::fs::write(&path, cart_bytes(write_flash.then_some(MARK), true)).unwrap();
++    path
++}
++
++pub fn red(frame: &[u8]) -> usize {
++    frame
++        .chunks_exact(4)
++        .filter(|px| px[2] > 200 && px[1] < 60 && px[0] < 60)
++        .count()
++}
++
++/// The flash file NeoPop writes for one block at `FLASH_AT` holding `mark`.
++pub fn assert_holds(flash: &Path, mark: u8) {
++    let bytes = std::fs::read(flash).expect("no .flash file");
++    assert_eq!(bytes.len(), FLASH_LEN, "{} bytes", bytes.len());
++    assert_eq!(&bytes[..2], &0x0053u16.to_le_bytes(), "flash id");
++    assert_eq!(&bytes[2..4], &1u16.to_le_bytes(), "block count");
++    assert_eq!(
++        &bytes[8..12],
++        &(FLASH_AT as u32).to_le_bytes(),
++        "block address"
++    );
++    assert_eq!(bytes[16], mark);
++    assert!(bytes[17..].iter().all(|&b| b == 0));
++}
+diff --git a/crates/slot/tests/ngp_core.rs b/crates/slot/tests/ngp_core.rs
+index ae194c7..0f2c511 100644
+--- a/crates/slot/tests/ngp_core.rs
++++ b/crates/slot/tests/ngp_core.rs
+@@ -1,65 +1,19 @@
+-// Beetle NeoPop (NeoGeo Pocket and Pocket Color) on the generic libretro host, before any NGP platform
+-// code exists (issues 71 and 77, ADR 0083). The synthetic cart follows nelynes/slotPlus's ngp_core.rs
+-// (https://github.com/nelynes/slotPlus/commit/a8eae4c, GPL-3.0): the SNK header, the start address at
+-// 0x1c, the colour byte at 0x23 and a `jr t,-2` spin. The paint and flash-command code is ours.
++// Beetle NeoPop (NeoGeo Pocket and Pocket Color) on the generic libretro host (issues 71 and 77,
++// ADR 0090). The synthetic cart lives in ngp_common.
+ mod common;
+ mod core_common;
++mod ngp_common;
+ 
+ use std::path::{Path, PathBuf};
+ 
+ use common::core_lock;
+-use core_common::require_core;
++use ngp_common::{assert_holds, cart, MARK};
+ use slot_retro::{ButtonMask, LibretroCore, RetroCore};
+ 
+-const ROM_START: usize = 0x20_0000;
+-const FLASH_AT: usize = 0x20_f000;
+-const MARK: u8 = 0x5a;
+-// FlashFileHeader (8 bytes), one FlashFileBlockHeader (6, padded to 8), then the 256-byte block.
+-const FLASH_LEN: usize = 8 + 8 + 256;
+-const RED: u16 = 0x000f;
+-
+-fn ld24(addr: usize, byte: u8) -> [u8; 6] {
+-    // LD (n24),#: the 24-bit memory prefix 0xf2, the address low byte first, DST LD.B #, the byte.
+-    let [a0, a1, a2, _] = (addr as u32).to_le_bytes();
+-    [0xf2, a0, a1, a2, 0x00, byte]
+-}
+-
+-fn ldw16(addr: u16, word: u16) -> [u8; 6] {
+-    // LD.W (n16),#: the 16-bit memory prefix 0xf1, the address, DST LD.W #, the word.
+-    let [a0, a1] = addr.to_le_bytes();
+-    let [w0, w1] = word.to_le_bytes();
+-    [0xf1, a0, a1, 0x02, w0, w1]
+-}
+-
+-/// A 64 KB Pocket Color cart that paints the whole screen red (the background and out-of-window
+-/// palette entries), optionally writes `MARK` to cart flash at `FLASH_AT` through the AA/55/A0
+-/// command, then spins.
+-fn cart(dir: &Path, stem: &str, write_flash: bool) -> PathBuf {
+-    let mut rom = vec![0u8; 0x10000];
+-    rom[..28].copy_from_slice(b"COPYRIGHT BY SNK CORPORATION");
+-    rom[0x1c..0x20].copy_from_slice(&(ROM_START as u32 + 0x40).to_le_bytes());
+-    rom[0x23] = 0x10;
+-    rom[0x24..0x30].copy_from_slice(b"SLOT NGP    ");
+-    let mut code = Vec::new();
+-    code.extend(ldw16(0x83e0, RED));
+-    code.extend(ldw16(0x83f0, RED));
+-    if write_flash {
+-        code.extend(ld24(0x20_5555, 0xaa));
+-        code.extend(ld24(0x20_2aaa, 0x55));
+-        code.extend(ld24(0x20_5555, 0xa0));
+-        code.extend(ld24(FLASH_AT, MARK));
+-    }
+-    code.extend([0x68, 0xfe]);
+-    rom[0x40..0x40 + code.len()].copy_from_slice(&code);
+-    let path = dir.join(format!("{stem}.ngc"));
+-    std::fs::write(&path, rom).unwrap();
+-    path
+-}
+-
+ /// The core opened the way slot opens every core today: BIOS/ as the system dir and Saves/ as the
+ /// save dir (`slot::core::open_named`).
+ fn neopop(root: &Path) -> Option<LibretroCore> {
+-    let dylib = require_core("mednafen_ngp")?;
++    let dylib = ngp_common::neopop()?;
+     std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
+     Some(
+         LibretroCore::open_with(
+@@ -76,17 +30,7 @@ fn flash_file(root: &Path, stem: &str) -> PathBuf {
+ }
+ 
+ fn assert_holds_mark(flash: &Path) {
+-    let bytes = std::fs::read(flash).expect("no .flash file");
+-    assert_eq!(bytes.len(), FLASH_LEN, "{} bytes", bytes.len());
+-    assert_eq!(&bytes[..2], &0x0053u16.to_le_bytes(), "flash id");
+-    assert_eq!(&bytes[2..4], &1u16.to_le_bytes(), "block count");
+-    assert_eq!(
+-        &bytes[8..12],
+-        &(FLASH_AT as u32).to_le_bytes(),
+-        "block address"
+-    );
+-    assert_eq!(bytes[16], MARK);
+-    assert!(bytes[17..].iter().all(|&b| b == 0));
++    assert_holds(flash, MARK);
+ }
+ 
+ fn play(core: &mut LibretroCore, frames: usize) {
+diff --git a/crates/slot/tests/ngp_seat.rs b/crates/slot/tests/ngp_seat.rs
+new file mode 100644
+index 0000000..ff1f1eb
+--- /dev/null
++++ b/crates/slot/tests/ngp_seat.rs
+@@ -0,0 +1,26 @@
++mod common;
++mod core_common;
++mod ngp_common;
++mod real_seat;
++
++use common::core_lock;
++use ngp_common::{cart, neopop, red};
++use slot_store::{Core, Platform};
++
++#[test]
++fn an_ngp_cart_seats_on_neopop_through_a_real_session() {
++    let _g = core_lock();
++    let Some(dylib) = neopop() else {
++        return;
++    };
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = cart(carts.path(), "Pocket", false);
++    let root = real_seat::rooted(Platform::Ngp, "Pocket", &rom, &dylib);
++    let session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().core(), Core::MednafenNgp);
++    assert_eq!(session.app().playing_platform(), Platform::Ngp);
++    let emu = session.emu().expect("no core in the slot");
++    let frame = emu.latest_frame().expect("nothing was published");
++    assert_eq!(frame.len(), 240 * 160 * 4);
++    assert_eq!(red(&frame), 160 * 152);
++}
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 66f05ad..067b4b1 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -253,7 +253,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+     for platform in Platform::SHELVES {
+         let (from_actual, from_stretch, from_crop) = match platform {
+             Platform::Snes => (Crop, Actual, Stretch),
+-            Platform::Md | Platform::Ps1 => (Stretch, Actual, Stretch),
++            Platform::Md | Platform::Ps1 | Platform::Ngp => (Stretch, Actual, Stretch),
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 8658f2f..a35b4fb 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -155,7 +155,7 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+         );
+         let walk: &[VideoMode] = match platform {
+             Platform::Nes | Platform::Snes => &[Stretch, Actual, Crop],
+-            Platform::Gg | Platform::Ps1 => &[Stretch, Actual],
++            Platform::Gg | Platform::Ps1 | Platform::Ngp => &[Stretch, Actual],
+             Platform::Sms | Platform::Md => &[Actual, Stretch],
+             Platform::Gba | Platform::Gb | Platform::Gbc => &[],
+         };

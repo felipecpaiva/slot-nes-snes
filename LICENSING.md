@@ -264,15 +264,13 @@ the commit that added the build.
 
 Checked at commit `a50d5ac288a81f2104ddf43195a4efdd15c72227` of libretro/beetle-ngp-libretro, the
 commit `SLOT_PIN` pins as `mednafen_ngp_commit` (tarball sha256 `mednafen_ngp_tarball_sha256`). It is
-built by `cores/mednafen_ngp/build.sh` for NeoGeo Pocket and Pocket Color (ADR 0090) and is not in a
-release yet: it joins `dist:device` and `zip-check.sh` with the NGP platform patch (issue 72). Until
-then its licence, the root `COPYING` of that source copied verbatim and whole, is
-`cores/mednafen_ngp/mednafen_ngp-GPL-2.0.txt`, and moves to `licenses/` when the core ships (the
-Genesis Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release). The
-exact source will ship with the core as `mednafen_ngp-src.tar.gz`, with `mednafen_ngp-src.meta`
+built by `cores/mednafen_ngp/build.sh` for NeoGeo Pocket and Pocket Color (ADR 0090) and ships from
+the NGP platform patch on (issue 72): `dist:device` copies it and `zip-check.sh` checks it. Its licence,
+the root `COPYING` of that source copied verbatim and whole, is `licenses/mednafen_ngp-GPL-2.0.txt`.
+The exact source ships with the core as `mednafen_ngp-src.tar.gz`, with `mednafen_ngp-src.meta`
 recording its sha256.
 
-**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
 
 - `COPYING` is the GNU GPL version 2 text. `readme.md` has no licence line. The NeoPop files say
   "Copyright (c) 2001-2002 by neopop_uk"; the Z80 is Philip Kendall's FUSE core; the sound buffers
@@ -287,7 +285,7 @@ recording its sha256.
     '*.h' -o -name '*.cpp' \); ls libretro.c libretro_core_options.h; } | xargs grep -l -i 'any
     later version' | wc -l`.
 - **Headerless files, a judgement.** 20 of the 70 have no licence text in their first 60 lines. They
-  are listed in `cores/mednafen_ngp/mednafen_ngp-headerless-files.txt` with the command that
+  are listed in `licenses/mednafen_ngp-headerless-files.txt` with the command that
   produced the list, and they include `mednafen/ngp/system.c` (the flash file I/O) and
   `mednafen/ngp/sound.cpp`. We treat them as covered by `COPYING`. That is a judgement, not a quote.
 - `libretro-common/` carries the RetroArch team's MIT text in 36 of its 38 `.c` and `.h` files. The

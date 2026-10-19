@@ -1,0 +1,159 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:44:28 +0400
+Subject: [PATCH] ngp-input
+
+The NGP needs no input code of its own: slot's identity RetroPad map is
+already positional for NeoPop, which reads RetroPad B as the NGP A
+button (the left face button), RetroPad A as B (the right one) and
+START as Option (libretro.c at a50d5ac, the input map in retro_run). So
+the device's B and A reach the game as NGP A and B, and START as
+Option. slot keeps L1 and R1, X and Y are turbo A and B as on Game Gear,
+the triggers stay slot's, and Select+X flips the picture. A lone Select
+tap carries only the SELECT id, which NeoPop never reads. These tests pin
+all of it on the real core.
+
+The positional map follows nelynes/slotPlus a8eae4c (GPL-3.0).
+---
+ crates/slot/tests/ngp_input.rs | 132 +++++++++++++++++++++++++++++++++
+ 1 file changed, 132 insertions(+)
+ create mode 100644 crates/slot/tests/ngp_input.rs
+
+diff --git a/crates/slot/tests/ngp_input.rs b/crates/slot/tests/ngp_input.rs
+new file mode 100644
+index 0000000..ae51382
+--- /dev/null
++++ b/crates/slot/tests/ngp_input.rs
+@@ -0,0 +1,132 @@
++mod common;
++mod core_common;
++mod ngp_common;
++mod real_seat;
++
++use common::core_lock;
++use ngp_common::{cart_bytes, neopop};
++use slot::input::Pad;
++use slot::session::Session;
++use slot_input::{Action, Btn, RawEvent};
++use slot_retro::{ButtonMask, TurboMode};
++use slot_store::{Controls, Platform};
++
++const STEM: &str = "Pocket";
++
++fn playing() -> Option<(tempfile::TempDir, Session)> {
++    let dylib = neopop()?;
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = carts.path().join(format!("{STEM}.ngp"));
++    std::fs::write(&rom, cart_bytes(None, true)).expect("write cart");
++    let root = real_seat::rooted(Platform::Ngp, STEM, &rom, &dylib);
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn input_of(session: &Session) -> u16 {
++    session.emu().expect("no core in the slot").input().0
++}
++
++#[test]
++fn the_ngp_a_b_and_option_buttons_reach_neopop_as_its_retropad_ids() {
++    for (btn, bit, ngp) in [
++        (Btn::B, ButtonMask::B, "A, the left face button"),
++        (Btn::A, ButtonMask::A, "B, the right face button"),
++        (Btn::Start, ButtonMask::START, "Option"),
++        (Btn::Up, ButtonMask::UP, "up"),
++        (Btn::Down, ButtonMask::DOWN, "down"),
++        (Btn::Left, ButtonMask::LEFT, "left"),
++        (Btn::Right, ButtonMask::RIGHT, "right"),
++    ] {
++        let mut p = Pad::default();
++        p.apply(Action::GbaDown(btn));
++        assert_eq!(
++            p.mask_for(&Controls::default(), Platform::Ngp).0,
++            bit,
++            "{ngp}"
++        );
++    }
++}
++
++#[test]
++fn x_and_y_are_turbo_on_the_ngp_and_the_triggers_stay_slots() {
++    assert_eq!(
++        TurboMode::from_flags(Platform::Ngp.passes_xy_through(), true),
++        TurboMode::Turbo
++    );
++    for btn in [Btn::L2, Btn::R2] {
++        let mut p = Pad::default();
++        p.apply(Action::GbaDown(btn));
++        assert_eq!(
++            p.mask_for(&Controls::default(), Platform::Ngp).0,
++            0,
++            "{btn:?}"
++        );
++    }
++}
++
++#[test]
++fn a_b_and_option_reach_the_running_ngp_core() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    for (btn, bit) in [
++        (Btn::B, ButtonMask::B),
++        (Btn::A, ButtonMask::A),
++        (Btn::Start, ButtonMask::START),
++    ] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
++
++#[test]
++fn l1_r1_and_the_triggers_never_reach_the_ngp_core() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    for btn in [Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), 0, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
++
++#[test]
++fn a_select_tap_carries_only_the_select_id_which_neopop_never_reads() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    assert_eq!(input_of(&session), 0, "Select held");
++    session.feed([RawEvent::Up(Btn::Select)], 5100);
++    assert_eq!(input_of(&session) & !ButtonMask::SELECT, 0, "Select let go");
++}
++
++#[test]
++fn select_x_flips_the_ngp_picture_and_never_reaches_the_game() {
++    let _g = core_lock();
++    let Some((root, mut session)) = playing() else {
++        return;
++    };
++    assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    session.feed([RawEvent::Down(Btn::X)], 5016);
++    assert_eq!(input_of(&session), 0);
++    session.feed([RawEvent::Up(Btn::X)], 5100);
++    session.feed([RawEvent::Up(Btn::Select)], 5116);
++    assert_eq!(
++        session.app().source_rect(),
++        [40.0 / 240.0, 4.0 / 160.0, 160.0 / 240.0, 152.0 / 160.0]
++    );
++    assert_eq!(
++        slot::platform_video::video_mode_for(root.path(), STEM, Platform::Ngp),
++        slot::video_mode::VideoMode::Stretch
++    );
++}
