@@ -1,0 +1,333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:30:34 +0400
+Subject: [PATCH] headless-egl
+
+A HeadlessSurface for Linux: a GLES2 pbuffer on Mesa's surfaceless EGL
+platform, so the render and retro-shader tests run on a Linux box with
+no display, under GLES2 like the device. Our own render test files in
+slot-gfx and slot-ui widen their cfg to Linux; upstream's stay macOS
+only. A guard test fails when the context is not real GLES, so a
+missing driver cannot pass the others vacuously. After
+cloudwithax/unslot 42ef0f8 (GPL-3.0),
+https://github.com/cloudwithax/unslot/commit/42ef0f8, and
+suprsomething/slot.advance e761baa (GPL-3.0),
+https://github.com/suprsomething/slot.advance/commit/e761baa
+---
+ crates/slot-gfx/src/headless_egl.rs        | 194 +++++++++++++++++++++
+ crates/slot-gfx/src/lib.rs                 |   4 +
+ crates/slot-gfx/tests/gg_lcd.rs            |   2 +-
+ crates/slot-gfx/tests/headless_egl.rs      |  16 ++
+ crates/slot-gfx/tests/nes_pipeline.rs      |   2 +-
+ crates/slot-gfx/tests/ps1_pipeline.rs      |   2 +-
+ crates/slot-gfx/tests/retro_pipeline.rs    |   2 +-
+ crates/slot-ui/tests/render_nes_region.rs  |   2 +-
+ crates/slot-ui/tests/render_nes_shelves.rs |   2 +-
+ 9 files changed, 220 insertions(+), 6 deletions(-)
+ create mode 100644 crates/slot-gfx/src/headless_egl.rs
+ create mode 100644 crates/slot-gfx/tests/headless_egl.rs
+
+diff --git a/crates/slot-gfx/src/headless_egl.rs b/crates/slot-gfx/src/headless_egl.rs
+new file mode 100644
+index 0000000..a25f8c4
+--- /dev/null
++++ b/crates/slot-gfx/src/headless_egl.rs
+@@ -0,0 +1,194 @@
++use crate::surface::{GfxError, Surface, OUT_H, OUT_W};
++use libloading::Library;
++use std::ffi::{c_char, c_void, CString};
++use std::mem::ManuallyDrop;
++
++const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
++const EGL_NONE: i32 = 0x3038;
++const EGL_ALPHA_SIZE: i32 = 0x3021;
++const EGL_BLUE_SIZE: i32 = 0x3022;
++const EGL_GREEN_SIZE: i32 = 0x3023;
++const EGL_RED_SIZE: i32 = 0x3024;
++const EGL_SURFACE_TYPE: i32 = 0x3033;
++const EGL_HEIGHT: i32 = 0x3056;
++const EGL_WIDTH: i32 = 0x3057;
++const EGL_RENDERABLE_TYPE: i32 = 0x3040;
++const EGL_CONTEXT_CLIENT_VERSION: i32 = 0x3098;
++const EGL_OPENGL_ES_API: u32 = 0x30A0;
++const EGL_PBUFFER_BIT: i32 = 0x0001;
++const EGL_OPENGL_ES2_BIT: i32 = 0x0004;
++
++type Ptr = *mut c_void;
++type GetPlatformDisplay = unsafe extern "C" fn(u32, Ptr, *const c_void) -> Ptr;
++type Initialize = unsafe extern "C" fn(Ptr, *mut i32, *mut i32) -> u32;
++type BindApi = unsafe extern "C" fn(u32) -> u32;
++type ChooseConfig = unsafe extern "C" fn(Ptr, *const i32, *mut Ptr, i32, *mut i32) -> u32;
++type CreatePbufferSurface = unsafe extern "C" fn(Ptr, Ptr, *const i32) -> Ptr;
++type CreateContext = unsafe extern "C" fn(Ptr, Ptr, Ptr, *const i32) -> Ptr;
++type MakeCurrent = unsafe extern "C" fn(Ptr, Ptr, Ptr, Ptr) -> u32;
++type GetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;
++type GetError = unsafe extern "C" fn() -> i32;
++type Terminate = unsafe extern "C" fn(Ptr) -> u32;
++
++pub struct HeadlessSurface {
++    make_current: MakeCurrent,
++    get_proc_address: GetProcAddress,
++    terminate: Terminate,
++    display: Ptr,
++    surface: Ptr,
++    context: Ptr,
++    gles: ManuallyDrop<Library>,
++    _egl: ManuallyDrop<Library>,
++}
++
++fn open(name: &str) -> Result<Library, GfxError> {
++    // SAFETY: libEGL and libGLESv2 run no initialisers that depend on our state.
++    unsafe { Library::new(name) }.map_err(|e| GfxError::Context(format!("{name}: {e}")))
++}
++
++fn sym<T: Copy>(lib: &Library, name: &str) -> Result<T, GfxError> {
++    // SAFETY: each caller names T as the EGL 1.5 signature of the symbol it asks for.
++    unsafe { lib.get::<T>(name.as_bytes()) }
++        .map(|s| *s)
++        .map_err(|e| GfxError::Context(format!("{name}: {e}")))
++}
++
++impl HeadlessSurface {
++    pub fn new() -> Result<Self, GfxError> {
++        let egl = ManuallyDrop::new(open("libEGL.so.1").or_else(|_| open("libEGL.so"))?);
++        let gles = ManuallyDrop::new(open("libGLESv2.so.2").or_else(|_| open("libGLESv2.so"))?);
++        let get_platform_display: GetPlatformDisplay = sym(&egl, "eglGetPlatformDisplay")?;
++        let initialize: Initialize = sym(&egl, "eglInitialize")?;
++        let bind_api: BindApi = sym(&egl, "eglBindAPI")?;
++        let choose_config: ChooseConfig = sym(&egl, "eglChooseConfig")?;
++        let create_pbuffer: CreatePbufferSurface = sym(&egl, "eglCreatePbufferSurface")?;
++        let create_context: CreateContext = sym(&egl, "eglCreateContext")?;
++        let make_current: MakeCurrent = sym(&egl, "eglMakeCurrent")?;
++        let get_proc_address: GetProcAddress = sym(&egl, "eglGetProcAddress")?;
++        let get_error: GetError = sym(&egl, "eglGetError")?;
++        let terminate: Terminate = sym(&egl, "eglTerminate")?;
++        // SAFETY: eglGetError takes no arguments and only reads the thread's EGL error.
++        let fail = |what: &str| crate::egl_error(what, unsafe { get_error() });
++        let config_attrs = [
++            EGL_SURFACE_TYPE,
++            EGL_PBUFFER_BIT,
++            EGL_RED_SIZE,
++            8,
++            EGL_GREEN_SIZE,
++            8,
++            EGL_BLUE_SIZE,
++            8,
++            EGL_ALPHA_SIZE,
++            8,
++            EGL_RENDERABLE_TYPE,
++            EGL_OPENGL_ES2_BIT,
++            EGL_NONE,
++        ];
++        let surface_attrs = [EGL_WIDTH, OUT_W as i32, EGL_HEIGHT, OUT_H as i32, EGL_NONE];
++        let context_attrs = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
++        // SAFETY: each pointer is null, a checked EGL handle or a live EGL_NONE terminated array.
++        unsafe {
++            let display = get_platform_display(
++                EGL_PLATFORM_SURFACELESS_MESA,
++                std::ptr::null_mut(),
++                std::ptr::null(),
++            );
++            if display.is_null() {
++                return Err(fail("eglGetPlatformDisplay surfaceless"));
++            }
++            if initialize(display, std::ptr::null_mut(), std::ptr::null_mut()) == 0 {
++                return Err(fail("eglInitialize"));
++            }
++            if bind_api(EGL_OPENGL_ES_API) == 0 {
++                terminate(display);
++                return Err(fail("eglBindAPI"));
++            }
++            let mut config: Ptr = std::ptr::null_mut();
++            let mut found = 0;
++            if choose_config(display, config_attrs.as_ptr(), &mut config, 1, &mut found) == 0
++                || found == 0
++            {
++                terminate(display);
++                return Err(fail("eglChooseConfig: no es2 pbuffer config"));
++            }
++            let surface = create_pbuffer(display, config, surface_attrs.as_ptr());
++            if surface.is_null() {
++                terminate(display);
++                return Err(fail("eglCreatePbufferSurface"));
++            }
++            let context = create_context(
++                display,
++                config,
++                std::ptr::null_mut(),
++                context_attrs.as_ptr(),
++            );
++            if context.is_null() {
++                terminate(display);
++                return Err(fail("eglCreateContext"));
++            }
++            if make_current(display, surface, surface, context) == 0 {
++                terminate(display);
++                return Err(fail("eglMakeCurrent"));
++            }
++            Ok(HeadlessSurface {
++                make_current,
++                get_proc_address,
++                terminate,
++                display,
++                surface,
++                context,
++                gles,
++                _egl: egl,
++            })
++        }
++    }
++}
++
++impl Surface for HeadlessSurface {
++    fn make_current(&mut self) -> Result<(), GfxError> {
++        // SAFETY: the display, surface and context come from new and live until drop.
++        match unsafe { (self.make_current)(self.display, self.surface, self.surface, self.context) }
++        {
++            0 => Err(GfxError::Context("eglMakeCurrent failed".into())),
++            _ => Ok(()),
++        }
++    }
++
++    fn window_size(&self) -> (u32, u32) {
++        (OUT_W, OUT_H)
++    }
++
++    fn swap(&mut self) -> Result<(), GfxError> {
++        // SAFETY: the context made current in new is still current on this thread.
++        unsafe { gl::Flush() };
++        Ok(())
++    }
++
++    fn proc_address(&self, name: &str) -> *const c_void {
++        let Ok(c) = CString::new(name) else {
++            return std::ptr::null();
++        };
++        // SAFETY: the symbol is only turned into an address, never called here.
++        let exported = unsafe { self.gles.get::<unsafe extern "C" fn()>(name.as_bytes()) };
++        match exported {
++            Ok(f) => *f as *const c_void,
++            // SAFETY: c is a NUL terminated string that outlives the call.
++            Err(_) => unsafe { (self.get_proc_address)(c.as_ptr()) },
++        }
++    }
++}
++
++impl Drop for HeadlessSurface {
++    fn drop(&mut self) {
++        // SAFETY: the display comes from new; terminating it frees its surface and context.
++        unsafe {
++            (self.make_current)(
++                self.display,
++                std::ptr::null_mut(),
++                std::ptr::null_mut(),
++                std::ptr::null_mut(),
++            );
++            (self.terminate)(self.display);
++        }
++    }
++}
+diff --git a/crates/slot-gfx/src/lib.rs b/crates/slot-gfx/src/lib.rs
+index 6aa73bf..95bda0b 100644
+--- a/crates/slot-gfx/src/lib.rs
++++ b/crates/slot-gfx/src/lib.rs
+@@ -6,6 +6,8 @@ mod gl;
+ mod grade;
+ #[cfg(target_os = "macos")]
+ mod headless;
++#[cfg(target_os = "linux")]
++mod headless_egl;
+ #[cfg(feature = "host")]
+ mod host;
+ mod layout;
+@@ -23,6 +25,8 @@ pub use fbo::{canvas_size, Compositor, BACKDROP};
+ pub use grade::{blue_light_gain, BLUE_LIGHT_MAX};
+ #[cfg(target_os = "macos")]
+ pub use headless::HeadlessSurface;
++#[cfg(target_os = "linux")]
++pub use headless_egl::HeadlessSurface;
+ #[cfg(feature = "host")]
+ pub use host::HostSurface;
+ pub use layout::{Canvas, Layout};
+diff --git a/crates/slot-gfx/tests/gg_lcd.rs b/crates/slot-gfx/tests/gg_lcd.rs
+index f9cfebd..a8063fb 100644
+--- a/crates/slot-gfx/tests/gg_lcd.rs
++++ b/crates/slot-gfx/tests/gg_lcd.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect};
+ use std::sync::{Mutex, PoisonError};
+diff --git a/crates/slot-gfx/tests/headless_egl.rs b/crates/slot-gfx/tests/headless_egl.rs
+new file mode 100644
+index 0000000..04a5b1c
+--- /dev/null
++++ b/crates/slot-gfx/tests/headless_egl.rs
+@@ -0,0 +1,16 @@
++#![cfg(target_os = "linux")]
++
++use slot_gfx::{Compositor, HeadlessSurface};
++
++#[test]
++fn the_linux_render_host_is_a_real_gles2_context() {
++    let surface = HeadlessSurface::new().expect("surfaceless egl context");
++    let _c = Compositor::new(&surface).expect("compositor on gles2");
++    // SAFETY: Compositor::new loaded the GL functions and the context is current.
++    let version = unsafe { gl::GetString(gl::VERSION) };
++    assert!(!version.is_null(), "no GL_VERSION");
++    // SAFETY: a non-null GL_VERSION is a NUL terminated static string.
++    let version = unsafe { std::ffi::CStr::from_ptr(version as *const std::ffi::c_char) };
++    let version = version.to_string_lossy();
++    assert!(version.starts_with("OpenGL ES"), "{version}");
++}
+diff --git a/crates/slot-gfx/tests/nes_pipeline.rs b/crates/slot-gfx/tests/nes_pipeline.rs
+index bda6b61..47aacfa 100644
+--- a/crates/slot-gfx/tests/nes_pipeline.rs
++++ b/crates/slot-gfx/tests/nes_pipeline.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_H, OUT_W, SRC_H, SRC_W};
+ use std::sync::{Mutex, MutexGuard, PoisonError};
+diff --git a/crates/slot-gfx/tests/ps1_pipeline.rs b/crates/slot-gfx/tests/ps1_pipeline.rs
+index 3a70c17..a29f3f7 100644
+--- a/crates/slot-gfx/tests/ps1_pipeline.rs
++++ b/crates/slot-gfx/tests/ps1_pipeline.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_H, OUT_W, WHOLE_TEXTURE};
+ use std::sync::{Mutex, MutexGuard, PoisonError};
+diff --git a/crates/slot-gfx/tests/retro_pipeline.rs b/crates/slot-gfx/tests/retro_pipeline.rs
+index 821dd1d..bf247a2 100644
+--- a/crates/slot-gfx/tests/retro_pipeline.rs
++++ b/crates/slot-gfx/tests/retro_pipeline.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect};
+ use std::sync::{Mutex, MutexGuard, PoisonError};
+diff --git a/crates/slot-ui/tests/render_nes_region.rs b/crates/slot-ui/tests/render_nes_region.rs
+index 00073ac..63c1805 100644
+--- a/crates/slot-ui/tests/render_nes_region.rs
++++ b/crates/slot-ui/tests/render_nes_region.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use std::path::PathBuf;
+ use std::sync::{Mutex, MutexGuard, PoisonError};
+diff --git a/crates/slot-ui/tests/render_nes_shelves.rs b/crates/slot-ui/tests/render_nes_shelves.rs
+index b8ffb40..e7fdfc8 100644
+--- a/crates/slot-ui/tests/render_nes_shelves.rs
++++ b/crates/slot-ui/tests/render_nes_shelves.rs
+@@ -1,4 +1,4 @@
+-#![cfg(target_os = "macos")]
++#![cfg(any(target_os = "macos", target_os = "linux"))]
+ 
+ use std::path::{Path, PathBuf};
+ use std::sync::{Mutex, MutexGuard, PoisonError};

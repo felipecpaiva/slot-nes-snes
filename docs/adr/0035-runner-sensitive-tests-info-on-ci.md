@@ -1,6 +1,6 @@
 # 0035. Run runner-sensitive test binaries as information only on CI
 
-- Status: Accepted. Amended by [0045](0045-layout-hash-tests-in-both-trees.md)
+- Status: Accepted. Amended by [0045](0045-layout-hash-tests-in-both-trees.md) and [0088](0088-linux-render-tests-on-surfaceless-egl.md)
 - Date: 2026-10-13
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0010](0010-macos-primary-ci.md), `scripts/run-tests.sh`, `.github/workflows/test.yml`
