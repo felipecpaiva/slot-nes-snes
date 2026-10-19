@@ -17,6 +17,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 5 | Spec, Phased rollout | PS1 brought into scope as Phase 8 (ADRs 0063 to 0069, issues 56 to 68), planned, not shipped; PAL pacing moved from deferred to issue 66 |
 | 6 | Spec (Out of scope), Phase 6+ | PAL 50 Hz pacing leaves the out-of-scope and deferred lists: issue 66, patch 0043, ADR 0071 |
 | 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
+| 8 | Spec (Who it's NOT for), Phase 11 | WonderSwan and Color in the patch set (patches 0064 to 0069, ADR 0092), device gate (issue 99) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -57,7 +58,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063) and TurboGrafx-16 (Phase 10, ADR 0091) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091) and WonderSwan (Phase 11, ADR 0092) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -456,6 +457,23 @@ picker, no CD and no SuperGrafx. The platform patches (0058 to 0063) are on the 
 | 8 | 87, done | II, I, Select, Run, X and Y turbo; Select+Run soft reset kept (patch 0061) |
 | 9 | 89, done | HuCard art, labels for ScreenScraper id 31 (patch 0062, tools/fetch-labels.py) |
 | 10 | 90 | Device gate |
+### Phase 11: WonderSwan (device gate pending)
+
+Tracking issue 91, children 92 to 99, ADR 0092, plan in docs/research/wswan-plan.md. One core, Beetle
+Cygne (`mednafen_wswan`) pinned at `4b01295`, one shelf `Games/WS` for WonderSwan and Color, no
+BIOS, no core picker. Patches 0064 to 0069 on main 1b20432; the device gate is the step left.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0092 and the issues |
+| 2 | 92, done | Core build, pin and licence |
+| 3 | 97, done | Generated-cart tests: boot, 224x144 and 144x224 pictures, 60.38 and 75.47 fps, states, the SELECT trap, save RAM (patch 0064); platform tests in each patch below |
+| 4 | 93, done | `Platform::Ws`, shelf, scan, footer reader, explicit policy, per-game canvas, Shader and Picture rows, `.sav` saves; joins dist and zip-check (patch 0065) |
+| 5 | 94, done | Core options set on every load: 60 Hz mode, rotation from the footer, keymap off (patch 0066) |
+| 6 | 95, done | 240x160 canvas at 3x (horizontal) or 360x240 at 2x (vertical), Refresh row (60 Hz default, Native) (patch 0067) |
+| 7 | 96, done | X and Y pads: shoulder modifiers on horizontal games, turned maps and the SELECT flip on vertical ones (patch 0068) |
+| 8 | 98, done | Black and clear carts, labels for ScreenScraper ids 45 and 46 (patch 0069, tools/fetch-labels.py) |
+| 9 | 99 | Device gate, both Refresh values |
 
 ### Phase 6+: deferred (non-blocking)
 

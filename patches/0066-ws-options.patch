@@ -1,0 +1,215 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 10:56:55 +0400
+Subject: [PATCH] ws-options
+
+Every WonderSwan load sets the options whose unanswered behaviour is a
+trap: wswan_60hz_mode (enabled; Beetle Cygne declares enabled but runs
+at the native 75.47 fps until it is answered) and wswan_rotate_display
+(portrait for a cart whose footer has the vertical bit, landscape for
+every other; left on manual, every SELECT press turns the picture). The
+keymap is disabled so slot is the only button mapper, and the language,
+frameskip, sample rate, colour depth and the owner profile (name from
+Mednafen's default, birth date, sex and blood type at the core's own
+declared defaults) are pinned so a future pin cannot change them and
+the console's internal EEPROM is the same on every boot.
+
+ADR 0064's declared-defaults answer is not extended to Cygne: setting
+each key is explicit and testable, and the declared default of
+wswan_rotate_display is the trap itself.
+---
+ crates/slot/src/core_options_policy.rs |  18 +++-
+ crates/slot/src/ws_load.rs             |   9 ++
+ crates/slot/tests/core_option_keys.rs  |   1 +
+ crates/slot/tests/wswan_options.rs     | 114 +++++++++++++++++++++++++
+ 4 files changed, 140 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/wswan_options.rs
+
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index b586da2..bd4b71c 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -45,6 +45,20 @@ const PCE_FAST: [(&str, &str); 9] = [
+     ("pce_fast_ocmultiplier", "1"),
+ ];
+ 
++const MEDNAFEN_WSWAN: [(&str, &str); 11] = [
++    ("wswan_rotate_keymap", "disabled"),
++    ("wswan_language", "english"),
++    ("wswan_frameskip", "disabled"),
++    ("wswan_sound_sample_rate", "44100"),
++    ("wswan_gfx_colors", "16bit"),
++    ("wswan_name_source", "default"),
++    ("wswan_birth_year", "1989"),
++    ("wswan_birth_month", "6"),
++    ("wswan_birth_day", "23"),
++    ("wswan_sex", "female"),
++    ("wswan_blood", "o"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -107,10 +121,10 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus
+-        | Core::MednafenWswan => &[],
++        | Core::Snes9x2005Plus => &[],
+         Core::PcsxRearmed => &PCSX_REARMED,
+         Core::MednafenPceFast => &PCE_FAST,
++        Core::MednafenWswan => &MEDNAFEN_WSWAN,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/src/ws_load.rs b/crates/slot/src/ws_load.rs
+index e06473b..c65161a 100644
+--- a/crates/slot/src/ws_load.rs
++++ b/crates/slot/src/ws_load.rs
+@@ -13,4 +13,13 @@ pub fn prepare(core: &mut dyn RetroCore, platform: Platform, vertical: bool) {
+     }
+     let (w, h) = Core::MednafenWswan.game_canvas(platform, vertical);
+     core.set_canvas(w, h);
++    core.set_option("wswan_60hz_mode", "enabled");
++    core.set_option("wswan_rotate_display", rotation(vertical));
++}
++
++pub fn rotation(vertical: bool) -> &'static str {
++    match vertical {
++        true => "portrait",
++        false => "landscape",
++    }
+ }
+diff --git a/crates/slot/tests/core_option_keys.rs b/crates/slot/tests/core_option_keys.rs
+index 2bc56b1..ecddbe4 100644
+--- a/crates/slot/tests/core_option_keys.rs
++++ b/crates/slot/tests/core_option_keys.rs
+@@ -54,6 +54,7 @@ fn each_core_declares_a_frameskip_under_its_prefix_or_none_at_all() {
+         (Core::Snes9x, false),
+         (Core::Nestopia, false),
+         (Core::Snes9x2005Plus, true),
++        (Core::MednafenWswan, true),
+     ] {
+         let Some(core) = declared(which) else {
+             continue;
+diff --git a/crates/slot/tests/wswan_options.rs b/crates/slot/tests/wswan_options.rs
+new file mode 100644
+index 0000000..501cff3
+--- /dev/null
++++ b/crates/slot/tests/wswan_options.rs
+@@ -0,0 +1,114 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod wswan_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use slot::core::{apply_core_options, open_core};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use slot_store::{Core, Platform};
++use wswan_common::{assert_red_box, cart, cygne, Code, Save, SIXTY_FPS};
++
++fn opened(vertical: bool) -> Option<(tempfile::TempDir, Box<dyn RetroCore>)> {
++    let dylib = cygne()?;
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart(roms.path(), "Game", Code::Paint, Save::None, vertical);
++    let root = real_seat::rooted(Platform::Ws, "Game", &rom, &dylib);
++    let rom = root.path().join("Games/WS/Game.ws");
++    let tall = slot::ws_load::vertical(Platform::Ws, &rom);
++    assert_eq!(tall, vertical);
++    let mut core = open_core(
++        root.path(),
++        Core::MednafenWswan,
++        Platform::Ws,
++        "",
++        false,
++        None,
++        None,
++    )
++    .core;
++    slot::ws_load::prepare(core.as_mut(), Platform::Ws, tall);
++    core.load(&rom).expect("Beetle Cygne refused the cart");
++    Some((root, core))
++}
++
++fn run(core: &mut dyn RetroCore, frames: usize, input: ButtonMask) {
++    for _ in 0..frames {
++        core.run_frame(input);
++        let _ = core.take_audio();
++    }
++}
++
++#[test]
++fn a_horizontal_cart_opens_at_60_38_fps_in_landscape_and_select_does_not_turn_it() {
++    let _g = core_lock();
++    let Some((_root, mut core)) = opened(false) else {
++        return;
++    };
++    let fps = core.av_info().fps;
++    assert!((fps - SIXTY_FPS).abs() < 0.01, "{fps} fps");
++    assert_eq!(core.canvas(), (240, 160));
++    run(core.as_mut(), 5, ButtonMask::default());
++    run(core.as_mut(), 1, ButtonMask(ButtonMask::SELECT));
++    run(core.as_mut(), 5, ButtonMask::default());
++    assert_red_box(core.video_xrgb8888(), (240, 160), (224, 144));
++}
++
++#[test]
++fn a_vertical_cart_opens_in_portrait_on_its_360_by_240_canvas() {
++    let _g = core_lock();
++    let Some((_root, mut core)) = opened(true) else {
++        return;
++    };
++    assert_eq!(core.canvas(), (360, 240));
++    run(core.as_mut(), 10, ButtonMask::default());
++    assert_eq!(core.frame_width(), 144);
++    assert_red_box(core.video_xrgb8888(), (360, 240), (144, 224));
++}
++
++fn declared(dylib: &Path) -> LibretroCore {
++    let mut core = LibretroCore::open(dylib).expect("open Beetle Cygne");
++    apply_core_options(
++        &mut core,
++        Core::MednafenWswan,
++        Platform::Ws,
++        "",
++        false,
++        false,
++        None,
++    );
++    slot::ws_load::prepare(&mut core, Platform::Ws, true);
++    core
++}
++
++#[test]
++fn every_option_slot_sets_on_cygne_is_declared_with_that_value() {
++    let _g = core_lock();
++    let Some(dylib) = cygne() else {
++        return;
++    };
++    let core = declared(&dylib);
++    let set = core.options();
++    assert!(set.len() >= 13, "{set:?}");
++    for (key, value) in &set {
++        let values = core
++            .declared_options()
++            .get(key)
++            .unwrap_or_else(|| panic!("Beetle Cygne declares no {key}"));
++        assert!(
++            values.contains(value),
++            "{key}={value} is not one of {values:?}"
++        );
++    }
++    for (key, value) in [
++        ("wswan_60hz_mode", "enabled"),
++        ("wswan_rotate_display", "portrait"),
++        ("wswan_rotate_keymap", "disabled"),
++        ("wswan_frameskip", "disabled"),
++        ("wswan_name_source", "default"),
++    ] {
++        assert_eq!(core.option(key).as_deref(), Some(value), "{key}");
++    }
++}

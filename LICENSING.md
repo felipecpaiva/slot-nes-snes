@@ -276,6 +276,15 @@ into the release:
   Tremor Vorbis decoder. The makefile always links Tremor (CD audio), so the binary must carry its notice.
 
 The exact source ships with the core as `mednafen_pce_fast-src.tar.gz`, with `mednafen_pce_fast-src.meta`
+## Beetle Cygne (WonderSwan)
+
+Checked at commit `4b01295838ea89e3f1355bbe4cb5cf98aa6108cd` of libretro/beetle-wswan-libretro, the
+commit `SLOT_PIN` pins as `mednafen_wswan_commit` (tarball sha256 `mednafen_wswan_tarball_sha256`).
+It is built by `cores/mednafen_wswan/build.sh` for WonderSwan and WonderSwan Color (ADR 0092) and
+ships from the WonderSwan platform patch (issue 93, patch 0065) in `dist:device`, checked by
+`zip-check.sh`. Its licence, the root `COPYING` of that source copied verbatim and whole, is
+`licenses/mednafen_wswan-GPL-2.0.txt` (`dist-device.sh` copies every file in `licenses/` into the
+release). The exact source ships as `mednafen_wswan-src.tar.gz`, with `mednafen_wswan-src.meta`
 recording its sha256.
 
 **The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
@@ -327,6 +336,42 @@ The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the 
 nelynes/slotPlus ([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0) and are
 credited in the commit that added the build. `HAVE_CDROM=0`, `HAVE_CHD=0`, the link flags and the
 `powf` binding are ours.
+- `COPYING` is the GNU GPL version 2 text. `readme.md` has no licence line. The WonderSwan files
+  derive from Cygne by Dox; the CPU is Bryan McPhail's NEC V30MZ emulator; the sound buffer is Shay
+  Green's Blip_Buffer.
+- Scope of the counts: the 32 `.c` and `.h` files under `mednafen/` plus `libretro.c`,
+  `libretro_core_options.h` and `libretro_core_options_intl.h` at the root, 35 files (the same scope
+  as docs/research/fork-nelynes.md).
+  - 12 say "any later version". 10 are GPL-2.0-or-later, `libretro.c` among them (its notice is at
+    line 385). `mednafen/sound/Blip_Buffer.c` is LGPL-2.1-or-later. `mednafen/msvc_compat.h` is the
+    RetroArch team's GPL-3.0-or-later; no file includes it and it is not compiled.
+  - No file says version 2 only: every file that says "version 2 of the License" also says "any
+    later version", and none says "only".
+  - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h'
+    -o -name '*.cpp' \); ls *.c *.h; } | xargs grep -l -i 'any later version' | wc -l`.
+- **Headerless files, a judgement.** 24 of the 35 have no licence text in their first 60 lines. They
+  are listed in `licenses/mednafen_wswan-headerless-files.txt` with the command that
+  produced the list. Two of them do carry a notice further down or in other words:
+  - `libretro.c` is GPL-2.0-or-later (line 385);
+  - `mednafen/wswan/v30mz.c` says "This NEC V30MZ emulator may be used for purposes both commercial
+    and noncommercial if you give the author, Bryan McPhail, a small credit somewhere (such as in the
+    documentation for an executable package)". That is a permissive grant with an attribution
+    request, which a GPL-3.0-or-later work can honour (section 7(b)); this section is that credit,
+    and the release notes repeat it when the core ships.
+
+  The other 22 (`mednafen/wswan/interrupt.c`, `mednafen/mempatcher.c` and 20 headers) we treat as
+  covered by `COPYING`. That is a judgement, not a quote.
+- `libretro-common/` is the RetroArch team's MIT text. The objects linked from it by the pinned
+  `Makefile` build are `compat/compat_strl` and `compat/compat_snprintf` only, both with that MIT
+  header.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The core is plain C (`SOURCES_CXX` is empty, the link driver is `$(CC)`). The device build needs
+  only `libc.so.6` at GLIBC_2.17 or older, which `task core:device:mednafen_wswan` checks.
+- No BIOS is shipped or needed. The core boots the cart's reset vector directly.
+
+The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
+nelynes/slotPlus ([273ded9](https://github.com/nelynes/slotPlus/commit/273ded9), GPL-3.0) and are
+credited in the commit that added the build.
 
 ## NES and SNES screen shaders
 
@@ -444,3 +489,7 @@ are credited in the patch commit. The TG16 Screen page (patch `0058-platform-tg1
 (`0061-tg16-input`) and the HuCard drawing (`0062-tg16-carts`, after `assets/src/carts.py`) follow
 nelynes/slotPlus [92b7022](https://github.com/nelynes/slotPlus/commit/92b7022) (GPL-3.0); each is
 reimplemented and credited in its patch commit.
+Patch `0064-wswan-core-tests` builds its synthetic WonderSwan Color cart with the reset jump in the
+last 16 bytes landing at F000:0000 after cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
+([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The footer, paint and
+save RAM code is new. The fork is credited in the patch commit.
