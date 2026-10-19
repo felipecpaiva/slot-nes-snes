@@ -1,6 +1,6 @@
 # 0062. Add a Crop picture mode that hides the NES and SNES overscan edges, default for both
 
-- Status: Accepted. Amends [0046](0046-retro-stretch-crops-height.md) and [0061](0061-per-system-picture-row.md)
+- Status: Accepted. Amends [0046](0046-retro-stretch-crops-height.md) and [0061](0061-per-system-picture-row.md). Amended by [0087](0087-four-three-picture.md)
 - Date: 2026-10-16
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0007](0007-snes-select-x-picture-mode.md), [ADR 0022](0022-nes-snes-default-stretch.md), [ADR 0053](0053-genesis-plus-gx-for-sega.md), [issue 55](../../.github/issues/55-crop-overscan.md), patches/0033-crop-overscan.patch
