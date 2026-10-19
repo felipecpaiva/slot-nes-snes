@@ -1,0 +1,813 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:08:27 +0400
+Subject: [PATCH] lynx-rotation
+
+Some Lynx carts are made to be held turned left or right. The picture
+stays the Lynx LCD as drawn and the player turns the handheld; for a
+right-turned cart slot sets lynx_rot_screen to 180, the core turns the
+pad half a turn and asks for SET_ROTATION 2, and slot answers it by
+drawing the frame upside down and mirrored (a reversed copy into the
+same centred box), so every turned cart is held the same way. Upright
+and left carts keep 0, the raw picture and pad. Quarter turns are
+refused. The Lynx Screen section gains Flip Right Carts (On by default,
+Config/lynx_flip.txt); Off draws right carts as made.
+
+Which way a cart is turned: Config/lynx_rotation.txt (<stem> = left,
+right or none) wins, then a list by title for dumps whose header says
+nothing (Klax and Gauntlet: The Third Encounter right, Lexis and NFL
+Football left, matched on the stem or the header title), then the LNX
+header byte at 0x3a. L and R reach the game as Option 1 and 2; SELECT
+stays slot's.
+
+The list by title and the override file follow nelynes/slotPlus d7d0e74
+and the held-turned play 185257a (GPL-3.0),
+https://github.com/nelynes/slotPlus/commit/d7d0e74
+https://github.com/nelynes/slotPlus/commit/185257a
+---
+ crates/slot-retro/src/canvas.rs    | 128 ++++++++++++++++++++-
+ crates/slot-retro/src/libretro.rs  |  13 ++-
+ crates/slot-store/src/lynx.rs      |  45 ++++++++
+ crates/slot-ui/src/quick_menu.rs   |  19 ++--
+ crates/slot-ui/src/quick_retro.rs  |   3 +-
+ crates/slot/src/app.rs             |  19 +++-
+ crates/slot/src/core.rs            |   3 +
+ crates/slot/src/lib.rs             |   1 +
+ crates/slot/src/lynx_turn.rs       |  62 +++++++++++
+ crates/slot/src/session.rs         |   9 ++
+ crates/slot/tests/lynx_rotation.rs | 173 +++++++++++++++++++++++++++++
+ crates/slot/tests/lynx_screen.rs   |  26 ++++-
+ 12 files changed, 487 insertions(+), 14 deletions(-)
+ create mode 100644 crates/slot/src/lynx_turn.rs
+ create mode 100644 crates/slot/tests/lynx_rotation.rs
+
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index ba7c018..a8dc2a9 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -7,6 +7,7 @@ use crate::core::{AvInfo, GBA_H, GBA_W};
+ use crate::ffi::{SystemAvInfo, DEVICE_JOYPAD};
+ use crate::libretro::discs::DiscDrive;
+ 
++pub const SET_ROTATION: c_uint = 1;
+ pub const SET_SYSTEM_AV_INFO: c_uint = 32;
+ pub const SET_GEOMETRY: c_uint = 37;
+ pub const GET_AUDIO_VIDEO_ENABLE: c_uint = 47 | 0x10000;
+@@ -26,6 +27,8 @@ pub struct HostExtra {
+     pub port_device: c_uint,
+     pub sticks: Option<[i16; 4]>,
+     pub asked_for_analog: bool,
++    pub turned: bool,
++    pub answers_rotation: bool,
+ }
+ 
+ impl Default for HostExtra {
+@@ -43,6 +46,8 @@ impl Default for HostExtra {
+             port_device: DEVICE_JOYPAD,
+             sticks: None,
+             asked_for_analog: false,
++            turned: false,
++            answers_rotation: false,
+         }
+     }
+ }
+@@ -101,6 +106,34 @@ fn with_av<R>(f: impl FnOnce(&mut HostExtra) -> R) -> Option<R> {
+     (extra.canvas != (GBA_W, GBA_H) || extra.answers_av).then(|| f(extra))
+ }
+ 
++pub fn turned() -> bool {
++    with_extra(|e| e.turned).unwrap_or(false)
++}
++
++pub unsafe fn rotation_set(data: *const c_uint) -> bool {
++    let Some(&quarters) = data.as_ref() else {
++        return false;
++    };
++    let half = match quarters {
++        0 => false,
++        2 => true,
++        other => {
++            eprintln!("slot: canvas: refusing a rotation of {other} quarter turns");
++            return false;
++        }
++    };
++    with_extra(|e| e.answers_rotation.then(|| e.turned = half))
++        .flatten()
++        .is_some()
++}
++
++pub fn turn_half(video: &mut [u8]) {
++    video.reverse();
++    for px in video.chunks_exact_mut(4) {
++        px.reverse();
++    }
++}
++
+ pub fn geometry_set() -> bool {
+     with_av(|_| ()).is_some()
+ }
+@@ -149,9 +182,23 @@ pub unsafe fn copy_frame(
+ ) {
+     let p = EXTRA.with(|e| e.get());
+     // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
+-    match unsafe { p.as_mut() } {
+-        Some(extra) if extra.fills => fill(extra, video, canvas, src, size, pitch, rgb565),
+-        _ => copy_centred(video, canvas, src, size, pitch, rgb565),
++    let turned = match unsafe { p.as_mut() } {
++        Some(extra) if extra.fills => {
++            fill(extra, video, canvas, src, size, pitch, rgb565);
++            extra.turned
++        }
++        Some(extra) => {
++            let turned = extra.turned;
++            copy_centred(video, canvas, src, size, pitch, rgb565);
++            turned
++        }
++        None => {
++            copy_centred(video, canvas, src, size, pitch, rgb565);
++            false
++        }
++    };
++    if turned {
++        turn_half(video);
+     }
+ }
+ 
+@@ -281,6 +328,81 @@ pub unsafe fn copy_centred(
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn half_a_turn_reverses_the_rows_and_the_pixels_in_each_row() {
++        let px = |n: u8| [n, n + 1, n + 2, 0];
++        let mut video: Vec<u8> = (0..6).flat_map(|n| px(n * 10)).collect();
++        turn_half(&mut video);
++        let want: Vec<u8> = (0..6).rev().flat_map(|n| px(n * 10)).collect();
++        assert_eq!(video, want);
++    }
++
++    #[test]
++    fn the_frontend_answers_upright_and_half_turns_and_refuses_quarter_turns() {
++        let mut extra = HostExtra {
++            answers_rotation: true,
++            ..HostExtra::default()
++        };
++        let _g = ExtraGuard::bind(&mut extra);
++        for (quarters, answered, turned) in [
++            (2, true, true),
++            (1, false, true),
++            (3, false, true),
++            (0, true, false),
++        ] {
++            // SAFETY: the pointer is to a live c_uint on this stack frame.
++            assert_eq!(unsafe { rotation_set(&quarters) }, answered, "{quarters}");
++            assert_eq!(super::turned(), turned, "{quarters}");
++        }
++        // SAFETY: a null pointer is checked before it is read.
++        assert!(!unsafe { rotation_set(std::ptr::null()) });
++    }
++
++    #[test]
++    fn a_core_that_was_not_told_to_turn_is_refused_every_rotation() {
++        let mut extra = HostExtra::default();
++        let _g = ExtraGuard::bind(&mut extra);
++        for quarters in [0, 1, 2, 3] {
++            // SAFETY: the pointer is to a live c_uint on this stack frame.
++            assert!(!unsafe { rotation_set(&quarters) }, "{quarters}");
++            assert!(!super::turned(), "{quarters}");
++        }
++    }
++
++    #[test]
++    fn a_turned_frame_lands_upside_down_and_mirrored_in_the_same_place() {
++        let mut extra = HostExtra {
++            answers_rotation: true,
++            ..HostExtra::default()
++        };
++        let _g = ExtraGuard::bind(&mut extra);
++        let quarters = 2;
++        // SAFETY: the pointer is to a live c_uint on this stack frame.
++        assert!(unsafe { rotation_set(&quarters) });
++        let frame: Vec<u8> = (0..160 * 102)
++            .flat_map(|i| if i == 0 { [0xff; 4] } else { [0; 4] })
++            .collect();
++        let mut video = vec![0u8; 240 * 160 * 4];
++        // SAFETY: frame holds 102 rows of 640 bytes, 160 XRGB8888 pixels each.
++        unsafe {
++            copy_frame(
++                &mut video,
++                (240, 160),
++                frame.as_ptr(),
++                (160, 102),
++                640,
++                false,
++            )
++        };
++        let lit: Vec<usize> = video
++            .chunks_exact(4)
++            .enumerate()
++            .filter(|(_, p)| p[0] == 0xff)
++            .map(|(i, _)| i)
++            .collect();
++        assert_eq!(lit, [(29 + 101) * 240 + 40 + 159]);
++    }
++
+     fn white(w: usize, h: usize) -> Vec<u8> {
+         vec![0xff; w * h * 4]
+     }
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index 7d64703..1f67b74 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -214,6 +214,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
+             })
+             .is_some()
+         }
++        canvas::SET_ROTATION => canvas::rotation_set(data as *const c_uint),
+         canvas::SET_GEOMETRY => canvas::geometry_set(),
+         canvas::SET_SYSTEM_AV_INFO => canvas::av_info_set(data as *const SystemAvInfo),
+         canvas::GET_AUDIO_VIDEO_ENABLE => canvas::av_enable_get(data as *mut c_int),
+@@ -328,7 +329,9 @@ unsafe extern "C" fn video_refresh(
+         return;
+     }
+     with_host(|h| {
+-        if let Some(size) = canvas::bound_canvas().filter(|c| *c != (GBA_W, GBA_H)) {
++        if let Some(size) =
++            canvas::bound_canvas().filter(|c| *c != (GBA_W, GBA_H) || canvas::turned())
++        {
+             canvas::copy_frame(
+                 &mut h.video,
+                 size,
+@@ -455,6 +458,10 @@ impl LibretroCore {
+         self.extra.answers_av = true;
+     }
+ 
++    pub fn answer_rotation(&mut self) {
++        self.extra.answers_rotation = true;
++    }
++
+     pub fn plug_analog(&mut self, device: c_uint) {
+         self.extra.port_device = device;
+         self.extra.sticks = Some([0; 4]);
+@@ -464,6 +471,10 @@ impl LibretroCore {
+         self.extra.asked_for_analog
+     }
+ 
++    pub fn turned(&self) -> bool {
++        self.extra.turned
++    }
++
+     pub fn reported_system_dir(&self) -> String {
+         self.host.system_dir.to_string_lossy().into_owned()
+     }
+diff --git a/crates/slot-store/src/lynx.rs b/crates/slot-store/src/lynx.rs
+index 3641883..b196558 100644
+--- a/crates/slot-store/src/lynx.rs
++++ b/crates/slot-store/src/lynx.rs
+@@ -105,3 +105,48 @@ pub fn crc32(data: &[u8]) -> u32 {
+         })
+     })
+ }
++
++const TURNED_TITLES: [(&str, Turn); 5] = [
++    ("klax", Turn::Right),
++    ("gauntletthethirdencounter", Turn::Right),
++    ("gauntletiii", Turn::Right),
++    ("lexis", Turn::Left),
++    ("nflfootball", Turn::Left),
++];
++
++pub fn listed_turn(name: &str) -> Option<Turn> {
++    let squashed: String = name
++        .chars()
++        .filter(char::is_ascii_alphanumeric)
++        .map(|c| c.to_ascii_lowercase())
++        .collect();
++    TURNED_TITLES
++        .iter()
++        .find(|(title, _)| squashed.starts_with(title))
++        .map(|(_, turn)| *turn)
++}
++
++pub fn parse_turn(word: &str) -> Option<Turn> {
++    match word.trim().to_ascii_lowercase().as_str() {
++        "left" => Some(Turn::Left),
++        "right" => Some(Turn::Right),
++        "none" => Some(Turn::Upright),
++        _ => None,
++    }
++}
++
++pub fn turn(rom: &Path, stem: &str, chosen: Option<&str>) -> Turn {
++    if let Some(word) = chosen {
++        match parse_turn(word) {
++            Some(turn) => return turn,
++            None => eprintln!("slot: lynx_rotation.txt: ignoring {stem}={word}"),
++        }
++    }
++    let head = header(rom);
++    listed_turn(stem)
++        .or_else(|| {
++            head.and_then(|h| title_of(&h))
++                .and_then(|t| listed_turn(&t))
++        })
++        .unwrap_or_else(|| head.map_or(Turn::Upright, |h| turn_of(&h)))
++}
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 75f147d..daf1e9f 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -118,10 +118,11 @@ pub enum QuickRow {
+     ScreenLynx,
+     LynxPicture,
+     LynxSpeed,
++    LynxFlip,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 108] = [
++    pub const ALL: [QuickRow; 109] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -230,6 +231,7 @@ impl QuickRow {
+         QuickRow::ScreenLynx,
+         QuickRow::LynxPicture,
+         QuickRow::LynxSpeed,
++        QuickRow::LynxFlip,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -431,9 +433,10 @@ impl QuickRow {
+             }
+             QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
+             QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
+-            QuickRow::LynxShader | QuickRow::LynxPicture | QuickRow::LynxSpeed => {
+-                &QuickRow::SCREEN_LYNX
+-            }
++            QuickRow::LynxShader
++            | QuickRow::LynxPicture
++            | QuickRow::LynxSpeed
++            | QuickRow::LynxFlip => &QuickRow::SCREEN_LYNX,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -473,9 +476,10 @@ impl QuickRow {
+             QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
+                 Some(QuickRow::ScreenWs)
+             }
+-            QuickRow::LynxShader | QuickRow::LynxPicture | QuickRow::LynxSpeed => {
+-                Some(QuickRow::ScreenLynx)
+-            }
++            QuickRow::LynxShader
++            | QuickRow::LynxPicture
++            | QuickRow::LynxSpeed
++            | QuickRow::LynxFlip => Some(QuickRow::ScreenLynx),
+             _ => None,
+         }
+     }
+@@ -652,6 +656,7 @@ impl QuickRow {
+             QuickRow::Cpu => "CPU",
+             QuickRow::WsRefresh => "Refresh",
+             QuickRow::LynxSpeed => "Lynx Speed",
++            QuickRow::LynxFlip => "Flip Right Carts",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index e81083c..6045a1b 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -33,10 +33,11 @@ impl QuickRow {
+     pub const SCREEN_TG16: [QuickRow; 2] = [QuickRow::Tg16Shader, QuickRow::Tg16Picture];
+     pub const SCREEN_WS: [QuickRow; 3] =
+         [QuickRow::WsShader, QuickRow::WsPicture, QuickRow::WsRefresh];
+-    pub const SCREEN_LYNX: [QuickRow; 3] = [
++    pub const SCREEN_LYNX: [QuickRow; 4] = [
+         QuickRow::LynxShader,
+         QuickRow::LynxPicture,
+         QuickRow::LynxSpeed,
++        QuickRow::LynxFlip,
+     ];
+ }
+ 
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 76972dd..b60b12a 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -446,6 +446,7 @@ pub struct App {
+     battery: Option<Battery>,
+     battery_warned: Option<u8>,
+     lynx_bios_warned: bool,
++    lynx_flip: bool,
+     last_led: Option<LedState>,
+     powering_off: bool,
+     radio: Box<dyn RadioJobs>,
+@@ -636,6 +637,7 @@ impl App {
+             battery: None,
+             battery_warned: None,
+             lynx_bios_warned: false,
++            lynx_flip: true,
+             last_led: None,
+             powering_off: false,
+             shelf_carts: Vec::new(),
+@@ -671,6 +673,7 @@ impl App {
+         app.ws_native = crate::ws_refresh::native(root);
+         app.sms_region = crate::sms_region::Region::read(root);
+         app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
++        app.lynx_flip = crate::lynx_turn::flips_right(root);
+         app.restock_recents();
+         app.restock_favorites();
+         for at in 0..app.shelves.len() {
+@@ -1101,6 +1104,7 @@ impl App {
+             QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
++            QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
+             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+@@ -2217,6 +2221,10 @@ impl App {
+         self.seated_cart().map_or(self.platform, |c| c.platform)
+     }
+ 
++    pub fn lynx_flips_right(&self) -> bool {
++        self.lynx_flip
++    }
++
+     pub fn native_pal(&self, platform: Platform) -> bool {
+         platform == Platform::Ws || self.pal_speeds.native(platform)
+     }
+@@ -2790,7 +2798,8 @@ impl App {
+             | QuickRow::WsRefresh
+             | QuickRow::LynxShader
+             | QuickRow::LynxPicture
+-            | QuickRow::LynxSpeed => {}
++            | QuickRow::LynxSpeed
++            | QuickRow::LynxFlip => {}
+         }
+     }
+ 
+@@ -2819,6 +2828,13 @@ impl App {
+             }
+             return;
+         }
++        if row == QuickRow::LynxFlip {
++            self.lynx_flip = !self.lynx_flip;
++            if let Some(root) = &self.root {
++                crate::lynx_turn::save(root, self.lynx_flip, &self.card_writes);
++            }
++            return;
++        }
+         if row == QuickRow::SmsRegion {
+             self.sms_region = self.sms_region.stepped(right);
+             if let Some(root) = &self.root {
+@@ -2958,6 +2974,7 @@ impl App {
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::LynxSpeed
++            | QuickRow::LynxFlip
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
+             | QuickRow::WsRefresh
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 714e783..8f6234a 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -115,6 +115,9 @@ fn open_named(
+                 if !Core::ALL.contains(&core) {
+                     opened.answer_av();
+                 }
++                if platform == Platform::Lynx {
++                    opened.answer_rotation();
++                }
+                 apply_core_options(
+                     &mut opened,
+                     core,
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 778e473..dcb5af5 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -38,6 +38,7 @@ pub mod link_radio;
+ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
++pub mod lynx_turn;
+ pub mod no_state;
+ pub mod pal_speed;
+ pub mod panel_turn;
+diff --git a/crates/slot/src/lynx_turn.rs b/crates/slot/src/lynx_turn.rs
+new file mode 100644
+index 0000000..de44043
+--- /dev/null
++++ b/crates/slot/src/lynx_turn.rs
+@@ -0,0 +1,62 @@
++use std::path::Path;
++
++use slot_retro::RetroCore;
++use slot_store::lynx::Turn;
++use slot_store::{ini, Platform};
++
++use crate::card_log::CardWrites;
++
++pub const LYNX_ROTATION_FILE: &str = "Config/lynx_rotation.txt";
++pub const LYNX_FLIP_FILE: &str = "Config/lynx_flip.txt";
++
++const FLIP_KEY: &str = "right";
++const ROT_SCREEN: &str = "lynx_rot_screen";
++
++pub fn turn_of(root: &Path, stem: &str, rom: &Path) -> Turn {
++    let chosen = ini::value(root, LYNX_ROTATION_FILE, stem);
++    slot_store::lynx::turn(rom, stem, chosen.as_deref())
++}
++
++pub fn rot_screen(turn: Turn, flip_right: bool) -> &'static str {
++    match (turn, flip_right) {
++        (Turn::Right, true) => "180",
++        (Turn::Right, false) | (Turn::Left | Turn::Upright, _) => "0",
++    }
++}
++
++pub fn apply(
++    core: &mut dyn RetroCore,
++    root: &Path,
++    platform: Platform,
++    stem: &str,
++    rom: &Path,
++    flip_right: bool,
++) {
++    if platform != Platform::Lynx {
++        return;
++    }
++    let turn = turn_of(root, stem, rom);
++    let value = rot_screen(turn, flip_right);
++    eprintln!("slot: lynx: {stem} is {turn:?}, {ROT_SCREEN}={value}");
++    core.set_option(ROT_SCREEN, value);
++}
++
++pub fn flips_right(root: &Path) -> bool {
++    match ini::value(root, LYNX_FLIP_FILE, FLIP_KEY).as_deref() {
++        None | Some("on") => true,
++        Some("off") => false,
++        Some(other) => {
++            eprintln!("slot: lynx_flip.txt: ignoring {FLIP_KEY}={other}");
++            true
++        }
++    }
++}
++
++pub fn save(root: &Path, flip_right: bool, writes: &CardWrites) {
++    let value = if flip_right { "on" } else { "off" };
++    let written = ini::write(root, LYNX_FLIP_FILE, FLIP_KEY, value);
++    if let Err(e) = &written {
++        eprintln!("slot: lynx: could not write lynx_flip.txt: {e}");
++    }
++    writes.wrote("lynx_flip.txt", &written);
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 0f5fc02..c89e650 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -537,6 +537,7 @@ impl Session {
+         let player = self.app.link_player();
+         let chosen = self.app.gb_palette();
+         let colour = self.app.colour_correction_for(platform);
++        let flip_right = self.app.lynx_flips_right();
+         let join = std::thread::Builder::new()
+             .name("slot-open".into())
+             .spawn(move || {
+@@ -554,6 +555,14 @@ impl Session {
+                     &stem,
+                     &rom,
+                 );
++                crate::lynx_turn::apply(
++                    opened.core.as_mut(),
++                    &root,
++                    platform,
++                    &stem,
++                    &rom,
++                    flip_right,
++                );
+                 launch("core opened");
+                 let sav = persist::read_sav(&root, platform, &stem);
+                 launch("save read");
+diff --git a/crates/slot/tests/lynx_rotation.rs b/crates/slot/tests/lynx_rotation.rs
+new file mode 100644
+index 0000000..d9543fa
+--- /dev/null
++++ b/crates/slot/tests/lynx_rotation.rs
+@@ -0,0 +1,173 @@
++mod common;
++mod core_common;
++mod lynx_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use lynx_common::{echo_pad, lnx_cart, lynx_bios, put_bios, H, LEFT, TOP, W};
++use slot::core::apply_core_options;
++use slot::lynx_turn::{apply, rot_screen, turn_of, LYNX_ROTATION_FILE};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use slot_store::lynx::{listed_turn, Turn};
++use slot_store::{Core, Platform};
++
++fn cart(root: &Path, stem: &str, title: &[u8], byte: u8) -> PathBuf {
++    let mut rom = vec![0u8; 64 + 128 * 1024];
++    rom[..4].copy_from_slice(b"LYNX");
++    rom[8] = 1;
++    rom[10..10 + title.len()].copy_from_slice(title);
++    rom[58] = byte;
++    let path = root.join(format!("{stem}.lnx"));
++    std::fs::write(&path, rom).unwrap();
++    path
++}
++
++fn chosen(root: &Path, text: &str) {
++    std::fs::create_dir_all(root.join("Config")).unwrap();
++    std::fs::write(root.join(LYNX_ROTATION_FILE), text).unwrap();
++}
++
++#[test]
++fn the_header_byte_says_which_way_a_cart_is_turned() {
++    let d = tempfile::tempdir().unwrap();
++    for (byte, want) in [(0, Turn::Upright), (1, Turn::Left), (2, Turn::Right)] {
++        let rom = cart(d.path(), &format!("Game {byte}"), b"GAME", byte);
++        assert_eq!(turn_of(d.path(), &format!("Game {byte}"), &rom), want);
++    }
++}
++
++#[test]
++fn the_title_list_turns_a_dump_whose_header_says_nothing() {
++    let d = tempfile::tempdir().unwrap();
++    for (stem, want) in [
++        ("Klax (USA, Europe)", Turn::Right),
++        ("Gauntlet - The Third Encounter (USA, Europe)", Turn::Right),
++        ("Lexis (USA)", Turn::Left),
++        ("NFL Football (USA, Europe)", Turn::Left),
++        ("California Games (USA, Europe)", Turn::Upright),
++    ] {
++        let rom = cart(d.path(), stem, b"", 0);
++        assert_eq!(turn_of(d.path(), stem, &rom), want, "{stem}");
++    }
++    let rom = cart(d.path(), "kx", b"Klax", 0);
++    assert_eq!(turn_of(d.path(), "kx", &rom), Turn::Right);
++    assert_eq!(listed_turn("klaxon"), Some(Turn::Right));
++    assert_eq!(listed_turn("Blue Lightning"), None);
++}
++
++#[test]
++fn the_override_file_wins_and_an_unknown_word_is_ignored() {
++    let d = tempfile::tempdir().unwrap();
++    let klax = cart(d.path(), "Klax", b"", 2);
++    let flat = cart(d.path(), "Flat", b"", 0);
++    let odd = cart(d.path(), "Odd", b"", 2);
++    chosen(d.path(), "Klax = none\nFlat = right\nOdd = sideways\n");
++    assert_eq!(turn_of(d.path(), "Klax", &klax), Turn::Upright);
++    assert_eq!(turn_of(d.path(), "Flat", &flat), Turn::Right);
++    assert_eq!(turn_of(d.path(), "Odd", &odd), Turn::Right);
++}
++
++#[test]
++fn only_a_right_cart_with_flip_on_asks_the_core_for_half_a_turn() {
++    assert_eq!(rot_screen(Turn::Right, true), "180");
++    assert_eq!(rot_screen(Turn::Right, false), "0");
++    for flip in [true, false] {
++        assert_eq!(rot_screen(Turn::Left, flip), "0");
++        assert_eq!(rot_screen(Turn::Upright, flip), "0");
++    }
++}
++
++fn beetle(root: &Path) -> Option<LibretroCore> {
++    let dylib = require_core("mednafen_lynx")?;
++    let bios = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&bios).unwrap();
++    let mut core = LibretroCore::open_with(&dylib, &bios, root).expect("open Beetle Lynx");
++    apply_core_options(
++        &mut core,
++        Core::MednafenLynx,
++        Platform::Lynx,
++        "",
++        false,
++        false,
++        None,
++    );
++    Some(core)
++}
++
++#[test]
++fn slot_hands_the_core_the_turn_for_each_cart() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let right = cart(d.path(), "Klax", b"", 0);
++    let left = cart(d.path(), "Lexis", b"", 0);
++    for (stem, rom, flip, want) in [
++        ("Klax", &right, true, "180"),
++        ("Klax", &right, false, "0"),
++        ("Lexis", &left, true, "0"),
++    ] {
++        let Some(mut core) = beetle(d.path()) else {
++            return;
++        };
++        apply(&mut core, d.path(), Platform::Lynx, stem, rom, flip);
++        assert_eq!(
++            core.option("lynx_rot_screen").as_deref(),
++            Some(want),
++            "{stem} {flip}"
++        );
++    }
++    let Some(mut core) = beetle(d.path()) else {
++        return;
++    };
++    apply(&mut core, d.path(), Platform::Nes, "Klax", &right, true);
++    assert_eq!(core.option("lynx_rot_screen").as_deref(), Some("0"));
++}
++
++fn turned_session(bios: &[u8], flip: bool, held: u16) -> Option<(bool, Vec<u8>)> {
++    let d = tempfile::tempdir().unwrap();
++    put_bios(d.path(), Some(bios));
++    let mut core = beetle(d.path())?;
++    let rom = lnx_cart(d.path(), "Klax", 2, echo_pad(0xfb68));
++    apply(&mut core, d.path(), Platform::Lynx, "Klax", &rom, flip);
++    core.load(&rom).unwrap();
++    for _ in 0..90 {
++        core.run_frame(ButtonMask(held));
++    }
++    let at = ((TOP + H / 2) * 240 + LEFT + W / 2) * 4;
++    Some((core.turned(), core.video_xrgb8888()[at..at + 3].to_vec()))
++}
++
++#[test]
++fn a_right_cart_is_drawn_turned_and_its_pad_turns_with_it() {
++    let _g = core_lock();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some((flat, up)) = turned_session(&bios, false, ButtonMask::UP) else {
++        return;
++    };
++    let (_, down) = turned_session(&bios, false, ButtonMask::DOWN).unwrap();
++    assert!(!flat);
++    assert_ne!(up, down);
++    let (turned, up_turned) = turned_session(&bios, true, ButtonMask::UP).unwrap();
++    assert!(turned, "the core never asked for half a turn");
++    assert_eq!(up_turned, down);
++}
++
++#[test]
++fn l_and_r_reach_the_game_as_option_1_and_2() {
++    let _g = core_lock();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some((_, idle)) = turned_session(&bios, false, 0) else {
++        return;
++    };
++    let (_, l) = turned_session(&bios, false, ButtonMask::L).unwrap();
++    let (_, r) = turned_session(&bios, false, ButtonMask::R).unwrap();
++    assert_ne!(l, idle);
++    assert_ne!(r, idle);
++    assert_ne!(l, r);
++    assert!(!Platform::Lynx.owns_shoulders());
++}
+diff --git a/crates/slot/tests/lynx_screen.rs b/crates/slot/tests/lynx_screen.rs
+index 983b689..3d573b3 100644
+--- a/crates/slot/tests/lynx_screen.rs
++++ b/crates/slot/tests/lynx_screen.rs
+@@ -62,7 +62,8 @@ fn lynx_closes_the_screen_list_and_opens_its_own_section() {
+         [
+             QuickRow::LynxShader,
+             QuickRow::LynxPicture,
+-            QuickRow::LynxSpeed
++            QuickRow::LynxSpeed,
++            QuickRow::LynxFlip
+         ]
+     );
+     for row in QuickRow::SCREEN_LYNX {
+@@ -211,3 +212,26 @@ fn the_lynx_speed_row_starts_native_and_writes_only_its_own_line() {
+         "lynx = native\n"
+     );
+ }
++
++#[test]
++fn flip_right_carts_starts_on_and_writes_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    open_lynx(&mut app);
++    for _ in 0..3 {
++        press(&mut app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::LynxFlip));
++    assert_eq!(QuickRow::LynxFlip.label(), "Flip Right Carts");
++    assert_eq!(app.quick_value(QuickRow::LynxFlip), Some(QuickValue::On));
++    assert!(app.lynx_flips_right());
++    let file = root.path().join(slot::lynx_turn::LYNX_FLIP_FILE);
++    assert!(!file.exists());
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(app.quick_value(QuickRow::LynxFlip), Some(QuickValue::Off));
++    assert_eq!(
++        std::fs::read_to_string(&file).expect("lynx_flip.txt"),
++        "right = off\n"
++    );
++    assert!(!boot(root.path()).lynx_flips_right());
++}

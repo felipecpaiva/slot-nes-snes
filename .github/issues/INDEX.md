@@ -92,3 +92,15 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [97](97-wswan-tests.md) | Test WonderSwan with a generated cart that paints, turns and saves | 11 | tests | test | S | 92-wswan-core-build |
 | [98](98-wswan-carts.md) | Draw WonderSwan carts (black and clear shells) and fetch their labels | 11 | ui-art | feature | M | 93-platform-wswan |
 | [99](99-wswan-device-gate.md) | WonderSwan device gate on the RG34XXSP | 11 | device | chore | S | 93-platform-wswan, 95-wswan-canvas-screen, 96-wswan-input |
+| [101](101-lynx-tracking.md) | Atari Lynx: Lynx on Beetle Lynx, with a BIOS check, our own rotation and real-rate pacing | 12 | device | tracking | L | 56-ps1-tracking |
+| [102](102-lynx-core-build.md) | Build Beetle Lynx from a pinned commit for host and device and record its licence | 12 | cores | feature | S | 101-lynx-tracking |
+| [103](103-platform-lynx.md) | Add Platform::Lynx with its own shelf, scan, LNX header reader and explicit policy | 12 | platform | feature | M | 102-lynx-core-build |
+| [104](104-lynx-bios-check.md) | Check lynxboot.img before a Lynx launch and toast instead of a silent black screen | 12 | platform | feature | S | 103-platform-lynx |
+| [105](105-lynx-options.md) | Set the Lynx core options: lynx_rot_screen always set, lynx_force_60hz off, RGB565 | 12 | cores | feature | S | 103-platform-lynx |
+| [106](106-lynx-canvas-screen.md) | Give Lynx a 240x160 canvas at 4x and its own Screen section | 12 | video | feature | S | 105-lynx-options |
+| [107](107-lynx-pacing.md) | Pace Lynx games at the rate their frames carry, with a Lynx Speed row (Native default) | 12 | video | feature | M | 106-lynx-canvas-screen, 66-pal-pacing |
+| [108](108-lynx-saves.md) | Lynx saves: states only on Beetle Lynx, and say so | 12 | platform | chore | S | 103-platform-lynx |
+| [109](109-lynx-input-rotation.md) | Map the Lynx buttons and turn carts made to be held sideways | 12 | input | feature | M | 105-lynx-options |
+| [110](110-lynx-tests.md) | Test Lynx with a homebrew image, synthetic carts and the real BIOS when present | 12 | tests | test | S | 102-lynx-core-build |
+| [111](111-lynx-carts.md) | Draw Lynx cards and fetch their labels | 12 | ui-art | feature | M | 103-platform-lynx |
+| [112](112-lynx-device-gate.md) | Lynx device gate on the RG34XXSP | 12 | device | chore | S | 104-lynx-bios-check, 107-lynx-pacing, 109-lynx-input-rotation |
