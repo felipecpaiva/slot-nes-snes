@@ -57,6 +57,7 @@ the files at their card paths, and the order changes so the old version is never
 - every file (old ROM, saves, state folders) is copied from the card to the folder and checked, size
   and CRC32 of the copy against the bytes read from the card; only when all of them check are the old
   ROM and the state folders removed from the card, and only then is the new ROM written;
+  `backup.json` is written after the copies, so a backup that failed half way is never rolled back to;
 - a rollback copies the saved files back the same way, each copy checked on the card;
 - the folder must be reachable (it is created if missing, then a probe file is written): an unmounted
   drive or a folder that cannot be written refuses the update before anything is written. It never

@@ -128,7 +128,7 @@ writes it into a new settings file. Off the card:
 - an update copies the old ROM, the saves and the state folders from the card to the folder, checks
   every copy (size and CRC32 against the bytes read from the card), and only then removes the old ROM
   and the state folders from the card and writes the new ROM. A copy that does not check stops the
-  update with nothing removed;
+  update with nothing removed, and the half-made folder gets no `backup.json`, so `--rollback` ignores it;
 - a rollback copies the backup back to the card, each file checked the same way, after moving the
   current files into a `<stamp>_rollback` backup in the folder;
 - the folder must be reachable: it is created if missing and a probe file is written (a dry run only

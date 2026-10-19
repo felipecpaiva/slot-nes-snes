@@ -749,6 +749,7 @@ class Update(Base):
 
     def check_off_card_round_trip(self, run):
         root = self.off()
+        os.makedirs(self.at("States", "GBA", "vba", self.STEM))  # an empty state folder comes back too
         r, out = run("--update", "hack", "--yes")
         self.assertEqual(r, 0, out)
         self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), NEW)
@@ -762,6 +763,7 @@ class Update(Base):
             "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.state", "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.png",
             "States/GBA/mgba/Hack (v1)/resume.state", "States/GBA/gpsp/Hack (v1)/resume.state"]))
         self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertFalse(os.path.exists(self.at("States", "GBA", "vba", self.STEM)))
         state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
         self.assertEqual(state["hack"]["backup"], f"{os.path.join(root, 'GBA', self.STEM)}/{label}")  # where it is
         self.write(self.at("Saves", "GBA", self.STEM + ".sav"), b"battery-v2")
@@ -771,6 +773,7 @@ class Update(Base):
         self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
         self.assertEqual(rd(self.at("Saves", "GBA", self.STEM + ".sav")), b"battery")
         self.assertEqual(rd(self.at("States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
+        self.assertTrue(os.path.isdir(self.at("States", "GBA", "vba", self.STEM)))
         self.assertFalse(os.path.exists(self.at("Backups")))
         (safety,) = [n for n in os.listdir(os.path.join(root, "GBA", self.STEM)) if n.endswith("_rollback")]
         s = os.path.join(root, "GBA", self.STEM, safety)
@@ -805,8 +808,30 @@ class Update(Base):
         with mock.patch.object(hk.LocalCard, "crc_size", lie):
             r, out = self.update("--yes")
         self.assertIn("does not match", out)
+        self.assertIn("the card is untouched", out)
+        self.assertNotIn("--rollback hack", out)
+        card = self.tree(self.card)
         self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
         self.assertTrue(os.path.exists(self.at("States", "GBA", "mgba", self.STEM, "resume.state")))
+        # the half-made folder has no backup.json: a rollback finds nothing to roll back to, touches nothing
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("no update backup", out)
+        self.assertEqual(self.tree(self.card), card)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+
+    def test_a_card_backup_from_before_the_setting_still_rolls_back(self):
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
+        root = self.off()
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertEqual(rd(self.at("States", "GBA", "mgba", self.STEM, "resume.state")), b"auto")
+        self.assertEqual(os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)), [label])  # nothing new on the card
+        (safety,) = os.listdir(os.path.join(root, "GBA", self.STEM))
+        self.assertTrue(safety.endswith("_rollback"))
+        self.assertEqual(rd(os.path.join(root, "GBA", self.STEM, safety, "Games", "GBA", self.STEM + ".gba")), NEW)
 
     def test_migrate_moves_card_backups_off_and_rollback_finds_them(self):
         r, out = self.update("--yes")  # an update from before the setting: its backup is on the card

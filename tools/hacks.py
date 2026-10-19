@@ -505,6 +505,9 @@ class LocalCard:
     def remove(self, rel):
         (shutil.rmtree if os.path.isdir(self.p(rel)) else os.remove)(self.p(rel))
 
+    def mkdir(self, rel):
+        os.makedirs(self.p(rel))
+
     def apply(self, op, src, dst):
         d = self.p(dst)
         if os.path.exists(d):
@@ -559,6 +562,9 @@ class AdbCard:
 
     def remove(self, rel):
         self.sh(f"rm -r {shlex.quote(self.p(rel))}")
+
+    def mkdir(self, rel):
+        self.sh(f"mkdir -p {shlex.quote(self.p(rel))}")
 
     def sh(self, cmd):
         rc, out = self.run("shell", cmd)
@@ -638,7 +644,10 @@ class Split:
         frm = self.side(src)
         if to.exists(dst):
             raise Refuse(f"{dst} already exists, refusing to overwrite it")
-        for sub in tree(frm, src):
+        files = tree(frm, src)
+        if not files:  # an empty folder (a state folder with no states yet)
+            to.mkdir(dst)
+        for sub in files:
             s, d = under(src, sub), under(dst, sub)
             data = frm.read(s)
             if data is None:
@@ -930,13 +939,16 @@ def update_ops(items, bdir, to_backup, writes, meta):
     """Ops for one target: backup.json first, then the saves copied, the states and the ROM moved, the new
     ROM written last under the same name."""
     pairs = [(live, to_backup(live)) for live, _ in items]
-    ops = [("write", json.dumps(dict(meta, items=pairs), indent=2).encode(), f"{bdir}/backup.json")]
-    removes = []
+    info = [("write", json.dumps(dict(meta, items=pairs), indent=2).encode(), f"{bdir}/backup.json")]
+    ops, removes = [], []
     for live, how in sorted(items, key=lambda x: x[1] != "copy"):
         across = os.path.isabs(live) != os.path.isabs(bdir)  # card -> off-card backup: copy, check, remove
         ops.append(("copy" if across else how, live, to_backup(live)))
         if across and how == "move":
             removes.append(("remove", live, None))
+    # off the card, backup.json comes after the checked copies: a backup that failed half way has none,
+    # so --rollback never picks it; on the card it comes first, so a half-done move can be rolled back
+    ops = ops + info if removes else info + ops
     return ops + removes + [("write", data, live) for data, live in writes]
 
 
@@ -968,11 +980,13 @@ def show(ops, where):
         print(f"    {where}: {op:<5} {src}" + (f"  ->  {b}" if b else ""))
 
 
-def execute(target, ops, where):
-    """True when every op ran; else says which did and returns False."""
+def execute(target, ops, where, done=None):
+    """True when every op ran; else says which did and returns False. done, a list, gets each op that ran."""
     for n, (op, a, b) in enumerate(ops):
         try:
             target.apply(op, a, b)
+            if done is not None:
+                done.append(op)
         except (Refuse, OSError) as e:
             print(f"  {where}: FAILED at op {n + 1} of {len(ops)} ({op} -> {b or a}): {e}")
             print(f"  {where}: the {n} op(s) before it were done; nothing that was not copied and checked was removed")
@@ -1365,8 +1379,13 @@ def cmd_update(ctx, reg, ids, args, card):
         if not confirm(args, f"  apply {hid}?"):
             print("  skipped")
             continue
-        if not execute(Split(card), card_ops, "card"):
-            print(f"  the card is half updated: run --rollback {hid} to put the old files back")
+        done = []
+        if not execute(Split(card), card_ops, "card", done):
+            if args.backup_root and "remove" not in done:
+                print(f"  the card is untouched; the partial copy in {record['backup']} has no backup.json, so "
+                      "--rollback ignores it")
+            else:
+                print(f"  the card is half updated: run --rollback {hid} to put the old files back")
             failed += 1
             continue
         state[hid] = record  # the card is what counts: record it before the library
