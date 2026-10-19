@@ -154,7 +154,7 @@ if [ -f "$lic/cores.sha256" ]; then
 		f="$sys/${core}_libretro.so"
 		[ -f "$f" ] || continue
 		want="$(sed -n "s/^\([0-9a-f]*\)  ${core}_libretro.so\$/\1/p" "$lic/cores.sha256")"
-		[ -n "$want" ] && [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$want" ] ||
+		[ -n "$want" ] && [ "$(file_sha256 "$f")" = "$want" ] ||
 			bad "System/${core}_libretro.so does not match the sha256 in licenses/cores.sha256"
 	done
 fi
@@ -182,7 +182,7 @@ for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar
 	f="$lic/$(echo "$pair" | cut -d: -f2)"
 	eval "want=\${$(echo "$pair" | cut -d: -f3):-}"
 	[ -n "$want" ] || bad "SLOT_PIN has no $(echo "$pair" | cut -d: -f3)"
-	[ ! -f "$f" ] || [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$want" ] ||
+	[ ! -f "$f" ] || [ "$(file_sha256 "$f")" = "$want" ] ||
 		bad "System/licenses/$(basename "$f") is not the source SLOT_PIN pins ($(echo "$pair" | cut -d: -f3))"
 done
 
@@ -191,7 +191,7 @@ done
 [ ! -f "$sys/fsck.exfat" ] || aarch64 "$sys/fsck.exfat"
 es="$(slot_var EXFATPROGS_SHA256)"
 f="$lic/exfatprogs-$ev.tar.gz"
-[ ! -f "$f" ] || [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$es" ] ||
+[ ! -f "$f" ] || [ "$(file_sha256 "$f")" = "$es" ] ||
 	bad "System/licenses/exfatprogs-$ev.tar.gz is not the source upstream pins (EXFATPROGS_SHA256)"
 
 for f in "$sys"/*_libretro.*; do
