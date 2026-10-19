@@ -73,3 +73,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
 | [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
+| [113](113-segacd-tracking.md) | Sega CD / Mega-CD on Genesis Plus GX, the disc half of the Mega Drive | 13 | device | tracking | L | 53-platform-md, 56-ps1-tracking |
+| [114](114-platform-segacd.md) | Add Platform::SegaCd with its own shelf, disc scan and explicit policy | 13 | platform | feature | M | 113-segacd-tracking |
+| [115](115-segacd-bios-check.md) | Check the region's Sega CD BIOS before a launch and toast instead of a black screen | 13 | platform | feature | S | 114-platform-segacd |
+| [116](116-segacd-options.md) | Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache | 13 | cores | feature | S | 114-platform-segacd |
+| [117](117-segacd-canvas-screen.md) | Give Sega CD the Mega Drive canvas and its own Screen section | 13 | video | feature | S | 116-segacd-options |
+| [118](118-segacd-backup-ram.md) | Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload | 13 | platform | feature | M | 116-segacd-options |
+| [119](119-segacd-discs.md) | Swap Sega CD discs, remember the disc, record it in states | 13 | platform | feature | S | 114-platform-segacd |
+| [120](120-segacd-input.md) | Hand the Mega Drive 3 and 6 button pad to Sega CD games | 13 | input | feature | S | 114-platform-segacd |
+| [121](121-segacd-tests.md) | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | 13 | tests | test | S | 113-segacd-tracking |
+| [122](122-segacd-cases.md) | Draw Sega CD games as jewel cases and fetch their covers | 13 | ui-art | feature | M | 114-platform-segacd |

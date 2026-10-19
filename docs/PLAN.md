@@ -57,7 +57,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7) and PlayStation (Phase 8, ADR 0063) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063) and Sega CD (Phase 13, ADR 0094) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -437,6 +437,26 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
+
+### Phase 13: Sega CD / Mega-CD (planned, not shipped)
+
+Tracking issue 113, children 114 to 122, ADR 0094, plan in docs/research/segacd-plan.md. No new
+core: Genesis Plus GX (ADR 0053) at the existing pin, CHD built in. One shelf `Games/SEGACD`,
+user-supplied `bios_CD_U.bin`, `bios_CD_E.bin` and `bios_CD_J.bin` in `BIOS/`, never shipped.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0094 and the issues |
+| 2 | 121, core half done | Synthetic-disc tests on the real core with a dummy BIOS: load, region, timing, backup RAM (patch 0057) |
+| 3 | 114 | `Platform::SegaCd`, shelf, scan (`.chd`, `.cue`, `.m3u`, `.iso`), relative playlists |
+| 4 | 115 | BIOS check by region and md5, toast instead of a black screen |
+| 5 | 116 | Core options: per-game backup RAM, no RAM cart, no precache |
+| 6 | 117 | Mega Drive canvas, Sega CD Screen section with Shader, Picture and PAL Speed |
+| 7 | 118 | Backup RAM durability: core save dir `Saves/SEGACD`, atomic publish, check, flush by reload (device measurement first) |
+| 8 | 119 | Disc swap, remembered disc, state trailer |
+| 9 | 120 | The Mega Drive pad |
+| 10 | 122 | Jewel cases, covers from ScreenScraper id 20 |
+| 11 | 113 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)
 

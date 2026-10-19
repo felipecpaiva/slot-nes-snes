@@ -100,3 +100,4 @@ the patch set looks the way it does.
 | [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
 | [0082](0082-rom-hack-updates-keep-saves-move-states.md) | A ROM hack update keeps the name and the battery save, and moves every save state away | Accepted | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |
+| [0094](0094-sega-cd-on-genesis-plus-gx.md) | Bring Sega CD / Mega-CD into scope on the Genesis Plus GX already shipped, with a BIOS check and the core's backup RAM made durable | Accepted for the groundwork. Amends 0053 | 2026-10-19 |

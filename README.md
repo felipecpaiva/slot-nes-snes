@@ -26,6 +26,7 @@ set adds more shelves the same way:
 | Master System | `Games/SMS` (`.sms`) | Genesis Plus GX (2x) | none yet |
 | Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
 | PlayStation (planned, not shipped) | `Games/PS1` (`.chd`, `.cue`, `.pbp`, `.m3u`) | pcsx_rearmed | none |
+| Sega CD (planned, not shipped) | `Games/SEGACD` (`.chd`, `.cue`, `.m3u`, `.iso`) | Genesis Plus GX (2x, 6-button) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -36,6 +37,11 @@ are the NES and SNES retro list, stored in `Config/sega_shaders.txt`, not in `sl
 PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A device spike on the
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
+
+Sega CD is planned, not shipped (Phase 13, ADR 0094, issue 113). It runs on the Genesis Plus GX core
+the Mega Drive shelf already uses and needs your own `bios_CD_U.bin`, `bios_CD_E.bin` or
+`bios_CD_J.bin` in `BIOS/` (none shipped). The core writes the backup RAM saves itself, and a save
+state does not hold them, so making that write safe is its own step (issue 118).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
