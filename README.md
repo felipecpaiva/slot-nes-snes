@@ -77,6 +77,10 @@ flash, which the core writes itself; slot checks that file before the core reads
 atomically at every lid close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`. The carts
 are drawn as an NGP pak in dark grey, with label art from the label fetcher (issue 78). The NGP work credits nelynes/slotPlus (a8eae4c, 1ef7226).
 
+A file whose name starts with `[BIOS]` (a TurboGrafx-16 System Card, the Lynx boot ROM, a Neo Geo
+Pocket BIOS, any No-Intro or Redump firmware dump) is never shown as a cart on any shelf (patch 0088).
+Lynx still reads its boot ROM from `BIOS/lynxboot.img`.
+
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
 byte-identical to upstream. That is the goal. The quick menu keeps its rows on every shelf. The Turbo
