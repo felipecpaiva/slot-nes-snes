@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 12:51:31 +0400
+Subject: [PATCH] bios-dumps-off-shelf
+
+A file whose name starts with "[BIOS]" (the No-Intro and Redump mark
+for a system card, boot ROM or console firmware dump) is never a cart:
+the scan skips it on every shelf, so a TurboGrafx-16 System Card, the
+Lynx boot ROM or the Neo Geo Pocket Color BIOS kept beside the games no
+longer shows up as a game. Lynx still reads its boot ROM from
+BIOS/lynxboot.img, which the scan never looks at.
+---
+ crates/slot-store/src/bios_dump.rs    |  7 +++++
+ crates/slot-store/src/lib.rs          |  1 +
+ crates/slot-store/src/scan.rs         |  6 ++++-
+ crates/slot-store/tests/bios_dumps.rs | 39 +++++++++++++++++++++++++++
+ 4 files changed, 52 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-store/src/bios_dump.rs
+ create mode 100644 crates/slot-store/tests/bios_dumps.rs
+
+diff --git a/crates/slot-store/src/bios_dump.rs b/crates/slot-store/src/bios_dump.rs
+new file mode 100644
+index 0000000..71821dd
+--- /dev/null
++++ b/crates/slot-store/src/bios_dump.rs
+@@ -0,0 +1,7 @@
++use std::path::Path;
++
++pub fn is_bios_dump(p: &Path) -> bool {
++    p.file_name()
++        .and_then(|n| n.to_str())
++        .is_some_and(|n| n.starts_with("[BIOS]"))
++}
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index a9f449e..ad3d782 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -1,5 +1,6 @@
+ mod atomic;
+ mod bindings;
++mod bios_dump;
+ pub mod cart_shell;
+ mod config;
+ mod core;
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 4903e57..2c55b71 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -105,7 +105,11 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
+                 continue;
+             };
+             let rom = entry.path();
+-            if is_hidden(&rom) || !platform.accepts(&rom) || !is_file(&entry) {
++            if is_hidden(&rom)
++                || crate::bios_dump::is_bios_dump(&rom)
++                || !platform.accepts(&rom)
++                || !is_file(&entry)
++            {
+                 continue;
+             }
+             let Some(stem) = rom.file_stem().and_then(|s| s.to_str()) else {
+diff --git a/crates/slot-store/tests/bios_dumps.rs b/crates/slot-store/tests/bios_dumps.rs
+new file mode 100644
+index 0000000..5988ace
+--- /dev/null
++++ b/crates/slot-store/tests/bios_dumps.rs
+@@ -0,0 +1,39 @@
++mod common;
++
++use common::tmp_root;
++use slot_store::{scan, Platform};
++
++const BIOS: [(Platform, &str); 4] = [
++    (Platform::Tg16, "[BIOS] Super CD-ROM System (Japan) (v3.0)"),
++    (Platform::Lynx, "[BIOS] Atari Lynx (USA, Europe)"),
++    (
++        Platform::Ngp,
++        "[BIOS] SNK Neo Geo Pocket Color (World) (En,Ja)",
++    ),
++    (Platform::Gba, "[BIOS] Game Boy Advance (World)"),
++];
++
++fn put(root: &std::path::Path, platform: Platform, stem: &str) {
++    let dir = root.join("Games").join(platform.dir_name());
++    std::fs::create_dir_all(&dir).expect("create shelf dir");
++    let name = format!("{stem}.{}", platform.extensions()[0]);
++    std::fs::write(dir.join(name), vec![0u8; 0x4000]).expect("write cart");
++}
++
++#[test]
++fn a_file_named_as_a_bios_dump_never_lands_on_a_shelf() {
++    let d = tmp_root();
++    for (platform, bios) in BIOS {
++        put(d.path(), platform, bios);
++        put(d.path(), platform, "Bios Fear (USA)");
++    }
++    let carts = scan(d.path()).expect("scan");
++    for (platform, _) in BIOS {
++        let stems: Vec<&str> = carts
++            .iter()
++            .filter(|c| c.platform == platform)
++            .map(|c| c.stem.as_str())
++            .collect();
++        assert_eq!(stems, ["Bios Fear (USA)"], "{platform:?}");
++    }
++}
