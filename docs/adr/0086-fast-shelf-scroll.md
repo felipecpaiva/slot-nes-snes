@@ -27,9 +27,15 @@ about 20 carts a second at best. A full NES or SNES set is 700 carts or more. ma
 - While fast, the scroll is kept within 1 cart of the selection after each spring step (a leash), so
   the 7 drawn slots always cover the screen. Upstream's drawing code is unchanged; the leash lets go
   on release and the spring settles as before.
-- While fast, no face is marked `on_screen`, so `CartFaces::sync` never blocks. Faces are still
-  requested in the same order and placed as they arrive; a cart without one draws as its
-  label-coloured rectangle, which upstream already does for a face not built yet.
+- While fast, no face is asked for at all (`face_wants` is empty), so the face builder leaves the
+  card alone and nothing is decoded or uploaded for carts the row runs past; a cart without a face
+  draws as its label-coloured rectangle, which upstream already does for a face not built yet.
+- After the hold is let go, a trail lasts until the row has settled and every visible cart has its
+  face again (`App::shelf_racing`). During it faces are asked for again but none is marked
+  `on_screen`, so `CartFaces::sync` never blocks the frame and the faces come in as they are built.
+  Fast or trailing, `browsed_rom` is None, so upstream's prefetch (an 8 MB read of the selected GBA
+  ROM after 500 ms on one cart) never competes with the face reads. When the trail ends, upstream's
+  behaviour is back: visible faces are waited for and the selected ROM is prefetched.
 - Once a fast hold is let go and the row has settled (within 0.05 carts of the selection), the
   device loop logs one line:
   `slot: fast scroll: 412 frames, p50 16.72 p99 17.10 max 18.20 ms, period 16.72 ms, 380 with a placeholder, 0 empty`.
@@ -47,11 +53,12 @@ about 20 carts a second at best. A full NES or SNES set is 700 carts or more. ma
 - Long holds reach 60 carts a second; the Up/Down letter jump stays for coarse moves.
 - While fast, most faces on the PS1 and SNES shelves show as placeholders. That is the intent: speed
   over art while moving.
-- On release, `CartFaces::sync` blocks again for the visible faces not built yet (upstream
-  behaviour at rest). On the PS1 shelf that may be one longer frame right after letting go. The log
-  line includes it, so the max and p99 show it. If it fails the gate, the next step is to stay
-  non-blocking until the row settles (one more condition in `face_wants`); that is the maintainer's
-  call from the numbers, not done here.
+- First device run (RG34XXSP, GBA shelf of 1014 carts, 2026-10-19), when the face loader went back
+  to blocking on release: Right held 10 s logged `445 frames, p50 16.79 p99 86.02 max 239.87 ms`
+  (fail, the gate is p99 at most 1.1x the 16.76 ms period); Left held 6 s `p99 18.04 max 31.93`.
+  The long frames were the release waiting for the visible faces, which the trail above removes.
+  The log line now runs to the end of the trail, so a late face shows as placeholder frames rather
+  than as a long frame.
 - Generic, so it is an upstream candidate (ADR 0047), credited to marghost and stevolarn.
 - Ported onto upstream main 1b20432 (ADR 0083) with no conflict: `Shelf::tick`, `Shelf::update` and
   `App::face_wants` are unchanged there. Upstream's remapping does not reach this path: Left and Right
