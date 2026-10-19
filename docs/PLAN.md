@@ -438,23 +438,23 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
 
-### Phase 10: TurboGrafx-16 (planned, not shipped)
+### Phase 10: TurboGrafx-16 (device gate pending)
 
 Tracking issue 81, children 82 to 90, ADR 0091, plan in docs/research/tg16-plan.md. One core, Beetle
 PCE Fast (`mednafen_pce_fast`) pinned at `3f946f2`, one shelf `Games/TG16` for HuCards, no BIOS, no core
-picker, no CD and no SuperGrafx. The platform patches wait for the upstream 1.8.0 base.
+picker, no CD and no SuperGrafx. The platform patches (0053 to 0058) are on the main-1b20432 base (ADR 0083).
 
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0091 and the issues |
 | 2 | 82, done | Core build, pin and licence (`powf` bound to GLIBC_2.17) |
-| 3 | 88, core half done | Generated-HuCard tests: boot, 256x240 on the 360x240 canvas, the scanline-option contract, states, BRAM (patch 0052) |
-| 4 | 83 | `Platform::Tg16`, shelf, `.pce` scan, explicit policy; joins dist and zip-check |
-| 5 | 84 | Core options, the scanline window (3 to 242) first |
-| 6 | 85 | SNES 360x240 canvas at 2x, TG16 Screen section with Shader and Picture rows (no PAL Speed) |
-| 7 | 86 | Backup RAM through the standard `.sav`; TurboCD out of scope |
-| 8 | 87 | II, I, Select, Run, X and Y turbo; Select+Run soft reset kept or masked |
-| 9 | 89 | HuCard art, labels for ScreenScraper id 31 |
+| 3 | 88, done | Generated-HuCard tests: boot, 256x240 on the 360x240 canvas, the scanline-option contract, states, BRAM (patch 0052); a test file per platform step and a GBA-after-TG16 eject test (patch 0058) |
+| 4 | 83, done | `Platform::Tg16`, shelf, `.pce` scan, explicit policy; joins dist and zip-check (patch 0053) |
+| 5 | 84, done | Core options, the scanline window (3 to 242) first (patch 0054) |
+| 6 | 85, done | SNES 360x240 canvas at 2x, TG16 Screen section with Shader and Picture rows, Crop by default (no PAL Speed) (patch 0053) |
+| 7 | 86, done | Backup RAM through the standard `.sav`, a 2 KB `.sav` per game accepted; TurboCD out of scope (patch 0055) |
+| 8 | 87, done | II, I, Select, Run, X and Y turbo; Select+Run soft reset kept (patch 0056) |
+| 9 | 89, done | HuCard art, labels for ScreenScraper id 31 (patch 0057, tools/fetch-labels.py) |
 | 10 | 90 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)

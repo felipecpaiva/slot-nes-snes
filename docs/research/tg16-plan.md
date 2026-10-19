@@ -211,13 +211,12 @@ The TurboGrafx pad has II on the left and I on the right, with Select and Run be
    battery, boot. The save is there.
 4. Eject and GBA: the GBA leg equals a GBA-only run.
 
-## 9. What remains for the integration step (on 1.8.0)
+## 9. What remains for the integration step (done on main-1b20432, 2026-10-19; see ADR 0091)
 
 Issues 83 to 87 and 89 to 90, plus the platform half of 88, in that order. When the platform patch
 lands:
 
-- `cores/mednafen_pce_fast/mednafen_pce_fast-GPL-2.0.txt` and `mednafen_pce_fast-tremor-BSD.txt`
-  move to `licenses/`;
+- the three licence files moved from `cores/mednafen_pce_fast/` to `licenses/` (done, patch 0053);
 - the core joins `scripts/dist-device.sh` and `scripts/zip-check.sh`: the cores list, the `req` and
   `ok` lists, the licence file list, and the strings cross-check pair. The pinned `.so` contains
   `Beetle PCE Fast` (its library name), so the pair is `mednafen_pce_fast:Beetle.PCE.Fast`;

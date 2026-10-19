@@ -17,7 +17,7 @@ Real-core tests from the start, the NES, SNES and NGP way: no game ROM in the re
   - unanswered scanline options: 243 lines halved to 121 rows (y 59 to 179), the contract issue 84 must meet;
   - a state round-trips byte for byte;
   - save RAM is the 2 KB BRAM with the `HUBM` header, and `load_save_ram` round-trips.
-- [ ] Platform half, per step: `tg16_platform.rs` (83), `core_option_keys.rs` rows (84), `tg16_canvas.rs` and `tg16_screen.rs` (85), `tg16_saves.rs` (86), `tg16_input.rs` (87), cart and label tests (89), and a `tg16_then_gba.rs` eject test (the PS1 precedent).
+- [x] Platform half, per step: `tg16_platform.rs` (83), `core_option_keys.rs` rows (84), `tg16_canvas.rs` and `tg16_screen.rs` (85), `tg16_saves.rs` (86), `tg16_input.rs` (87), cart and label tests (89), and a `tg16_then_gba.rs` eject test (the PS1 precedent).
 
 ## Tests
 | ID | File | Asserts |
@@ -39,3 +39,6 @@ None.
 
 ## References
 - ADR 0091; patch 0052; docs/research/tg16-plan.md section 2
+
+## Outcome (2026-10-19)
+Patches 0052 (core) and 0053 to 0058 (one test file per step). Patch `0058-tg16-tests` adds `slot/tests/tg16_then_gba.rs`: a GBA game after a TG16 game gets the same input and picture as a GBA-only run. Shared helper `slot/tests/tg16_common/mod.rs`.
