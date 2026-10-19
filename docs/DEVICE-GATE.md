@@ -300,3 +300,11 @@ with Line and Pixel.
 - After the first window, p99 matches the Off runs of 2026-10-13 for every mode (Super Mario RPG
   17.3-19.3 ms, Battletoads 17.2-17.4 ms). Battletoads with Pixel shows one 92 ms present in its
   first window, one run only.
+
+## [BIOS] files off the shelves (patch 0088)
+
+1. Leave `[BIOS] ...` files in `Games/TG16`, `Games/Lynx` and `Games/NGP` (System Card, Lynx boot ROM,
+   NGP Color BIOS). None of them shows as a cart; the games beside them do.
+2. With `cart_platform=tg16` and `cart=Bonk's Adventure (USA)` in `Config/slot.state` and a NES cart
+   of the same name on the NES shelf, power on: the TurboGrafx-16 cart resumes (patch 0089 pins it in
+   `resume_platform.rs`).

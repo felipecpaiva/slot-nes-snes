@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 12:52:33 +0400
+Subject: [PATCH] resume-platform-tests
+
+With TurboGrafx-16, WonderSwan, Lynx and Neo Geo Pocket on one build, a
+slot.state that names one of them resumes that system's cart, and one
+that names NES resumes the NES cart, when both shelves hold a cart with
+the same name. Each system writes its own folder name as cart_platform
+(tg16, ws, lynx, ngp); a build without that system reads the token as
+no platform and seats the first cart of that name, which is how a
+WonderSwan-only build resumed the NES cart after a TurboGrafx-16 build.
+---
+ crates/slot/tests/resume_platform.rs | 41 ++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+ create mode 100644 crates/slot/tests/resume_platform.rs
+
+diff --git a/crates/slot/tests/resume_platform.rs b/crates/slot/tests/resume_platform.rs
+new file mode 100644
+index 0000000..f23723b
+--- /dev/null
++++ b/crates/slot/tests/resume_platform.rs
+@@ -0,0 +1,41 @@
++mod common;
++
++use slot::app::{App, Phase};
++use slot_store::{read_slot_state, write_slot_state, Platform};
++
++const STEM: &str = "Bonk's Adventure (USA)";
++
++fn remembering(root: &std::path::Path, platform: Platform) {
++    let mut state = read_slot_state(root);
++    state.cart = Some(STEM.into());
++    state.cart_platform = Some(platform);
++    state.clock_set = true;
++    write_slot_state(root, &state).expect("write slot.state");
++}
++
++#[test]
++fn each_new_system_resumes_its_own_cart_and_never_a_nes_cart_with_the_same_name() {
++    for platform in [Platform::Tg16, Platform::Ws, Platform::Lynx, Platform::Ngp] {
++        let root = common::tmp_root_with_real_carts(&[]);
++        let mut nes = b"NES\x1a\x02\x01".to_vec();
++        nes.resize(16 + 0x8000 + 0x2000, 0);
++        std::fs::write(root.path().join(format!("Games/NES/{STEM}.nes")), nes).expect("write cart");
++        let ext = platform.extensions()[0];
++        let rom = format!("Games/{}/{STEM}.{ext}", platform.dir_name());
++        std::fs::write(root.path().join(rom), vec![0u8; 0x10000]).expect("write cart");
++        std::fs::write(root.path().join("BIOS/lynxboot.img"), [0u8; 512]).expect("write bios");
++        for remembered in [platform, Platform::Nes] {
++            remembering(root.path(), remembered);
++            let app = App::boot(root.path());
++            assert!(
++                matches!(app.phase(), Phase::Inserting { .. }),
++                "{remembered:?}"
++            );
++            assert_eq!(
++                app.seated_cart().map(|c| c.platform),
++                Some(remembered),
++                "slot.state named {remembered:?}"
++            );
++        }
++    }
++}
