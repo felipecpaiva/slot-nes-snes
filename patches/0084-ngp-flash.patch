@@ -1,0 +1,783 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:43:03 +0400
+Subject: [PATCH] ngp-flash
+
+Beetle NeoPop gives slot no save RAM: it writes its own <stem>.flash
+into its save dir only when the game unloads, truncating the file in
+place, and trusts the lengths in the file it reads back. So the NGP
+core now gets Saves/NGP/.core as its save dir (every other core keeps
+Saves/), and slot moves the file between that staging dir and
+Saves/NGP/<stem>.flash itself.
+
+Before the core loads, the staged copy is cleared and the published file
+is copied in only if it passes NeoPop's own layout: id 0x0053, at most
+256 blocks, total_file_length equal to the file size, and every block
+header and its data inside the file (mednafen/ngp/flash.c at a50d5ac,
+flash_read and do_flash_read). A file that fails is renamed to
+<stem>.flash-refused and logged, and the game starts with blank flash. An
+old Saves/<stem>.flash from before this patch is moved into Saves/NGP/
+once.
+
+Lid close, POWER, battery critical, the 60 s autosave and eject already
+ask the core for its save RAM; for NGP that request now flushes by
+reload on the emu thread (serialize, load the cart again so the core
+writes its flash, unserialize) and the game carries on. After every
+flush and after the core is dropped, a staged file that passes the check
+and differs from the published one is published with the atomic writer
+(temp file, fsync, rename), so a torn write never reaches the final path.
+The reload took 0.12 ms on the M5 Max. If the reload fails, the core is
+stopped and the resume state, which carries the flash, is the copy.
+---
+ crates/slot-store/src/platform_policy.rs |  18 +
+ crates/slot/src/core.rs                  |   2 +-
+ crates/slot/src/emu.rs                   |  11 +
+ crates/slot/src/lib.rs                   |   1 +
+ crates/slot/src/ngp_flash.rs             | 185 ++++++++++
+ crates/slot/src/session.rs               |   3 +
+ crates/slot/tests/ngp_flash.rs           | 417 +++++++++++++++++++++++
+ 7 files changed, 636 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/src/ngp_flash.rs
+ create mode 100644 crates/slot/tests/ngp_flash.rs
+
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 0148b1d..e100dc8 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -279,4 +279,22 @@ impl Platform {
+             | Platform::Ngp => None,
+         }
+     }
++
++    pub fn flashes_on_unload(self) -> bool {
++        match self {
++            Platform::Ngp => true,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Tg16
++            | Platform::Ws
++            | Platform::Lynx => false,
++        }
++    }
+ }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 3e6e4ce..4ab999e 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -97,7 +97,7 @@ fn open_named(
+     paths: &[PathBuf],
+ ) -> Option<Box<dyn RetroCore>> {
+     let bios = root::bios_dir(root);
+-    let saves = root::saves_dir(root);
++    let saves = crate::ngp_flash::core_save_dir(root, platform);
+     for path in paths {
+         if !path.exists() {
+             continue;
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index baad802..b41491f 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -117,6 +117,7 @@ struct Shared {
+     clock: Mutex<Clock>,
+     clocked: Condvar,
+     disc_event: Mutex<Option<DiscEvent>>,
++    flash: Mutex<Option<crate::ngp_flash::Seat>>,
+ }
+ 
+ #[derive(Default)]
+@@ -192,6 +193,7 @@ impl EmuHandle {
+             clock: Mutex::new(Clock::default()),
+             clocked: Condvar::new(),
+             disc_event: Mutex::new(None),
++            flash: Mutex::new(None),
+         });
+         let (tx, rx) = channel();
+         let worker = Worker {
+@@ -439,6 +441,10 @@ impl EmuHandle {
+         self.shared.disc_event.lock().ok()?.take()
+     }
+ 
++    pub fn keep_flash(&self, seat: Option<crate::ngp_flash::Seat>) {
++        *self.shared.flash.lock().unwrap_or_else(|e| e.into_inner()) = seat;
++    }
++
+     pub fn snapshot(&self) -> EmuSnapshot {
+         EmuSnapshot {
+             cmds: self.cmds.clone(),
+@@ -984,6 +990,8 @@ impl Worker {
+         if dropped > 0 || starved > 0 || crate::session::trace() {
+             eprintln!("slot: audio: {dropped} samples dropped, {starved} starved");
+         }
++        drop(core);
++        crate::ngp_flash::published_after_unload(&self.shared.flash);
+     }
+ 
+     fn apply(
+@@ -1026,6 +1034,9 @@ impl Worker {
+                 Err(e) => eprintln!("slot: refresh: {e}"),
+             },
+             Cmd::Sav(reply) => {
++                if !crate::ngp_flash::flush(&self.shared.flash, core) {
++                    self.shared.stop.store(true, Ordering::Relaxed);
++                }
+                 let _ = reply.send(core.save_ram());
+             }
+             Cmd::Thumb(reply) => {
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index dcb5af5..cf8c558 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -39,6 +39,7 @@ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
+ pub mod lynx_turn;
++pub mod ngp_flash;
+ pub mod no_state;
+ pub mod pal_speed;
+ pub mod panel_turn;
+diff --git a/crates/slot/src/ngp_flash.rs b/crates/slot/src/ngp_flash.rs
+new file mode 100644
+index 0000000..ba6057b
+--- /dev/null
++++ b/crates/slot/src/ngp_flash.rs
+@@ -0,0 +1,185 @@
++use std::io::ErrorKind;
++use std::path::{Path, PathBuf};
++use std::sync::Mutex;
++use std::time::Instant;
++
++use slot_retro::RetroCore;
++use slot_store::{atomic_write, Platform};
++
++const FLASH_ID: u16 = 0x0053;
++const MAX_BLOCKS: u16 = 256;
++const FILE_HEADER: usize = 8;
++const BLOCK_HEADER: usize = 8;
++const STAGING: &str = ".core";
++const REFUSED: &str = "flash-refused";
++
++pub struct Seat {
++    root: PathBuf,
++    stem: String,
++    rom: PathBuf,
++}
++
++pub fn core_save_dir(root: &Path, platform: Platform) -> PathBuf {
++    match platform.flashes_on_unload() {
++        true => staging_dir(root),
++        false => crate::root::saves_dir(root),
++    }
++}
++
++pub fn flash_path(root: &Path, stem: &str) -> PathBuf {
++    platform_dir(root).join(format!("{stem}.flash"))
++}
++
++pub fn staged_path(root: &Path, stem: &str) -> PathBuf {
++    staging_dir(root).join(format!("{stem}.flash"))
++}
++
++pub fn refused_path(root: &Path, stem: &str) -> PathBuf {
++    platform_dir(root).join(format!("{stem}.{REFUSED}"))
++}
++
++fn platform_dir(root: &Path) -> PathBuf {
++    crate::root::saves_dir(root).join(Platform::Ngp.dir_name())
++}
++
++fn staging_dir(root: &Path) -> PathBuf {
++    platform_dir(root).join(STAGING)
++}
++
++fn stem_of(rom: &Path) -> Option<&str> {
++    rom.file_stem().and_then(|s| s.to_str())
++}
++
++pub fn valid(bytes: &[u8]) -> bool {
++    let Some(head) = bytes.get(..FILE_HEADER) else {
++        return false;
++    };
++    let id = u16::from_le_bytes([head[0], head[1]]);
++    let blocks = u16::from_le_bytes([head[2], head[3]]);
++    let total = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
++    if id != FLASH_ID || blocks > MAX_BLOCKS || total as usize != bytes.len() {
++        return false;
++    }
++    let mut at = FILE_HEADER;
++    for _ in 0..blocks {
++        let Some(block) = bytes.get(at..at + BLOCK_HEADER) else {
++            return false;
++        };
++        at += BLOCK_HEADER + u16::from_le_bytes([block[4], block[5]]) as usize;
++    }
++    at == bytes.len()
++}
++
++pub fn stage(root: &Path, platform: Platform, rom: &Path) {
++    let Some(stem) = stem_of(rom).filter(|_| platform.flashes_on_unload()) else {
++        return;
++    };
++    if let Err(e) = std::fs::create_dir_all(staging_dir(root)) {
++        eprintln!("slot: ngp flash: {e}");
++    }
++    let flash = flash_path(root, stem);
++    let old = crate::root::saves_dir(root).join(format!("{stem}.flash"));
++    if !flash.exists() && old.exists() {
++        match std::fs::rename(&old, &flash) {
++            Ok(()) => eprintln!(
++                "slot: ngp flash: moved {} to {}",
++                old.display(),
++                flash.display()
++            ),
++            Err(e) => eprintln!("slot: ngp flash: could not move {}: {e}", old.display()),
++        }
++    }
++    let staged = staged_path(root, stem);
++    match std::fs::remove_file(&staged) {
++        Err(e) if e.kind() != ErrorKind::NotFound => {
++            eprintln!("slot: ngp flash: could not clear {}: {e}", staged.display());
++        }
++        _ => {}
++    }
++    let Ok(bytes) = std::fs::read(&flash) else {
++        return;
++    };
++    if !valid(&bytes) {
++        let aside = refused_path(root, stem);
++        match std::fs::rename(&flash, &aside) {
++            Ok(()) => eprintln!(
++                "slot: ngp flash: {} is torn, moved it to {} and started with blank flash",
++                flash.display(),
++                aside.display()
++            ),
++            Err(e) => eprintln!(
++                "slot: ngp flash: {} is torn and stays: {e}",
++                flash.display()
++            ),
++        }
++        return;
++    }
++    if let Err(e) = std::fs::write(&staged, &bytes) {
++        eprintln!("slot: ngp flash: could not stage {}: {e}", staged.display());
++    }
++}
++
++pub fn publish(root: &Path, stem: &str) -> std::io::Result<bool> {
++    let staged = match std::fs::read(staged_path(root, stem)) {
++        Ok(bytes) => bytes,
++        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
++        Err(e) => return Err(e),
++    };
++    if !valid(&staged) {
++        eprintln!("slot: ngp flash: the core left a torn {stem}.flash, keeping the published one");
++        return Ok(false);
++    }
++    let flash = flash_path(root, stem);
++    if std::fs::read(&flash).is_ok_and(|old| old == staged) {
++        return Ok(false);
++    }
++    atomic_write(&flash, &staged)?;
++    eprintln!("slot: ngp flash: published {}", flash.display());
++    Ok(true)
++}
++
++pub fn seat(root: &Path, platform: Platform, rom: &Path) -> Option<Seat> {
++    let stem = stem_of(rom).filter(|_| platform.flashes_on_unload())?;
++    Some(Seat {
++        root: root.to_path_buf(),
++        stem: stem.to_owned(),
++        rom: rom.to_path_buf(),
++    })
++}
++
++pub fn reload(core: &mut dyn RetroCore, rom: &Path) -> Result<(), slot_retro::CoreError> {
++    let state = core.serialize()?;
++    core.load(rom)?;
++    core.unserialize(&state)
++}
++
++pub fn flush(seat: &Mutex<Option<Seat>>, core: &mut dyn RetroCore) -> bool {
++    let guard = seat.lock().unwrap_or_else(|e| e.into_inner());
++    let Some(seat) = guard.as_ref() else {
++        return true;
++    };
++    let started = Instant::now();
++    let reloaded = reload(core, &seat.rom);
++    if let Err(e) = &reloaded {
++        eprintln!("slot: ngp flash: reload failed, the resume state keeps the flash: {e}");
++    }
++    if crate::session::trace() {
++        eprintln!(
++            "slot: ngp flash: reload took {:.2} ms",
++            started.elapsed().as_secs_f64() * 1000.0
++        );
++    }
++    if let Err(e) = publish(&seat.root, &seat.stem) {
++        eprintln!("slot: ngp flash: {e}");
++    }
++    reloaded.is_ok()
++}
++
++pub fn published_after_unload(seat: &Mutex<Option<Seat>>) {
++    let guard = seat.lock().unwrap_or_else(|e| e.into_inner());
++    if let Some(seat) = guard.as_ref() {
++        if let Err(e) = publish(&seat.root, &seat.stem) {
++            eprintln!("slot: ngp flash: {e}");
++        }
++    }
++}
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index c89e650..b133df5 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -545,6 +545,7 @@ impl Session {
+                     .then(|| persist::read_resume(&root, platform, core, &stem))
+                     .flatten();
+                 launch("resume state read");
++                crate::ngp_flash::stage(&root, platform, &rom);
+                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
+                 let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
+                 crate::ws_load::prepare(opened.core.as_mut(), platform, vertical, native);
+@@ -596,10 +597,12 @@ impl Session {
+         self.app.set_named_core(loaded.opened.named);
+         let ring = self.sink.ring();
+         let (core, rom, sav, resume) = (loaded.opened.core, loaded.rom, loaded.sav, loaded.resume);
++        let flash = crate::ngp_flash::seat(&self.root, loaded.platform, &rom);
+         let emu = match loaded.player.filter(|_| loaded.platform == Platform::Gba) {
+             Some(p) => EmuHandle::spawn_linked(core, rom, ring, sav, resume, p),
+             None => EmuHandle::spawn(core, rom, ring, sav, resume),
+         };
++        emu.keep_flash(flash);
+         emu.set_volume(self.app.output_volume());
+         emu.set_driven(self.driven);
+         emu.set_native_pal(self.app.native_pal(loaded.platform));
+diff --git a/crates/slot/tests/ngp_flash.rs b/crates/slot/tests/ngp_flash.rs
+new file mode 100644
+index 0000000..2291c52
+--- /dev/null
++++ b/crates/slot/tests/ngp_flash.rs
+@@ -0,0 +1,417 @@
++mod common;
++mod core_common;
++mod ngp_common;
++mod real_seat;
++
++use std::path::Path;
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use ngp_common::{assert_holds, cart_bytes, neopop, FLASH_AT, FLASH_LEN, MARK};
++use slot::app::Phase;
++use slot::emu::CoreState;
++use slot::ngp_flash::{
++    core_save_dir, flash_path, publish, refused_path, stage, staged_path, valid,
++};
++use slot::session::Session;
++use slot_input::Action;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use slot_store::Platform;
++use tempfile::TempDir;
++
++const STEM: &str = "Pocket";
++
++fn flash_file(mark: u8) -> Vec<u8> {
++    let mut bytes = Vec::with_capacity(FLASH_LEN);
++    bytes.extend(0x0053u16.to_le_bytes());
++    bytes.extend(1u16.to_le_bytes());
++    bytes.extend((FLASH_LEN as u32).to_le_bytes());
++    bytes.extend((FLASH_AT as u32).to_le_bytes());
++    bytes.extend(256u16.to_le_bytes());
++    bytes.extend([0, 0]);
++    bytes.push(mark);
++    bytes.resize(FLASH_LEN, 0);
++    bytes
++}
++
++fn card(write_flash: Option<u8>) -> Option<TempDir> {
++    let dylib = neopop()?;
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = carts.path().join(format!("{STEM}.ngp"));
++    std::fs::write(&rom, cart_bytes(write_flash, true)).expect("write cart");
++    let root = real_seat::rooted(Platform::Ngp, STEM, &rom, &dylib);
++    std::fs::write(
++        root.path().join("Games/NGP/Zzz.ngc"),
++        cart_bytes(None, false),
++    )
++    .expect("write a second cart");
++    Some(root)
++}
++
++fn seated(write_flash: Option<u8>) -> Option<(TempDir, Session)> {
++    let root = card(write_flash)?;
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn wait_for(session: &mut Session, what: &str, done: impl Fn(&Session) -> bool) {
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while !done(session) {
++        assert!(Instant::now() < deadline, "{what}");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(2));
++    }
++}
++
++fn eject(session: &mut Session) {
++    session.app_mut().apply(Action::Eject);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "Eject did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++fn still_playing(session: &mut Session) {
++    let before = session.frames_published();
++    wait_for(session, "the game stopped after the flush", |s| {
++        s.frames_published() > before + 5
++    });
++    assert_eq!(session.emu().map(|e| e.state()), Some(CoreState::Ready));
++}
++
++#[test]
++fn neopops_flash_file_layout_is_what_slot_checks() {
++    assert!(valid(&flash_file(MARK)));
++    let mut two = flash_file(1);
++    two.extend((0x20_1000u32).to_le_bytes());
++    two.extend(3u16.to_le_bytes());
++    two.extend([0, 0, 7, 8, 9]);
++    two[2..4].copy_from_slice(&2u16.to_le_bytes());
++    let len = two.len() as u32;
++    two[4..8].copy_from_slice(&len.to_le_bytes());
++    assert!(valid(&two));
++    assert!(valid(&[0x53, 0, 0, 0, 8, 0, 0, 0]), "no blocks");
++}
++
++#[test]
++fn a_torn_or_foreign_flash_file_fails_the_check() {
++    let good = flash_file(MARK);
++    assert!(!valid(&good[..7]), "torn inside the header");
++    assert!(!valid(&good[..100]), "torn after the header");
++    assert!(!valid(&[]), "empty");
++    let mut wrong_id = good.clone();
++    wrong_id[0] = 0x52;
++    assert!(!valid(&wrong_id));
++    let mut long = good.clone();
++    long.push(0);
++    assert!(!valid(&long), "total_file_length is not the file size");
++    let mut block_past_end = good.clone();
++    block_past_end[12..14].copy_from_slice(&300u16.to_le_bytes());
++    assert!(!valid(&block_past_end), "a block runs past the file");
++    let mut too_many = good.clone();
++    too_many[2..4].copy_from_slice(&257u16.to_le_bytes());
++    assert!(!valid(&too_many), "more blocks than NeoPop's table holds");
++    let mut missing_header = good;
++    missing_header[2..4].copy_from_slice(&2u16.to_le_bytes());
++    assert!(!valid(&missing_header), "a block header past the end");
++}
++
++#[test]
++fn only_the_neogeo_pocket_core_gets_a_staging_save_dir() {
++    let root = Path::new("/card");
++    for platform in Platform::SHELVES {
++        let want = match platform {
++            Platform::Ngp => root.join("Saves/NGP/.core"),
++            _ => root.join("Saves"),
++        };
++        assert_eq!(core_save_dir(root, platform), want, "{platform:?}");
++        assert_eq!(
++            platform.flashes_on_unload(),
++            platform == Platform::Ngp,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn a_good_flash_file_is_staged_for_the_core_before_it_loads() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join("Games/NGP/Pocket.ngc");
++    std::fs::create_dir_all(root.path().join("Saves/NGP")).expect("dirs");
++    std::fs::write(flash_path(root.path(), STEM), flash_file(MARK)).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert_eq!(
++        std::fs::read(staged_path(root.path(), STEM)).ok(),
++        Some(flash_file(MARK))
++    );
++}
++
++#[test]
++fn a_torn_flash_file_at_the_final_path_is_moved_aside_and_never_staged() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join("Games/NGP/Pocket.ngc");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    let torn = flash_file(MARK)[..100].to_vec();
++    std::fs::write(flash_path(root.path(), STEM), &torn).expect("write");
++    std::fs::write(staged_path(root.path(), STEM), flash_file(1)).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert!(!flash_path(root.path(), STEM).exists());
++    assert!(!staged_path(root.path(), STEM).exists());
++    assert_eq!(
++        std::fs::read(refused_path(root.path(), STEM)).ok(),
++        Some(torn)
++    );
++}
++
++#[test]
++fn a_torn_file_left_in_staging_by_a_crash_is_replaced_by_the_published_one() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join("Games/NGP/Pocket.ngc");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    std::fs::write(flash_path(root.path(), STEM), flash_file(MARK)).expect("write");
++    std::fs::write(staged_path(root.path(), STEM), &flash_file(9)[..20]).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert_eq!(
++        std::fs::read(staged_path(root.path(), STEM)).ok(),
++        Some(flash_file(MARK))
++    );
++}
++
++#[test]
++fn with_no_published_flash_a_torn_staged_file_is_cleared() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join("Games/NGP/Pocket.ngc");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    std::fs::write(staged_path(root.path(), STEM), &flash_file(9)[..20]).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert!(!staged_path(root.path(), STEM).exists());
++}
++
++#[test]
++fn a_torn_flash_file_is_not_published_over_a_good_one() {
++    let root = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    std::fs::write(flash_path(root.path(), STEM), flash_file(MARK)).expect("write");
++    std::fs::write(staged_path(root.path(), STEM), &flash_file(9)[..200]).expect("write");
++    assert!(!publish(root.path(), STEM).expect("publish"));
++    assert_eq!(
++        std::fs::read(flash_path(root.path(), STEM)).ok(),
++        Some(flash_file(MARK))
++    );
++}
++
++#[test]
++fn nothing_staged_leaves_the_published_flash_alone() {
++    let root = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    std::fs::write(flash_path(root.path(), STEM), flash_file(MARK)).expect("write");
++    assert!(!publish(root.path(), STEM).expect("publish"));
++    assert_eq!(
++        std::fs::read(flash_path(root.path(), STEM)).ok(),
++        Some(flash_file(MARK))
++    );
++}
++
++#[test]
++fn a_good_staged_flash_is_published_by_rename_leaving_no_temp_file() {
++    let root = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir_all(root.path().join("Saves/NGP/.core")).expect("dirs");
++    std::fs::write(flash_path(root.path(), STEM), flash_file(1)).expect("write");
++    std::fs::write(staged_path(root.path(), STEM), flash_file(MARK)).expect("write");
++    assert!(publish(root.path(), STEM).expect("publish"));
++    assert_eq!(
++        std::fs::read(flash_path(root.path(), STEM)).ok(),
++        Some(flash_file(MARK))
++    );
++    let mut names: Vec<String> = std::fs::read_dir(root.path().join("Saves/NGP"))
++        .expect("list")
++        .filter_map(|e| e.ok()?.file_name().into_string().ok())
++        .collect();
++    names.sort();
++    assert_eq!(names, [".core", "Pocket.flash"]);
++    assert!(
++        !publish(root.path(), STEM).expect("publish again"),
++        "unchanged"
++    );
++}
++
++#[test]
++fn an_old_flash_in_saves_moves_into_saves_ngp_once() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join("Games/NGP/Pocket.ngc");
++    std::fs::create_dir_all(root.path().join("Saves/NGP")).expect("dirs");
++    let old = root.path().join("Saves/Pocket.flash");
++    std::fs::write(&old, flash_file(MARK)).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert!(!old.exists());
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++    std::fs::write(&old, flash_file(1)).expect("write");
++    stage(root.path(), Platform::Ngp, &rom);
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++    assert!(
++        old.exists(),
++        "a second old file never overwrites the moved one"
++    );
++}
++
++#[test]
++fn a_lid_close_mid_game_puts_the_flash_in_saves_ngp() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(Some(MARK)) else {
++        return;
++    };
++    assert!(!flash_path(root.path(), STEM).exists());
++    session.app_mut().apply(Action::LidClose);
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++    assert!(!root
++        .path()
++        .join("Saves")
++        .join(format!("{STEM}.flash"))
++        .exists());
++    session.app_mut().apply(Action::LidOpen);
++    still_playing(&mut session);
++}
++
++#[test]
++fn a_power_tap_mid_game_puts_the_flash_in_saves_ngp() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(Some(MARK)) else {
++        return;
++    };
++    session.app_mut().apply(Action::PowerTap);
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++}
++
++#[test]
++fn the_autosave_puts_the_flash_in_saves_ngp_and_the_game_carries_on() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(Some(MARK)) else {
++        return;
++    };
++    let now = session.app().now();
++    session.app_mut().tick_ms(now + 61_000);
++    session.app_mut().settle_saves();
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++    still_playing(&mut session);
++}
++
++#[test]
++fn an_eject_publishes_the_flash_atomically() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(Some(MARK)) else {
++        return;
++    };
++    let path = flash_path(root.path(), STEM);
++    let stop = Arc::new(AtomicBool::new(false));
++    let watcher = {
++        let (path, stop) = (path.clone(), stop.clone());
++        std::thread::spawn(move || {
++            let mut seen = Vec::new();
++            while !stop.load(Ordering::Relaxed) {
++                if let Ok(bytes) = std::fs::read(&path) {
++                    if !valid(&bytes) {
++                        seen.push(bytes.len());
++                    }
++                }
++            }
++            seen
++        })
++    };
++    eject(&mut session);
++    wait_for(&mut session, "the core never stopped", |s| {
++        s.emu().is_none()
++    });
++    stop.store(true, Ordering::Relaxed);
++    assert_eq!(watcher.join().expect("watcher"), Vec::<usize>::new());
++    assert_holds(&path, MARK);
++}
++
++#[test]
++fn the_flash_comes_back_on_the_next_boot_with_no_resume_state() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(Some(MARK)) else {
++        return;
++    };
++    session.app_mut().apply(Action::LidClose);
++    drop(session);
++    std::fs::remove_dir_all(root.path().join("States")).expect("drop the states");
++    std::fs::remove_file(staged_path(root.path(), STEM)).expect("clear staging");
++    let rom = root.path().join("Games/NGP").join(format!("{STEM}.ngp"));
++    std::fs::write(&rom, cart_bytes(None, true)).expect("a cart that writes nothing");
++    let session = real_seat::play(root.path(), true);
++    drop(session);
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++    assert_holds(&staged_path(root.path(), STEM), MARK);
++}
++
++#[test]
++fn a_cart_that_never_writes_flash_publishes_nothing() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated(None) else {
++        return;
++    };
++    session.app_mut().apply(Action::LidClose);
++    drop(session);
++    assert!(!flash_path(root.path(), STEM).exists());
++}
++
++#[test]
++fn a_torn_flash_file_on_the_card_boots_the_game_blank_and_is_kept_aside() {
++    let _g = core_lock();
++    let Some(root) = card(None) else {
++        return;
++    };
++    let torn = flash_file(MARK)[..100].to_vec();
++    std::fs::write(flash_path(root.path(), STEM), &torn).expect("write");
++    let mut session = real_seat::play(root.path(), true);
++    still_playing(&mut session);
++    drop(session);
++    assert_eq!(
++        std::fs::read(refused_path(root.path(), STEM)).ok(),
++        Some(torn)
++    );
++    assert!(!flash_path(root.path(), STEM).exists());
++}
++
++#[test]
++fn a_flush_by_reload_keeps_the_running_game_and_takes_under_a_frame() {
++    let _g = core_lock();
++    let Some(dylib) = neopop() else {
++        return;
++    };
++    let d = tempfile::tempdir().expect("tempdir");
++    let saves = d.path().join("Saves/NGP/.core");
++    std::fs::create_dir_all(&saves).expect("dirs");
++    let rom = d.path().join(format!("{STEM}.ngc"));
++    std::fs::write(&rom, cart_bytes(Some(MARK), true)).expect("write cart");
++    let mut core = LibretroCore::open_with(&dylib, d.path(), &saves).expect("open");
++    core.load(&rom).expect("load");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++    let before = core.serialize().expect("state");
++    let mut fastest = Duration::MAX;
++    for _ in 0..5 {
++        let started = Instant::now();
++        slot::ngp_flash::reload(&mut core, &rom).expect("reload");
++        fastest = fastest.min(started.elapsed());
++    }
++    println!("flush by reload: {:.2} ms", fastest.as_secs_f64() * 1000.0);
++    assert_eq!(core.serialize().expect("state"), before);
++    assert_holds(&saves.join(format!("{STEM}.flash")), MARK);
++    assert!(fastest < Duration::from_micros(16_600), "{fastest:?}");
++}
++
++#[test]
++fn quitting_with_the_game_in_publishes_the_flash_the_core_wrote_on_unload() {
++    let _g = core_lock();
++    let Some((root, session)) = seated(Some(MARK)) else {
++        return;
++    };
++    drop(session);
++    assert_holds(&staged_path(root.path(), STEM), MARK);
++    assert_holds(&flash_path(root.path(), STEM), MARK);
++}

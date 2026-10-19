@@ -1,0 +1,668 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:35:39 +0400
+Subject: [PATCH] ngp-screen
+
+The Neo Geo Pocket gets its own Screen section, listed after PlayStation
+and shown only when the card holds NGP games, with two rows. Shader
+walks Off, LCD3x (exact 3x, the Game Gear precedent) and the shared
+retro list, stored in Config/ngp_shader.txt; the in-game Shader row and
+the shader shortcut walk the same list. Picture is Actual by default,
+then Stretch, with no Crop because the NGP has no overscan, stored as
+ngp in Config/picture.txt. There is no PAL Speed row: the core runs at
+60.25 fps and there is no PAL NGP.
+
+Actual draws the 240x160 canvas at 3x, so the 160x152 picture is 480x456
+in the middle of the panel. Stretch fills the 720x480 panel with the
+picture alone, both ways.
+
+The Screen page follows nelynes/slotPlus a8eae4c and stretching both ways
+follows 1ef7226 (GPL-3.0), reimplemented.
+---
+ crates/slot-ui/src/quick_menu.rs       |  23 +++-
+ crates/slot-ui/src/quick_retro.rs      |   1 +
+ crates/slot-ui/tests/quick_menu.rs     |   4 +-
+ crates/slot/src/app.rs                 |  23 +++-
+ crates/slot/src/platform_video.rs      |   5 +-
+ crates/slot/src/retro_quick.rs         |  13 ++-
+ crates/slot/tests/lynx_screen.rs       |   4 +-
+ crates/slot/tests/ngp_canvas.rs        | 100 ++++++++++++++++
+ crates/slot/tests/ngp_screen.rs        | 151 +++++++++++++++++++++++++
+ crates/slot/tests/sega_quick_shader.rs |   7 +-
+ 10 files changed, 307 insertions(+), 24 deletions(-)
+ create mode 100644 crates/slot/tests/ngp_canvas.rs
+ create mode 100644 crates/slot/tests/ngp_screen.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index daf1e9f..0efa822 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -119,10 +119,13 @@ pub enum QuickRow {
+     LynxPicture,
+     LynxSpeed,
+     LynxFlip,
++    NgpShader,
++    ScreenNgp,
++    NgpPicture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 109] = [
++    pub const ALL: [QuickRow; 112] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -232,6 +235,9 @@ impl QuickRow {
+         QuickRow::LynxPicture,
+         QuickRow::LynxSpeed,
+         QuickRow::LynxFlip,
++        QuickRow::NgpShader,
++        QuickRow::ScreenNgp,
++        QuickRow::NgpPicture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -294,7 +300,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 12] = [
++    pub const SCREEN: [QuickRow; 13] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -307,6 +313,7 @@ impl QuickRow {
+         QuickRow::ScreenTg16,
+         QuickRow::ScreenWs,
+         QuickRow::ScreenLynx,
++        QuickRow::ScreenNgp,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -375,7 +382,8 @@ impl QuickRow {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+-            | QuickRow::ScreenLynx => &QuickRow::SCREEN,
++            | QuickRow::ScreenLynx
++            | QuickRow::ScreenNgp => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -437,6 +445,7 @@ impl QuickRow {
+             | QuickRow::LynxPicture
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => &QuickRow::SCREEN_LYNX,
++            QuickRow::NgpShader | QuickRow::NgpPicture => &QuickRow::SCREEN_NGP,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -480,6 +489,7 @@ impl QuickRow {
+             | QuickRow::LynxPicture
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => Some(QuickRow::ScreenLynx),
++            QuickRow::NgpShader | QuickRow::NgpPicture => Some(QuickRow::ScreenNgp),
+             _ => None,
+         }
+     }
+@@ -528,6 +538,7 @@ impl QuickRow {
+             QuickRow::ScreenTg16 => Some(QuickRow::SCREEN_TG16[0]),
+             QuickRow::ScreenWs => Some(QuickRow::SCREEN_WS[0]),
+             QuickRow::ScreenLynx => Some(QuickRow::SCREEN_LYNX[0]),
++            QuickRow::ScreenNgp => Some(QuickRow::SCREEN_NGP[0]),
+             _ => None,
+         }
+     }
+@@ -631,6 +642,7 @@ impl QuickRow {
+             QuickRow::Ps1Shader => "Shader",
+             QuickRow::Tg16Shader | QuickRow::WsShader => "Shader",
+             QuickRow::LynxShader => "Shader",
++            QuickRow::NgpShader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -638,6 +650,7 @@ impl QuickRow {
+             QuickRow::ScreenTg16 => "TurboGrafx-16",
+             QuickRow::ScreenWs => "WonderSwan",
+             QuickRow::ScreenLynx => "Lynx",
++            QuickRow::ScreenNgp => "Neo Geo Pocket",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -646,7 +659,8 @@ impl QuickRow {
+             | QuickRow::Ps1Picture
+             | QuickRow::Tg16Picture
+             | QuickRow::WsPicture
+-            | QuickRow::LynxPicture => "Picture",
++            | QuickRow::LynxPicture
++            | QuickRow::NgpPicture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -691,6 +705,7 @@ impl QuickRow {
+                 | QuickRow::ScreenTg16
+                 | QuickRow::ScreenWs
+                 | QuickRow::ScreenLynx
++                | QuickRow::ScreenNgp
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 6045a1b..26ccba0 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -39,6 +39,7 @@ impl QuickRow {
+         QuickRow::LynxSpeed,
+         QuickRow::LynxFlip,
+     ];
++    pub const SCREEN_NGP: [QuickRow; 2] = [QuickRow::NgpShader, QuickRow::NgpPicture];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 34ea930..a7c7a84 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index dc86479..acd7e31 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1037,6 +1037,7 @@ impl App {
+             (QuickRow::Shader, Platform::Tg16) => QuickRow::Tg16Shader,
+             (QuickRow::Shader, Platform::Ws) => QuickRow::WsShader,
+             (QuickRow::Shader, Platform::Lynx) => QuickRow::LynxShader,
++            (QuickRow::Shader, Platform::Ngp) => QuickRow::NgpShader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -1051,7 +1052,8 @@ impl App {
+                 | Platform::Ps1
+                 | Platform::Tg16
+                 | Platform::Ws
+-                | Platform::Lynx,
++                | Platform::Lynx
++                | Platform::Ngp,
+             ) => QuickRow::GbaBezel,
+             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
+             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
+@@ -1086,6 +1088,7 @@ impl App {
+             QuickRow::Tg16Shader => Some(shader_value(self.sega_shaders.tg16)),
+             QuickRow::WsShader => Some(shader_value(self.sega_shaders.ws)),
+             QuickRow::LynxShader => Some(shader_value(self.sega_shaders.lynx)),
++            QuickRow::NgpShader => Some(shader_value(self.sega_shaders.ngp)),
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -1094,7 +1097,8 @@ impl App {
+             | QuickRow::Ps1Picture
+             | QuickRow::Tg16Picture
+             | QuickRow::WsPicture
+-            | QuickRow::LynxPicture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::LynxPicture
++            | QuickRow::NgpPicture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -1158,6 +1162,7 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
++            | QuickRow::ScreenNgp
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -2711,7 +2716,8 @@ impl App {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+-            | QuickRow::ScreenLynx => {
++            | QuickRow::ScreenLynx
++            | QuickRow::ScreenNgp => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(&self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2804,7 +2810,9 @@ impl App {
+             | QuickRow::LynxShader
+             | QuickRow::LynxPicture
+             | QuickRow::LynxSpeed
+-            | QuickRow::LynxFlip => {}
++            | QuickRow::LynxFlip
++            | QuickRow::NgpShader
++            | QuickRow::NgpPicture => {}
+         }
+     }
+ 
+@@ -2964,7 +2972,8 @@ impl App {
+             | QuickRow::Ps1Shader
+             | QuickRow::Tg16Shader
+             | QuickRow::WsShader
+-            | QuickRow::LynxShader => return,
++            | QuickRow::LynxShader
++            | QuickRow::NgpShader => return,
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -2983,7 +2992,8 @@ impl App {
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
+             | QuickRow::WsRefresh
+-            | QuickRow::Tg16Picture => return,
++            | QuickRow::Tg16Picture
++            | QuickRow::NgpPicture => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+@@ -3013,6 +3023,7 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
++            | QuickRow::ScreenNgp
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index a19b95f..4833084 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 9] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 10] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -19,6 +19,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 9] = [
+     (QuickRow::Tg16Picture, Platform::Tg16),
+     (QuickRow::WsPicture, Platform::Ws),
+     (QuickRow::LynxPicture, Platform::Lynx),
++    (QuickRow::NgpPicture, Platform::Ngp),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+@@ -172,7 +173,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 9]);
++pub struct SystemPictures([VideoMode; 10]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 8d25101..67799b7 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -19,6 +19,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::Tg16Shader => (&mut shaders.tg16, Platform::Tg16),
+         QuickRow::WsShader => (&mut shaders.ws, Platform::Ws),
+         QuickRow::LynxShader => (&mut shaders.lynx, Platform::Lynx),
++        QuickRow::NgpShader => (&mut shaders.ngp, Platform::Ngp),
+         _ => return false,
+     };
+     *shader = shader.step(platform.shader_choices(), right);
+@@ -47,11 +48,11 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 8] {
+-    let mut seen = [false; 8];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 9] {
++    let mut seen = [false; 9];
+     for platform in platforms {
+         let at = match platform {
+-            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Ngp => continue,
++            Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+             Platform::Nes | Platform::Snes => 0,
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+@@ -60,13 +61,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 8] {
+             Platform::Tg16 => 5,
+             Platform::Ws => 6,
+             Platform::Lynx => 7,
++            Platform::Ngp => 8,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 8] = [
++const SYSTEM_ROWS: [&[QuickRow]; 9] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -75,9 +77,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 8] = [
+     &[QuickRow::ScreenTg16],
+     &[QuickRow::ScreenWs],
+     &[QuickRow::ScreenLynx],
++    &[QuickRow::ScreenNgp],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 8]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 9]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/tests/lynx_screen.rs b/crates/slot/tests/lynx_screen.rs
+index 3d573b3..47aaeec 100644
+--- a/crates/slot/tests/lynx_screen.rs
++++ b/crates/slot/tests/lynx_screen.rs
+@@ -52,8 +52,8 @@ fn on_panel(rect: [f32; 4], (x, y, w, h): (u32, u32, u32, u32)) -> [f32; 4] {
+ }
+ 
+ #[test]
+-fn lynx_closes_the_screen_list_and_opens_its_own_section() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenLynx));
++fn lynx_follows_wonderswan_in_the_screen_list_and_opens_its_own_section() {
++    assert_eq!(QuickRow::SCREEN[11], QuickRow::ScreenLynx);
+     assert_eq!(QuickRow::ScreenLynx.label(), "Lynx");
+     assert!(QuickRow::ScreenLynx.opens());
+     assert_eq!(QuickRow::ScreenLynx.child(), Some(QuickRow::LynxShader));
+diff --git a/crates/slot/tests/ngp_canvas.rs b/crates/slot/tests/ngp_canvas.rs
+new file mode 100644
+index 0000000..cec557f
+--- /dev/null
++++ b/crates/slot/tests/ngp_canvas.rs
+@@ -0,0 +1,100 @@
++mod common;
++mod core_common;
++mod ngp_common;
++mod real_seat;
++
++use common::core_lock;
++use ngp_common::{cart, neopop};
++use slot::core::open_core_for_palette;
++use slot::platform_video::shown;
++use slot::video_mode::{source_rect, VideoMode};
++use slot_gfx::WHOLE_TEXTURE;
++use slot_input::Action;
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform, Shader};
++use slot_ui::{QuickRow, QuickValue};
++
++fn ngp_rect(mode: VideoMode) -> [f32; 4] {
++    source_rect(
++        Platform::Ngp,
++        shown(Platform::Ngp, 160, mode),
++        Core::MednafenNgp.canvas(Platform::Ngp),
++        mode,
++    )
++}
++
++#[test]
++fn every_pixel_of_the_ngp_picture_sits_at_40_4_in_the_240_by_160_canvas_slot_opens() {
++    let _g = core_lock();
++    let Some(dylib) = neopop() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let rom = cart(&d.path().join("Games/NGP"), "Canvas", false);
++    let mut core = open_core_for_palette(
++        d.path(),
++        Core::MednafenNgp,
++        Platform::Ngp,
++        "auto",
++        false,
++        None,
++        &[dylib],
++    );
++    core.load(&rom).expect("Beetle NeoPop refused the cart");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++    assert_eq!(core.canvas(), (240, 160));
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), 240 * 160 * 4);
++    for y in 0..160 {
++        for x in 0..240 {
++            let at = (y * 240 + x) * 4;
++            let px = &video[at..at + 3];
++            if (40..200).contains(&x) && (4..156).contains(&y) {
++                assert!(
++                    px[2] > 200 && px[1] < 60 && px[0] < 60,
++                    "({x}, {y}) is {px:?}"
++                );
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y}) is not a black bar");
++            }
++        }
++    }
++}
++
++#[test]
++fn actual_draws_the_canvas_at_3x_so_the_picture_is_480_by_456_in_the_middle() {
++    assert_eq!(shown(Platform::Ngp, 160, VideoMode::Actual), (160, 152));
++    assert_eq!(ngp_rect(VideoMode::Actual), WHOLE_TEXTURE);
++}
++
++#[test]
++fn stretch_fills_the_720_by_480_panel_with_the_160_by_152_picture_alone() {
++    assert_eq!(
++        ngp_rect(VideoMode::Stretch),
++        [40.0 / 240.0, 4.0 / 160.0, 160.0 / 240.0, 152.0 / 160.0]
++    );
++}
++
++#[test]
++fn the_in_game_shader_shortcut_and_row_walk_the_ngp_list() {
++    let _g = core_lock();
++    let Some(dylib) = neopop() else {
++        return;
++    };
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = cart(carts.path(), "Pocket", false);
++    let root = real_seat::rooted(Platform::Ngp, "Pocket", &rom, &dylib);
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().screen_shader(), Shader::Off);
++    session.app_mut().apply(Action::ShaderNext);
++    assert_eq!(session.app().screen_shader(), Shader::Lcd3x);
++    assert_eq!(
++        session.app().quick_value(QuickRow::Shader),
++        Some(QuickValue::Lcd3x)
++    );
++    session.app_mut().apply(Action::ShaderPrev);
++    session.app_mut().apply(Action::ShaderPrev);
++    assert_eq!(session.app().screen_shader(), *Shader::GG.last().unwrap());
++}
+diff --git a/crates/slot/tests/ngp_screen.rs b/crates/slot/tests/ngp_screen.rs
+new file mode 100644
+index 0000000..dc384b2
+--- /dev/null
++++ b/crates/slot/tests/ngp_screen.rs
+@@ -0,0 +1,151 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::VideoMode;
++use slot_input::{Action, Btn};
++use slot_store::{read_sega_shaders, Platform, Shader, NGP_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_cart() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(root.path().join("Games/NGP/Pocket.ngc"), [0u8; 16]).expect("write cart");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_neogeo_pocket(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenNgp.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenNgp));
++    press(app, Btn::A);
++}
++
++#[test]
++fn the_neogeo_pocket_closes_the_screen_list_with_a_shader_and_picture_section_only() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenNgp));
++    assert_eq!(QuickRow::ScreenNgp.label(), "Neo Geo Pocket");
++    assert!(QuickRow::ScreenNgp.opens());
++    assert_eq!(QuickRow::ScreenNgp.child(), Some(QuickRow::NgpShader));
++    assert_eq!(
++        QuickRow::SCREEN_NGP,
++        [QuickRow::NgpShader, QuickRow::NgpPicture]
++    );
++    assert_eq!(
++        QuickRow::SCREEN_NGP.map(QuickRow::label),
++        ["Shader", "Picture"]
++    );
++    for row in QuickRow::SCREEN_NGP {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenNgp));
++    }
++}
++
++#[test]
++fn the_neogeo_pocket_row_shows_only_on_a_card_with_neogeo_pocket_games() {
++    let (_root, mut app) = card_with_a_cart();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenNgp));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let without = boot(root.path());
++    assert!(without.hidden_rows().contains(&QuickRow::ScreenNgp));
++    open_neogeo_pocket(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::NgpShader));
++}
++
++#[test]
++fn the_neogeo_pocket_picture_starts_actual_and_offers_stretch_but_no_crop() {
++    assert_eq!(default_video_mode(Platform::Ngp), VideoMode::Actual);
++    assert_eq!(
++        picture_choices(Platform::Ngp),
++        [VideoMode::Stretch, VideoMode::Actual]
++    );
++    let (root, mut app) = card_with_a_cart();
++    assert_eq!(
++        system_picture(root.path(), Platform::Ngp),
++        VideoMode::Actual
++    );
++    open_neogeo_pocket(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::NgpPicture));
++    assert_eq!(
++        app.quick_value(QuickRow::NgpPicture),
++        Some(QuickValue::Actual)
++    );
++    for want in [VideoMode::Stretch, VideoMode::Actual, VideoMode::Stretch] {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        assert_eq!(
++            app.quick_value(QuickRow::NgpPicture),
++            Some(want.quick_value())
++        );
++        assert_eq!(system_picture(root.path(), Platform::Ngp), want);
++    }
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "ngp = stretch\n"
++    );
++    let again = boot(root.path());
++    assert_eq!(
++        again.quick_value(QuickRow::NgpPicture),
++        Some(QuickValue::Stretch)
++    );
++}
++
++#[test]
++fn the_neogeo_pocket_shader_walks_off_lcd3x_and_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_neogeo_pocket(&mut app);
++    assert_eq!(app.quick_value(QuickRow::NgpShader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::GG.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(read_sega_shaders(root.path()).ngp);
++    }
++    assert_eq!(seen, [&Shader::GG[1..], &Shader::GG[..1]].concat());
++    assert_eq!(seen[0], Shader::Lcd3x);
++    assert!(root.path().join("Config").join(NGP_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}
++
++#[test]
++fn a_chosen_neogeo_pocket_shader_is_the_one_the_next_boot_starts_with() {
++    let (root, mut app) = card_with_a_cart();
++    open_neogeo_pocket(&mut app);
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    let again = boot(root.path());
++    assert_eq!(
++        again.quick_value(QuickRow::NgpShader),
++        Some(QuickValue::Lcd3x)
++    );
++}
++
++#[test]
++fn an_unknown_neogeo_pocket_shader_value_reads_as_off() {
++    let (root, _app) = card_with_a_cart();
++    std::fs::write(
++        root.path().join("Config").join(NGP_SHADER_FILE),
++        "ngp=bogus\n",
++    )
++    .expect("write");
++    let app = boot(root.path());
++    assert_eq!(app.quick_value(QuickRow::NgpShader), Some(QuickValue::Off));
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index c9095d9..e026172 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,9 +92,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 8]).is_empty());
+-    for key in 0..255u8 {
+-        let systems = [0, 1, 2, 3, 4, 5, 6, 7].map(|i| key & 1 << i != 0);
++    assert!(hidden_on_shelf([true; 9]).is_empty());
++    for key in 0..511u16 {
++        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -105,6 +105,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenTg16), !systems[5]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenWs), !systems[6]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenLynx), !systems[7]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenNgp), !systems[8]);
+     }
+ }
+ 

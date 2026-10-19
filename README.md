@@ -29,6 +29,7 @@ set adds more shelves the same way:
 | TurboGrafx-16 and PC Engine (device gate pending) | `Games/TG16` (`.pce`) | Beetle PCE Fast (2x) | none |
 | WonderSwan and WonderSwan Color (device gate pending) | `Games/WS` (`.ws`, `.wsc`) | Beetle Cygne (3x, vertical games 2x) | none |
 | Atari Lynx (device gate pending) | `Games/Lynx` (`.lnx`, `.lyx`) | Beetle Lynx (4x) | none |
+| NeoGeo Pocket and Pocket Color (planned, not shipped) | `Games/NGP` (`.ngp`, `.ngc`, `.ngpc`) | Beetle NeoPop (3x) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -68,6 +69,13 @@ sideways keep the picture as drawn, so you turn the handheld; Flip Right Carts (
 draws right-turned carts upside down with the pad turned to match, so every turned cart is held the
 same way. `Config/lynx_rotation.txt` (`<stem> = left`, `right` or `none`) overrides what slot reads
 from the header and its title list. L and R are Option 1 and 2, START is Pause.
+
+NeoGeo Pocket and Pocket Color are in the patch set and wait for their device gate (Phase 9, ADRs
+0090 and 0094, issue 70): one `Games/NGP` shelf for `.ngp`, `.ngc` and `.ngpc` on Beetle NeoPop, no
+BIOS, the 160x152 screen at 3x, and its own Screen section. The game keeps its saves in the cart's
+flash, which the core writes itself; slot checks that file before the core reads it and publishes it
+atomically at every lid close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`. The carts
+are drawn as an NGP pak in dark grey, with label art from the label fetcher (issue 78). The NGP work credits nelynes/slotPlus (a8eae4c, 1ef7226).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
