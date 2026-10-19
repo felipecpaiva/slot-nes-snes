@@ -113,7 +113,8 @@ drop it on the next rebase.
   return. (The `SOCKET_U[2]` crash in the plan is exactly this.)
 - **Unsafe:** only in `slot-retro` where the libretro FFI already lives, plus the GL texture
   re-allocation in `slot-gfx` `GamePass::set_canvas`, the NES and SNES shader program in
-  `slot-gfx/src/pipeline/retro.rs`, and in our own new test files where a test
+  `slot-gfx/src/pipeline/retro.rs`, the Linux `HeadlessSurface` in
+  `slot-gfx/src/headless_egl.rs` (ADR 0088), and in our own new test files where a test
   must read GL output or a core symbol that slot does not expose (`nes_window.rs`,
   `nes_fceumm.rs`). Each block has a single-line `// SAFETY:` comment.
 - **Dependencies:** none added. Not to `Cargo.toml`, not to the workspace. A real need
@@ -146,7 +147,11 @@ drop it on the next rebase.
   `snes_rom(name, map, copier, sram_kb)` in the shared helpers) or freely licensed homebrew in `harness/roms/` with its licence file
   next to it. **Never commit a commercial ROM**, not even a few bytes of one. Device-gate
   titles are the tester's own dumps and stay on the SD card.
-- **Render tests** (`HeadlessSurface`) run on macOS only. Gate them with
+- **Render tests** (`HeadlessSurface`) run on macOS, and on Linux under GLES2 through
+  surfaceless Mesa EGL (ADR 0088). Gate a new one with
+  `#![cfg(any(target_os = "macos", target_os = "linux"))]`; if it needs no core and lives in
+  slot-gfx or slot-ui, add it to the render step of the `device` job in
+  `.github/workflows/test.yml`. A test that needs a core or the slot crate keeps
   `#![cfg(target_os = "macos")]` like upstream.
 - **Every test from the issue's table is written, with the ID in the PR body.** No issue is
   done with a test missing.
