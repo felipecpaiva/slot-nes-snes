@@ -117,6 +117,12 @@ them, so we do not make those buttons remappable.
   `GameL`, the footer brighter than the game) and passes here in both trees, with its mock core, also
   under a 14-way CPU load. It joins `layout.rs` in `run-tests.sh`'s both-trees list (ADR 0045): it
   gates on no failure upstream does not also have, and CI prints both trees' counts.
+  Amended 2026-10-19: on the runner the unpatched tree failed both tests in runs 39151890455 and
+  39235648529 but only one in run 39239204575 (`the_controls_page_renders` passed there), while the
+  patched tree failed both, so the compare failed on runner variance. The tests step the menu by
+  wall-clock frame time (`Frontend::advance`), so on CI they join the runner-sensitive list
+  (information only) and leave the both-trees list; locally both trees still pass them and the
+  both-trees gate stays.
 
 ### Release tags on an untagged base
 
