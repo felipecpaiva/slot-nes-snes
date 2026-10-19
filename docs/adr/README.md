@@ -106,4 +106,4 @@ the patch set looks the way it does.
 | [0087](0087-four-three-picture.md) | Add a 4:3 picture choice to the NES, SNES, Master System and Mega Drive Picture rows | Accepted. Amends 0061, 0062 | 2026-10-18 |
 | [0088](0088-linux-render-tests-on-surfaceless-egl.md) | Run our render tests on Linux under GLES2 through surfaceless Mesa EGL | Accepted. Amends 0035 | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |
-| [0091](0091-tg16-on-beetle-pce-fast.md) | Bring TurboGrafx-16 and PC Engine HuCards into scope on pinned Beetle PCE Fast, built the NES and SNES way | Accepted. Amends 0002 | 2026-10-18 |
+| [0091](0091-tg16-on-beetle-pce-fast.md) | Bring TurboGrafx-16 and PC Engine HuCards into scope on pinned Beetle PCE Fast, built the NES and SNES way | Accepted. Amends 0002; integration decisions added 2026-10-19 | 2026-10-18 |

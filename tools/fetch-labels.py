@@ -10,7 +10,7 @@ PlayStation the front cover and the disc label.
 
 --card   <root>: scans Games/<SYSTEM>/ on the card, writes Labels/<SYSTEM>/<stem>.png and Labels/cart_shell.txt.
 --device:        lists Games/<SYSTEM>/ on the device with a shell glob (its ls adds colour codes), finds each
-                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive psx, loose or zipped; the stem of a zipped
+                 stem's CRC32 in --library (<library>/nes snes gba gb gbc gamegear mastersystem megadrive psx pcengine, loose or zipped; the stem of a zipped
                  ROM is the stem of the ROM inside the zip, as scripts/push-roms.py names it), stages the labels
                  locally and adb pushes only the new ones.
 Never overwrites a PNG or a cart_shell.txt line without --force. Reruns are cheap: everything fetched is cached
@@ -52,7 +52,7 @@ Label sources, in order, per ROM:
      its logo on a generated ground (Cart Studio's Logo Only style), drawn by the slot-ui example logo_label
      (task labels:logo-tool builds build/slot/target/release/examples/logo_label; SLOT_LOGO_LABEL overrides it)
      at the label size slot draws for that system. The logo is libretro-thumbnails Named_Logos (none for GBC,
-     GG, PS1; the index and the PNGs are cached under logos/) matched by title_key like a sibling (one title,
+     GG, PS1, TG16; the index and the PNGs are cached under logos/) matched by title_key like a sibling (one title,
      a cut name only when one title starts with it, never a guess), else the ScreenScraper wheel of the game
      the name pass (or an ss: alias) matched. A hack ([h..] or "hack") takes a parent's logo only through
      --aliases (a sibling: alias names the title to look up). The outcome is "logo fallback", source
@@ -88,7 +88,7 @@ UA = "slot-nes-snes-fetch-labels/1.0 (+https://github.com/felipecpaiva/slot-nes-
 ART = "https://art.slot-cfw.fyi/"
 DAT = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/"
 SS_API = "https://api.screenscraper.fr/api2/"
-# libretro-thumbnails, served with a directory listing; Named_Logos exists for these (not GBC, GG or PS1)
+# libretro-thumbnails, served with a directory listing; Named_Logos exists for these (not GBC, GG, PS1 or TG16)
 LOGOS = "https://thumbnails.libretro.com/"
 # the Logo Only renderer, a slot-ui example (ADR 0014): task labels:logo-tool builds it
 LOGO_TOOL = os.path.join(REPO, "build", "slot", "target", "release", "examples", "logo_label")
@@ -109,6 +109,9 @@ SYSTEMS = {
     # PlayStation discs are not in a No-Intro dat; ScreenScraper id 57 per Skyscraper's platforms_idmap.csv
     # (Gemba/skyscraper ccd49ae, row "psx,57,6,10"). The extensions are the ones slot scans (patch 0034).
     "PS1": ("psx", {".cue", ".chd", ".pbp", ".m3u"}, [], 57),
+    # PC Engine and TurboGrafx-16 HuCards: libretro-database metadat/no-intro; ScreenScraper id 31 per
+    # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "pcengine,31,40,34"). .pce only (patch 0053).
+    "TG16": ("pcengine", {".pce"}, ["NEC - PC Engine - TurboGrafx 16"], 31),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
@@ -511,9 +514,12 @@ class Rom:
 
     def crcs(self, system):
         """CRC32 candidates in the order the issue gives: NES whole file then without the 16-byte header,
-        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a Mega Drive SMD
-        dump (as Genesis Plus GX detects one) de-interleaved, since No-Intro hashes the raw ROM."""
+        SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a HuCard likewise
+        (size % 8192 == 512), a Mega Drive SMD dump (as Genesis Plus GX detects one) de-interleaved, since
+        No-Intro hashes the raw ROM."""
         if system == "SNES" and self.size % 1024 == 512:
+            yield zlib.crc32(self.read()[512:])
+        if system == "TG16" and self.size % 8192 == 512:
             yield zlib.crc32(self.read()[512:])
         if system == "MD" and self.size % 512 == 0 and (self.size // 512) % 2 == 1:
             data = self.read()
@@ -1546,7 +1552,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

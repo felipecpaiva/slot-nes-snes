@@ -90,3 +90,36 @@ The libretro PC Engine cores:
   image still re-versions `powf`, and whether the new pin calls other re-versioned libm functions:
   `exp`, `exp2`, `log`, `log2` and `pow` moved to GLIBC_2.29, and `expf`, `exp2f`, `logf`,
   `log2f` and `powf` to GLIBC_2.27. `task core:device:mednafen_pce_fast` fails if one appears.
+
+## Integration on main-1b20432 (2026-10-19)
+
+Patches 0052 to 0058 put the platform on the base of ADR 0083. The decisions the plan left open, and
+the places where the base changed what the plan assumed:
+
+- **Picture.** Crop is offered and is the factory default, the NES and SNES choice (ADR 0062), so the
+  Picture row walks Crop, Stretch, Actual. Crop takes 8 lines off the top and bottom
+  (`Platform::Tg16.overscan() == (0, 8)`, 256x240 to 256x224, the SNES amount). The source for the
+  edges: standalone Mednafen hides some by default too (`pce_fast.slstart` 4 and `pce_fast.slend`
+  235 of 0 to 239, 232 lines; mednafen.github.io/documentation/pce_fast.html, checked 2026-10-19), and
+  the NESdev figures of ADR 0062 put a CRT's visible picture near 224 lines. Stretch follows the frame width (the Mega Drive rule, ADR 0052), so a
+  352-wide screen fills the panel. Changing the default to Actual is one token in
+  `platform_video::default_video_mode`; the user's choice in the row always wins
+  (`Config/picture.txt`).
+- **Options.** `pce_fast_frameskip` is not set to `disabled` as issue 84 listed: slot already
+  answers every core's `<prefix>_frameskip` with `auto`, which skips only the frames slot does not
+  show during fast-forward (`set_frame_skip`), never a frame in normal play. Every other key of issue
+  84 is answered as listed, with `pce_fast_disable_softreset=disabled`.
+- **Soft reset.** Select+Run stays the console's soft reset (issue 87's recommendation). SELECT
+  reaches the game only after slot's chord hold, so the reset is always deliberate.
+- **Saves.** Every HuCard keeps a 2 KB header-only `.sav` (issue 86's recommendation); no TG16-only
+  rule. `save_ram_trusted` accepts it: the buffer is not blank.
+- **Turbo.** The plan put turbo I and II on X and Y "as on Game Gear". On main-1b20432 upstream's
+  `Pad::mask` never sets X or Y, so Game Gear and NES turbo went quiet in the rebase (ADR 0083). TG16
+  gets the plan's turbo through one new policy, `Platform::turbo_on_xy()` (TG16 only), which lets
+  `raw_buttons.rs` hand X and Y to the emulator; slot's existing `ButtonMask::turbo` then pulses I and
+  II, and the Turbo Buttons row turns it off. The core's own turbo stays off. Game Gear and NES are
+  unchanged; giving them the same seam is a separate decision.
+- **Cart art.** One HuCard shell, the Sega Card's size (both are credit cards), white, with gold
+  contacts painted like the PS1 obi strip. libretro-thumbnails has no `Named_Logos` for
+  `NEC - PC Engine - TurboGrafx 16` (checked 2026-10-19, 404), so the Logo Only fallback uses the
+  ScreenScraper wheel alone.
