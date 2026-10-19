@@ -110,7 +110,7 @@ SYSTEMS = {
     # (Gemba/skyscraper ccd49ae, row "psx,57,6,10"). The extensions are the ones slot scans (patch 0034).
     "PS1": ("psx", {".cue", ".chd", ".pbp", ".m3u"}, [], 57),
     # PC Engine and TurboGrafx-16 HuCards: libretro-database metadat/no-intro; ScreenScraper id 31 per
-    # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "pcengine,31,40,34"). .pce only (patch 0053).
+    # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "pcengine,31,40,34"). .pce only (patch 0058).
     "TG16": ("pcengine", {".pce"}, ["NEC - PC Engine - TurboGrafx 16"], 31),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}

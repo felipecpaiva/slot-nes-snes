@@ -1,6 +1,6 @@
 # TurboGrafx-16 and PC Engine HuCards on slot-nes-snes: plan (2026-10-18)
 
-"Our tree" means slot v1.7.0 plus patches 0001 to 0052. The integration patches will be written on
+"Our tree" means slot v1.7.0 plus patches 0001 to 0057. The integration patches will be written on
 the upstream 1.8.0 base once that port lands, so this plan names seams, not line numbers.
 
 - "PCE Fast" means libretro/beetle-pce-fast-libretro at `3f946f2` (ADR 0091).
@@ -51,7 +51,7 @@ We take ideas from both and reimplement them with credit. Nothing is cherry-pick
 | Saves | Core save dir `Saves/TG16` | slot's `.sav` path: the core gives save RAM (section 3) |
 | Shader | Off, LCD3x, Grid, Dot, inside `slot.state` | Own Screen section, the retro list, setting outside `slot.state` (ADR 0051) |
 | Cart | White HuCard, gold contacts, square label, drawn by `assets/src/carts.py` | Retro bitmap HuCard (ADR 0054), their drawing as a credited reference |
-| Tests | `pce_core.rs` (spin ROM boots, frame size, state), `tg16_video.rs` | Same HuCard recipe, plus a palette paint, every pixel on the canvas, the options contract and BRAM (patch 0052) |
+| Tests | `pce_core.rs` (spin ROM boots, frame size, state), `tg16_video.rs` | Same HuCard recipe, plus a palette paint, every pixel on the canvas, the options contract and BRAM (patch 0057) |
 
 ## 2. Core facts found while building (2026-10-18)
 
@@ -216,7 +216,7 @@ The TurboGrafx pad has II on the left and I on the right, with Select and Run be
 Issues 83 to 87 and 89 to 90, plus the platform half of 88, in that order. When the platform patch
 lands:
 
-- the three licence files moved from `cores/mednafen_pce_fast/` to `licenses/` (done, patch 0053);
+- the three licence files moved from `cores/mednafen_pce_fast/` to `licenses/` (done, patch 0058);
 - the core joins `scripts/dist-device.sh` and `scripts/zip-check.sh`: the cores list, the `req` and
   `ok` lists, the licence file list, and the strings cross-check pair. The pinned `.so` contains
   `Beetle PCE Fast` (its library name), so the pair is `mednafen_pce_fast:Beetle.PCE.Fast`;
@@ -228,6 +228,6 @@ Merge notes: NGP's groundwork (branch `ngp-groundwork`) also adds itself to `SLO
 INDEX and PLAN.md. Those are textual conflicts, kept as one line per core. This branch also
 changes `cores/lib.sh` (the optional `device_include`), which NGP does not; any other core
 branch that edits `lib.sh` must keep it, and the device stamp gains a `device_include=` line only
-for cores that set it. The patch numbers (0052 onward),
+for cores that set it. The patch numbers (0057 onward),
 ADR 0091, issues 81 to 90 and Phase 10 may be renumbered at merge (the Lynx and WonderSwan
 groundwork may claim the same numbers).

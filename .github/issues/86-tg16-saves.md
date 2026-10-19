@@ -39,4 +39,4 @@ A BRAM or Populous save survives a lid close and a battery pull (issue 90).
 - ADR 0012, 0034, 0072, 0091; docs/research/tg16-plan.md section 3
 
 ## Outcome (2026-10-19)
-Patch `0055-tg16-saves`, tests only: no save code was needed. Decision: the 2 KB header-only `.sav` per game is accepted (ADR 0091). Tests: `slot/tests/tg16_saves.rs` (a marked BRAM survives eject and reinsert, a lid close writes it, a game that never saves leaves the formatted 2 KB `.sav`, a RetroArch `.srm` loads).
+Patch `0060-tg16-saves`, tests only: no save code was needed. Decision: the 2 KB header-only `.sav` per game is accepted (ADR 0091). Tests: `slot/tests/tg16_saves.rs` (a marked BRAM survives eject and reinsert, a lid close writes it, a game that never saves leaves the formatted 2 KB `.sav`, a RetroArch `.srm` loads).

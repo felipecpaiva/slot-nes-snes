@@ -36,4 +36,4 @@ None beyond issue 90.
 - ADR 0064 (answering declared defaults), 0091; docs/research/tg16-plan.md sections 2 and 4
 
 ## Outcome (2026-10-19)
-Patch `0054-tg16-options`. Every key of the list is answered except `pce_fast_frameskip`, which keeps slot's generic `auto` (it skips only frames slot does not show, ADR 0091). Tests: `slot/tests/tg16_options.rs` (each value answered, each key and value declared by the pin, the CD keys unanswered, frameskip `auto`, no declared-default sweep) and `slot/tests/tg16_canvas.rs` (every canvas pixel through slot's open path; it fails with `pce_fast_initial_scanline` unanswered).
+Patch `0059-tg16-options`. Every key of the list is answered except `pce_fast_frameskip`, which keeps slot's generic `auto` (it skips only frames slot does not show, ADR 0091). Tests: `slot/tests/tg16_options.rs` (each value answered, each key and value declared by the pin, the CD keys unanswered, frameskip `auto`, no declared-default sweep) and `slot/tests/tg16_canvas.rs` (every canvas pixel through slot's open path; it fails with `pce_fast_initial_scanline` unanswered).

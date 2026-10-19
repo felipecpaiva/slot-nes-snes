@@ -3,7 +3,7 @@
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [TG16 plan](../research/tg16-plan.md), [fork review](../research/fork-review-2026-10-18.md) item 17, [nelynes survey](../research/fork-nelynes.md) section 4, [ADR 0050](0050-canvas-per-core-and-platform.md), [ADR 0053](0053-genesis-plus-gx-for-sega.md), [ADR 0059](0059-need-fullpath-load.md), [ADR 0063](0063-ps1-in-scope-on-pcsx-rearmed.md), [issue 81](../../.github/issues/81-tg16-tracking.md), [issue 82](../../.github/issues/82-tg16-core-build.md), patch `patches/0052-tg16-core-tests.patch`
+- Related: [TG16 plan](../research/tg16-plan.md), [fork review](../research/fork-review-2026-10-18.md) item 17, [nelynes survey](../research/fork-nelynes.md) section 4, [ADR 0050](0050-canvas-per-core-and-platform.md), [ADR 0053](0058-genesis-plus-gx-for-sega.md), [ADR 0059](0064-need-fullpath-load.md), [ADR 0063](0068-ps1-in-scope-on-pcsx-rearmed.md), [issue 81](../../.github/issues/81-tg16-tracking.md), [issue 82](../../.github/issues/82-tg16-core-build.md), patch `patches/0052-tg16-core-tests.patch`
 
 ## Context
 
@@ -93,7 +93,7 @@ The libretro PC Engine cores:
 
 ## Integration on main-1b20432 (2026-10-19)
 
-Patches 0052 to 0058 put the platform on the base of ADR 0083. The decisions the plan left open, and
+Patches 0057 to 0063 put the platform on the base of ADR 0083. The decisions the plan left open, and
 the places where the base changed what the plan assumed:
 
 - **Picture.** Crop is offered and is the factory default, the NES and SNES choice (ADR 0062), so the

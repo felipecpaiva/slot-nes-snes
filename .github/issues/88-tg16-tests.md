@@ -11,7 +11,7 @@ depends_on: [82-tg16-core-build]
 Real-core tests from the start, the NES, SNES and NGP way: no game ROM in the repo, so the HuCard is generated. The core half lands with the groundwork; each platform step adds its own tests.
 
 ## Scope
-- [x] Patch 0052 adds `crates/slot/tests/tg16_core.rs` (new file only, no upstream test edited). The HuCard is 8 KB: the reset vector at $1FFE points at $E000, the code maps the I/O page (`tam #$01`), writes red into VCE colours 0 and 0x100, and spins (`bra *`). Recipe after nelynes/slotPlus 92b7022 (`pce_core.rs`) and cloudwithax/unslot 00296a5 (`systems.rs`), credited in the patch.
+- [x] Patch 0057 adds `crates/slot/tests/tg16_core.rs` (new file only, no upstream test edited). The HuCard is 8 KB: the reset vector at $1FFE points at $E000, the code maps the I/O page (`tam #$01`), writes red into VCE colours 0 and 0x100, and spins (`bra *`). Recipe after nelynes/slotPlus 92b7022 (`pce_core.rs`) and cloudwithax/unslot 00296a5 (`systems.rs`), credited in the patch.
 - [x] Four tests on the host dylib:
   - boots with no BIOS, 59.80 to 59.85 fps, 44100 Hz, sound, frame width 256, and every pixel of the 360x240 canvas: red at x 52 to 307 and y 0 to 239, black elsewhere (scanline options answered);
   - unanswered scanline options: 243 lines halved to 121 rows (y 59 to 179), the contract issue 84 must meet;
@@ -38,7 +38,7 @@ Real-core tests from the start, the NES, SNES and NGP way: no game ROM in the re
 None.
 
 ## References
-- ADR 0091; patch 0052; docs/research/tg16-plan.md section 2
+- ADR 0091; patch 0057; docs/research/tg16-plan.md section 2
 
 ## Outcome (2026-10-19)
-Patches 0052 (core) and 0053 to 0058 (one test file per step). Patch `0058-tg16-tests` adds `slot/tests/tg16_then_gba.rs`: a GBA game after a TG16 game gets the same input and picture as a GBA-only run. Shared helper `slot/tests/tg16_common/mod.rs`.
+Patches 0057 (core) and 0058 to 0063 (one test file per step). Patch `0063-tg16-tests` adds `slot/tests/tg16_then_gba.rs`: a GBA game after a TG16 game gets the same input and picture as a GBA-only run. Shared helper `slot/tests/tg16_common/mod.rs`.
