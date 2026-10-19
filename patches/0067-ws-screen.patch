@@ -1,0 +1,711 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:00:28 +0400
+Subject: [PATCH] ws-screen
+
+The WonderSwan Screen section gains a Refresh row: 60 Hz (the default)
+sets wswan_60hz_mode, so Beetle Cygne reports 60.38 fps and runs five
+frames every four calls on the upstream present path; Native leaves it
+off, and the core's own 75.47 fps is paced through ADR 0071's path,
+which owes one or two frames a tick on a 59.6 Hz panel. Both play the
+game at its own speed. The choice is kept in Config/refresh.txt, becomes
+the default, and applies from the next game; a missing line is 60 Hz
+and an unknown one is logged and read as 60 Hz. There is no PAL Speed
+row: no PAL WonderSwan exists.
+
+A horizontal game is the 224x144 picture at 3x in the middle of the
+240x160 canvas (Actual 672x432); a vertical one is 144x224 at 2x in the
+middle of 360x240 (Actual 288x448). LCD3x is a 3x shader, so a vertical
+game chosen with it draws with none, and says so once in the log.
+
+The 360x240 buffer follows nelynes/slotPlus
+(https://github.com/nelynes/slotPlus/commit/ceed887) and the own shader
+row its eabb24e (both GPL-3.0).
+---
+ crates/slot-ui/src/quick_menu.rs    |  14 ++-
+ crates/slot-ui/src/quick_retro.rs   |   4 +-
+ crates/slot-ui/tests/retro_faces.rs |   9 +-
+ crates/slot/src/app.rs              |  26 ++++-
+ crates/slot/src/lib.rs              |   1 +
+ crates/slot/src/session.rs          |   3 +-
+ crates/slot/src/ws_load.rs          |  13 ++-
+ crates/slot/src/ws_refresh.rs       |  44 ++++++++
+ crates/slot/tests/wswan_canvas.rs   | 122 ++++++++++++++++++++
+ crates/slot/tests/wswan_options.rs  |   4 +-
+ crates/slot/tests/wswan_screen.rs   | 165 ++++++++++++++++++++++++++++
+ 11 files changed, 389 insertions(+), 16 deletions(-)
+ create mode 100644 crates/slot/src/ws_refresh.rs
+ create mode 100644 crates/slot/tests/wswan_canvas.rs
+ create mode 100644 crates/slot/tests/wswan_screen.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index b555341..61d236d 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -113,10 +113,11 @@ pub enum QuickRow {
+     WsShader,
+     ScreenWs,
+     WsPicture,
++    WsRefresh,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 103] = [
++    pub const ALL: [QuickRow; 104] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -220,6 +221,7 @@ impl QuickRow {
+         QuickRow::WsShader,
+         QuickRow::ScreenWs,
+         QuickRow::WsPicture,
++        QuickRow::WsRefresh,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -418,7 +420,7 @@ impl QuickRow {
+                 &QuickRow::SCREEN_PS1
+             }
+             QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
+-            QuickRow::WsShader | QuickRow::WsPicture => &QuickRow::SCREEN_WS,
++            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -455,7 +457,9 @@ impl QuickRow {
+                 Some(QuickRow::ScreenPs1)
+             }
+             QuickRow::Tg16Shader | QuickRow::Tg16Picture => Some(QuickRow::ScreenTg16),
+-            QuickRow::WsShader | QuickRow::WsPicture => Some(QuickRow::ScreenWs),
++            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
++                Some(QuickRow::ScreenWs)
++            }
+             _ => None,
+         }
+     }
+@@ -626,6 +630,7 @@ impl QuickRow {
+             | QuickRow::Ps1PalSpeed => "PAL Speed",
+             QuickRow::SmsRegion => "Region",
+             QuickRow::Cpu => "CPU",
++            QuickRow::WsRefresh => "Refresh",
+         }
+     }
+ 
+@@ -761,6 +766,7 @@ pub enum QuickValue {
+     Performance,
+     Balanced,
+     FourThree,
++    Hz60,
+ }
+ 
+ impl QuickValue {
+@@ -814,6 +820,7 @@ impl QuickValue {
+             QuickValue::Performance => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 9,
+             QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
+             QuickValue::FourThree => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 11,
++            QuickValue::Hz60 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 12,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -856,6 +863,7 @@ impl QuickValue {
+             QuickValue::Performance => "Performance",
+             QuickValue::Balanced => "Balanced",
+             QuickValue::FourThree => "4:3",
++            QuickValue::Hz60 => "60 Hz",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 05776f6..de6201f 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -31,7 +31,8 @@ impl QuickRow {
+         QuickRow::Ps1PalSpeed,
+     ];
+     pub const SCREEN_TG16: [QuickRow; 2] = [QuickRow::Tg16Shader, QuickRow::Tg16Picture];
+-    pub const SCREEN_WS: [QuickRow; 2] = [QuickRow::WsShader, QuickRow::WsPicture];
++    pub const SCREEN_WS: [QuickRow; 3] =
++        [QuickRow::WsShader, QuickRow::WsPicture, QuickRow::WsRefresh];
+ }
+ 
+ impl QuickValue {
+@@ -52,6 +53,7 @@ impl QuickValue {
+                 QuickValue::Performance,
+                 QuickValue::Balanced,
+                 QuickValue::FourThree,
++                QuickValue::Hz60,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index c417fbf..44f8a1b 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -24,7 +24,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Europe,
+             QuickValue::Performance,
+             QuickValue::Balanced,
+-            QuickValue::FourThree
++            QuickValue::FourThree,
++            QuickValue::Hz60,
+         ]
+     );
+     assert_eq!(
+@@ -40,7 +41,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Europe.text(),
+             QuickValue::Performance.text(),
+             QuickValue::Balanced.text(),
+-            QuickValue::FourThree.text()
++            QuickValue::FourThree.text(),
++            QuickValue::Hz60.text(),
+         ],
+         [
+             "Stretch",
+@@ -54,7 +56,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "Europe",
+             "Performance",
+             "Balanced",
+-            "4:3"
++            "4:3",
++            "60 Hz"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 2dff29b..95c1961 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -454,6 +454,7 @@ pub struct App {
+     pictures: crate::platform_video::SystemPictures,
+     pal_speeds: crate::pal_speed::PalSpeeds,
+     vertical: bool,
++    ws_native: bool,
+     sms_region: crate::sms_region::Region,
+     cpu_mode: crate::cpu_governor::CpuMode,
+     rested: Option<(usize, usize)>,
+@@ -640,6 +641,7 @@ impl App {
+             pictures: crate::platform_video::SystemPictures::default(),
+             pal_speeds: crate::pal_speed::PalSpeeds::default(),
+             vertical: false,
++            ws_native: false,
+             sms_region: crate::sms_region::Region::Auto,
+             cpu_mode: crate::cpu_governor::CpuMode::Performance,
+             rested: None,
+@@ -663,6 +665,7 @@ impl App {
+         app.sega_shaders = slot_store::read_sega_shaders(root);
+         app.pictures = crate::platform_video::SystemPictures::read(root);
+         app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
++        app.ws_native = crate::ws_refresh::native(root);
+         app.sms_region = crate::sms_region::Region::read(root);
+         app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
+         app.restock_recents();
+@@ -1087,6 +1090,7 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
++            QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+@@ -1674,6 +1678,9 @@ impl App {
+ 
+     pub fn set_vertical(&mut self, vertical: bool) {
+         self.vertical = vertical;
++        if vertical && self.sega_shaders.ws == Shader::Lcd3x {
++            eprintln!("slot: ws: lcd3x is a 3x shader, a vertical game at 2x draws with none");
++        }
+     }
+ 
+     pub fn vertical(&self) -> bool {
+@@ -2185,7 +2192,7 @@ impl App {
+             Platform::Md => self.sega_shaders.md,
+             Platform::Ps1 => self.sega_shaders.ps1,
+             Platform::Tg16 => self.sega_shaders.tg16,
+-            Platform::Ws => self.sega_shaders.ws,
++            Platform::Ws => crate::ws_load::drawn_shader(self.sega_shaders.ws, self.vertical),
+         }
+     }
+ 
+@@ -2198,7 +2205,11 @@ impl App {
+     }
+ 
+     pub fn native_pal(&self, platform: Platform) -> bool {
+-        self.pal_speeds.native(platform)
++        platform == Platform::Ws || self.pal_speeds.native(platform)
++    }
++
++    pub fn ws_native(&self) -> bool {
++        self.ws_native
+     }
+ 
+     pub fn colour_correction_for(&self, platform: Platform) -> bool {
+@@ -2760,7 +2771,8 @@ impl App {
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
+             | QuickRow::Tg16Shader
+-            | QuickRow::Tg16Picture => {}
++            | QuickRow::Tg16Picture
++            | QuickRow::WsRefresh => {}
+         }
+     }
+ 
+@@ -2782,6 +2794,13 @@ impl App {
+             }
+             return;
+         }
++        if row == QuickRow::WsRefresh {
++            self.ws_native = !self.ws_native;
++            if let Some(root) = &self.root {
++                crate::ws_refresh::save(root, self.ws_native, &self.card_writes);
++            }
++            return;
++        }
+         if row == QuickRow::SmsRegion {
+             self.sms_region = self.sms_region.stepped(right);
+             if let Some(root) = &self.root {
+@@ -2920,6 +2939,7 @@ impl App {
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
++            | QuickRow::WsRefresh
+             | QuickRow::Tg16Picture => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index fda052a..2103b60 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -59,3 +59,4 @@ pub mod thumb_sized;
+ pub mod video_mode;
+ pub mod wallpaper;
+ pub mod ws_load;
++pub mod ws_refresh;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 989df04..81aca56 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -525,6 +525,7 @@ impl Session {
+         self.app.set_platform(platform);
+         let vertical = crate::ws_load::vertical(platform, &rom);
+         self.app.set_vertical(vertical);
++        let native = self.app.ws_native();
+         self.app
+             .set_video_mode(crate::platform_video::video_mode_for(
+                 &self.root, stem, platform,
+@@ -545,7 +546,7 @@ impl Session {
+                 launch("resume state read");
+                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
+                 let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
+-                crate::ws_load::prepare(opened.core.as_mut(), platform, vertical);
++                crate::ws_load::prepare(opened.core.as_mut(), platform, vertical, native);
+                 crate::ps1_load::offer_remembered_disc(
+                     opened.core.as_mut(),
+                     &root,
+diff --git a/crates/slot/src/ws_load.rs b/crates/slot/src/ws_load.rs
+index c65161a..9140c6e 100644
+--- a/crates/slot/src/ws_load.rs
++++ b/crates/slot/src/ws_load.rs
+@@ -1,22 +1,29 @@
+ use std::path::Path;
+ 
+ use slot_retro::RetroCore;
+-use slot_store::{Core, Platform};
++use slot_store::{Core, Platform, Shader};
+ 
+ pub fn vertical(platform: Platform, rom: &Path) -> bool {
+     platform == Platform::Ws && slot_store::ws::vertical(rom)
+ }
+ 
+-pub fn prepare(core: &mut dyn RetroCore, platform: Platform, vertical: bool) {
++pub fn prepare(core: &mut dyn RetroCore, platform: Platform, vertical: bool, native: bool) {
+     if platform != Platform::Ws {
+         return;
+     }
+     let (w, h) = Core::MednafenWswan.game_canvas(platform, vertical);
+     core.set_canvas(w, h);
+-    core.set_option("wswan_60hz_mode", "enabled");
++    core.set_option("wswan_60hz_mode", crate::ws_refresh::sixty_hz_mode(native));
+     core.set_option("wswan_rotate_display", rotation(vertical));
+ }
+ 
++pub fn drawn_shader(chosen: Shader, vertical: bool) -> Shader {
++    match (chosen, vertical) {
++        (Shader::Lcd3x, true) => Shader::Off,
++        (shader, _) => shader,
++    }
++}
++
+ pub fn rotation(vertical: bool) -> &'static str {
+     match vertical {
+         true => "portrait",
+diff --git a/crates/slot/src/ws_refresh.rs b/crates/slot/src/ws_refresh.rs
+new file mode 100644
+index 0000000..5a59575
+--- /dev/null
++++ b/crates/slot/src/ws_refresh.rs
+@@ -0,0 +1,44 @@
++use std::path::Path;
++
++use slot_store::ini;
++use slot_ui::QuickValue;
++
++use crate::card_log::CardWrites;
++
++pub const REFRESH_FILE: &str = "Config/refresh.txt";
++
++const KEY: &str = "ws";
++
++pub fn native(root: &Path) -> bool {
++    match ini::value(root, REFRESH_FILE, KEY).as_deref() {
++        None | Some("60hz") => false,
++        Some("native") => true,
++        Some(other) => {
++            eprintln!("slot: refresh.txt: ignoring {KEY}={other}");
++            false
++        }
++    }
++}
++
++pub fn quick_value(native: bool) -> QuickValue {
++    match native {
++        true => QuickValue::Native,
++        false => QuickValue::Hz60,
++    }
++}
++
++pub fn sixty_hz_mode(native: bool) -> &'static str {
++    match native {
++        true => "disabled",
++        false => "enabled",
++    }
++}
++
++pub fn save(root: &Path, native: bool, writes: &CardWrites) {
++    let value = if native { "native" } else { "60hz" };
++    let written = ini::write(root, REFRESH_FILE, KEY, value);
++    if let Err(e) = &written {
++        eprintln!("slot: emu: could not write refresh.txt: {e}");
++    }
++    writes.wrote("refresh.txt", &written);
++}
+diff --git a/crates/slot/tests/wswan_canvas.rs b/crates/slot/tests/wswan_canvas.rs
+new file mode 100644
+index 0000000..6b1df9a
+--- /dev/null
++++ b/crates/slot/tests/wswan_canvas.rs
+@@ -0,0 +1,122 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod wswan_common;
++
++use std::time::Duration;
++
++use common::core_lock;
++use slot::av_rate::owed_frames;
++use slot::core::open_core;
++use slot::session::Session;
++use slot::video_mode::VideoMode;
++use slot_store::{Core, Platform};
++use wswan_common::{assert_red_box, cart, cygne, Code, Save, NATIVE_FPS};
++
++fn playing(vertical: bool) -> Option<(tempfile::TempDir, Session)> {
++    let dylib = cygne()?;
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart(roms.path(), "Game", Code::Paint, Save::None, vertical);
++    let root = real_seat::rooted(Platform::Ws, "Game", &rom, &dylib);
++    let mut session = real_seat::play(root.path(), true);
++    for _ in 0..10 {
++        session.update(1.0 / 60.0);
++    }
++    Some((root, session))
++}
++
++fn near(a: [f32; 4], b: [f32; 4]) -> bool {
++    a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
++}
++
++#[test]
++fn a_horizontal_cart_draws_224_by_144_in_the_middle_of_its_240_by_160_canvas() {
++    let _g = core_lock();
++    let Some((_root, session)) = playing(false) else {
++        return;
++    };
++    assert!(!session.app().vertical());
++    let frame = session
++        .emu()
++        .expect("no core")
++        .latest_frame()
++        .expect("no frame");
++    assert_red_box(&frame, (240, 160), (224, 144));
++    assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert!(near(
++        session.app().picture_rect(),
++        [8.0 / 240.0, 8.0 / 160.0, 232.0 / 240.0, 152.0 / 160.0]
++    ));
++}
++
++#[test]
++fn a_vertical_cart_draws_144_by_224_upright_in_the_middle_of_its_360_by_240_canvas() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing(true) else {
++        return;
++    };
++    assert!(session.app().vertical());
++    let frame = session
++        .emu()
++        .expect("no core")
++        .latest_frame()
++        .expect("no frame");
++    assert_red_box(&frame, (360, 240), (144, 224));
++    drop(frame);
++    assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert!(near(
++        session.app().picture_rect(),
++        [108.0 / 360.0, 8.0 / 240.0, 252.0 / 360.0, 232.0 / 240.0]
++    ));
++    session.app_mut().set_video_mode(VideoMode::Stretch);
++    assert!(near(
++        session.app().source_rect(),
++        [108.0 / 360.0, 0.0, 144.0 / 360.0, 1.0]
++    ));
++}
++
++#[test]
++fn native_refresh_opens_at_75_47_fps() {
++    let _g = core_lock();
++    let Some(dylib) = cygne() else {
++        return;
++    };
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart(roms.path(), "Game", Code::Paint, Save::None, false);
++    let root = real_seat::rooted(Platform::Ws, "Game", &rom, &dylib);
++    let mut core = open_core(
++        root.path(),
++        Core::MednafenWswan,
++        Platform::Ws,
++        "",
++        false,
++        None,
++        None,
++    )
++    .core;
++    slot::ws_load::prepare(core.as_mut(), Platform::Ws, false, true);
++    core.load(&root.path().join("Games/WS/Game.ws"))
++        .expect("Beetle Cygne refused the cart");
++    let fps = core.av_info().fps;
++    assert!((fps - NATIVE_FPS).abs() < 0.01, "{fps} fps");
++}
++
++#[test]
++fn native_75_47_fps_on_a_59_6_hz_panel_owes_one_or_two_frames_a_tick_and_none_are_lost() {
++    let present = Duration::from_nanos(16_666_667);
++    let tick = Duration::from_secs_f64(1.0 / 59.6);
++    let period = Duration::from_secs_f64(1.0 / NATIVE_FPS);
++    let mut owed = 0.0;
++    let mut total = 0u32;
++    let ticks = 596;
++    for _ in 0..ticks {
++        let n = owed_frames(&mut owed, tick, period, present);
++        assert!(n == 1 || n == 2, "{n} frames in one tick");
++        total += n;
++    }
++    let want = 10.0 * NATIVE_FPS;
++    assert!(
++        (f64::from(total) - want).abs() < 1.0,
++        "{total}, want {want}"
++    );
++}
+diff --git a/crates/slot/tests/wswan_options.rs b/crates/slot/tests/wswan_options.rs
+index 501cff3..1ae8817 100644
+--- a/crates/slot/tests/wswan_options.rs
++++ b/crates/slot/tests/wswan_options.rs
+@@ -29,7 +29,7 @@ fn opened(vertical: bool) -> Option<(tempfile::TempDir, Box<dyn RetroCore>)> {
+         None,
+     )
+     .core;
+-    slot::ws_load::prepare(core.as_mut(), Platform::Ws, tall);
++    slot::ws_load::prepare(core.as_mut(), Platform::Ws, tall, false);
+     core.load(&rom).expect("Beetle Cygne refused the cart");
+     Some((root, core))
+ }
+@@ -79,7 +79,7 @@ fn declared(dylib: &Path) -> LibretroCore {
+         false,
+         None,
+     );
+-    slot::ws_load::prepare(&mut core, Platform::Ws, true);
++    slot::ws_load::prepare(&mut core, Platform::Ws, true, false);
+     core
+ }
+ 
+diff --git a/crates/slot/tests/wswan_screen.rs b/crates/slot/tests/wswan_screen.rs
+new file mode 100644
+index 0000000..eb142b6
+--- /dev/null
++++ b/crates/slot/tests/wswan_screen.rs
+@@ -0,0 +1,165 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::VideoMode;
++use slot::ws_refresh::REFRESH_FILE;
++use slot_input::{Action, Btn};
++use slot_store::{Platform, Shader, WS_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_cart() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(root.path().join("Games/WS/Gunpey.ws"), [0u8; 16]).expect("write cart");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_wonderswan(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenWs.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenWs));
++    press(app, Btn::A);
++}
++
++#[test]
++fn wonderswan_closes_the_screen_list_with_shader_picture_and_refresh() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenWs));
++    assert_eq!(QuickRow::ScreenWs.label(), "WonderSwan");
++    assert!(QuickRow::ScreenWs.opens());
++    assert_eq!(QuickRow::ScreenWs.child(), Some(QuickRow::WsShader));
++    assert_eq!(
++        QuickRow::SCREEN_WS.map(QuickRow::label),
++        ["Shader", "Picture", "Refresh"]
++    );
++    for row in QuickRow::SCREEN_WS {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenWs));
++    }
++    assert!(!QuickRow::PLAY_SCREEN.contains(&QuickRow::WsShader));
++}
++
++#[test]
++fn the_wonderswan_row_shows_only_on_a_card_with_wonderswan_games() {
++    let (_root, mut app) = card_with_a_cart();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenWs));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    assert!(boot(root.path())
++        .hidden_rows()
++        .contains(&QuickRow::ScreenWs));
++    open_wonderswan(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::WsShader));
++}
++
++#[test]
++fn the_wonderswan_shader_walks_off_lcd3x_and_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_wonderswan(&mut app);
++    assert_eq!(app.quick_value(QuickRow::WsShader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::GG.len() {
++        app.apply(Action::GbaDown(Btn::Right));
++        app.flush_state();
++        seen.push(slot_store::read_sega_shaders(root.path()).ws);
++    }
++    assert_eq!(seen, [&Shader::GG[1..], &Shader::GG[..1]].concat());
++    assert!(root.path().join("Config").join(WS_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}
++
++#[test]
++fn the_wonderswan_picture_starts_actual_and_offers_stretch_but_no_crop() {
++    assert_eq!(default_video_mode(Platform::Ws), VideoMode::Actual);
++    assert_eq!(
++        picture_choices(Platform::Ws),
++        [VideoMode::Stretch, VideoMode::Actual]
++    );
++    let (root, mut app) = card_with_a_cart();
++    assert_eq!(system_picture(root.path(), Platform::Ws), VideoMode::Actual);
++    open_wonderswan(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::WsPicture));
++    assert_eq!(
++        app.quick_value(QuickRow::WsPicture),
++        Some(QuickValue::Actual)
++    );
++    app.apply(Action::GbaDown(Btn::Right));
++    assert_eq!(
++        system_picture(root.path(), Platform::Ws),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "ws = stretch\n"
++    );
++}
++
++#[test]
++fn refresh_starts_at_60_hz_and_the_choice_is_kept_as_the_default() {
++    let (root, mut app) = card_with_a_cart();
++    open_wonderswan(&mut app);
++    press(&mut app, Btn::Down);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::WsRefresh));
++    assert_eq!(app.quick_value(QuickRow::WsRefresh), Some(QuickValue::Hz60));
++    assert!(!app.ws_native());
++    assert!(!root.path().join(REFRESH_FILE).exists());
++    app.apply(Action::GbaDown(Btn::Right));
++    assert_eq!(
++        app.quick_value(QuickRow::WsRefresh),
++        Some(QuickValue::Native)
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(REFRESH_FILE)).expect("refresh.txt"),
++        "ws = native\n"
++    );
++    assert!(boot(root.path()).ws_native());
++    app.apply(Action::GbaDown(Btn::Left));
++    assert_eq!(app.quick_value(QuickRow::WsRefresh), Some(QuickValue::Hz60));
++    assert!(!boot(root.path()).ws_native());
++}
++
++#[test]
++fn a_missing_or_unknown_refresh_line_reads_as_60_hz() {
++    let (root, _app) = card_with_a_cart();
++    assert!(!slot::ws_refresh::native(root.path()));
++    std::fs::write(root.path().join(REFRESH_FILE), "ws = 75hz\n").expect("write");
++    assert!(!slot::ws_refresh::native(root.path()));
++    std::fs::write(root.path().join(REFRESH_FILE), "ws = native\n").expect("write");
++    assert!(slot::ws_refresh::native(root.path()));
++}
++
++#[test]
++fn wonderswan_is_paced_at_its_own_fps_whichever_refresh_is_chosen() {
++    let (_root, app) = card_with_a_cart();
++    assert!(app.native_pal(Platform::Ws));
++    assert_eq!(slot::ws_refresh::sixty_hz_mode(false), "enabled");
++    assert_eq!(slot::ws_refresh::sixty_hz_mode(true), "disabled");
++}
++
++#[test]
++fn lcd3x_draws_as_off_on_a_vertical_game_and_as_itself_on_a_horizontal_one() {
++    use slot::ws_load::drawn_shader;
++    assert_eq!(drawn_shader(Shader::Lcd3x, false), Shader::Lcd3x);
++    assert_eq!(drawn_shader(Shader::Lcd3x, true), Shader::Off);
++    for shader in Shader::GG.into_iter().filter(|s| *s != Shader::Lcd3x) {
++        assert_eq!(drawn_shader(shader, true), shader);
++    }
++}

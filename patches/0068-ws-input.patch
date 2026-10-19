@@ -1,0 +1,666 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:05:43 +0400
+Subject: [PATCH] ws-input
+
+WonderSwan games get the console's two 4-way pads. slot is the only
+mapper (the core's keymap is off), and the map is applied in the
+emulator thread, frame by frame:
+
+- Horizontal games: the D-pad is the X pad, A, B and START are
+  themselves, and X and Y are turbo A and B. Holding L turns the D-pad
+  into the Y pad; holding R turns the face diamond (X up, A right, B
+  down, Y left) into the Y pad; both at once drive it from both
+  clusters. L, R and SELECT never reach the game.
+- Vertical games, upright: the D-pad is the Y pad and the face diamond
+  the X pad, both turned so up is the game's up, and L and R are A and
+  B, the core's own portrait map.
+- A SELECT tap on a vertical game turns it to the landscape view with
+  the horizontal map, and the next tap turns it back; SELECT with any
+  other button, SELECT+X included, does not. Horizontal games ignore
+  it. The view lasts for the session; every boot starts upright.
+
+The modifier scheme follows nelynes/slotPlus
+(https://github.com/nelynes/slotPlus/commit/69b8379), the vertical
+controls its 0f895d3 and SELECT doing nothing on horizontal games its
+2ab147a (all GPL-3.0); the code is ours.
+---
+ crates/slot/src/emu.rs              |  14 +-
+ crates/slot/src/lib.rs              |   1 +
+ crates/slot/src/session.rs          |   4 +
+ crates/slot/src/ws_input.rs         | 149 ++++++++++++++++++
+ crates/slot/tests/wswan_input.rs    | 230 ++++++++++++++++++++++++++++
+ crates/slot/tests/wswan_then_gba.rs | 150 ++++++++++++++++++
+ 6 files changed, 547 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/src/ws_input.rs
+ create mode 100644 crates/slot/tests/wswan_input.rs
+ create mode 100644 crates/slot/tests/wswan_then_gba.rs
+
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index e42dc15..11205ca 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -93,6 +93,7 @@ struct Shared {
+     rewind_fill: AtomicU8,
+     turbo: AtomicBool,
+     pass_through: AtomicBool,
++    ws_pad: AtomicU8,
+     frame_w: AtomicU32,
+     recording: AtomicBool,
+     stop: AtomicBool,
+@@ -165,6 +166,7 @@ impl EmuHandle {
+             rewind_fill: AtomicU8::new(0),
+             turbo: AtomicBool::new(true),
+             pass_through: AtomicBool::new(false),
++            ws_pad: AtomicU8::new(0),
+             frame_w: AtomicU32::new(0),
+             recording: AtomicBool::new(true),
+             stop: AtomicBool::new(false),
+@@ -371,6 +373,10 @@ impl EmuHandle {
+         self.shared.pass_through.store(on, Ordering::Relaxed);
+     }
+ 
++    pub fn set_ws_pad(&self, code: u8) {
++        self.shared.ws_pad.store(code, Ordering::Relaxed);
++    }
++
+     pub fn passes_through(&self) -> bool {
+         self.shared.pass_through.load(Ordering::Relaxed)
+     }
+@@ -597,6 +603,7 @@ impl Worker {
+         let mut rate = TickRate::new(Instant::now(), 0);
+         let mut stalled = false;
+         let mut turbo_frame = 0u32;
++        let mut ws = crate::ws_input::WsPad::default();
+         let mut transport: Option<Box<dyn LinkChannel>> = None;
+         let mut cable: Option<Cable> = None;
+         let mut cable_presents = 0u32;
+@@ -721,9 +728,14 @@ impl Worker {
+                 loop {
+                     ran += 1;
+                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
++                    let input = ws.remap(
++                        core.as_mut(),
++                        self.shared.ws_pad.load(Ordering::Relaxed),
++                        input,
++                    );
+                     let input = input.apply(
+                         TurboMode::from_flags(
+-                            self.shared.pass_through.load(Ordering::Relaxed),
++                            self.shared.pass_through.load(Ordering::Relaxed) && !ws.on(),
+                             self.shared.turbo.load(Ordering::Relaxed),
+                         ),
+                         turbo_frame,
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 2103b60..778e473 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -58,5 +58,6 @@ pub mod thumb;
+ pub mod thumb_sized;
+ pub mod video_mode;
+ pub mod wallpaper;
++pub mod ws_input;
+ pub mod ws_load;
+ pub mod ws_refresh;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 81aca56..803626e 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -595,6 +595,10 @@ impl Session {
+         emu.set_driven(self.driven);
+         emu.set_native_pal(self.app.native_pal(loaded.platform));
+         emu.set_pass_through(loaded.platform.passes_xy_through());
++        emu.set_ws_pad(crate::ws_input::pad_code(
++            loaded.platform,
++            self.app.vertical(),
++        ));
+         self.gestures
+             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
+         self.gestures.set_disc_chord(loaded.platform.swaps_discs());
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+new file mode 100644
+index 0000000..feffa95
+--- /dev/null
++++ b/crates/slot/src/ws_input.rs
+@@ -0,0 +1,149 @@
++use slot_retro::{ButtonMask as M, RetroCore};
++use slot_store::Platform;
++
++const DPAD: [u16; 4] = [M::UP, M::RIGHT, M::DOWN, M::LEFT];
++const FACE: [u16; 4] = [M::X, M::A, M::B, M::Y];
++const X_PAD: [u16; 4] = [M::UP, M::RIGHT, M::DOWN, M::LEFT];
++const Y_PAD: [u16; 4] = [M::R2, M::R, M::L2, M::L];
++const UPRIGHT_DPAD: [u16; 4] = [M::R, M::L2, M::L, M::R2];
++const UPRIGHT_FACE: [u16; 4] = [M::RIGHT, M::DOWN, M::LEFT, M::UP];
++
++pub const OFF: u8 = 0;
++pub const HORIZONTAL: u8 = 1;
++pub const VERTICAL: u8 = 2;
++
++pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
++    match (platform, vertical) {
++        (Platform::Ws, true) => VERTICAL,
++        (Platform::Ws, false) => HORIZONTAL,
++        (
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Tg16,
++            _,
++        ) => OFF,
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub enum Layout {
++    Horizontal,
++    Upright,
++    Turned,
++}
++
++fn moved(mask: u16, from: [u16; 4], to: [u16; 4]) -> u16 {
++    from.iter()
++        .zip(to)
++        .filter(|(f, _)| mask & **f != 0)
++        .fold(0, |bits, (_, t)| bits | t)
++}
++
++fn held(mask: u16, button: u16, gives: u16) -> u16 {
++    if mask & button != 0 {
++        gives
++    } else {
++        0
++    }
++}
++
++impl Layout {
++    pub fn remap(self, mask: M) -> M {
++        let m = mask.0;
++        let bits = match self {
++            Layout::Horizontal | Layout::Turned => {
++                let dpad = match m & M::L != 0 {
++                    true => moved(m, DPAD, Y_PAD),
++                    false => moved(m, DPAD, X_PAD),
++                };
++                let face = match m & M::R != 0 {
++                    true => moved(m, FACE, Y_PAD),
++                    false => m & (M::A | M::B | M::X | M::Y),
++                };
++                dpad | face
++            }
++            Layout::Upright => {
++                moved(m, DPAD, UPRIGHT_DPAD)
++                    | moved(m, FACE, UPRIGHT_FACE)
++                    | held(m, M::L, M::A)
++                    | held(m, M::R, M::B)
++            }
++        };
++        M(bits | (m & M::START))
++    }
++
++    pub fn rotation(self) -> &'static str {
++        match self {
++            Layout::Upright => "portrait",
++            Layout::Horizontal | Layout::Turned => "landscape",
++        }
++    }
++}
++
++pub struct WsPad {
++    code: u8,
++    layout: Layout,
++    select: bool,
++    alone: bool,
++}
++
++impl Default for WsPad {
++    fn default() -> Self {
++        WsPad {
++            code: OFF,
++            layout: Layout::Horizontal,
++            select: false,
++            alone: false,
++        }
++    }
++}
++
++impl WsPad {
++    pub fn on(&self) -> bool {
++        self.code != OFF
++    }
++
++    pub fn layout(&self) -> Layout {
++        self.layout
++    }
++
++    pub fn remap(&mut self, core: &mut dyn RetroCore, code: u8, mask: M) -> M {
++        if code != self.code {
++            *self = WsPad {
++                code,
++                layout: match code {
++                    VERTICAL => Layout::Upright,
++                    _ => Layout::Horizontal,
++                },
++                ..WsPad::default()
++            };
++        }
++        if code == OFF {
++            return mask;
++        }
++        let select = mask.0 & M::SELECT != 0;
++        let others = mask.0 & !M::SELECT != 0;
++        match (self.select, select) {
++            (false, true) => self.alone = !others,
++            (true, true) => self.alone &= !others,
++            (true, false) if self.alone && code == VERTICAL => {
++                self.layout = match self.layout {
++                    Layout::Upright => Layout::Turned,
++                    Layout::Horizontal | Layout::Turned => Layout::Upright,
++                };
++                core.set_option("wswan_rotate_display", self.layout.rotation());
++                eprintln!("slot: ws: {}", self.layout.rotation());
++            }
++            (true, false) | (false, false) => {}
++        }
++        self.select = select;
++        self.layout.remap(mask)
++    }
++}
+diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
+new file mode 100644
+index 0000000..8a7fc17
+--- /dev/null
++++ b/crates/slot/tests/wswan_input.rs
+@@ -0,0 +1,230 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod wswan_common;
++
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use slot::ws_input::{pad_code, Layout, WsPad, HORIZONTAL, OFF, VERTICAL};
++use slot_input::{Btn, RawEvent};
++use slot_retro::{ButtonMask as M, LibretroCore, RetroCore, TurboMode};
++use slot_store::Platform;
++use wswan_common::{cart, cygne, Code, Save};
++
++const X_UP: u16 = M::UP;
++const X_RIGHT: u16 = M::RIGHT;
++const X_DOWN: u16 = M::DOWN;
++const X_LEFT: u16 = M::LEFT;
++const Y_UP: u16 = M::R2;
++const Y_RIGHT: u16 = M::R;
++const Y_DOWN: u16 = M::L2;
++const Y_LEFT: u16 = M::L;
++
++fn sent(layout: Layout, held: u16) -> u16 {
++    layout.remap(M(held)).0
++}
++
++#[test]
++fn a_horizontal_game_reads_the_d_pad_as_the_x_pad_and_a_b_start_as_themselves() {
++    for layout in [Layout::Horizontal, Layout::Turned] {
++        for (device, core) in [
++            (M::UP, X_UP),
++            (M::RIGHT, X_RIGHT),
++            (M::DOWN, X_DOWN),
++            (M::LEFT, X_LEFT),
++            (M::A, M::A),
++            (M::B, M::B),
++            (M::START, M::START),
++            (M::X, M::X),
++            (M::Y, M::Y),
++            (M::L, 0),
++            (M::R, 0),
++            (M::SELECT, 0),
++        ] {
++            assert_eq!(sent(layout, device), core, "{layout:?} {device:#x}");
++        }
++    }
++}
++
++#[test]
++fn holding_l_turns_the_d_pad_into_the_y_pad() {
++    for (device, core) in [
++        (M::UP, Y_UP),
++        (M::RIGHT, Y_RIGHT),
++        (M::DOWN, Y_DOWN),
++        (M::LEFT, Y_LEFT),
++    ] {
++        assert_eq!(sent(Layout::Horizontal, M::L | device), core);
++    }
++    assert_eq!(sent(Layout::Horizontal, M::L | M::A), M::A);
++}
++
++#[test]
++fn holding_r_turns_the_face_diamond_into_the_y_pad() {
++    for (device, core) in [
++        (M::X, Y_UP),
++        (M::A, Y_RIGHT),
++        (M::B, Y_DOWN),
++        (M::Y, Y_LEFT),
++    ] {
++        assert_eq!(sent(Layout::Horizontal, M::R | device), core);
++    }
++    assert_eq!(sent(Layout::Horizontal, M::R | M::UP), X_UP);
++}
++
++#[test]
++fn both_modifiers_at_once_drive_the_y_pad_from_both_clusters() {
++    assert_eq!(
++        sent(Layout::Horizontal, M::L | M::R | M::UP | M::B),
++        Y_UP | Y_DOWN
++    );
++}
++
++#[test]
++fn x_and_y_are_turbo_a_and_b_with_no_modifier_and_nothing_with_turbo_off() {
++    let x = Layout::Horizontal.remap(M(M::X | M::Y));
++    assert_eq!(
++        x.apply(TurboMode::from_flags(false, true), 0).0,
++        M::A | M::B
++    );
++    assert_eq!(x.apply(TurboMode::from_flags(false, true), 3).0, 0);
++    assert_eq!(x.apply(TurboMode::from_flags(false, false), 0).0, 0);
++    let y_pad = Layout::Horizontal.remap(M(M::R | M::X));
++    assert_eq!(y_pad.apply(TurboMode::from_flags(false, true), 0).0, Y_UP);
++}
++
++#[test]
++fn a_released_modifier_moves_a_held_direction_back_to_the_x_pad_on_the_next_frame() {
++    assert_eq!(sent(Layout::Horizontal, M::L | M::RIGHT), Y_RIGHT);
++    assert_eq!(sent(Layout::Horizontal, M::RIGHT), X_RIGHT);
++}
++
++#[test]
++fn an_upright_vertical_game_reads_the_turned_d_pad_as_the_y_pad_and_l_r_as_a_b() {
++    for (device, core) in [
++        (M::UP, Y_RIGHT),
++        (M::RIGHT, Y_DOWN),
++        (M::DOWN, Y_LEFT),
++        (M::LEFT, Y_UP),
++        (M::Y, X_UP),
++        (M::X, X_RIGHT),
++        (M::A, X_DOWN),
++        (M::B, X_LEFT),
++        (M::L, M::A),
++        (M::R, M::B),
++        (M::START, M::START),
++        (M::SELECT, 0),
++    ] {
++        assert_eq!(sent(Layout::Upright, device), core, "{device:#x}");
++    }
++}
++
++#[test]
++fn only_wonderswan_gets_a_pad_code() {
++    assert_eq!(pad_code(Platform::Ws, false), HORIZONTAL);
++    assert_eq!(pad_code(Platform::Ws, true), VERTICAL);
++    for platform in Platform::SHELVES.into_iter().filter(|p| *p != Platform::Ws) {
++        assert_eq!(pad_code(platform, true), OFF, "{platform:?}");
++    }
++}
++
++fn opened(vertical: bool) -> Option<(tempfile::TempDir, LibretroCore)> {
++    let dylib = cygne()?;
++    let d = tempfile::tempdir().expect("tempdir");
++    let mut core = LibretroCore::open(&dylib).expect("open Beetle Cygne");
++    slot::core::apply_core_options(
++        &mut core,
++        slot_store::Core::MednafenWswan,
++        Platform::Ws,
++        "",
++        false,
++        false,
++        None,
++    );
++    slot::ws_load::prepare(&mut core, Platform::Ws, vertical, false);
++    core.set_canvas(360, 240);
++    core.load(&cart(d.path(), "Game", Code::Paint, Save::None, vertical))
++        .expect("Beetle Cygne refused the cart");
++    Some((d, core))
++}
++
++fn frames(core: &mut LibretroCore, pad: &mut WsPad, code: u8, mask: u16, n: usize) {
++    for _ in 0..n {
++        let sent = pad.remap(core, code, M(mask));
++        core.run_frame(sent);
++        let _ = core.take_audio();
++    }
++}
++
++#[test]
++fn select_flips_only_a_vertical_game_and_select_x_does_not() {
++    let _g = core_lock();
++    let Some((_d, mut core)) = opened(true) else {
++        return;
++    };
++    let mut pad = WsPad::default();
++    frames(&mut core, &mut pad, VERTICAL, 0, 5);
++    assert_eq!(core.frame_width(), 144);
++    frames(&mut core, &mut pad, VERTICAL, M::SELECT, 2);
++    frames(&mut core, &mut pad, VERTICAL, M::SELECT | M::X, 2);
++    frames(&mut core, &mut pad, VERTICAL, 0, 3);
++    assert_eq!(core.frame_width(), 144, "SELECT with X flipped the game");
++    frames(&mut core, &mut pad, VERTICAL, M::SELECT, 2);
++    frames(&mut core, &mut pad, VERTICAL, 0, 3);
++    assert_eq!(core.frame_width(), 224);
++    assert_eq!(pad.layout(), Layout::Turned);
++    frames(&mut core, &mut pad, VERTICAL, M::SELECT, 2);
++    frames(&mut core, &mut pad, VERTICAL, 0, 3);
++    assert_eq!(core.frame_width(), 144);
++    assert_eq!(pad.layout(), Layout::Upright);
++    drop(core);
++
++    let Some((_d, mut core)) = opened(false) else {
++        return;
++    };
++    let mut pad = WsPad::default();
++    frames(&mut core, &mut pad, HORIZONTAL, 0, 5);
++    frames(&mut core, &mut pad, HORIZONTAL, M::SELECT, 2);
++    frames(&mut core, &mut pad, HORIZONTAL, 0, 3);
++    assert_eq!(core.frame_width(), 224);
++    assert_eq!(pad.layout(), Layout::Horizontal);
++}
++
++#[test]
++fn a_select_tap_on_the_handheld_turns_a_vertical_game_through_a_real_session() {
++    let _g = core_lock();
++    let Some(dylib) = cygne() else {
++        return;
++    };
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart(roms.path(), "Gunpey", Code::Paint, Save::None, true);
++    let root = real_seat::rooted(Platform::Ws, "Gunpey", &rom, &dylib);
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.emu().expect("no core").frame_width(), 144);
++    session.set_driven(true);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while !session.emu().is_some_and(|e| e.locked()) {
++        assert!(
++            Instant::now() < deadline,
++            "the emulator never took the clock"
++        );
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    let present = Duration::from_nanos(16_666_667);
++    let step = |session: &mut slot::session::Session, events: Vec<RawEvent>, now: u64| {
++        session.feed(events, now);
++        session.update(1.0 / 60.0);
++        assert!(session.step_emulator(present, Duration::from_secs(2)));
++    };
++    let mut now = 10_000;
++    step(&mut session, vec![RawEvent::Down(Btn::Select)], now);
++    now += 50;
++    step(&mut session, vec![RawEvent::Up(Btn::Select)], now);
++    for _ in 0..30 {
++        now += 16;
++        step(&mut session, Vec::new(), now);
++    }
++    assert_eq!(session.emu().expect("no core").frame_width(), 224);
++}
+diff --git a/crates/slot/tests/wswan_then_gba.rs b/crates/slot/tests/wswan_then_gba.rs
+new file mode 100644
+index 0000000..7ec422b
+--- /dev/null
++++ b/crates/slot/tests/wswan_then_gba.rs
+@@ -0,0 +1,150 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod wswan_common;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++use wswan_common::{cart, cygne, Code, Save};
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(20);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn booted(cygne: &Path, mgba: &Path) -> Rig {
++        let roms = tempfile::tempdir().expect("tempdir");
++        let rom = cart(roms.path(), "Aaa", Code::WriteSram, Save::Sram8k, true);
++        let root = real_seat::rooted(Platform::Ws, "Aaa", &rom, cygne);
++        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
++        std::os::unix::fs::symlink(
++            std::fs::canonicalize(mgba).expect("core path"),
++            root.path().join("System").join(dylib_name(Core::Mgba)),
++        )
++        .expect("link core");
++        let mut sink = StubSink::draining();
++        sink.open(32_768).expect("the stub refused to open");
++        Rig {
++            session: Session::boot_with(root.path().to_path_buf(), Box::new(sink)),
++            root,
++            now: 0,
++        }
++    }
++
++    fn playing(&mut self, what: &str) {
++        self.until(what, |s| {
++            matches!(s.app().phase(), Phase::Playing { .. }) && s.frames_published() >= 10
++        });
++    }
++
++    fn gba(after_ws: bool) -> Option<Rig> {
++        let cygne = cygne()?;
++        let mgba = core_common::require_core("mgba")?;
++        let mut r = Rig::booted(&cygne, &mgba);
++        if after_ws {
++            r.tap(Btn::R1);
++            r.tap(Btn::A);
++            r.playing("the wonderswan cart to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Ws);
++            assert!(r.session.app().vertical());
++            r.feed(RawEvent::Down(Btn::Menu));
++            r.until("the eject", |s| !s.has_core());
++            r.feed(RawEvent::Up(Btn::Menu));
++            r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++            r.tap(Btn::L1);
++        }
++        r.tap(Btn::A);
++        r.playing("the gba cart to seat");
++        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
++        Some(r)
++    }
++
++    fn input(&mut self) -> Vec<u16> {
++        let mut seen = vec![u16::from(
++            self.session.emu().expect("core").passes_through(),
++        )];
++        for btn in [Btn::A, Btn::B, Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++            self.feed(RawEvent::Down(btn));
++            seen.push(self.pad());
++            self.feed(RawEvent::Up(btn));
++            seen.push(self.pad());
++        }
++        self.feed(RawEvent::Down(Btn::Select));
++        self.feed(RawEvent::Down(Btn::X));
++        seen.push(self.pad() & ButtonMask::X);
++        self.feed(RawEvent::Up(Btn::X));
++        self.feed(RawEvent::Up(Btn::Select));
++        seen.push(u16::from(
++            self.root.path().join("Config/video_mode.txt").exists(),
++        ));
++        seen
++    }
++
++    fn picture(&self) -> ([f32; 4], u32, usize) {
++        let emu = self.session.emu().expect("core");
++        let frame = emu.latest_frame().expect("nothing was published").len();
++        (self.session.app().source_rect(), emu.frame_width(), frame)
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_vertical_wonderswan_game_gets_the_same_input_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(mut alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.input();
++    drop(alone);
++    let mut after = Rig::gba(true).expect("cores");
++    assert_eq!(after.input(), want);
++}
++
++#[test]
++fn a_gba_game_after_a_vertical_wonderswan_game_gets_the_same_picture_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.picture();
++    assert_eq!(want.2, 240 * 160 * 4);
++    drop(alone);
++    let after = Rig::gba(true).expect("cores");
++    assert_eq!(after.picture(), want);
++}

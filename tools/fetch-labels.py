@@ -94,6 +94,7 @@ LOGOS = "https://thumbnails.libretro.com/"
 LOGO_TOOL = os.path.join(REPO, "build", "slot", "target", "release", "examples", "logo_label")
 NO_INTRO = "Nintendo - "
 SEGA = "Sega - "
+BANDAI = "Bandai - "
 # system -> (library folder, ROM extensions, libretro dats, ScreenScraper system id). The Sega dat names
 # and ids are cited in docs/cart-art/SEGA.md (libretro-database metadat/no-intro; Skyscraper's platform map).
 SYSTEMS = {
@@ -112,7 +113,12 @@ SYSTEMS = {
     # PC Engine and TurboGrafx-16 HuCards: libretro-database metadat/no-intro; ScreenScraper id 31 per
     # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "pcengine,31,40,34"). .pce only (patch 0058).
     "TG16": ("pcengine", {".pce"}, ["NEC - PC Engine - TurboGrafx 16"], 31),
+    # One WonderSwan shelf for both handhelds, so both dats; ScreenScraper keeps them apart as wonderswan 45 and
+    # wonderswancolor 46 (Skyscraper platforms_idmap.csv at ccd49ae, rows "wonderswan,45,48,4925" and
+    # "wonderswancolor,46,49,4926"). The id is picked per ROM by its footer colour flag (system_id).
+    "WS": ("wonderswan", {".ws", ".wsc"}, [BANDAI + "WonderSwan", BANDAI + "WonderSwan Color"], 45),
 }
+WS_COLOR_ID = 46
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
 MEDIA = {"SMS": "box-2D"}
@@ -311,7 +317,7 @@ class ScreenScraper:
         spit(png, body)
         return body
 
-    def label(self, system, crc, name, size):
+    def label(self, system, crc, name, size, sysid=None):
         kind = MEDIA.get(system, LABEL)
         # a box is cached apart from the label scans, so a scan cached before ADR 0057 is never served as a box
         d = os.path.join(self.ctx.cache, "ss", system, *([kind] if kind != LABEL else []))
@@ -324,8 +330,8 @@ class ScreenScraper:
             return b""
         try:
             self.spend()
-            data = self.call("jeuInfos.php", crc=crc, systemeid=SYSTEMS[system][3], romnom=name + ".bin",
-                             romtaille=size or "")
+            data = self.call("jeuInfos.php", crc=crc, systemeid=sysid or SYSTEMS[system][3],
+                             romnom=name + ".bin", romtaille=size or "")
             medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
             media = self.pick(medias, name, kind)
             os.makedirs(d, exist_ok=True)
@@ -1295,7 +1301,16 @@ def get_label(ctx, system, crc, rom, name):
         except Stop as e:
             ctx.art_off = str(e)
             print(f"  stopped using the art host: {e}. Rerun later; what is cached is kept.")
-    return ctx.ss.label(system, crc, name or rom.stem, rom.size)
+    return ctx.ss.label(system, crc, name or rom.stem, rom.size, system_id(system, rom))
+
+
+def system_id(system, rom):
+    """ScreenScraper's system id for one ROM: WonderSwan Color for a WonderSwan ROM whose footer colour flag
+    (16 bytes from the end, byte 7) is set, else the shelf's own id."""
+    if system != "WS":
+        return SYSTEMS[system][3]
+    data = rom.read()
+    return WS_COLOR_ID if len(data) >= 16 and data[-9] else SYSTEMS[system][3]
 
 
 def process(ctx, system, roms, have, out, dat, args):
@@ -1552,7 +1567,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
