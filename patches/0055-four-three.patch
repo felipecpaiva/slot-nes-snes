@@ -1,0 +1,536 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 19:22:51 +0400
+Subject: [PATCH] four-three
+
+A 4:3 choice in the Picture row of the NES, SNES, Master System and
+Mega Drive Screen sections. It draws the picture at a 4:3 display
+aspect at full height (640x480 centred on the 720x480 panel) by
+choosing a source rect 9/8 of the picture wide on the fixed canvas,
+so the canvas margins become the pillars and no frame size changes.
+SELECT+X on SNES and Mega Drive and L1 on NES and Master System
+include it. Factory defaults are unchanged. Idea from
+cloudwithax/unslot 4cf8468 (GPL-3.0),
+https://github.com/cloudwithax/unslot/commit/4cf8468
+---
+ crates/slot-ui/src/quick_menu.rs    |   3 +
+ crates/slot-ui/src/quick_retro.rs   |   1 +
+ crates/slot-ui/tests/retro_faces.rs |   9 +-
+ crates/slot/src/platform_video.rs   |  41 +++++--
+ crates/slot/src/video_mode.rs       |   6 ++
+ crates/slot/tests/crop_overscan.rs  |  38 ++++---
+ crates/slot/tests/four_three.rs     | 161 ++++++++++++++++++++++++++++
+ crates/slot/tests/snes_select.rs    |  15 ++-
+ crates/slot/tests/system_picture.rs |  12 +--
+ 9 files changed, 248 insertions(+), 38 deletions(-)
+ create mode 100644 crates/slot/tests/four_three.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index ff5f594..0db8ce8 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -731,6 +731,7 @@ pub enum QuickValue {
+     Europe,
+     Performance,
+     Balanced,
++    FourThree,
+ }
+ 
+ impl QuickValue {
+@@ -783,6 +784,7 @@ impl QuickValue {
+             QuickValue::Europe => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 8,
+             QuickValue::Performance => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 9,
+             QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
++            QuickValue::FourThree => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 11,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -824,6 +826,7 @@ impl QuickValue {
+             QuickValue::Europe => "Europe",
+             QuickValue::Performance => "Performance",
+             QuickValue::Balanced => "Balanced",
++            QuickValue::FourThree => "4:3",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index ba54532..333da8c 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -49,6 +49,7 @@ impl QuickValue {
+                 QuickValue::Europe,
+                 QuickValue::Performance,
+                 QuickValue::Balanced,
++                QuickValue::FourThree,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index eb94f01..c417fbf 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -23,7 +23,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Usa,
+             QuickValue::Europe,
+             QuickValue::Performance,
+-            QuickValue::Balanced
++            QuickValue::Balanced,
++            QuickValue::FourThree
+         ]
+     );
+     assert_eq!(
+@@ -38,7 +39,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Usa.text(),
+             QuickValue::Europe.text(),
+             QuickValue::Performance.text(),
+-            QuickValue::Balanced.text()
++            QuickValue::Balanced.text(),
++            QuickValue::FourThree.text()
+         ],
+         [
+             "Stretch",
+@@ -51,7 +53,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "USA",
+             "Europe",
+             "Performance",
+-            "Balanced"
++            "Balanced",
++            "4:3"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 16b5b66..6bc45a7 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -1,5 +1,6 @@
+ use std::path::Path;
+ 
++use slot_gfx::{OUT_H, OUT_W, WHOLE_TEXTURE};
+ use slot_store::{ini, Platform};
+ use slot_ui::{QuickRow, QuickValue};
+ 
+@@ -28,13 +29,36 @@ pub fn default_video_mode(platform: Platform) -> VideoMode {
+ }
+ 
+ pub fn picture_choices(platform: Platform) -> &'static [VideoMode] {
+-    if platform.overscan() == (0, 0) {
+-        &[VideoMode::Stretch, VideoMode::Actual]
+-    } else {
+-        &[VideoMode::Crop, VideoMode::Stretch, VideoMode::Actual]
++    use VideoMode::{Actual, Crop, FourThree, Stretch};
++    match (platform.overscan() == (0, 0), offers_four_three(platform)) {
++        (true, false) => &[Stretch, Actual],
++        (true, true) => &[Stretch, Actual, FourThree],
++        (false, false) => &[Crop, Stretch, Actual],
++        (false, true) => &[Crop, Stretch, Actual, FourThree],
+     }
+ }
+ 
++pub fn offers_four_three(platform: Platform) -> bool {
++    match platform {
++        Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => true,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => false,
++    }
++}
++
++pub fn four_three_rect((w, h): (u32, u32), (canvas_w, canvas_h): (u32, u32)) -> [f32; 4] {
++    if w == 0 || h == 0 || canvas_w == 0 || canvas_h == 0 {
++        return WHOLE_TEXTURE;
++    }
++    let source_w = w as f32 * (OUT_W * 3) as f32 / (OUT_H * 4) as f32;
++    let y = canvas_h.saturating_sub(h) / 2;
++    [
++        (canvas_w as f32 - source_w) / 2.0 / canvas_w as f32,
++        y as f32 / canvas_h as f32,
++        source_w / canvas_w as f32,
++        h as f32 / canvas_h as f32,
++    ]
++}
++
+ pub fn shown(platform: Platform, frame_w: u32, mode: VideoMode) -> (u32, u32) {
+     let (w, h) = picture(platform, frame_w);
+     if mode != VideoMode::Crop {
+@@ -58,10 +82,14 @@ impl VideoMode {
+ 
+     pub fn stretched(self, platform: Platform) -> VideoMode {
+         let crops = picture_choices(platform).contains(&VideoMode::Crop);
++        let four_three = offers_four_three(platform);
+         match self {
+             VideoMode::Crop => VideoMode::Stretch,
+-            VideoMode::Actual | VideoMode::Stretch if crops => VideoMode::Crop,
+-            VideoMode::Actual | VideoMode::Stretch => VideoMode::Stretch,
++            VideoMode::Stretch if four_three => VideoMode::FourThree,
++            VideoMode::Actual | VideoMode::Stretch | VideoMode::FourThree if crops => {
++                VideoMode::Crop
++            }
++            VideoMode::Actual | VideoMode::Stretch | VideoMode::FourThree => VideoMode::Stretch,
+         }
+     }
+ }
+@@ -121,6 +149,7 @@ impl VideoMode {
+             VideoMode::Stretch => QuickValue::Stretch,
+             VideoMode::Actual => QuickValue::Actual,
+             VideoMode::Crop => QuickValue::Crop,
++            VideoMode::FourThree => QuickValue::FourThree,
+         }
+     }
+ }
+diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
+index 96d8837..5bae6c1 100644
+--- a/crates/slot/src/video_mode.rs
++++ b/crates/slot/src/video_mode.rs
+@@ -11,6 +11,7 @@ pub enum VideoMode {
+     Actual,
+     Stretch,
+     Crop,
++    FourThree,
+ }
+ 
+ impl VideoMode {
+@@ -19,6 +20,7 @@ impl VideoMode {
+             VideoMode::Actual => "actual",
+             VideoMode::Stretch => "stretch",
+             VideoMode::Crop => "crop",
++            VideoMode::FourThree => "4:3",
+         }
+     }
+ 
+@@ -27,6 +29,7 @@ impl VideoMode {
+             "actual" => Some(VideoMode::Actual),
+             "stretch" => Some(VideoMode::Stretch),
+             "crop" => Some(VideoMode::Crop),
++            "4:3" => Some(VideoMode::FourThree),
+             _ => None,
+         }
+     }
+@@ -53,6 +56,9 @@ pub fn source_rect(
+     if mode == VideoMode::Actual {
+         return actual_rect(canvas);
+     }
++    if mode == VideoMode::FourThree {
++        return crate::platform_video::four_three_rect((w, h), canvas);
++    }
+     if (w, h) == canvas {
+         return WHOLE_TEXTURE;
+     }
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index cb5edca..7d2ed48 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -9,7 +9,7 @@ use slot::video_mode::{source_rect, write_video_mode, VideoMode, VIDEO_MODE_FILE
+ use slot_store::Platform;
+ use tempfile::TempDir;
+ 
+-use VideoMode::{Actual, Crop, Stretch};
++use VideoMode::{Actual, Crop, FourThree, Stretch};
+ 
+ const CANVAS: (u32, u32) = (360, 240);
+ const STEM: &str = "Zzz";
+@@ -70,14 +70,11 @@ fn nes_and_snes_start_in_crop_and_the_other_systems_keep_their_defaults() {
+ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+     for platform in Platform::SHELVES {
+         let want: &[VideoMode] = match platform {
+-            Platform::Nes | Platform::Snes => &[Crop, Stretch, Actual],
+-            Platform::Gba
+-            | Platform::Gb
+-            | Platform::Gbc
+-            | Platform::Gg
+-            | Platform::Sms
+-            | Platform::Md
+-            | Platform::Ps1 => &[Stretch, Actual],
++            Platform::Nes | Platform::Snes => &[Crop, Stretch, Actual, FourThree],
++            Platform::Sms | Platform::Md => &[Stretch, Actual, FourThree],
++            Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => {
++                &[Stretch, Actual]
++            }
+         };
+         assert_eq!(picture_choices(platform), want, "{platform:?}");
+     }
+@@ -88,23 +85,32 @@ fn the_picture_row_cycles_crop_stretch_actual_one_way_and_back_the_other() {
+     for p in [Platform::Nes, Platform::Snes] {
+         assert_eq!(Crop.stepped(p, true), Stretch);
+         assert_eq!(Stretch.stepped(p, true), Actual);
+-        assert_eq!(Actual.stepped(p, true), Crop);
+-        assert_eq!(Crop.stepped(p, false), Actual);
++        assert_eq!(Actual.stepped(p, true), FourThree);
++        assert_eq!(FourThree.stepped(p, true), Crop);
++        assert_eq!(Crop.stepped(p, false), FourThree);
++        assert_eq!(FourThree.stepped(p, false), Actual);
+         assert_eq!(Actual.stepped(p, false), Stretch);
+         assert_eq!(Stretch.stepped(p, false), Crop);
+     }
+     assert_eq!(Stretch.stepped(Platform::Md, true), Actual);
+-    assert_eq!(Actual.stepped(Platform::Md, true), Stretch);
++    assert_eq!(Actual.stepped(Platform::Md, true), FourThree);
++    assert_eq!(FourThree.stepped(Platform::Md, true), Stretch);
+     assert_eq!(Crop.stepped(Platform::Md, true), Stretch);
++    assert_eq!(Stretch.stepped(Platform::Gg, true), Actual);
++    assert_eq!(Actual.stepped(Platform::Gg, true), Stretch);
+ }
+ 
+ #[test]
+-fn l1_on_nes_moves_between_crop_and_stretch_and_stays_stretch_elsewhere() {
++fn l1_on_nes_moves_through_crop_stretch_and_four_three_and_stays_stretch_elsewhere() {
+     assert_eq!(Actual.stretched(Platform::Nes), Crop);
+     assert_eq!(Crop.stretched(Platform::Nes), Stretch);
+-    assert_eq!(Stretch.stretched(Platform::Nes), Crop);
+-    for p in [Platform::Gb, Platform::Gbc, Platform::Gg, Platform::Sms] {
+-        for mode in [Actual, Stretch, Crop] {
++    assert_eq!(Stretch.stretched(Platform::Nes), FourThree);
++    assert_eq!(FourThree.stretched(Platform::Nes), Crop);
++    assert_eq!(Actual.stretched(Platform::Sms), Stretch);
++    assert_eq!(Stretch.stretched(Platform::Sms), FourThree);
++    assert_eq!(FourThree.stretched(Platform::Sms), Stretch);
++    for p in [Platform::Gb, Platform::Gbc, Platform::Gg] {
++        for mode in [Actual, Stretch, Crop, FourThree] {
+             assert_eq!(mode.stretched(p), Stretch, "{p:?} {mode:?}");
+         }
+     }
+diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
+new file mode 100644
+index 0000000..db76db6
+--- /dev/null
++++ b/crates/slot/tests/four_three.rs
+@@ -0,0 +1,161 @@
++use slot::platform_video::{
++    default_video_mode, offers_four_three, picture_choices, shown, system_picture, video_mode_for,
++    write_system_picture, PICTURE_FILE,
++};
++use slot::video_mode::{source_rect, write_video_mode, VideoMode, VIDEO_MODE_FILE};
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++use VideoMode::FourThree;
++
++const STEM: &str = "Zzz";
++
++const TV: [(Platform, u32, (u32, u32)); 5] = [
++    (Platform::Nes, 256, (256, 240)),
++    (Platform::Snes, 256, (256, 224)),
++    (Platform::Sms, 256, (256, 192)),
++    (Platform::Md, 320, (320, 224)),
++    (Platform::Md, 256, (256, 224)),
++];
++
++fn canvas(platform: Platform) -> (u32, u32) {
++    Core::default_for(platform).canvas(platform)
++}
++
++fn rect(platform: Platform, frame_w: u32) -> [f32; 4] {
++    source_rect(
++        platform,
++        shown(platform, frame_w, FourThree),
++        canvas(platform),
++        FourThree,
++    )
++}
++
++fn px(x: f32, y: u32, w: f32, h: u32) -> [f32; 4] {
++    [x / 360.0, y as f32 / 240.0, w / 360.0, h as f32 / 240.0]
++}
++
++fn config_root() -> TempDir {
++    let d = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir(d.path().join("Config")).expect("config dir");
++    d
++}
++
++#[test]
++fn four_three_shows_nine_eighths_of_the_picture_width_at_its_full_height() {
++    assert_eq!(rect(Platform::Nes, 256), px(36.0, 0, 288.0, 240));
++    assert_eq!(rect(Platform::Snes, 256), px(36.0, 8, 288.0, 224));
++    assert_eq!(rect(Platform::Sms, 256), px(36.0, 24, 288.0, 192));
++    assert_eq!(rect(Platform::Md, 320), px(0.0, 8, 360.0, 224));
++    assert_eq!(rect(Platform::Md, 256), px(36.0, 8, 288.0, 224));
++}
++
++#[test]
++fn a_239_line_snes_frame_takes_the_same_four_three_rect_as_a_224_line_one() {
++    assert_eq!(rect(Platform::Snes, 0), rect(Platform::Snes, 256));
++}
++
++#[test]
++fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
++    for platform in Platform::SHELVES {
++        let tv = matches!(
++            platform,
++            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md
++        );
++        assert_eq!(offers_four_three(platform), tv, "{platform:?}");
++        assert_eq!(
++            picture_choices(platform).last() == Some(&FourThree),
++            tv,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn no_system_starts_in_four_three() {
++    for platform in Platform::SHELVES {
++        assert_ne!(default_video_mode(platform), FourThree, "{platform:?}");
++        let d = config_root();
++        assert_ne!(
++            system_picture(d.path(), platform),
++            FourThree,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn a_four_three_line_round_trips_through_both_files() {
++    let d = config_root();
++    write_system_picture(d.path(), Platform::Snes, FourThree).expect("write picture.txt");
++    let line = std::fs::read_to_string(d.path().join(PICTURE_FILE)).expect("read back");
++    assert_eq!(line, "snes = 4:3\n");
++    assert_eq!(system_picture(d.path(), Platform::Snes), FourThree);
++    assert_eq!(video_mode_for(d.path(), STEM, Platform::Snes), FourThree);
++    write_video_mode(d.path(), STEM, FourThree).expect("write video_mode.txt");
++    let line = std::fs::read_to_string(d.path().join(VIDEO_MODE_FILE)).expect("read back");
++    assert!(line.contains("4:3"), "{line}");
++    assert_eq!(video_mode_for(d.path(), STEM, Platform::Nes), FourThree);
++    assert_eq!(FourThree.quick_value().text(), "4:3");
++}
++
++#[cfg(target_os = "macos")]
++mod frame {
++    use super::*;
++    use slot_gfx::{Compositor, HeadlessSurface, ScreenEffect, OUT_H, OUT_W};
++
++    const PILLAR: usize = (OUT_W as usize - 640) / 2;
++
++    fn canvas_with((cw, ch): (u32, u32), (w, h): (u32, u32)) -> Vec<u8> {
++        let (cw, ch, w, h) = (cw as usize, ch as usize, w as usize, h as usize);
++        let (ox, oy) = ((cw - w) / 2, (ch - h) / 2);
++        let mut buf = vec![0u8; cw * ch * 4];
++        for y in 0..h {
++            for x in 0..w {
++                let at = ((y + oy) * cw + x + ox) * 4;
++                buf[at..at + 4].copy_from_slice(&[0xff, 0xff, 0xff, 0]);
++            }
++        }
++        buf
++    }
++
++    fn lit(frame: &[u8], x: usize, y: usize) -> bool {
++        let o = (y * OUT_W as usize + x) * 4;
++        frame[o..o + 3].iter().any(|c| *c > 8)
++    }
++
++    fn column_lit_on_every_row(frame: &[u8], x: usize) -> bool {
++        (0..OUT_H as usize).all(|y| lit(frame, x, y))
++    }
++
++    fn column_dark(frame: &[u8], x: usize) -> bool {
++        (0..OUT_H as usize).all(|y| !lit(frame, x, y))
++    }
++
++    #[test]
++    fn a_four_three_pick_fills_640_by_480_centred_on_every_tv_console() {
++        let Ok(surface) = HeadlessSurface::new() else {
++            return;
++        };
++        let Ok(mut c) = Compositor::new(&surface) else {
++            return;
++        };
++        c.set_screen_effect(ScreenEffect::None);
++        for (platform, frame_w, picture) in TV {
++            let (cw, ch) = canvas(platform);
++            c.set_game_canvas(cw, ch);
++            c.set_game_source_rect(rect(platform, frame_w));
++            c.begin_frame(slot_gfx::Layout::Framed);
++            c.upload_game(&canvas_with((cw, ch), picture));
++            c.draw_game();
++            let frame = c.read_frame();
++            let what = format!("{platform:?} {frame_w}");
++            for x in PILLAR + 1..OUT_W as usize - PILLAR - 1 {
++                assert!(column_lit_on_every_row(&frame, x), "{what}: column {x}");
++            }
++            for x in (0..PILLAR - 1).chain(OUT_W as usize - PILLAR + 1..OUT_W as usize) {
++                assert!(column_dark(&frame, x), "{what}: pillar column {x}");
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 66f05ad..268bb44 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -202,8 +202,8 @@ fn select_and_y_still_flip_colour_correction_on_a_gba_cart() {
+ }
+ 
+ #[test]
+-fn select_and_x_on_snes_never_sends_x_and_cycles_crop_stretch_and_actual() {
+-    use slot::video_mode::VideoMode::{Actual, Crop, Stretch};
++fn select_and_x_on_snes_never_sends_x_and_cycles_crop_stretch_actual_and_four_three() {
++    use slot::video_mode::VideoMode::{Actual, Crop, FourThree, Stretch};
+     let mut r = rig(Platform::Snes);
+     let cropped = r.session.app().source_rect();
+     assert_ne!(cropped, slot_gfx::WHOLE_TEXTURE);
+@@ -215,6 +215,10 @@ fn select_and_x_on_snes_never_sends_x_and_cycles_crop_stretch_and_actual() {
+     assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     assert_eq!(r.picture(Platform::Snes), Actual);
+     r.chord(Btn::X);
++    assert_eq!(r.picture(Platform::Snes), FourThree);
++    assert_ne!(r.session.app().source_rect(), cropped);
++    assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    r.chord(Btn::X);
+     assert_eq!(r.session.app().source_rect(), cropped);
+     assert_eq!(r.picture(Platform::Snes), Crop);
+     assert_eq!(r.ever & ButtonMask::X, 0, "X was sent to the game");
+@@ -249,11 +253,12 @@ fn l1_on_nes_still_stretches_the_picture() {
+ 
+ #[test]
+ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+-    use slot::video_mode::VideoMode::{Actual, Crop, Stretch};
++    use slot::video_mode::VideoMode::{Actual, Crop, FourThree, Stretch};
+     for platform in Platform::SHELVES {
+         let (from_actual, from_stretch, from_crop) = match platform {
+-            Platform::Snes => (Crop, Actual, Stretch),
+-            Platform::Md | Platform::Ps1 => (Stretch, Actual, Stretch),
++            Platform::Snes => (FourThree, Actual, Stretch),
++            Platform::Md => (FourThree, Actual, Stretch),
++            Platform::Ps1 => (Stretch, Actual, Stretch),
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 8658f2f..13e572b 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -142,7 +142,7 @@ fn quick(mode: VideoMode) -> QuickValue {
+ 
+ #[test]
+ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+-    use VideoMode::{Actual, Crop, Stretch};
++    use VideoMode::{Actual, Crop, FourThree, Stretch};
+     for (console, _, picture, platform, factory) in SECTIONS {
+         let (root, mut app) = every_system();
+         let state = std::fs::read(root.path().join("Config/slot.state")).ok();
+@@ -154,9 +154,9 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+             "{console:?} wrote before a change"
+         );
+         let walk: &[VideoMode] = match platform {
+-            Platform::Nes | Platform::Snes => &[Stretch, Actual, Crop],
++            Platform::Nes | Platform::Snes => &[Stretch, Actual, FourThree, Crop],
+             Platform::Gg | Platform::Ps1 => &[Stretch, Actual],
+-            Platform::Sms | Platform::Md => &[Actual, Stretch],
++            Platform::Sms | Platform::Md => &[Actual, FourThree, Stretch],
+             Platform::Gba | Platform::Gb | Platform::Gbc => &[],
+         };
+         for mode in walk {
+@@ -293,11 +293,7 @@ fn select_x_still_sets_the_running_snes_cart_and_leaves_the_system_picture() {
+         r.feed(RawEvent::Up(Btn::X));
+         r.feed(RawEvent::Up(Btn::Select));
+         assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-        let first = if platform == Platform::Snes {
+-            "crop"
+-        } else {
+-            "stretch"
+-        };
++        let first = "4:3";
+         assert_eq!(r.cart_line().as_deref(), Some(first), "{platform:?}");
+         assert_eq!(r.picture_file(), Some(picture), "{platform:?}");
+     }
