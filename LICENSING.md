@@ -359,3 +359,10 @@ reimplements the fast scroll of marghost/slot_modded commits
 [0fce212](https://github.com/marghost/slot_modded/commit/0fce212), which adapt stevolarn/slot; the
 leash and the non-blocking face loader are ours. All three forks are GPL-3.0 and are credited in the
 patch commits.
+
+Patch `0055-four-three` takes the idea of a 4:3 picture from cloudwithax/unslot
+([4cf8468](https://github.com/cloudwithax/unslot/commit/4cf8468)), reimplemented as a source rect
+on our fixed canvas. Patch `0056-headless-egl` follows the surfaceless Mesa EGL render surface of
+cloudwithax/unslot ([42ef0f8](https://github.com/cloudwithax/unslot/commit/42ef0f8)) and
+suprsomething/slot.advance ([e761baa](https://github.com/suprsomething/slot.advance/commit/e761baa)),
+reimplemented. Both forks are GPL-3.0 and are credited in the patch commits.
