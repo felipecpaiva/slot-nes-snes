@@ -37,4 +37,4 @@ Step 7, the largest item. The WonderSwan has two 4-way pads (X and Y), A, B and 
 A horizontal game using the Y pad (Klonoa: Moonlight Museum menus) and a vertical one (Gunpey) in both views (issue 99).
 
 ## References
-- ADR 0086; docs/research/wswan-plan.md section 5; docs/research/fork-nelynes.md section 2.1
+- ADR 0092; docs/research/wswan-plan.md section 5; docs/research/fork-nelynes.md section 2.1

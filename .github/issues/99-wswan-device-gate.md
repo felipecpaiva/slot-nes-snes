@@ -35,4 +35,4 @@ Step 10. The host tests cover no frame pacing, audio or input feel on the H700. 
 This issue is the device check.
 
 ## References
-- ADR 0086; issue 63 for the auto-play recipe; docs/research/wswan-plan.md section 9
+- ADR 0092; issue 63 for the auto-play recipe; docs/research/wswan-plan.md section 9

@@ -8,7 +8,7 @@ depends_on: [91-wswan-tracking]
 ---
 
 ## Why
-Step 2. WonderSwan needs its core built the slot way (ADR 0002, ADR 0086) before any platform code. Nothing here depends on the upstream version, so it lands on the v1.7.0 base.
+Step 2. WonderSwan needs its core built the slot way (ADR 0002, ADR 0092) before any platform code. Nothing here depends on the upstream version, so it lands on the v1.7.0 base.
 
 ## Scope
 - [x] `cores/mednafen_wswan/build.sh` as a wrapper over `cores/lib.sh`: `core=mednafen_wswan repo=beetle-wswan-libretro`, root `Makefile`, no `device_ldflags` (plain C, linked by `$(CC)`).
@@ -37,4 +37,4 @@ Step 2. WonderSwan needs its core built the slot way (ADR 0002, ADR 0086) before
 None until the platform exists (issue 99 measures ms a frame).
 
 ## References
-- ADR 0002, 0053, 0086; nelynes/slotPlus 273ded9
+- ADR 0002, 0053, 0092; nelynes/slotPlus 273ded9

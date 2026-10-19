@@ -264,7 +264,7 @@ the commit that added the build.
 
 Checked at commit `4b01295838ea89e3f1355bbe4cb5cf98aa6108cd` of libretro/beetle-wswan-libretro, the
 commit `SLOT_PIN` pins as `mednafen_wswan_commit` (tarball sha256 `mednafen_wswan_tarball_sha256`).
-It is built by `cores/mednafen_wswan/build.sh` for WonderSwan and WonderSwan Color (ADR 0086) and is
+It is built by `cores/mednafen_wswan/build.sh` for WonderSwan and WonderSwan Color (ADR 0092) and is
 not in a release yet: it joins `dist:device` and `zip-check.sh` with the WonderSwan platform patch
 (issue 93). Until then its licence, the root `COPYING` of that source copied verbatim and whole, is
 `cores/mednafen_wswan/mednafen_wswan-GPL-2.0.txt`, and moves to `licenses/` when the core ships (the
@@ -398,7 +398,7 @@ which adapts suprsomething/slot.advance commit
 follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a). All three forks are GPL-3.0 and are
 credited in the patch commits.
 
-Patch `0053-wswan-core-tests` builds its synthetic WonderSwan Color cart with the reset jump in the
+Patch `0052-wswan-core-tests` builds its synthetic WonderSwan Color cart with the reset jump in the
 last 16 bytes landing at F000:0000 after cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
 ([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The footer, paint and
 save RAM code is new. The fork is credited in the patch commit.

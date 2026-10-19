@@ -35,4 +35,4 @@ Step 9. Every shelf gets real-looking carts (ADR 0006, 0054).
 The shelf with ten carts, both shells, scrolls without a dropped frame.
 
 ## References
-- ADR 0006, 0054, 0086; docs/research/wswan-plan.md section 7
+- ADR 0006, 0054, 0092; docs/research/wswan-plan.md section 7

@@ -1,8 +1,8 @@
 # WonderSwan and WonderSwan Color on slot-nes-snes: plan (2026-10-18)
 
 "Our tree" means slot v1.7.0 plus patches 0001 to 0052. The integration patches will be written on
-the upstream 1.8.0 base once that port lands, so this plan names seams, not line numbers. "Cygne"
-means libretro/beetle-wswan-libretro at `4b01295` (ADR 0086). The reference is nelynes/slotPlus
+upstream main 1b20432 (ADR 0083), so this plan names seams, not line numbers. "Cygne"
+means libretro/beetle-wswan-libretro at `4b01295` (ADR 0092). The reference is nelynes/slotPlus
 branch `main` ([273ded9](https://github.com/nelynes/slotPlus/commit/273ded9) core build,
 [69b8379](https://github.com/nelynes/slotPlus/commit/69b8379) shoulder modifiers,
 [0f895d3](https://github.com/nelynes/slotPlus/commit/0f895d3) vertical controls,
@@ -10,7 +10,7 @@ branch `main` ([273ded9](https://github.com/nelynes/slotPlus/commit/273ded9) cor
 [ceed887](https://github.com/nelynes/slotPlus/commit/ceed887) 360x240 buffer,
 [21cc4b0](https://github.com/nelynes/slotPlus/commit/21cc4b0) carts). We take ideas from it and
 reimplement them with credit. Nothing is cherry-picked (docs/research/fork-nelynes.md section 2).
-This follows the NeoGeo Pocket groundwork (ADR 0083, its own branch) step for step.
+This follows the NeoGeo Pocket groundwork (on its own branch) step for step.
 
 ## TL;DR
 
@@ -20,25 +20,25 @@ This follows the NeoGeo Pocket groundwork (ADR 0083, its own branch) step for st
     (288x448);
   - no host rotation code: slot refuses `SET_ROTATION`, so the core turns the picture;
   - the work is the input remap (issue 96).
-- **Speed: 60 Hz mode by default, Native 75 Hz as a user option** (section 3, ADR 0086). Both play
+- **Speed: 60 Hz mode by default, Native 75 Hz as a user option** (section 3, ADR 0092). Both play
   the game at its own speed; the default rides the upstream path.
 - **Done now (groundwork, this branch):**
   - the core build, pinned for host and device (issue 92);
   - the licence record;
-  - host tests with a generated cart (`patches/0053-wswan-core-tests.patch`, issue 97). They prove
+  - host tests with a generated cart (`patches/0052-wswan-core-tests.patch`, issue 97). They prove
     boot, the 224x144 and 144x224 pictures, both frame rates, the 5-in-4 cadence, states with 60 Hz
     mode on, the SELECT trap, and save RAM.
 - **Two declared-default traps**, both pinned by tests: `wswan_60hz_mode` (unanswered, 75.47 fps)
   and `wswan_rotate_display` (unanswered, `manual`: every SELECT press turns the picture). The
   options patch sets both on every load.
-- Expected size: 7 patches on the 1.8.0 base. Input is M, everything else S or M.
+- Expected size: 7 patches on the main 1b20432 base. Input is M, everything else S or M.
 
 ## 1. What nelynes did (reference only)
 
 | Area | nelynes/slotPlus `main` | Ours |
 |---|---|---|
 | Core | beetle-wswan `4b01295`, `make platform=unix`, `-mcpu=cortex-a53`, no sha256 | Same commit, pinned with archive sha256, glibc gate (issue 92, done) |
-| Enums | `Platform::Ws` and `Core::Cygne` added to upstream's `ALL`; upstream tests edited | `Platform::Ws` in `SHELVES`, `Core::MednafenWswan` in `EVERY`, upstream `ALL` and tests untouched (ADR 0086) |
+| Enums | `Platform::Ws` and `Core::Cygne` added to upstream's `ALL`; upstream tests edited | `Platform::Ws` in `SHELVES`, `Core::MednafenWswan` in `EVERY`, upstream `ALL` and tests untouched (ADR 0092) |
 | Shelf | `Games/WS`, `.ws .wsc` | Same |
 | Speed | `wswan_60hz_mode` never set, so 75.47 fps through the fork's `Owed` pacing | Set explicitly, 60 Hz mode default, Native a user option (section 3) |
 | Rotation | Answers `SET_ROTATION`, rotates on the CPU in `video_refresh` | Refuses it (upstream already does), `wswan_rotate_display` per game from the footer (section 4) |
@@ -46,7 +46,7 @@ This follows the NeoGeo Pocket groundwork (ADR 0083, its own branch) step for st
 | Input | Shoulder modifiers on horizontal games, turned maps on vertical ones, SELECT flips vertical games only | Same scheme, our own code and tests (section 5) |
 | Shader | `shader_ws` inside `slot.state` | Own Screen section, setting outside `slot.state` (ADR 0051) |
 | Cart | Bitmap cart, black for `.ws`, clear for `.wsc` | Retro bitmap cart (ADR 0054), their drawing as a credited reference |
-| Tests | Input tables, `ws_video.rs` geometry | Real-core tests on a generated cart (patch 0053), platform tests per step |
+| Tests | Input tables, `ws_video.rs` geometry | Real-core tests on a generated cart (patch 0052), platform tests per step |
 
 ## 2. Core facts found while building (2026-10-18)
 
@@ -102,7 +102,7 @@ This follows the NeoGeo Pocket groundwork (ADR 0083, its own branch) step for st
 | Pitch | Scaled with the panel like every NTSC core | The core's own |
 | Better on | Any 60 Hz class panel | A panel that runs near 75 Hz, if one ever ships |
 
-**Decision (ADR 0086): 60 Hz mode is the default; Native is a user option.** ADR 0071 made Native
+**Decision (ADR 0092): 60 Hz mode is the default; Native is a user option.** ADR 0071 made Native
 the PAL default because there the panel rate changes the content's speed. Here neither mode does,
 60 Hz mode is the core author's declared default rather than a value tuned for our panel, and it
 keeps WonderSwan on the most tested path. Native stays available, as the maintainer's rule asks,
@@ -188,7 +188,7 @@ apply unchanged. What the issue still owns:
 
 ## 8. Issue list (Phase 11)
 
-| Issue | Title | Size | Needs the 1.8.0 base |
+| Issue | Title | Size | Needs the new base |
 |---|---|---|---|
 | 91 | Tracking: WonderSwan and WonderSwan Color on Beetle Cygne | L | n/a |
 | 92 | Build Beetle Cygne from a pinned commit for host and device and record its licence | S | No, done |
@@ -213,7 +213,7 @@ saves sit in issue 93 because they need no new mechanism.
 3. Save in-game, eject, boot: the save is there with and without the resume.
 4. Eject and GBA: the GBA leg equals a GBA-only run.
 
-## 10. What remains for the integration step (on 1.8.0)
+## 10. What remains for the integration step (on main 1b20432)
 
 Issues 93 to 96 and 98 to 99, plus the platform half of 97, in that order. When the platform patch
 lands:

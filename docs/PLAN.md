@@ -440,15 +440,15 @@ resume (issue 67, upstream-first).
 
 ### Phase 11: WonderSwan (planned, not shipped)
 
-Tracking issue 91, children 92 to 99, ADR 0086, plan in docs/research/wswan-plan.md. One core, Beetle
+Tracking issue 91, children 92 to 99, ADR 0092, plan in docs/research/wswan-plan.md. One core, Beetle
 Cygne (`mednafen_wswan`) pinned at `4b01295`, one shelf `Games/WS` for WonderSwan and Color, no
 BIOS, no core picker. The platform patches wait for the upstream 1.8.0 base.
 
 | Step | Issue | Content |
 |---|---|---|
-| 1 | done | ADR 0086 and the issues |
+| 1 | done | ADR 0092 and the issues |
 | 2 | 92, done | Core build, pin and licence |
-| 3 | 97, core half done | Generated-cart tests: boot, 224x144 and 144x224 pictures, 60.38 and 75.47 fps, states, the SELECT trap, save RAM (patch 0053) |
+| 3 | 97, core half done | Generated-cart tests: boot, 224x144 and 144x224 pictures, 60.38 and 75.47 fps, states, the SELECT trap, save RAM (patch 0052) |
 | 4 | 93 | `Platform::Ws`, shelf, scan, footer reader, explicit policy, `.sav` saves; joins dist and zip-check |
 | 5 | 94 | Core options set on every load: 60 Hz mode, rotation from the footer, keymap off |
 | 6 | 95 | 240x160 canvas at 3x (horizontal) or 360x240 at 2x (vertical), WonderSwan Screen section with Shader, Picture and Refresh (60 Hz default, Native) |

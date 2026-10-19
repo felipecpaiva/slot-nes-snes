@@ -8,7 +8,7 @@ depends_on: [94-wswan-options]
 ---
 
 ## Why
-Step 6. Every system gets its own Screen section (the maintainer's rule; ADR 0061, 0065). Horizontal games are an exact 3x fit, vertical ones a 2x fit, and the speed choice of ADR 0086 lives here.
+Step 6. Every system gets its own Screen section (the maintainer's rule; ADR 0061, 0065). Horizontal games are an exact 3x fit, vertical ones a 2x fit, and the speed choice of ADR 0092 lives here.
 
 ## Scope
 - [ ] Canvas chosen once per game from the footer, through the per-game canvas seam of issue 93 (today `Core::canvas` is per platform): horizontal `(240, 160)`, the 224x144 frame centred at (8, 8), Actual 672x432; vertical `(360, 240)`, the 144x224 frame at (108, 8), Actual 288x448. Stretch fills 720x480 in both.
@@ -45,4 +45,4 @@ Step 6. Every system gets its own Screen section (the maintainer's rule; ADR 006
 LCD3x and Stretch on a horizontal cart, Actual on a vertical one, both Refresh values (issue 99).
 
 ## References
-- ADR 0050, 0051, 0060, 0061, 0071, 0086; docs/research/wswan-plan.md sections 3 and 4
+- ADR 0050, 0051, 0060, 0061, 0071, 0092; docs/research/wswan-plan.md sections 3 and 4

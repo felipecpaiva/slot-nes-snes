@@ -38,7 +38,7 @@ PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A de
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
 
-WonderSwan and WonderSwan Color are planned, not shipped (Phase 11, ADR 0086, issue 91). The core is
+WonderSwan and WonderSwan Color are planned, not shipped (Phase 11, ADR 0092, issue 91). The core is
 built and tested; the shelf waits for the upstream 1.8.0 base. No BIOS is needed and saves are
 ordinary `.sav` files. Vertical games are drawn upright by the core. The game runs in the core's
 60 Hz mode by default, with the native 75 Hz as an option in its Screen section.

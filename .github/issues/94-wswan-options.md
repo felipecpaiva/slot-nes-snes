@@ -8,7 +8,7 @@ depends_on: [93-platform-wswan]
 ---
 
 ## Why
-Step 5. Two of Cygne's declared defaults are not what it does when slot leaves them unanswered (slot answers declared defaults for pcsx_rearmed only, ADR 0064): `wswan_60hz_mode` declares `enabled` but runs at 75.47 fps, and `wswan_rotate_display` falls to `manual`, where every SELECT press turns the picture. Both are pinned by `wswan_core.rs` (patch 0053).
+Step 5. Two of Cygne's declared defaults are not what it does when slot leaves them unanswered (slot answers declared defaults for pcsx_rearmed only, ADR 0064): `wswan_60hz_mode` declares `enabled` but runs at 75.47 fps, and `wswan_rotate_display` falls to `manual`, where every SELECT press turns the picture. Both are pinned by `wswan_core.rs` (patch 0052).
 
 ## Scope
 - [ ] Set before load, every load: `wswan_60hz_mode` (`enabled`, or `disabled` when the Refresh row says Native, issue 95), `wswan_rotate_display` (`portrait` when the footer's vertical bit is set, else `landscape`; the flip of issue 96 changes it in game), `wswan_rotate_keymap=disabled` (slot is the only mapper).
@@ -39,4 +39,4 @@ Step 5. Two of Cygne's declared defaults are not what it does when slot leaves t
 None.
 
 ## References
-- ADR 0064, 0071, 0086; docs/research/wswan-plan.md sections 2 and 3
+- ADR 0064, 0071, 0092; docs/research/wswan-plan.md sections 2 and 3

@@ -8,14 +8,14 @@ depends_on: [56-ps1-tracking]
 ---
 
 ## Why
-The 2026-10-18 fork review lists WonderSwan and WonderSwan Color (item 18; fourth in docs/research/fork-nelynes.md's ranking). Horizontal games are a 3x fit on the 480-line panel, vertical ones a 2x fit drawn upright by the core, no BIOS, saves through the ordinary `.sav` path. One core, Beetle Cygne pinned at `4b01295`, one shelf `Games/WS` (ADR 0086). The plan is docs/research/wswan-plan.md.
+The 2026-10-18 fork review lists WonderSwan and WonderSwan Color (item 18; fourth in docs/research/fork-nelynes.md's ranking). Horizontal games are a 3x fit on the 480-line panel, vertical ones a 2x fit drawn upright by the core, no BIOS, saves through the ordinary `.sav` path. One core, Beetle Cygne pinned at `4b01295`, one shelf `Games/WS` (ADR 0092). The plan is docs/research/wswan-plan.md.
 
 ## Scope
 Child work, in merge order:
-- [x] 1. Decision record: ADR 0086 and these issues.
+- [x] 1. Decision record: ADR 0092 and these issues.
 - [x] 2. 92-wswan-core-build (groundwork, on the v1.7.0 base)
-- [x] 3. 97-wswan-tests, core half: patch 0053 (groundwork; the platform half grows with each step below)
-- [ ] 4. 93-platform-wswan, saves included (on the 1.8.0 base, like everything below)
+- [x] 3. 97-wswan-tests, core half: patch 0052 (groundwork; the platform half grows with each step below)
+- [ ] 4. 93-platform-wswan, saves included (on the main 1b20432 base, like everything below)
 - [ ] 5. 94-wswan-options
 - [ ] 6. 95-wswan-canvas-screen
 - [ ] 7. 96-wswan-input
@@ -35,7 +35,7 @@ Child work, in merge order:
 ## Acceptance
 - [ ] Steps 4 to 8 done on the host; `task check` green with `SLOT_REQUIRE_CORES=1` and the mednafen_wswan dylib.
 - [ ] Harness: a WonderSwan game, eject, GBA leg equals the GBA-only run (or a `wswan_then_gba.rs` test, the PS1 precedent); `bench:compare` GBA within 2%.
-- [ ] README, docs/PLAN.md and LICENSING.md say WonderSwan shipped, with the nelynes/slotPlus and cloudwithax/unslot credits of ADR 0086.
+- [ ] README, docs/PLAN.md and LICENSING.md say WonderSwan shipped, with the nelynes/slotPlus and cloudwithax/unslot credits of ADR 0092.
 
 ## Device check (RG34XXSP)
 Issue 99.
@@ -44,7 +44,7 @@ Issue 99.
 - Nine issues, not ten: `scripts/setup-github-project.py` globs two-digit stems, so there is no issue 100. Saves are part of 93 because Cygne uses the ordinary `.sav` path (plan section 6).
 - slot#30: no more systems upstream. Only generic seams go upstream (ADR 0047).
 - Phase 11 is new: `scripts/setup-github-project.py` now lists "Phase 11: WonderSwan", which the board's Phase field gets on the next sync. No `numbers.json` entries until then.
-- Written beside the NGP (issues 70 to 79, ADR 0083) and TG16 (issues 81 to 90) groundwork branches, while another branch ports the patch set to upstream 1.8.0. Steps 4 on wait for that base; issue numbers 91 to 99, ADR 0086, patch 0053 and the phase number may be renumbered at merge.
+- Written beside the NGP (issues 70 to 79, its own branch) and TG16 (issues 81 to 90) groundwork branches, while another branch ports the patch set to upstream 1.8.0. Steps 4 on wait for that base; issue numbers 91 to 99, ADR 0092, patch 0052 and the phase number may be renumbered at merge.
 
 ## References
-- ADR 0086; docs/research/wswan-plan.md; docs/research/fork-nelynes.md section 2
+- ADR 0092; docs/research/wswan-plan.md; docs/research/fork-nelynes.md section 2

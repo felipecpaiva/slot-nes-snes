@@ -8,7 +8,7 @@ depends_on: [92-wswan-core-build]
 ---
 
 ## Why
-Step 4. The shelf, the policy answers and the saves, built on the 1.8.0 base (ADR 0086).
+Step 4. The shelf, the policy answers and the saves, built on the main 1b20432 base (ADR 0092).
 
 ## Scope
 - [ ] `Platform::Ws` in `SHELVES` (not `ALL`), `Core::MednafenWswan` in `EVERY` with `as_str() == "mednafen_wswan"` (the dylib name) and option prefix `wswan` (not the core name). Folders `Games/WS`, `Labels/WS`, `Saves/WS`, `States/WS`.
@@ -18,8 +18,8 @@ Step 4. The shelf, the policy answers and the saves, built on the 1.8.0 base (AD
 - [ ] **New seam, per game:** `Core::canvas(core, platform)` is static per platform, read by `slot::core::open_named` (`set_canvas`) and by `App::source_rect`. WonderSwan needs `(240, 160)` for a horizontal cart and `(360, 240)` for a vertical one (issue 95), so the canvas must come from the cart: a per-game answer (for example `canvas_for(core, platform, &RomInfo)` with the footer's vertical bit, scanned once) used by both call sites, every other platform returning today's value. The input map of issue 96 reads the same bit. Keep it the one new policy input, and propose it upstream with ADR 0058's `PlayPolicy` if it fits.
 - [ ] Placeholder cart until issue 98.
 - [ ] Named test sites (b) and (e) take `Platform::Ws` and `Core::MednafenWswan` (ADR 0055).
-- [ ] Release: move `cores/mednafen_wswan/mednafen_wswan-GPL-2.0.txt` to `licenses/`; add the core to `scripts/dist-device.sh` and every list in `scripts/zip-check.sh` (cores, `req`, `ok`, the licence and srcmeta checks, the strings pair `mednafen_wswan:Beetle.WonderSwan`), and `WS` to its `games` list. README row "planned, not shipped". The McPhail credit ADR 0086 promises: a line in the README licence section and in `scripts/release-notes.sh` output for the release that first ships the core ("NEC V30MZ emulator by Bryan McPhail").
-- [ ] Saves: unlike NeoPop (ADR 0083), Cygne hands the cart's SRAM or EEPROM to slot as `SAVE_RAM` and writes no file of its own (pinned by `wswan_core.rs`), so the existing `.sav` machinery applies (ADR 0012, 0034, 0072) and this step only proves it end to end: `Saves/WS/<stem>.sav` on autosave, eject and `flush_resume`; ADR 0072's no-state path and `save_ram_trusted` unchanged; ADR 0082's hack updates keep it; a cart with no save type writes no `.sav`. Record in the patch commit what the `.sav` does not hold: no RTC (the core exposes none; RTC carts keep their clock in states and re-read the host clock at boot), the internal EEPROM owner profile (rebuilt from options each boot, issue 94 fixes the values), and that WonderWitch images persist SRAM plus 512 KB flash as one block through the same path, untested.
+- [ ] Release: move `cores/mednafen_wswan/mednafen_wswan-GPL-2.0.txt` to `licenses/`; add the core to `scripts/dist-device.sh` and every list in `scripts/zip-check.sh` (cores, `req`, `ok`, the licence and srcmeta checks, the strings pair `mednafen_wswan:Beetle.WonderSwan`), and `WS` to its `games` list. README row "planned, not shipped". The McPhail credit ADR 0092 promises: a line in the README licence section and in `scripts/release-notes.sh` output for the release that first ships the core ("NEC V30MZ emulator by Bryan McPhail").
+- [ ] Saves: unlike NeoPop (the NGP groundwork, on its own branch), Cygne hands the cart's SRAM or EEPROM to slot as `SAVE_RAM` and writes no file of its own (pinned by `wswan_core.rs`), so the existing `.sav` machinery applies (ADR 0012, 0034, 0072) and this step only proves it end to end: `Saves/WS/<stem>.sav` on autosave, eject and `flush_resume`; ADR 0072's no-state path and `save_ram_trusted` unchanged; ADR 0082's hack updates keep it; a cart with no save type writes no `.sav`. Record in the patch commit what the `.sav` does not hold: no RTC (the core exposes none; RTC carts keep their clock in states and re-read the host clock at boot), the internal EEPROM owner profile (rebuilt from options each boot, issue 94 fixes the values), and that WonderWitch images persist SRAM plus 512 KB flash as one block through the same path, untested.
 - [ ] Credit nelynes/slotPlus 273ded9 for the shelf shape in the patch commit.
 
 ## Tests
@@ -47,4 +47,4 @@ Step 4. The shelf, the policy answers and the saves, built on the 1.8.0 base (AD
 A WonderSwan cart boots from the shelf. Full gate in issue 99.
 
 ## References
-- ADR 0012, 0034, 0050, 0055, 0072, 0082, 0086; docs/research/wswan-plan.md section 6; patch 0034 for the shape; docs/research/wswan-plan.md section 7
+- ADR 0012, 0034, 0050, 0055, 0072, 0082, 0092; docs/research/wswan-plan.md section 6; patch 0034 for the shape; docs/research/wswan-plan.md section 7

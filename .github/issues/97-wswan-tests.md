@@ -8,10 +8,10 @@ depends_on: [92-wswan-core-build]
 ---
 
 ## Why
-Every WonderSwan behaviour needs a real-core test with no copyrighted game (ADR 0086). Cygne needs no BIOS, so the only fixture is a generated cart.
+Every WonderSwan behaviour needs a real-core test with no copyrighted game (ADR 0092). Cygne needs no BIOS, so the only fixture is a generated cart.
 
 ## Scope
-- [x] `crates/slot/tests/wswan_core.rs` (patch `0053-wswan-core-tests`, new file only): a 64 KB WonderSwan Color cart built in code. The reset jump at 0xfff0 to F000:0000 follows cloudwithax/unslot `crates/slot-retro/tests/systems.rs` (00296a5), credited in the file, the patch commit and LICENSING.md. Our code fills the footer (colour flag, save type, vertical flag, checksum), switches the display to colour mode (port 0x60), writes palette 0 colour 0 at 0xfe00 (red or blue), and optionally writes or reads a marker in SRAM through bank 1.
+- [x] `crates/slot/tests/wswan_core.rs` (patch `0052-wswan-core-tests`, new file only): a 64 KB WonderSwan Color cart built in code. The reset jump at 0xfff0 to F000:0000 follows cloudwithax/unslot `crates/slot-retro/tests/systems.rs` (00296a5), credited in the file, the patch commit and LICENSING.md. Our code fills the footer (colour flag, save type, vertical flag, checksum), switches the display to colour mode (port 0x60), writes palette 0 colour 0 at 0xfe00 (red or blue), and optionally writes or reads a marker in SRAM through bank 1.
 - [x] The core is opened as slot opens every core today: `LibretroCore::open_with(dylib, root::bios_dir, root::saves_dir)`, options set before load. `require_core("mednafen_wswan")` first, so a missing core fails under `SLOT_REQUIRE_CORES=1`.
 - [ ] Platform tests land with each later step (`wswan_platform.rs`, `wswan_seat.rs`, `wswan_options.rs`, `wswan_screen.rs`, `wswan_canvas.rs`, `wswan_input.rs`, `wswan_saves.rs`, `wswan_then_gba.rs`); move the cart builder to `wswan_common/mod.rs` when a second file needs it.
 
@@ -45,4 +45,4 @@ Seen to fail with the behaviour broken (each mutation run and reverted, 2026-10-
 None (host tests).
 
 ## References
-- ADR 0086; cloudwithax/unslot 00296a5 `crates/slot-retro/tests/systems.rs`; the NGP fixture precedent (ADR 0083)
+- ADR 0092; cloudwithax/unslot 00296a5 `crates/slot-retro/tests/systems.rs`; the NGP fixture precedent (its own branch)

@@ -1,9 +1,9 @@
-# 0086. Bring WonderSwan and WonderSwan Color into scope on pinned Beetle Cygne, at 60 Hz mode by default
+# 0092. Bring WonderSwan and WonderSwan Color into scope on pinned Beetle Cygne, at 60 Hz mode by default
 
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
-- Related: [WonderSwan plan](../research/wswan-plan.md), [fork review](../research/fork-review-2026-10-18.md), [nelynes survey](../research/fork-nelynes.md) section 2, [ADR 0064](0064-answer-pcsx-declared-option-defaults.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [ADR 0083](0083-ngp-on-beetle-neopop.md) (the NGP precedent, on its own branch), [issue 91](../../.github/issues/91-wswan-tracking.md), [issue 92](../../.github/issues/92-wswan-core-build.md), patch `patches/0053-wswan-core-tests.patch`
+- Related: [WonderSwan plan](../research/wswan-plan.md), [fork review](../research/fork-review-2026-10-18.md), [nelynes survey](../research/fork-nelynes.md) section 2, [ADR 0064](0064-answer-pcsx-declared-option-defaults.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), the NGP groundwork (the precedent, on its own branch), [issue 91](../../.github/issues/91-wswan-tracking.md), [issue 92](../../.github/issues/92-wswan-core-build.md), patch `patches/0052-wswan-core-tests.patch`
 
 ## Context
 
@@ -13,7 +13,7 @@ Beetle Cygne is the only libretro WonderSwan core. Three facts shape the decisio
 
 - **Speed.** The hardware runs at 75.47 fps (3.072 MHz over 159 lines of 256 cycles). The core's `wswan_60hz_mode` emulates a fifth frame every fourth `retro_run` and reports 60.38 fps. It **declares** `enabled` as the default but starts it `false`, and only a `GET_VARIABLE` answer turns it on. slot answers declared defaults for pcsx_rearmed only (ADR 0064), so unanswered, Cygne runs at 75.47 fps. In both modes the game plays at its own speed: the sound handed out per second is 44100 frames either way.
 - **Rotation.** slot answers no `SET_ROTATION`, so Cygne rotates in software into its own buffer. `wswan_rotate_display=portrait` draws 144x224, `landscape` 224x144. Left unanswered it is `manual`, and every SELECT press turns the picture. The core ignores the footer's vertical flag.
-- **Saves.** Cygne exposes the cart's SRAM or EEPROM as `SAVE_RAM`, sized by the footer, with no RTC block and no file of its own. That is the ordinary `.sav` path, unlike NeoPop (ADR 0083).
+- **Saves.** Cygne exposes the cart's SRAM or EEPROM as `SAVE_RAM`, sized by the footer, with no RTC block and no file of its own. That is the ordinary `.sav` path, unlike NeoPop (the NGP groundwork, on its own branch).
 
 ## Decision
 
@@ -36,4 +36,4 @@ Beetle Cygne is the only libretro WonderSwan core. Three facts shape the decisio
 - The vertical library (Gunpey, Judgement Silversword and others) needs a 360x240 canvas at 2x and its own button map; the horizontal library is a 3x fit in the GBA-sized path. The input remap is the largest item (issue 96).
 - The core is in `task core:host`, `task core:device`, `task check` and `SLOT_REQUIRE_CORES` from now on. It joins `dist:device` and `zip-check.sh` only with the platform patch (issue 93), so no release ships an unused core. This is the issue 57 rule.
 - On a rebase, check that the pin still builds and that `wswan_core.rs` still passes, in particular the 60.38 and 75.47 fps tests and the SELECT-on-manual test.
-- Numbers to settle at merge: this ADR (0086), issues 91 to 99, the test patch (0053 here, it collides with the NGP and other branches) and Phase 11 in `scripts/setup-github-project.py`.
+- Numbers to settle at merge: this ADR (0092), issues 91 to 99, the test patch (0052 here, it collides with the NGP and other branches) and Phase 11 in `scripts/setup-github-project.py`.
