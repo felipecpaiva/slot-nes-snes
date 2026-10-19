@@ -373,6 +373,59 @@ The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the 
 nelynes/slotPlus ([273ded9](https://github.com/nelynes/slotPlus/commit/273ded9), GPL-3.0) and are
 credited in the commit that added the build.
 
+## Beetle Lynx (Atari Lynx)
+
+Checked at commit `fcdefcfb3c11d6d2e71be076a5d3df2e88ab73ed` of libretro/beetle-lynx-libretro, the
+commit `SLOT_PIN` pins as `mednafen_lynx_commit` (tarball sha256 `mednafen_lynx_tarball_sha256`). It
+is built by `cores/mednafen_lynx/build.sh` for Atari Lynx (ADR 0093) and ships through `dist:device`
+and `zip-check.sh` since the Lynx platform patches (0071 on). Its licence texts are in `licenses/`,
+which `dist-device.sh` copies whole into the release:
+
+- `mednafen_lynx-GPL-2.0.txt`, the root `COPYING` of that source, verbatim and whole;
+- `mednafen_lynx-Handy-zlib.txt`, `mednafen/lynx/license.txt` verbatim: the zlib licence of Handy
+  (Copyright (c) 2004 K. Wilkins). nelynes/slotPlus ships only a GPL-2.0 text for this core, which
+  leaves the zlib notice out; its condition 3 ("This notice may not be removed") needs it shipped.
+
+The exact source ships with the core as `mednafen_lynx-src.tar.gz`, with `mednafen_lynx-src.meta`
+recording its sha256.
+
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+
+- Scope of the counts: the 47 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.cpp`,
+  `libretro_core_options.h`, `libretro_core_options_intl.h`, `scrc32.c` and `scrc32.h` at the root,
+  52 files.
+  - 9 say "any later version": 6 GPL-2.0-or-later (Mednafen's `endian.cpp`, `file.c`,
+    `mempatcher.cpp`, `settings.cpp`, `state.cpp` and Shay Green's `sound/Stereo_Buffer.cpp`), 2
+    GPL-3.0-or-later (`msvc_compat.h` and `include/boolean.h`, Hans-Kristian Arntzen) and 1
+    LGPL-2.1-or-later (`sound/Blip_Buffer.cpp`).
+  - 20 carry the zlib licence of Handy: every file under `mednafen/lynx/` except `c65c02.cpp`.
+  - `include/retro_inline.h` is the RetroArch team's MIT text.
+  - `md5.cpp` says "licensed under the GPL" and `include/blip/Stereo_Buffer.h` says "GNU GPL
+    license", neither with a version.
+  - No file says version 2 only.
+  - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h'
+    -o -name '*.cpp' \); ls libretro.cpp libretro_core_options.h libretro_core_options_intl.h
+    scrc32.c scrc32.h; } | xargs grep -l -i 'any later version' | wc -l` (9), and the same with
+    `'Permission is granted to anyone to use this software'` (20).
+- **Headerless files, a judgement.** 20 of the 52 have no licence text in their first 60 lines. They
+  are listed in `licenses/mednafen_lynx-headerless-files.txt` with the command that
+  produced the list. They include `libretro.cpp` (the glue), `mednafen/lynx/c65c02.cpp` (Handy's
+  CPU, zlib by origin) and `scrc32.c` (a CRC-32 table). We treat them as covered by `COPYING`.
+  That is a judgement, not a quote.
+- `libretro-common/`: every object the pinned `Makefile` links carries the RetroArch team's MIT text:
+  `streams/file_stream`, `vfs/vfs_implementation`, `file/file_path`, `time/rtime`,
+  `string/stdstring`, `encodings/encoding_utf` and `compat/fopen_utf8`, `compat_posix_string`,
+  `compat_snprintf`, `compat_strl` and `compat_strcasestr`.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The emulator and glue are C++. The device build links the C++ runtime statically and needs only
+  glibc at 2.17 or older, which `task core:device:mednafen_lynx` checks.
+- **No BIOS is shipped, fetched or needed to build.** Running a cart needs the player's own
+  `lynxboot.img` in `BIOS/` (ADR 0093, issue 104). The tests read one only from `SLOT_LYNX_BIOS`.
+
+The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
+nelynes/slotPlus ([749523c](https://github.com/nelynes/slotPlus/commit/749523c), GPL-3.0) and are
+credited in the commit that added the build.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader
@@ -493,3 +546,20 @@ Patch `0064-wswan-core-tests` builds its synthetic WonderSwan Color cart with th
 last 16 bytes landing at F000:0000 after cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
 ([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The footer, paint and
 save RAM code is new. The fork is credited in the patch commit.
+
+Patch `0070-lynx-core-tests` boots its synthetic Atari Lynx cart through the public cc65 encrypted
+boot loader (`libsrc/lynx/bootldr.s`, Karri Kaksonen, 2011, cc65's zlib licence): 52 bytes of data in
+a test, never shipped. The test approach follows nelynes/slotPlus's Lynx work
+([749523c](https://github.com/nelynes/slotPlus/commit/749523c), GPL-3.0); the carts, the homebrew
+image and the checks are new. The fork is credited in the patch commit.
+
+The Lynx platform patches reimplement ideas from nelynes/slotPlus (GPL-3.0), credited in each patch
+commit: the shelf shape ([749523c](https://github.com/nelynes/slotPlus/commit/749523c), patch
+`0071-platform-lynx`), measuring the rate from the sound
+([0848fcb](https://github.com/nelynes/slotPlus/commit/0848fcb),
+[b264635](https://github.com/nelynes/slotPlus/commit/b264635), patch `0075-lynx-pacing`), the
+by-title rotation list, the override file and the turned play
+([d7d0e74](https://github.com/nelynes/slotPlus/commit/d7d0e74),
+[185257a](https://github.com/nelynes/slotPlus/commit/185257a), patch `0077-lynx-rotation`) and the
+flat card ([98419f4](https://github.com/nelynes/slotPlus/commit/98419f4), patch `0078-lynx-carts`,
+drawn by our own generator, no asset copied).

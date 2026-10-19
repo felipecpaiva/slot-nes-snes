@@ -1,0 +1,766 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:02:45 +0400
+Subject: [PATCH] lynx-pacing
+
+Beetle Lynx reports a constant 75 fps, but each retro_run is one Lynx
+display frame of whatever length the game programmed: 59.9 Hz as the
+boot ROM leaves the timers, 75 Hz only for a game that sets it. Pacing
+from the reported 75 would run most games 25% fast. For a core that
+does not report its own rate (Core::reports_its_frame_rate, false only
+for Beetle Lynx) the emu measures the rate from the sound each frame
+carries, 20 frames at a time, and takes it once two windows in a row
+agree within 0.5 fps and it moved more than 0.1 fps; a window outside
+50 to 80 fps or a frame with no sound is ignored. The measured rate
+then goes through the PAL pacing path unchanged: 59.9 Hz stays on the
+panel tick, 75 Hz runs 1 or 2 frames a tick with all its sound. Until
+the first measure the core is paced on the panel tick at its own
+sample rate. Every other core never enters this code.
+
+The Lynx Screen section gains Lynx Speed: Native (default) or Panel,
+which runs one frame a tick (a 75 Hz game then plays at 80%), stored as
+lynx in Config/pal_speed.txt. EmuHandle::paced_fps reports the period
+in use. Measuring from the sound follows nelynes/slotPlus 0848fcb and
+b264635 (GPL-3.0),
+https://github.com/nelynes/slotPlus/commit/0848fcb
+https://github.com/nelynes/slotPlus/commit/b264635
+---
+ crates/slot-store/src/core_policy.rs |  16 ++
+ crates/slot-ui/src/quick_menu.rs     |  13 +-
+ crates/slot-ui/src/quick_retro.rs    |   6 +-
+ crates/slot/src/app.rs               |   7 +-
+ crates/slot/src/av_rate.rs           | 101 +++++++++++
+ crates/slot/src/emu.rs               |  33 ++++
+ crates/slot/src/pal_speed.rs         |   7 +-
+ crates/slot/src/session.rs           |   1 +
+ crates/slot/tests/lynx_pacing.rs     | 262 +++++++++++++++++++++++++++
+ crates/slot/tests/lynx_screen.rs     |  41 ++++-
+ crates/slot/tests/pal_speed.rs       |   7 +-
+ 11 files changed, 483 insertions(+), 11 deletions(-)
+ create mode 100644 crates/slot/tests/lynx_pacing.rs
+
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index e630f72..4fdc2a6 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -83,6 +83,22 @@ impl Core {
+         (w as f32, h as f32)
+     }
+ 
++    pub fn reports_its_frame_rate(self) -> bool {
++        match self {
++            Core::MednafenLynx => false,
++            Core::Mgba
++            | Core::Gpsp
++            | Core::Fceumm
++            | Core::Snes9x
++            | Core::Nestopia
++            | Core::Snes9x2005Plus
++            | Core::GenesisPlusGx
++            | Core::PcsxRearmed
++            | Core::MednafenPceFast
++            | Core::MednafenWswan => true,
++        }
++    }
++
+     pub fn has_colour_correction(self) -> bool {
+         match self {
+             Core::Mgba | Core::Gpsp => true,
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 0b4515c..75f147d 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -117,10 +117,11 @@ pub enum QuickRow {
+     LynxShader,
+     ScreenLynx,
+     LynxPicture,
++    LynxSpeed,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 107] = [
++    pub const ALL: [QuickRow; 108] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -228,6 +229,7 @@ impl QuickRow {
+         QuickRow::LynxShader,
+         QuickRow::ScreenLynx,
+         QuickRow::LynxPicture,
++        QuickRow::LynxSpeed,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -429,7 +431,9 @@ impl QuickRow {
+             }
+             QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
+             QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
+-            QuickRow::LynxShader | QuickRow::LynxPicture => &QuickRow::SCREEN_LYNX,
++            QuickRow::LynxShader | QuickRow::LynxPicture | QuickRow::LynxSpeed => {
++                &QuickRow::SCREEN_LYNX
++            }
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -469,7 +473,9 @@ impl QuickRow {
+             QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
+                 Some(QuickRow::ScreenWs)
+             }
+-            QuickRow::LynxShader | QuickRow::LynxPicture => Some(QuickRow::ScreenLynx),
++            QuickRow::LynxShader | QuickRow::LynxPicture | QuickRow::LynxSpeed => {
++                Some(QuickRow::ScreenLynx)
++            }
+             _ => None,
+         }
+     }
+@@ -645,6 +651,7 @@ impl QuickRow {
+             QuickRow::SmsRegion => "Region",
+             QuickRow::Cpu => "CPU",
+             QuickRow::WsRefresh => "Refresh",
++            QuickRow::LynxSpeed => "Lynx Speed",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 6129214..e81083c 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -33,7 +33,11 @@ impl QuickRow {
+     pub const SCREEN_TG16: [QuickRow; 2] = [QuickRow::Tg16Shader, QuickRow::Tg16Picture];
+     pub const SCREEN_WS: [QuickRow; 3] =
+         [QuickRow::WsShader, QuickRow::WsPicture, QuickRow::WsRefresh];
+-    pub const SCREEN_LYNX: [QuickRow; 2] = [QuickRow::LynxShader, QuickRow::LynxPicture];
++    pub const SCREEN_LYNX: [QuickRow; 3] = [
++        QuickRow::LynxShader,
++        QuickRow::LynxPicture,
++        QuickRow::LynxSpeed,
++    ];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 5b0c4be..76972dd 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1096,7 +1096,8 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+-            | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
++            | QuickRow::Ps1PalSpeed
++            | QuickRow::LynxSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
+             QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
+@@ -2788,7 +2789,8 @@ impl App {
+             | QuickRow::Tg16Picture
+             | QuickRow::WsRefresh
+             | QuickRow::LynxShader
+-            | QuickRow::LynxPicture => {}
++            | QuickRow::LynxPicture
++            | QuickRow::LynxSpeed => {}
+         }
+     }
+ 
+@@ -2955,6 +2957,7 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
++            | QuickRow::LynxSpeed
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
+             | QuickRow::WsRefresh
+diff --git a/crates/slot/src/av_rate.rs b/crates/slot/src/av_rate.rs
+index cc01328..bfc980b 100644
+--- a/crates/slot/src/av_rate.rs
++++ b/crates/slot/src/av_rate.rs
+@@ -36,6 +36,45 @@ pub fn owed_frames(owed: &mut f64, tick: Duration, period: Duration, present: Du
+     whole as u32
+ }
+ 
++const MEASURE_FRAMES: u32 = 20;
++const MEASURED_FPS: std::ops::RangeInclusive<f64> = 50.0..=80.0;
++const MEASURE_STEP: f64 = 0.1;
++const SETTLED: f64 = 0.5;
++
++#[derive(Default)]
++pub struct MeasuredRate {
++    samples: usize,
++    frames: u32,
++    window: f64,
++    fps: f64,
++}
++
++impl MeasuredRate {
++    pub fn fps(&self) -> f64 {
++        self.fps
++    }
++
++    pub fn feed(&mut self, sample_frames: usize, frames: u32, sample_rate: f64) -> Option<f64> {
++        if sample_frames == 0 || frames == 0 {
++            return None;
++        }
++        self.samples += sample_frames;
++        self.frames += frames;
++        if self.frames < MEASURE_FRAMES {
++            return None;
++        }
++        let fps = sample_rate * f64::from(self.frames) / self.samples as f64;
++        self.samples = 0;
++        self.frames = 0;
++        let settled = (fps - std::mem::replace(&mut self.window, fps)).abs() <= SETTLED;
++        if !settled || !MEASURED_FPS.contains(&fps) || (fps - self.fps).abs() <= MEASURE_STEP {
++            return None;
++        }
++        self.fps = fps;
++        Some(fps)
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -112,6 +151,68 @@ mod tests {
+         assert_eq!(owed, 0.0);
+     }
+ 
++    fn measured(rate: &mut MeasuredRate, per_frame: usize, frames: u32) -> Vec<f64> {
++        (0..frames)
++            .filter_map(|_| rate.feed(per_frame, 1, 44100.0))
++            .collect()
++    }
++
++    #[test]
++    fn a_rate_is_measured_from_the_sound_each_frame_carries() {
++        let mut rate = MeasuredRate::default();
++        assert_eq!(rate.fps(), 0.0);
++        let said = measured(&mut rate, 736, 40);
++        assert_eq!(said.len(), 1);
++        assert!((said[0] - 59.918).abs() < 0.01, "{said:?}");
++        assert_eq!(measured(&mut rate, 588, 40), [75.0]);
++    }
++
++    #[test]
++    fn a_rate_that_wobbles_by_a_sample_is_said_once() {
++        let mut rate = MeasuredRate::default();
++        let said: Vec<f64> = (0..300)
++            .filter_map(|i| rate.feed(735 + i % 3, 1, 44100.0))
++            .collect();
++        assert_eq!(said.len(), 1, "{said:?}");
++    }
++
++    #[test]
++    fn a_window_that_straddles_a_change_is_not_said() {
++        let mut rate = MeasuredRate::default();
++        measured(&mut rate, 736, 40);
++        let mixed: Vec<f64> = (0..20)
++            .filter_map(|i| rate.feed(if i < 10 { 736 } else { 1929 }, 1, 44100.0))
++            .collect();
++        assert!(mixed.is_empty(), "{mixed:?}");
++        assert!((rate.fps() - 59.918).abs() < 0.01);
++    }
++
++    #[test]
++    fn a_frame_with_no_sound_keeps_the_last_rate() {
++        let mut rate = MeasuredRate::default();
++        measured(&mut rate, 588, 40);
++        assert!(measured(&mut rate, 0, 300).is_empty());
++        assert_eq!(rate.fps(), 75.0);
++    }
++
++    #[test]
++    fn a_rate_outside_50_to_80_fps_is_ignored() {
++        let mut rate = MeasuredRate::default();
++        measured(&mut rate, 588, 40);
++        assert!(measured(&mut rate, 2000, 60).is_empty());
++        assert!(measured(&mut rate, 400, 60).is_empty());
++        assert_eq!(rate.fps(), 75.0);
++    }
++
++    #[test]
++    fn two_frames_a_tick_count_as_two() {
++        let mut rate = MeasuredRate::default();
++        let said: Vec<f64> = (0..20)
++            .filter_map(|_| rate.feed(1176, 2, 44100.0))
++            .collect();
++        assert_eq!(said, [75.0]);
++    }
++
+     #[test]
+     fn a_core_with_no_frame_rate_keeps_its_sample_rate() {
+         let av = AvInfo {
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index 11205ca..baad802 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -111,6 +111,8 @@ struct Shared {
+     locked: AtomicBool,
+     present_ns: AtomicU64,
+     native_pal: AtomicBool,
++    measures_rate: AtomicBool,
++    paced_ns: AtomicU64,
+     requested: AtomicBool,
+     clock: Mutex<Clock>,
+     clocked: Condvar,
+@@ -184,6 +186,8 @@ impl EmuHandle {
+             locked: AtomicBool::new(false),
+             present_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
+             native_pal: AtomicBool::new(false),
++            measures_rate: AtomicBool::new(false),
++            paced_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
+             requested: AtomicBool::new(false),
+             clock: Mutex::new(Clock::default()),
+             clocked: Condvar::new(),
+@@ -273,6 +277,14 @@ impl EmuHandle {
+         self.shared.native_pal.store(native, Ordering::Relaxed);
+     }
+ 
++    pub fn set_measures_rate(&self, measures: bool) {
++        self.shared.measures_rate.store(measures, Ordering::Relaxed);
++    }
++
++    pub fn paced_fps(&self) -> f64 {
++        1e9 / self.shared.paced_ns.load(Ordering::Relaxed).max(1) as f64
++    }
++
+     pub fn locked(&self) -> bool {
+         self.shared.locked.load(Ordering::Acquire)
+     }
+@@ -614,6 +626,7 @@ impl Worker {
+         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
+         let mut pace = PRESENT;
+         let mut owed = 0.0f64;
++        let mut measured: Option<av_rate::MeasuredRate> = None;
+         while !self.shared.stop.load(Ordering::Relaxed) {
+             for cmd in self.cmds.try_iter() {
+                 self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+@@ -681,12 +694,20 @@ impl Worker {
+                 rate.restart(deadline, self.current_tick());
+                 self.shared.clocked.notify_all();
+             }
++            if measured.is_none() && self.shared.measures_rate.load(Ordering::Relaxed) {
++                measured = Some(av_rate::MeasuredRate::default());
++                av.fps = 0.0;
++                resampler = av_rate::rebuilt_resampler(av, pace, device_hz);
++            }
+             let period =
+                 av_rate::period(av, self.shared.native_pal.load(Ordering::Relaxed), PRESENT);
+             if period != pace {
+                 pace = period;
+                 owed = 0.0;
+                 eprintln!("slot: emu: pacing at {:.3} fps", 1.0 / period.as_secs_f64());
++                self.shared
++                    .paced_ns
++                    .store(period.as_nanos() as u64, Ordering::Relaxed);
+                 resampler = av_rate::rebuilt_resampler(av, period, device_hz);
+             }
+             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
+@@ -860,9 +881,21 @@ impl Worker {
+ 
+                 if let Some(next) = core.take_av_change() {
+                     av = next;
++                    if let Some(m) = &measured {
++                        av.fps = m.fps();
++                    }
+                     resampler = av_rate::rebuilt_resampler(av, period, device_hz);
+                 }
+                 let audio = core.take_audio();
++                if let Some(fps) = measured
++                    .as_mut()
++                    .filter(|_| speed == Speed::Normal)
++                    .and_then(|m| m.feed(audio.len() / 2, ran, av.sample_rate))
++                {
++                    eprintln!("slot: emu: the game runs at {fps:.2} fps");
++                    av.fps = fps;
++                    resampler = av_rate::rebuilt_resampler(av, period, device_hz);
++                }
+                 if speed == Speed::Normal || ff_sound {
+                     let target = drc_target(ring.capacity_frames());
+                     let queued = ring.queued_frames();
+diff --git a/crates/slot/src/pal_speed.rs b/crates/slot/src/pal_speed.rs
+index c689d07..b964a01 100644
+--- a/crates/slot/src/pal_speed.rs
++++ b/crates/slot/src/pal_speed.rs
+@@ -7,12 +7,13 @@ use crate::card_log::CardWrites;
+ 
+ pub const PAL_SPEED_FILE: &str = "Config/pal_speed.txt";
+ 
+-pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 5] = [
++pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 6] = [
+     (QuickRow::NesPalSpeed, Platform::Nes),
+     (QuickRow::SnesPalSpeed, Platform::Snes),
+     (QuickRow::SmsPalSpeed, Platform::Sms),
+     (QuickRow::MdPalSpeed, Platform::Md),
+     (QuickRow::Ps1PalSpeed, Platform::Ps1),
++    (QuickRow::LynxSpeed, Platform::Lynx),
+ ];
+ 
+ fn key(platform: Platform) -> String {
+@@ -38,11 +39,11 @@ pub fn quick_value(native: bool) -> QuickValue {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct PalSpeeds([bool; 5]);
++pub struct PalSpeeds([bool; 6]);
+ 
+ impl Default for PalSpeeds {
+     fn default() -> Self {
+-        PalSpeeds([true; 5])
++        PalSpeeds([true; 6])
+     }
+ }
+ 
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 803626e..0f5fc02 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -594,6 +594,7 @@ impl Session {
+         emu.set_volume(self.app.output_volume());
+         emu.set_driven(self.driven);
+         emu.set_native_pal(self.app.native_pal(loaded.platform));
++        emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
+         emu.set_pass_through(loaded.platform.passes_xy_through());
+         emu.set_ws_pad(crate::ws_input::pad_code(
+             loaded.platform,
+diff --git a/crates/slot/tests/lynx_pacing.rs b/crates/slot/tests/lynx_pacing.rs
+new file mode 100644
+index 0000000..8d5721d
+--- /dev/null
++++ b/crates/slot/tests/lynx_pacing.rs
+@@ -0,0 +1,262 @@
++mod common;
++mod core_common;
++mod lynx_common;
++mod real_seat;
++
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use core_common::require_core;
++use lynx_common::{lnx_cart, lynx_bios, paint, put_bios};
++use slot::audio::{AudioSink, StubSink};
++use slot::emu::{CoreState, EmuHandle, Speed};
++use slot::session::Session;
++use slot_retro::{AvInfo, ButtonMask, CoreError, MockCore, RetroCore};
++use slot_store::{read_slot_state, write_slot_state, Platform};
++
++const PANEL: Duration = Duration::from_nanos(16_666_667);
++const DEVICE_HZ: u32 = 32_768;
++const AT_60: usize = 736;
++const AT_75: usize = 588;
++
++struct Carrying {
++    inner: MockCore,
++    per_frame: Arc<AtomicUsize>,
++    owed: usize,
++    ran: Arc<AtomicU64>,
++}
++
++impl RetroCore for Carrying {
++    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
++        self.inner.load(rom)
++    }
++    fn run_frame(&mut self, input: ButtonMask) {
++        self.ran.fetch_add(1, Ordering::Relaxed);
++        self.owed += self.per_frame.load(Ordering::Relaxed);
++        self.inner.run_frame(input);
++    }
++    fn video_xrgb8888(&self) -> &[u8] {
++        self.inner.video_xrgb8888()
++    }
++    fn take_audio(&mut self) -> Vec<i16> {
++        let _ = self.inner.take_audio();
++        vec![0; std::mem::take(&mut self.owed) * 2]
++    }
++    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
++        self.inner.serialize()
++    }
++    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.unserialize(data)
++    }
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        None
++    }
++    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
++        self.inner.load_save_ram(data)
++    }
++    fn av_info(&self) -> AvInfo {
++        AvInfo {
++            fps: 75.0,
++            sample_rate: 44_100.0,
++        }
++    }
++}
++
++struct Run {
++    emu: EmuHandle,
++    per_frame: Arc<AtomicUsize>,
++    ran: Arc<AtomicU64>,
++    heard: Arc<AtomicU64>,
++}
++
++fn wait_for(cond: impl Fn() -> bool) -> bool {
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while !cond() {
++        if Instant::now() >= deadline {
++            return false;
++        }
++        std::thread::sleep(Duration::from_millis(2));
++    }
++    true
++}
++
++fn spawn(per_frame: usize, native: bool, measures: bool) -> Run {
++    let per_frame = Arc::new(AtomicUsize::new(per_frame));
++    let ran = Arc::new(AtomicU64::new(0));
++    let core = Box::new(Carrying {
++        inner: MockCore::new(),
++        per_frame: per_frame.clone(),
++        owed: 0,
++        ran: ran.clone(),
++    });
++    let mut sink = StubSink::new();
++    sink.open(DEVICE_HZ).expect("the stub refused to open");
++    let ring = sink.ring();
++    let heard = Arc::new(AtomicU64::new(0));
++    let counted = heard.clone();
++    let drained = ring.clone();
++    std::thread::spawn(move || loop {
++        let frames = drained.queued_frames();
++        drained.fill(&mut vec![0i16; frames * 2]);
++        counted.fetch_add(frames as u64, Ordering::Relaxed);
++        std::thread::sleep(Duration::from_millis(2));
++    });
++    let emu = EmuHandle::spawn(core, PathBuf::from("mock"), ring, None, None);
++    emu.set_native_pal(native);
++    emu.set_measures_rate(measures);
++    emu.set_speed(Speed::Normal);
++    assert!(wait_for(|| emu.state() != CoreState::Loading));
++    assert_eq!(emu.state(), CoreState::Ready);
++    emu.set_driven(true);
++    assert!(wait_for(|| emu.locked()), "the worker never locked");
++    let run = Run {
++        emu,
++        per_frame,
++        ran,
++        heard,
++    };
++    ticks(&run, 60);
++    run
++}
++
++fn ticks(run: &Run, n: usize) {
++    for _ in 0..n {
++        run.emu.tick(PANEL);
++        assert!(
++            run.emu.wait_frame(Duration::from_millis(500)),
++            "a tick was never served"
++        );
++    }
++}
++
++fn frames_in_60_ticks(run: &Run) -> u64 {
++    let before = run.ran.load(Ordering::Relaxed);
++    ticks(run, 60);
++    run.ran.load(Ordering::Relaxed) - before
++}
++
++#[test]
++fn a_core_reporting_75_but_carrying_60_hz_frames_runs_60_frames_in_60_ticks() {
++    let run = spawn(AT_60, true, true);
++    assert_eq!(frames_in_60_ticks(&run), 60);
++}
++
++#[test]
++fn a_core_carrying_75_hz_frames_runs_75_frames_in_60_ticks() {
++    let run = spawn(AT_75, true, true);
++    assert_eq!(frames_in_60_ticks(&run), 75);
++}
++
++#[test]
++fn a_75_hz_game_keeps_all_its_sound() {
++    let run = spawn(AT_75, true, true);
++    std::thread::sleep(Duration::from_millis(50));
++    let (frames, sound) = (
++        run.ran.load(Ordering::Relaxed),
++        run.heard.load(Ordering::Relaxed),
++    );
++    ticks(&run, 240);
++    std::thread::sleep(Duration::from_millis(50));
++    let frames = run.ran.load(Ordering::Relaxed) - frames;
++    let sound = run.heard.load(Ordering::Relaxed) - sound;
++    let per_frame = sound as f64 / frames as f64;
++    let want = f64::from(DEVICE_HZ) / 75.0;
++    assert!(
++        (per_frame / want - 1.0).abs() < 0.02,
++        "{per_frame:.1} device frames of sound per game frame, want {want:.1}"
++    );
++}
++
++#[test]
++fn a_game_that_switches_to_75_hz_mid_play_is_followed_within_a_second() {
++    let run = spawn(AT_60, true, true);
++    assert_eq!(frames_in_60_ticks(&run), 60);
++    run.per_frame.store(AT_75, Ordering::Relaxed);
++    ticks(&run, 60);
++    assert_eq!(frames_in_60_ticks(&run), 75);
++}
++
++#[test]
++fn panel_runs_a_75_hz_game_one_frame_a_tick() {
++    let run = spawn(AT_75, false, true);
++    assert_eq!(frames_in_60_ticks(&run), 60);
++}
++
++#[test]
++fn a_core_that_is_not_measured_is_paced_at_the_rate_it_reports() {
++    let run = spawn(AT_60, true, false);
++    assert_eq!(frames_in_60_ticks(&run), 75);
++}
++
++fn seated_lynx(hz75: bool, speed: Option<&str>) -> Option<(tempfile::TempDir, Session)> {
++    let bios = lynx_bios()?;
++    let dylib = require_core("mednafen_lynx")?;
++    let carts = tempfile::tempdir().unwrap();
++    let rom = lnx_cart(carts.path(), "Paint", 0, paint(0xfb68, hz75));
++    let root = real_seat::rooted(Platform::Lynx, "Paint", &rom, &dylib);
++    put_bios(root.path(), Some(&bios));
++    if let Some(line) = speed {
++        std::fs::write(root.path().join(slot::pal_speed::PAL_SPEED_FILE), line).unwrap();
++    }
++    let mut state = read_slot_state(root.path());
++    state.cart = Some("Paint".into());
++    state.cart_platform = Some(Platform::Lynx);
++    write_slot_state(root.path(), &state).unwrap();
++    let mut session = real_seat::play(root.path(), false);
++    session.set_driven(true);
++    let emu = session.emu().expect("no emu");
++    assert!(wait_for(|| emu.locked()), "the worker never locked");
++    for _ in 0..120 {
++        assert!(session.step_emulator(PANEL, Duration::from_millis(500)));
++    }
++    Some((carts, session))
++}
++
++fn paced_fps(session: &Session) -> f64 {
++    session.emu().expect("no emu").paced_fps()
++}
++
++fn session_frames_in_60_ticks(session: &Session) -> u64 {
++    let before = session.frames_published();
++    for _ in 0..60 {
++        assert!(session.step_emulator(PANEL, Duration::from_millis(500)));
++    }
++    session.frames_published() - before
++}
++
++#[test]
++fn a_session_paces_a_real_lynx_cart_at_the_60_hz_the_boot_rom_sets() {
++    let _g = core_lock();
++    let Some((_carts, session)) = seated_lynx(false, None) else {
++        return;
++    };
++    assert_eq!(session_frames_in_60_ticks(&session), 60);
++    assert!((paced_fps(&session) - 60.0).abs() < 0.01);
++}
++
++#[test]
++fn a_session_paces_a_real_lynx_cart_that_sets_75_hz_at_75() {
++    let _g = core_lock();
++    let Some((_carts, session)) = seated_lynx(true, None) else {
++        return;
++    };
++    assert!(
++        (paced_fps(&session) - 75.0).abs() < 0.3,
++        "{}",
++        paced_fps(&session)
++    );
++    assert_eq!(session_frames_in_60_ticks(&session), 60);
++}
++
++#[test]
++fn a_session_with_lynx_speed_on_panel_runs_the_75_hz_cart_on_every_tick() {
++    let _g = core_lock();
++    let Some((_carts, session)) = seated_lynx(true, Some("lynx = panel\n")) else {
++        return;
++    };
++    assert_eq!(session_frames_in_60_ticks(&session), 60);
++    assert!((paced_fps(&session) - 60.0).abs() < 0.01);
++}
+diff --git a/crates/slot/tests/lynx_screen.rs b/crates/slot/tests/lynx_screen.rs
+index a7b4989..983b689 100644
+--- a/crates/slot/tests/lynx_screen.rs
++++ b/crates/slot/tests/lynx_screen.rs
+@@ -59,7 +59,11 @@ fn lynx_closes_the_screen_list_and_opens_its_own_section() {
+     assert_eq!(QuickRow::ScreenLynx.child(), Some(QuickRow::LynxShader));
+     assert_eq!(
+         QuickRow::SCREEN_LYNX,
+-        [QuickRow::LynxShader, QuickRow::LynxPicture]
++        [
++            QuickRow::LynxShader,
++            QuickRow::LynxPicture,
++            QuickRow::LynxSpeed
++        ]
+     );
+     for row in QuickRow::SCREEN_LYNX {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenLynx));
+@@ -172,3 +176,38 @@ fn the_lynx_shader_walks_the_retro_list_into_its_own_file() {
+         state
+     );
+ }
++
++#[test]
++fn the_lynx_speed_row_starts_native_and_writes_only_its_own_line() {
++    let (root, mut app) = card_with_a_cart();
++    open_lynx(&mut app);
++    press(&mut app, Btn::Down);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::LynxSpeed));
++    assert_eq!(QuickRow::LynxSpeed.label(), "Lynx Speed");
++    assert_eq!(
++        app.quick_value(QuickRow::LynxSpeed),
++        Some(QuickValue::Native)
++    );
++    assert!(app.native_pal(Platform::Lynx));
++    let file = root.path().join(slot::pal_speed::PAL_SPEED_FILE);
++    assert!(!file.exists());
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        app.quick_value(QuickRow::LynxSpeed),
++        Some(QuickValue::Panel)
++    );
++    assert!(!app.native_pal(Platform::Lynx));
++    assert!(app.native_pal(Platform::Nes));
++    assert_eq!(
++        std::fs::read_to_string(&file).expect("pal_speed.txt"),
++        "lynx = panel\n"
++    );
++    press(&mut app, Btn::Left);
++    app.flush_state();
++    assert_eq!(
++        std::fs::read_to_string(&file).expect("pal_speed.txt"),
++        "lynx = native\n"
++    );
++}
+diff --git a/crates/slot/tests/pal_speed.rs b/crates/slot/tests/pal_speed.rs
+index 1654037..1ae64e2 100644
+--- a/crates/slot/tests/pal_speed.rs
++++ b/crates/slot/tests/pal_speed.rs
+@@ -49,7 +49,12 @@ fn open_pal_speed(app: &mut App, console: QuickRow) {
+ fn every_paced_system_shows_a_pal_speed_row_set_to_native() {
+     let (_root, app) = every_system();
+     for (row, platform) in PAL_SPEED_ROWS {
+-        assert_eq!(row.label(), "PAL Speed");
++        let label = if platform == Platform::Lynx {
++            "Lynx Speed"
++        } else {
++            "PAL Speed"
++        };
++        assert_eq!(row.label(), label);
+         assert_eq!(row.page().get(2), Some(&row), "{platform:?}");
+         assert_eq!(app.quick_value(row), Some(QuickValue::Native), "{row:?}");
+         assert!(app.native_pal(platform), "{platform:?}");

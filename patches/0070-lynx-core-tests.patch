@@ -1,0 +1,479 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 22:30:00 +0400
+Subject: [PATCH] lynx-core-tests
+
+Beetle Lynx (Atari Lynx) runs on the generic libretro host before any
+Lynx platform code exists. With no boot ROM a BS93 homebrew image runs
+from RAM and paints the 160x102 picture in the middle of the 240x160
+buffer; its state round-trips and the core exposes no save RAM.
+
+The core reports 75 fps but runs one Lynx display frame per retro_run:
+the boot ROM and the homebrew preset leave the timers at 59.9 Hz (736
+samples a frame at 44.1 kHz), a game that sets 75 Hz gets 588, and
+lynx_force_60hz changes only the reported number.
+
+With no lynxboot.img, or one under 512 bytes, a .lnx cart loads with no
+error and never draws: every frame is the core's undrawn fill and runs
+to its 700000-cycle cap. With SLOT_LYNX_BIOS pointing at the real boot
+ROM (512 bytes, crc32 0d973c9d) a synthetic cart boots through the cc65
+encrypted loader, draws, round-trips its state, and shows that the core
+turns the pad for a rotated cart only when lynx_rot_screen asks it to.
+Without the variable those tests print a BIOS skip.
+
+The encrypted one-block loader is cc65's libsrc/lynx/bootldr.s by Karri
+Kaksonen (zlib licence). The test approach follows nelynes/slotPlus's
+Lynx work, commit 749523c (https://github.com/nelynes/slotPlus/commit/749523c,
+GPL-3.0); the carts and checks are new.
+---
+ crates/slot/tests/lynx_common/mod.rs | 141 +++++++++++++
+ crates/slot/tests/lynx_core.rs       | 292 +++++++++++++++++++++++++++
+ 2 files changed, 433 insertions(+)
+ create mode 100644 crates/slot/tests/lynx_common/mod.rs
+ create mode 100644 crates/slot/tests/lynx_core.rs
+
+diff --git a/crates/slot/tests/lynx_common/mod.rs b/crates/slot/tests/lynx_common/mod.rs
+new file mode 100644
+index 0000000..b89f011
+--- /dev/null
++++ b/crates/slot/tests/lynx_common/mod.rs
+@@ -0,0 +1,141 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++pub const W: usize = 160;
++pub const H: usize = 102;
++// The 160x102 picture in the middle of the 240x160 buffer the generic host draws into.
++pub const LEFT: usize = (240 - W) / 2;
++pub const TOP: usize = (160 - H) / 2;
++pub const BIOS_CRC32: u32 = 0x0d97_3c9d;
++
++/// Sets all 16 pens to pure red (GREENx = 0, BLUEREDx = 0x0f), then spins. `at` is where it runs.
++/// With `hz75` it first reprograms the line timer the way a 75 Hz game does (HTIMBKUP $7E, PBKUP $20,
++/// against the $9E and $29 of 60 Hz).
++pub fn paint(at: u16, hz75: bool) -> Vec<u8> {
++    let mut code = vec![0x78]; // sei
++    if hz75 {
++        code.extend([0xa9, 0x7e, 0x8d, 0x00, 0xfd]); // lda #$7e, sta HTIMBKUP
++        code.extend([0xa9, 0x20, 0x8d, 0x93, 0xfd]); // lda #$20, sta PBKUP
++    }
++    code.extend([
++        0xa2, 0x0f, // ldx #15
++        0xa9, 0x00, // loop: lda #0
++        0x9d, 0xa0, 0xfd, // sta GREEN0,x
++        0xa9, 0x0f, // lda #$0f
++        0x9d, 0xb0, 0xfd, // sta BLUERED0,x
++        0xca, // dex
++        0x10, 0xf3, // bpl loop
++    ]);
++    let spin = at + code.len() as u16;
++    code.extend([0x4c, spin as u8, (spin >> 8) as u8]); // jmp spin
++    code
++}
++
++/// Copies the joystick byte (JOYSTICK, $FCB0) into every pen's blue and red nibbles forever, so the
++/// picture's colour shows which buttons the game saw. `at` is where it runs.
++pub fn echo_pad(at: u16) -> Vec<u8> {
++    let lp = at + 11;
++    vec![
++        0x78, // sei
++        0xa9,
++        0x00, // lda #0
++        0xa2,
++        0x0f, // ldx #15
++        0x9d,
++        0xa0,
++        0xfd, // l1: sta GREEN0,x
++        0xca, // dex
++        0x10,
++        0xfa, // bpl l1
++        0xad,
++        0xb0,
++        0xfc, // loop: lda JOYSTICK
++        0xa2,
++        0x0f, // ldx #15
++        0x9d,
++        0xb0,
++        0xfd, // l2: sta BLUERED0,x
++        0xca, // dex
++        0x10,
++        0xfa, // bpl l2
++        0x4c,
++        lp as u8,
++        (lp >> 8) as u8, // jmp loop
++    ]
++}
++
++/// A BS93 homebrew image: the 10-byte header (0x80 0x08 is `bra +8` over it), loaded at `at - 10`.
++pub fn homebrew(dir: &Path, stem: &str, hz75: bool) -> PathBuf {
++    const AT: u16 = 0x0400;
++    let code = paint(AT, hz75);
++    let size = (10 + code.len()) as u16;
++    let mut img = vec![0x80, 0x08];
++    img.extend(AT.to_be_bytes());
++    img.extend(size.to_be_bytes());
++    img.extend(b"BS93");
++    img.extend(code);
++    let path = dir.join(format!("{stem}.o"));
++    std::fs::write(&path, img).unwrap();
++    path
++}
++
++pub const CC65_LOADER: [u8; 52] = [
++    0xff, 0xb6, 0xbb, 0x82, 0xd5, 0x9f, 0x48, 0xcf, 0x23, 0x37, 0x8e, 0x07, 0x38, 0xf5, 0xb6, 0x30,
++    0xd6, 0x2f, 0x12, 0x29, 0x9f, 0x43, 0x5b, 0x2e, 0xf5, 0x66, 0x5c, 0xdb, 0x93, 0x1a, 0x78, 0x55,
++    0x5e, 0xc9, 0x0d, 0x72, 0x1b, 0xe9, 0xd8, 0x4d, 0x2f, 0xe4, 0x95, 0xc0, 0x4f, 0x7f, 0x1b, 0x66,
++    0x8b, 0xa7, 0xfc, 0x21,
++];
++
++/// A 128 KB .lnx cart: the 64-byte LYNX header (bank 0 pages of 512 bytes, version 1, title at 0x0a,
++/// rotation byte at 0x3a), the cc65 encrypted loader, then `code` (built to run at $FB68), which the
++/// loader copies there.
++pub fn lnx_cart(dir: &Path, stem: &str, rotation: u8, code: Vec<u8>) -> PathBuf {
++    let mut hdr = vec![0u8; 64];
++    hdr[..4].copy_from_slice(b"LYNX");
++    hdr[4..6].copy_from_slice(&0x0200u16.to_le_bytes());
++    hdr[8..10].copy_from_slice(&1u16.to_le_bytes());
++    hdr[0x0a..0x0a + 9].copy_from_slice(b"SLOT LYNX");
++    hdr[0x3a] = rotation;
++    let mut rom = vec![0u8; 128 * 1024];
++    rom[..52].copy_from_slice(&CC65_LOADER);
++    rom[52..52 + code.len()].copy_from_slice(&code);
++    hdr.extend(rom);
++    let path = dir.join(format!("{stem}.lnx"));
++    std::fs::write(&path, hdr).unwrap();
++    path
++}
++
++pub fn crc32(data: &[u8]) -> u32 {
++    let mut crc = !0u32;
++    for &b in data {
++        crc ^= b as u32;
++        for _ in 0..8 {
++            crc = if crc & 1 != 0 {
++                (crc >> 1) ^ 0xedb8_8320
++            } else {
++                crc >> 1
++            };
++        }
++    }
++    !crc
++}
++
++/// The maintainer's own boot ROM from `SLOT_LYNX_BIOS`, checked like slot's BIOS check will check it.
++pub fn lynx_bios() -> Option<Vec<u8>> {
++    let Some(path) = std::env::var_os("SLOT_LYNX_BIOS") else {
++        eprintln!("skipping: no Lynx BIOS, set SLOT_LYNX_BIOS to a lynxboot.img (512 bytes, crc32 0d973c9d)");
++        return None;
++    };
++    let bytes = std::fs::read(&path).unwrap_or_default();
++    if bytes.len() != 512 || crc32(&bytes) != BIOS_CRC32 {
++        eprintln!(
++            "skipping: SLOT_LYNX_BIOS {} is not the Lynx BIOS ({} bytes, crc32 {:08x})",
++            Path::new(&path).display(),
++            bytes.len(),
++            crc32(&bytes)
++        );
++        return None;
++    }
++    Some(bytes)
++}
+diff --git a/crates/slot/tests/lynx_core.rs b/crates/slot/tests/lynx_core.rs
+new file mode 100644
+index 0000000..7323de2
+--- /dev/null
++++ b/crates/slot/tests/lynx_core.rs
+@@ -0,0 +1,292 @@
++// Beetle Lynx (Atari Lynx) on the generic libretro host, before any Lynx platform code exists (issues
++// 102 and 110, ADR 0093).
++//
++// The core has no high-level boot at the pinned commit: with no `lynxboot.img` in the system dir it
++// fills the boot ROM with 0x88 and returns, so a cart "loads" and shows nothing, with no error. Two
++// kinds of test follow from that:
++//
++// - Tests that need no BIOS always run (CI included). They use a BS93 homebrew image, which the core
++//   copies straight into RAM and starts at its load address with the display timers preset, so the
++//   boot ROM is never used. They also pin the missing-BIOS signature that slot's BIOS check (issue 104)
++//   exists to prevent.
++// - Tests that boot a .lnx cart through the real boot ROM read it from `SLOT_LYNX_BIOS` (a path to a
++//   `lynxboot.img`, 512 bytes, crc32 0x0d973c9d, the `[BIOS] Atari Lynx` entry in the core's own
++//   cart database). No BIOS is in the repo or on CI, so there they print a skip naming the BIOS,
++//   which run-tests.sh lists as a ROM skip and does not count as a missing core, also under
++//   SLOT_REQUIRE_CORES=1. The core itself is still required first.
++//
++// The encrypted one-block boot loader in `lnx_cart` is the public cc65 loader by Karri Kaksonen
++// (cc65 libsrc/lynx/bootldr.s, zlib licence): the boot ROM decrypts it to $0200, it reads the next 151
++// cart bytes to $FB68 and jumps there. Our paint code sits in those 151 bytes.
++mod common;
++mod core_common;
++mod lynx_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use core_common::require_core;
++use lynx_common::{echo_pad, homebrew, lnx_cart, lynx_bios, paint, H, LEFT, TOP, W};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++/// The core opened the way slot opens every core today: BIOS/ as the system dir and Saves/ as the save
++/// dir (`slot::core::open_named`). `bios` goes into BIOS/lynxboot.img when given.
++fn beetle(root: &Path, bios: Option<&[u8]>) -> Option<LibretroCore> {
++    let dylib = require_core("mednafen_lynx")?;
++    let bios_dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&bios_dir).unwrap();
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    if let Some(b) = bios {
++        std::fs::write(bios_dir.join("lynxboot.img"), b).unwrap();
++    }
++    Some(
++        LibretroCore::open_with(&dylib, &bios_dir, &slot::root::saves_dir(root))
++            .expect("open Beetle Lynx"),
++    )
++}
++
++/// Runs `frames` frames and returns the stereo sample frames the last one produced.
++fn play(core: &mut LibretroCore, frames: usize) -> usize {
++    let mut last = 0;
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++        last = core.take_audio().len() / 2;
++    }
++    last
++}
++
++fn assert_red_picture(core: &LibretroCore) {
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), 240 * 160 * 4);
++    for y in 0..160 {
++        for x in 0..240 {
++            let at = (y * 240 + x) * 4;
++            let px = &video[at..at + 3];
++            if (LEFT..LEFT + W).contains(&x) && (TOP..TOP + H).contains(&y) {
++                assert!(
++                    px[2] > 200 && px[1] < 60 && px[0] < 60,
++                    "({x}, {y}) is {px:?}"
++                );
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++/// The core's fill for lines the display never drew: MAKECOLOR(30, 30, 30) in RGB565, every pixel.
++fn assert_undrawn_picture(core: &LibretroCore) {
++    let video = core.video_xrgb8888();
++    let first = &video[(TOP * 240 + LEFT) * 4..(TOP * 240 + LEFT) * 4 + 3];
++    assert!(first.iter().all(|&c| c > 0 && c < 40), "fill is {first:?}");
++    for y in TOP..TOP + H {
++        for x in LEFT..LEFT + W {
++            let at = (y * 240 + x) * 4;
++            assert_eq!(&video[at..at + 3], first, "({x}, {y})");
++        }
++    }
++}
++
++// Sample frames per retro_run at 44.1 kHz: 588 is 75 Hz, 735 is 60 Hz. The core runs one Lynx display
++// frame per retro_run, whatever fps it reports, so this is the real rate. The boot ROM and the core's
++// homebrew preset both leave the timers at 59.9 Hz (159 us a line, 105 lines); a game picks its own.
++const AT_60HZ: std::ops::RangeInclusive<usize> = 725..=745;
++const AT_75HZ: std::ops::RangeInclusive<usize> = 580..=596;
++
++#[test]
++fn a_lynx_homebrew_image_runs_with_no_bios_and_draws_160_by_102_in_the_middle_of_240_by_160_at_60_hz_while_reporting_75(
++) {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.load(&homebrew(d.path(), "Paint", false))
++        .expect("Beetle Lynx refused the image");
++    let per_frame = play(&mut core, 30);
++    let av = core.av_info();
++    assert_eq!(av.fps, 75.0);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(AT_60HZ.contains(&per_frame), "{per_frame} samples a frame");
++    assert_red_picture(&core);
++}
++
++#[test]
++fn force_60hz_only_changes_the_reported_fps_not_the_game_speed() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.set_option("lynx_force_60hz", "enabled");
++    core.load(&homebrew(d.path(), "Paint", false)).unwrap();
++    let per_frame = play(&mut core, 30);
++    assert_eq!(core.av_info().fps, 60.0);
++    // The same 59.9 Hz frame of sound per retro_run as with the option off.
++    assert!(AT_60HZ.contains(&per_frame), "{per_frame} samples a frame");
++}
++
++#[test]
++fn a_game_that_sets_75_hz_gets_75_hz_frames_and_the_core_still_reports_75() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.load(&homebrew(d.path(), "Fast", true)).unwrap();
++    let per_frame = play(&mut core, 30);
++    assert_eq!(core.av_info().fps, 75.0);
++    assert!(AT_75HZ.contains(&per_frame), "{per_frame} samples a frame");
++    assert_red_picture(&core);
++}
++
++#[test]
++fn a_lynx_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.load(&homebrew(d.path(), "Paint", false)).unwrap();
++    play(&mut core, 5);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn beetle_lynx_gives_the_frontend_no_save_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.load(&homebrew(d.path(), "Paint", false)).unwrap();
++    play(&mut core, 5);
++    assert_eq!(core.save_ram(), None);
++}
++
++#[test]
++fn with_no_bios_a_lnx_cart_loads_without_error_and_never_draws() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), None) else {
++        return;
++    };
++    core.load(&lnx_cart(d.path(), "Paint", 0, paint(0xfb68, false)))
++        .expect("the core says nothing about the missing BIOS, it loads");
++    let per_frame = play(&mut core, 10);
++    assert_undrawn_picture(&core);
++    // No display frame ever ends, so each retro_run stops at the core's 700000-cycle cap (43.75 ms).
++    assert!(per_frame > 1800, "{per_frame} samples a frame");
++}
++
++#[test]
++fn a_bios_file_shorter_than_512_bytes_is_ignored_the_same_silent_way() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle(d.path(), Some(&[0u8; 256])) else {
++        return;
++    };
++    core.load(&lnx_cart(d.path(), "Paint", 0, paint(0xfb68, false)))
++        .unwrap();
++    play(&mut core, 10);
++    assert_undrawn_picture(&core);
++}
++
++#[test]
++fn with_the_bios_a_lnx_cart_boots_and_draws_160_by_102_at_the_60_hz_the_boot_rom_sets() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some(mut core) = beetle(d.path(), Some(&bios)) else {
++        return;
++    };
++    core.load(&lnx_cart(d.path(), "Paint", 0, paint(0xfb68, false)))
++        .expect("Beetle Lynx refused the cart");
++    let per_frame = play(&mut core, 120);
++    assert!(AT_60HZ.contains(&per_frame), "{per_frame} samples a frame");
++    assert_eq!(core.av_info().fps, 75.0);
++    assert_red_picture(&core);
++}
++
++#[test]
++fn with_the_bios_a_lnx_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some(mut core) = beetle(d.path(), Some(&bios)) else {
++        return;
++    };
++    core.load(&lnx_cart(d.path(), "Paint", 0, paint(0xfb68, false)))
++        .unwrap();
++    play(&mut core, 120);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++    play(&mut core, 2);
++    assert_red_picture(&core);
++}
++
++/// What the game read from the pad, as the colour it painted, after `frames` frames holding `held`.
++fn pad_seen(bios: &[u8], rotation: u8, rot_option: Option<&str>, held: u16) -> Option<Vec<u8>> {
++    let d = tempfile::tempdir().unwrap();
++    let mut core = beetle(d.path(), Some(bios))?;
++    if let Some(v) = rot_option {
++        core.set_option("lynx_rot_screen", v);
++    }
++    core.load(&lnx_cart(d.path(), "Pad", rotation, echo_pad(0xfb68)))
++        .unwrap();
++    for _ in 0..90 {
++        core.run_frame(ButtonMask(held));
++    }
++    let at = ((TOP + H / 2) * 240 + LEFT + W / 2) * 4;
++    Some(core.video_xrgb8888()[at..at + 3].to_vec())
++}
++
++// Header byte 0x3a: 1 is CART_ROTATE_LEFT, 2 is CART_ROTATE_RIGHT. The core's own 87-entry checksum
++// list overrides it for the carts it knows; this synthetic cart is not on it.
++const RIGHT_CART: u8 = 2;
++
++#[test]
++fn the_core_turns_the_pad_for_a_rotated_cart_only_when_lynx_rot_screen_asks_it_to() {
++    let _g = core_lock();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some(up) = pad_seen(&bios, 0, None, ButtonMask::UP) else {
++        return;
++    };
++    let left = pad_seen(&bios, 0, None, ButtonMask::LEFT).unwrap();
++    let idle = pad_seen(&bios, 0, None, 0).unwrap();
++    assert_ne!(up, left);
++    assert_ne!(up, idle);
++    // Unanswered (slot today: GET_VARIABLE is false for an unset key) or "0": the raw pad.
++    assert_eq!(
++        pad_seen(&bios, RIGHT_CART, None, ButtonMask::UP).unwrap(),
++        up
++    );
++    assert_eq!(
++        pad_seen(&bios, RIGHT_CART, Some("0"), ButtonMask::UP).unwrap(),
++        up
++    );
++    // "auto", the core's declared default: a right cart is turned 270 degrees, so Up reads as Left.
++    assert_eq!(
++        pad_seen(&bios, RIGHT_CART, Some("auto"), ButtonMask::UP).unwrap(),
++        left
++    );
++    // "180": Up reads as Down, the turn slot needs for a right cart drawn flipped.
++    let down = pad_seen(&bios, 0, None, ButtonMask::DOWN).unwrap();
++    assert_eq!(
++        pad_seen(&bios, RIGHT_CART, Some("180"), ButtonMask::UP).unwrap(),
++        down
++    );
++}

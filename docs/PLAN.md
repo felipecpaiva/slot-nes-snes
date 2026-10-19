@@ -58,7 +58,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091) and WonderSwan (Phase 11, ADR 0092) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092) and Atari Lynx (Phase 12, ADR 0093) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -474,6 +474,28 @@ BIOS, no core picker. Patches 0064 to 0069 on main 1b20432; the device gate is t
 | 7 | 96, done | X and Y pads: shoulder modifiers on horizontal games, turned maps and the SELECT flip on vertical ones (patch 0068) |
 | 8 | 98, done | Black and clear carts, labels for ScreenScraper ids 45 and 46 (patch 0069, tools/fetch-labels.py) |
 | 9 | 99 | Device gate, both Refresh values |
+
+### Phase 12: Atari Lynx (device gate pending)
+
+Tracking issue 101, children 102 to 112, ADR 0093, plan in docs/research/lynx-plan.md. One core,
+Beetle Lynx (`mednafen_lynx`) pinned at `fcdefcf` (Handy rejected for now, ADR 0093), one shelf
+`Games/Lynx`, the player's own BIOS, no core picker. Integrated on slot main 1b20432 as patches 0070
+to 0079 (2026-10-19).
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0093 and the issues |
+| 2 | 102, done | Core build, pin and licence (GPL text plus the Handy zlib text) |
+| 3 | 110, done (0070, each patch, 0079) | Homebrew and synthetic-cart tests: picture, real rate, states, missing-BIOS signature; BIOS-gated cart boot and pad rotation (patch 0070) |
+| 4 | 103, done (0071) | `Platform::Lynx`, shelf, scan, LNX header (title, rotation byte), explicit policy; joins dist and zip-check |
+| 5 | 104, done (0072) | BIOS check before launch, toast |
+| 6 | 105, done (0073) | Core options: `lynx_rot_screen` always set, `lynx_force_60hz` off |
+| 7 | 106, done (0071, 0074) | 240x160 canvas at 4x, Lynx Screen section (Shader, Picture, Lynx Speed, Flip Right Carts) |
+| 8 | 107, done (0075) | Pacing at the game's measured rate, Lynx Speed row (Native default) |
+| 9 | 109, done (0077) | Buttons, turned carts through the core's own pad turn |
+| 10 | 108, done (0076) | Saves: states only |
+| 11 | 111, done (0078) | Cards, labels for ScreenScraper id 28 |
+| 12 | 112 | Device gate with the maintainer's BIOS |
 
 ### Phase 6+: deferred (non-blocking)
 
