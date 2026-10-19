@@ -34,6 +34,7 @@ PHASES = {
     "10": "Phase 10: TurboGrafx-16",
     "11": "Phase 11: WonderSwan",
     "12": "Phase 12: Atari Lynx",
+    "9": "Phase 9: NeoGeo Pocket",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}
 FIELDS = {"Phase": list(PHASES.values()),

@@ -58,7 +58,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092) and Atari Lynx (Phase 12, ADR 0093) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093) and NeoGeo Pocket (Phase 9, ADR 0090) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -496,6 +496,25 @@ to 0079 (2026-10-19).
 | 10 | 108, done (0076) | Saves: states only |
 | 11 | 111, done (0078) | Cards, labels for ScreenScraper id 28 |
 | 12 | 112 | Device gate with the maintainer's BIOS |
+
+### Phase 9: NeoGeo Pocket (in the patch set, device gate pending)
+
+Tracking issue 70, children 71 to 79, ADR 0090, plan in docs/research/ngp-plan.md. One core, Beetle
+NeoPop (`mednafen_ngp`) pinned at `a50d5ac`, one shelf `Games/NGP` for Pocket and Pocket Color, no
+BIOS, no core picker. Patches 0080 to 0087 on upstream main 1b20432; flash durability in ADR 0094.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0090 and the issues |
+| 2 | 71, done | Core build, pin and licence |
+| 3 | 77, core half done | Generated-cart tests: boot, 160x152 picture, states, flash across a restart (patch 0080) |
+| 4 | 72, done (0081) | `Platform::Ngp`, shelf, scan, header colour flag, explicit policy; joins dist and zip-check |
+| 5 | 73, done (0082) | Core options (`ngp_language=english`) |
+| 6 | 74, done (0083) | 240x160 canvas at 3x, NGP Screen section with Shader and Picture rows (no PAL Speed) |
+| 7 | 75, done (0084, ADR 0094) | Flash durability: staging save dir `Saves/NGP/.core`, check before load, atomic publish, flush by reload |
+| 8 | 76, done (0085) | A, B and Option |
+| 9 | 78, done (0087) | NGP pak for mono and Color carts in the nelynes dark grey (maintainer's choice, ADR 0090), labels for ScreenScraper ids 25 and 82 |
+| 10 | 79 | Device gate, including a lid-close and battery-pull flash test |
 
 ### Phase 6+: deferred (non-blocking)
 
