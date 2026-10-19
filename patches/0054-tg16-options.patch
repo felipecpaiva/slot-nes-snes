@@ -1,0 +1,274 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:07:50 +0400
+Subject: [PATCH] tg16-options
+
+Beetle PCE Fast gets its options answered by slot: the scanline window 3
+to 242 first, because the core draws lines 0 to 242 when it is not asked
+and 243 lines do not fit the 240-line canvas. Then the 352 horizontal
+overscan, the RGB palette, the 2-button pad, the Select+Run soft reset
+left on, the core's own turbo off, the sprite limit kept and no
+overclock. The frameskip key gets auto like every core that declares
+one, so only frames slot does not show are skipped. The CD keys are left
+alone: no HuCard reaches them.
+---
+ crates/slot/src/core_options_policy.rs |  16 +++-
+ crates/slot/tests/tg16_canvas.rs       |  50 ++++++++++++
+ crates/slot/tests/tg16_common/mod.rs   |  39 +++++++++
+ crates/slot/tests/tg16_options.rs      | 109 +++++++++++++++++++++++++
+ 4 files changed, 212 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/tg16_canvas.rs
+ create mode 100644 crates/slot/tests/tg16_common/mod.rs
+ create mode 100644 crates/slot/tests/tg16_options.rs
+
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index c40bd91..a212377 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -33,6 +33,18 @@ const PCSX_REARMED: [(&str, &str); 7] = [
+     ("pcsx_rearmed_drc_thread", "auto"),
+ ];
+ 
++const PCE_FAST: [(&str, &str); 9] = [
++    ("pce_fast_initial_scanline", "3"),
++    ("pce_fast_last_scanline", "242"),
++    ("pce_fast_hoverscan", "352"),
++    ("pce_fast_palette", "RGB"),
++    ("pce_fast_default_joypad_type_p1", "2 Buttons"),
++    ("pce_fast_disable_softreset", "disabled"),
++    ("pce_fast_turbo_toggling", "disabled"),
++    ("pce_fast_nospritelimit", "disabled"),
++    ("pce_fast_ocmultiplier", "1"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -93,9 +105,9 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus
+-        | Core::MednafenPceFast => &[],
++        | Core::Snes9x2005Plus => &[],
+         Core::PcsxRearmed => &PCSX_REARMED,
++        Core::MednafenPceFast => &PCE_FAST,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/tests/tg16_canvas.rs b/crates/slot/tests/tg16_canvas.rs
+new file mode 100644
+index 0000000..b06babc
+--- /dev/null
++++ b/crates/slot/tests/tg16_canvas.rs
+@@ -0,0 +1,50 @@
++mod common;
++mod core_common;
++mod tg16_common;
++
++use common::core_lock;
++use slot::core::open_core_for_palette;
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tg16_common::{hucard, pce_fast, RED_BGRX};
++
++const CANVAS: (usize, usize) = (360, 240);
++const LEFT: usize = 52;
++const PICTURE: (usize, usize) = (256, 240);
++
++#[test]
++fn through_slots_open_path_a_hucard_fills_the_canvas_height_with_256_by_240_and_black_bars() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let d = common::tmp_root_with_real_carts(&[]);
++    let rom = hucard(&d.path().join("Games/TG16"), "Paint");
++    let mut core = open_core_for_palette(
++        d.path(),
++        Core::MednafenPceFast,
++        Platform::Tg16,
++        "",
++        false,
++        None,
++        &[dylib],
++    );
++    core.load(&rom).expect("Beetle PCE Fast refused the HuCard");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++    assert_eq!(core.frame_width(), PICTURE.0 as u32);
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    for y in 0..CANVAS.1 {
++        for x in 0..CANVAS.0 {
++            let at = (y * CANVAS.0 + x) * 4;
++            let want = if (LEFT..LEFT + PICTURE.0).contains(&x) && y < PICTURE.1 {
++                RED_BGRX
++            } else {
++                [0, 0, 0]
++            };
++            assert_eq!(&video[at..at + 3], want, "({x}, {y})");
++        }
++    }
++}
+diff --git a/crates/slot/tests/tg16_common/mod.rs b/crates/slot/tests/tg16_common/mod.rs
+new file mode 100644
+index 0000000..32bf786
+--- /dev/null
++++ b/crates/slot/tests/tg16_common/mod.rs
+@@ -0,0 +1,39 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub const RED: u8 = 0x38;
++pub const RED_BGRX: [u8; 3] = [0, 0, 255];
++
++pub fn pce_fast() -> Option<PathBuf> {
++    require_core("mednafen_pce_fast")
++}
++
++pub fn hucard_bytes(header: bool) -> Vec<u8> {
++    let mut rom = vec![0u8; 0x2000];
++    let mut code = vec![0x78, 0xa9, 0xff, 0x53, 0x01];
++    for colour_hi in [0x00, 0x01] {
++        code.extend([0x9c, 0x02, 0x04]);
++        code.extend([0xa9, colour_hi, 0x8d, 0x03, 0x04]);
++        code.extend([0xa9, RED, 0x8d, 0x04, 0x04]);
++        code.extend([0x9c, 0x05, 0x04]);
++    }
++    code.extend([0x80, 0xfe]);
++    rom[..code.len()].copy_from_slice(&code);
++    rom[0x1ffe..].copy_from_slice(&[0x00, 0xe0]);
++    if header {
++        let mut headered = vec![0u8; 512];
++        headered.extend(rom);
++        return headered;
++    }
++    rom
++}
++
++pub fn hucard(dir: &Path, stem: &str) -> PathBuf {
++    std::fs::create_dir_all(dir).unwrap();
++    let path = dir.join(format!("{stem}.pce"));
++    std::fs::write(&path, hucard_bytes(false)).unwrap();
++    path
++}
+diff --git a/crates/slot/tests/tg16_options.rs b/crates/slot/tests/tg16_options.rs
+new file mode 100644
+index 0000000..018fc33
+--- /dev/null
++++ b/crates/slot/tests/tg16_options.rs
+@@ -0,0 +1,109 @@
++mod common;
++mod core_common;
++mod tg16_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use slot::core::apply_core_options;
++use slot::core_options_policy::answers_declared_defaults;
++use slot_retro::LibretroCore;
++use slot_store::{Core, Platform};
++use tg16_common::pce_fast;
++
++const EXPLICIT: [(&str, &str); 9] = [
++    ("pce_fast_initial_scanline", "3"),
++    ("pce_fast_last_scanline", "242"),
++    ("pce_fast_hoverscan", "352"),
++    ("pce_fast_palette", "RGB"),
++    ("pce_fast_default_joypad_type_p1", "2 Buttons"),
++    ("pce_fast_disable_softreset", "disabled"),
++    ("pce_fast_turbo_toggling", "disabled"),
++    ("pce_fast_nospritelimit", "disabled"),
++    ("pce_fast_ocmultiplier", "1"),
++];
++
++const CD_KEYS: [&str; 8] = [
++    "pce_fast_cdbios",
++    "pce_fast_cdimagecache",
++    "pce_fast_cdspeed",
++    "pce_fast_adpcmvolume",
++    "pce_fast_cddavolume",
++    "pce_fast_cdpsgvolume",
++    "pce_fast_adpcmlp",
++    "pce_fast_cdignoreerrors",
++];
++
++fn answered(dylib: &Path) -> LibretroCore {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut core = LibretroCore::open_with(dylib, d.path(), d.path()).expect("open pce_fast");
++    apply_core_options(
++        &mut core,
++        Core::MednafenPceFast,
++        Platform::Tg16,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core
++}
++
++#[test]
++fn every_explicit_tg16_option_is_answered_with_its_own_value() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in EXPLICIT {
++        assert_eq!(core.option(key).as_deref(), Some(value), "{key}");
++    }
++}
++
++#[test]
++fn every_explicit_tg16_key_and_value_is_one_the_pinned_core_declares() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in EXPLICIT {
++        let values = core
++            .declared_options()
++            .get(key)
++            .unwrap_or_else(|| panic!("the pin no longer declares {key}"));
++        assert!(
++            values.iter().any(|v| v == value),
++            "{key}={value} {values:?}"
++        );
++    }
++}
++
++#[test]
++fn the_cd_keys_stay_unanswered_because_no_hucard_reaches_them() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for key in CD_KEYS {
++        assert!(core.declared_options().contains_key(key), "{key}");
++        assert_eq!(core.option(key), None, "{key}");
++    }
++}
++
++#[test]
++fn the_tg16_frameskip_is_auto_like_every_core_that_declares_one() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let core = answered(&dylib);
++    assert_eq!(core.option("pce_fast_frameskip").as_deref(), Some("auto"));
++}
++
++#[test]
++fn beetle_pce_fast_gets_only_its_list_not_every_declared_default() {
++    assert!(!answers_declared_defaults(Core::MednafenPceFast));
++}

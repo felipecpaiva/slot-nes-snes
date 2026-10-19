@@ -1,0 +1,190 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:11:40 +0400
+Subject: [PATCH] tg16-input
+
+The TurboGrafx-16 pad: B is II, A is I, START is Run and SELECT reaches
+the game after slot's chord hold, so Select and Run together are the
+console's own soft reset, which stays on. X and Y are the pad's turbo
+switches: they reach slot as raw buttons on TG16 alone, and slot's
+Turbo Buttons setting pulses I on X and II on Y, or sends nothing when
+it is off; the core's own turbo stays off. L1 and R1 stay slot's
+picture keys.
+
+The layout follows nelynes/slotPlus 92b7022 (GPL-3.0).
+---
+ crates/slot-store/src/platform_policy.rs |  15 +++
+ crates/slot/src/input/raw_buttons.rs     |   2 +-
+ crates/slot/tests/tg16_input.rs          | 124 +++++++++++++++++++++++
+ 3 files changed, 140 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/tests/tg16_input.rs
+
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index a00dbae..4acde88 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -55,6 +55,21 @@ impl Platform {
+         }
+     }
+ 
++    pub fn turbo_on_xy(self) -> bool {
++        match self {
++            Platform::Tg16 => true,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1 => false,
++        }
++    }
++
+     pub fn select_x_toggles_picture(self) -> bool {
+         match self {
+             Platform::Snes | Platform::Md | Platform::Ps1 => true,
+diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
+index 24a5f41..9f190c7 100644
+--- a/crates/slot/src/input/raw_buttons.rs
++++ b/crates/slot/src/input/raw_buttons.rs
+@@ -7,7 +7,7 @@ use super::mask::Pad;
+ 
+ fn raw_buttons(platform: Platform) -> Vec<(Btn, u16)> {
+     let mut raw = Vec::new();
+-    if platform.passes_xy_through() {
++    if platform.passes_xy_through() || platform.turbo_on_xy() {
+         raw.extend([(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)]);
+     }
+     if !platform.owns_triggers() {
+diff --git a/crates/slot/tests/tg16_input.rs b/crates/slot/tests/tg16_input.rs
+new file mode 100644
+index 0000000..3485749
+--- /dev/null
++++ b/crates/slot/tests/tg16_input.rs
+@@ -0,0 +1,124 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod tg16_common;
++
++use common::core_lock;
++use slot::input::Pad;
++use slot::session::Session;
++use slot_input::{Action, Btn, RawEvent, SELECT_CHORD_MS};
++use slot_retro::{ButtonMask, TurboMode};
++use slot_store::{Controls, Platform};
++use tg16_common::{hucard, pce_fast};
++
++const STEM: &str = "Blazing Lazers";
++
++fn playing() -> Option<(tempfile::TempDir, Session)> {
++    let dylib = pce_fast()?;
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = hucard(roms.path(), STEM);
++    let root = real_seat::rooted(Platform::Tg16, STEM, &rom, &dylib);
++    hucard(&root.path().join("Games/TG16"), "Zzz");
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn input_of(session: &Session) -> u16 {
++    session.emu().expect("no core in the slot").input().0
++}
++
++fn held(btn: Btn) -> u16 {
++    let mut p = Pad::default();
++    p.apply(Action::GbaDown(btn));
++    p.mask_for(&Controls::default(), Platform::Tg16).0
++}
++
++#[test]
++fn b_is_ii_a_is_i_and_start_is_run() {
++    assert_eq!(held(Btn::B), ButtonMask::B, "II");
++    assert_eq!(held(Btn::A), ButtonMask::A, "I");
++    assert_eq!(held(Btn::Start), ButtonMask::START, "Run");
++}
++
++#[test]
++fn x_and_y_reach_slot_as_raw_buttons_for_the_turbo() {
++    assert_eq!(held(Btn::X), ButtonMask::X);
++    assert_eq!(held(Btn::Y), ButtonMask::Y);
++    assert!(!Platform::Tg16.passes_xy_through());
++}
++
++#[test]
++fn a_held_x_pulses_i_and_a_held_y_pulses_ii_with_turbo_on() {
++    let mode = TurboMode::from_flags(Platform::Tg16.passes_xy_through(), true);
++    assert_eq!(mode, TurboMode::Turbo);
++    for (btn, pulse) in [(Btn::X, ButtonMask::A), (Btn::Y, ButtonMask::B)] {
++        let sent: Vec<u16> = (0..12)
++            .map(|frame| ButtonMask(held(btn)).apply(mode, frame).0)
++            .collect();
++        assert!(sent.contains(&pulse), "{btn:?} never pressed: {sent:?}");
++        assert!(sent.contains(&0), "{btn:?} never let go: {sent:?}");
++        assert!(sent.iter().all(|m| *m == pulse || *m == 0), "{sent:?}");
++    }
++}
++
++#[test]
++fn with_turbo_off_x_and_y_send_nothing_to_the_game() {
++    let mode = TurboMode::from_flags(Platform::Tg16.passes_xy_through(), false);
++    for btn in [Btn::X, Btn::Y] {
++        assert_eq!(ButtonMask(held(btn)).apply(mode, 0).0, 0, "{btn:?}");
++    }
++}
++
++#[test]
++fn only_turbografx_feeds_x_and_y_to_the_turbo() {
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            platform.turbo_on_xy(),
++            platform == Platform::Tg16,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn x_and_y_held_on_the_device_reach_the_tg16_emulator() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    for (btn, bit) in [(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
++
++#[test]
++fn l1_and_r1_stay_slots_on_turbografx() {
++    let _g = core_lock();
++    let Some((_root, session)) = playing() else {
++        return;
++    };
++    assert_eq!(session.app().taken_buttons(), [Btn::L1, Btn::R1]);
++}
++
++#[test]
++fn select_reaches_the_tg16_game_only_after_the_chord_hold() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    assert_eq!(input_of(&session) & ButtonMask::SELECT, 0, "at once");
++    session.feed([], 5000 + SELECT_CHORD_MS / 2);
++    assert_eq!(input_of(&session) & ButtonMask::SELECT, 0, "mid hold");
++    session.feed([], 5000 + SELECT_CHORD_MS + 1);
++    assert_eq!(input_of(&session), ButtonMask::SELECT, "after the hold");
++    session.feed([RawEvent::Down(Btn::Start)], 5000 + SELECT_CHORD_MS + 20);
++    assert_eq!(
++        input_of(&session),
++        ButtonMask::SELECT | ButtonMask::START,
++        "Select and Run together reach the core, which soft-resets"
++    );
++}

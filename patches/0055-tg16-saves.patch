@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:09:28 +0400
+Subject: [PATCH] tg16-saves
+
+TurboGrafx-16 backup RAM goes through the standard .sav path with no new
+code: Beetle PCE Fast hands every HuCard its 2 KB BRAM, formatted with
+the HUBM header, as save RAM. Tests prove a marked BRAM survives an eject
+and a reinsert through Saves/TG16, a lid close writes it, a RetroArch
+.srm loads when there is no .sav, and a game that never saves keeps a
+2 KB header-only .sav, the accepted cost of a generic save path.
+---
+ crates/slot/tests/tg16_saves.rs | 121 ++++++++++++++++++++++++++++++++
+ 1 file changed, 121 insertions(+)
+ create mode 100644 crates/slot/tests/tg16_saves.rs
+
+diff --git a/crates/slot/tests/tg16_saves.rs b/crates/slot/tests/tg16_saves.rs
+new file mode 100644
+index 0000000..3721c53
+--- /dev/null
++++ b/crates/slot/tests/tg16_saves.rs
+@@ -0,0 +1,121 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod tg16_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use slot::app::Phase;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++use tg16_common::{hucard, pce_fast};
++
++const STEM: &str = "Neutopia";
++const BRAM_BYTES: usize = 2048;
++const HUBM: &[u8; 8] = b"HUBM\x00\x88\x10\x80";
++
++fn seated(dylib: &Path) -> tempfile::TempDir {
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = hucard(roms.path(), STEM);
++    let root = real_seat::rooted(Platform::Tg16, STEM, &rom, dylib);
++    hucard(&root.path().join("Games/TG16"), "Zzz");
++    root
++}
++
++fn sav(root: &Path) -> PathBuf {
++    root.join("Saves/TG16").join(format!("{STEM}.sav"))
++}
++
++fn marked() -> Vec<u8> {
++    let mut bram = vec![0u8; BRAM_BYTES];
++    bram[..8].copy_from_slice(HUBM);
++    bram[0x10..0x14].copy_from_slice(b"SAVE");
++    bram
++}
++
++fn bram_in_the_core(session: &Session) -> Option<Vec<u8>> {
++    session
++        .emu()
++        .expect("no core in the slot")
++        .snapshot()
++        .save_ram()
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++#[test]
++fn a_marked_backup_ram_survives_an_eject_and_a_reinsert_through_saves_tg16() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let root = seated(&dylib);
++    std::fs::write(sav(root.path()), marked()).expect("write sav");
++    let mut first = real_seat::play(root.path(), true);
++    assert!(bram_in_the_core(&first) == Some(marked()), "first insert");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(sav(root.path())).expect("read sav") == marked());
++    let second = real_seat::play(root.path(), true);
++    assert!(
++        bram_in_the_core(&second) == Some(marked()),
++        "after reinsert"
++    );
++}
++
++#[test]
++fn closing_the_lid_writes_the_backup_ram_as_the_games_sav() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut session = real_seat::play(root.path(), true);
++    assert!(!sav(root.path()).exists());
++    session.feed([RawEvent::Down(Btn::Lid)], 100);
++    session.app_mut().settle_saves();
++    let bram = std::fs::read(sav(root.path())).expect("no sav after the lid closed");
++    assert_eq!(bram.len(), BRAM_BYTES);
++    assert_eq!(&bram[..8], HUBM);
++}
++
++#[test]
++fn a_hucard_that_never_saves_still_leaves_a_2_kb_formatted_sav_on_eject() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut session = real_seat::play(root.path(), true);
++    eject(&mut session);
++    let mut blank = vec![0u8; BRAM_BYTES];
++    blank[..8].copy_from_slice(HUBM);
++    assert!(std::fs::read(sav(root.path())).expect("no sav after eject") == blank);
++}
++
++#[test]
++fn a_retroarch_srm_loads_into_the_backup_ram_when_there_is_no_sav() {
++    let _g = core_lock();
++    let Some(dylib) = pce_fast() else {
++        return;
++    };
++    let root = seated(&dylib);
++    std::fs::write(
++        root.path().join("Saves/TG16").join(format!("{STEM}.srm")),
++        marked(),
++    )
++    .expect("write srm");
++    let session = real_seat::play(root.path(), true);
++    assert!(bram_in_the_core(&session) == Some(marked()));
++}
