@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 18 Oct 2026 23:02:02 +0400
+Subject: [PATCH] tg16-core-tests
+
+Beetle PCE Fast (TurboGrafx-16 and PC Engine HuCards) runs on the
+generic libretro host before any TG16 platform code exists. A generated
+8 KB HuCard boots with no BIOS, loads by path (the core sets
+need_fullpath), runs at 59.82 fps with 44.1 kHz sound, and paints a
+256x240 picture that fills the height of the 360x240 SNES canvas at
+x 52; its state round-trips.
+
+Two contracts for the platform steps. The core starts at scanlines 0 to
+242 and reads its declared 3 to 242 only when the frontend answers the
+options: unanswered, its 243 lines are halved to 121 by the canvas. And
+the core hands every game its 2 KB backup RAM, formatted with the HUBM
+header, as save RAM, which loads back.
+
+The HuCard recipe (one 8 KB bank, the reset vector to $E000, a bra *
+spin) follows nelynes/slotPlus's pce_core.rs, commit 92b7022
+(https://github.com/nelynes/slotPlus/commit/92b7022, GPL-3.0), the same
+as cloudwithax/unslot's systems.rs, commit 00296a5. The palette code is
+new.
+---
+ crates/slot/tests/tg16_core.rs | 152 +++++++++++++++++++++++++++++++++
+ 1 file changed, 152 insertions(+)
+ create mode 100644 crates/slot/tests/tg16_core.rs
+
+diff --git a/crates/slot/tests/tg16_core.rs b/crates/slot/tests/tg16_core.rs
+new file mode 100644
+index 0000000..03843cd
+--- /dev/null
++++ b/crates/slot/tests/tg16_core.rs
+@@ -0,0 +1,152 @@
++// Beetle PCE Fast (TurboGrafx-16 and PC Engine HuCards) on the generic libretro host, before any TG16
++// platform code exists (issues 82 and 88, ADR 0091). The synthetic HuCard follows nelynes/slotPlus's
++// pce_core.rs (https://github.com/nelynes/slotPlus/commit/92b7022, GPL-3.0), the same recipe as
++// cloudwithax/unslot's systems.rs (https://github.com/cloudwithax/unslot/commit/00296a5): one 8 KB bank,
++// the reset vector at its last two bytes pointing at $E000, and a `bra *` spin. The palette code is ours.
++mod common;
++mod core_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++const CANVAS: (usize, usize) = (360, 240);
++const PICTURE_W: usize = 256;
++const LEFT: usize = (CANVAS.0 - PICTURE_W) / 2;
++// The VCE colour word is GRB, three bits each: red alone is 0b000_111_000.
++const RED: u8 = 0x38;
++const RED_BGRX: [u8; 3] = [0, 0, 255];
++
++/// An 8 KB HuCard that maps the I/O page in, sets both the backdrop (colour 0) and the overscan colour
++/// (0x100) to red, so the whole picture is red whatever the unprogrammed VDC shows, then spins.
++fn hucard(dir: &Path) -> PathBuf {
++    let mut rom = vec![0u8; 0x2000];
++    let mut code = vec![0x78, 0xa9, 0xff, 0x53, 0x01]; // sei; lda #$ff; tam #$01 (I/O at $0000)
++    for colour_hi in [0x00, 0x01] {
++        code.extend([0x9c, 0x02, 0x04]); // stz $0402: colour address low
++        code.extend([0xa9, colour_hi, 0x8d, 0x03, 0x04]); // lda #hi; sta $0403: colour address high
++        code.extend([0xa9, RED, 0x8d, 0x04, 0x04]); // lda #RED; sta $0404: colour data low
++        code.extend([0x9c, 0x05, 0x04]); // stz $0405: colour data high
++    }
++    code.extend([0x80, 0xfe]); // bra *
++    rom[..code.len()].copy_from_slice(&code);
++    rom[0x1ffe..].copy_from_slice(&[0x00, 0xe0]); // reset vector: $E000, bank 0 (MPR7 is 0 at reset)
++    let path = dir.join("Paint.pce");
++    std::fs::write(&path, rom).unwrap();
++    path
++}
++
++/// The core opened the way slot opens every core today (BIOS/ and Saves/, `slot::core::open_named`) on
++/// the SNES-sized canvas TG16 will use (ADR 0091). With `lines`, the two scanline options are answered
++/// the way issue 84 will: 3 to 242, the core's declared defaults.
++fn pce_fast(root: &Path, lines: bool) -> Option<LibretroCore> {
++    let dylib = require_core("mednafen_pce_fast")?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open Beetle PCE Fast");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    if lines {
++        core.set_option("pce_fast_initial_scanline", "3");
++        core.set_option("pce_fast_last_scanline", "242");
++    }
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++/// Every canvas pixel: red inside `LEFT..LEFT + 256` by `rows`, black elsewhere.
++fn assert_red_picture(video: &[u8], rows: std::ops::Range<usize>) {
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    for y in 0..CANVAS.1 {
++        for x in 0..CANVAS.0 {
++            let at = (y * CANVAS.0 + x) * 4;
++            let px = &video[at..at + 3];
++            if (LEFT..LEFT + PICTURE_W).contains(&x) && rows.contains(&y) {
++                assert_eq!(px, RED_BGRX, "({x}, {y})");
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++#[test]
++fn a_hucard_boots_with_no_bios_and_fills_the_360_by_240_canvas_height_with_256_by_240() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = pce_fast(d.path(), true) else {
++        return;
++    };
++    core.load(&hucard(d.path()))
++        .expect("Beetle PCE Fast refused the HuCard");
++    play(&mut core, 30);
++    let av = core.av_info();
++    assert!((59.8..59.85).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    assert_eq!(core.frame_width(), 256);
++    assert_red_picture(core.video_xrgb8888(), 0..240);
++}
++
++#[test]
++fn unanswered_scanline_options_draw_243_lines_which_the_240_line_canvas_halves() {
++    // The core starts at lines 0 to 242 and only reads its declared 3 to 242 when the frontend answers
++    // the options. 243 rows do not fit 240, so copy_centred halves them to 121: issue 84 must answer.
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = pce_fast(d.path(), false) else {
++        return;
++    };
++    core.load(&hucard(d.path())).unwrap();
++    play(&mut core, 30);
++    assert_red_picture(core.video_xrgb8888(), 59..180);
++}
++
++#[test]
++fn a_hucard_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = pce_fast(d.path(), true) else {
++        return;
++    };
++    core.load(&hucard(d.path())).unwrap();
++    play(&mut core, 5);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn every_hucard_gets_a_2_kb_formatted_backup_ram_as_save_ram_that_loads_back() {
++    // BRAM is the CD and Tennokoe backup memory; the core formats it (the "HUBM" header) for every game,
++    // so slot will write a 2 KB .sav even for a HuCard that never saves (issue 86).
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = pce_fast(d.path(), true) else {
++        return;
++    };
++    core.load(&hucard(d.path())).unwrap();
++    play(&mut core, 5);
++    let bram = core.save_ram().expect("no save RAM");
++    assert_eq!(bram.len(), 2048);
++    assert_eq!(&bram[..8], b"HUBM\x00\x88\x10\x80");
++    assert!(bram[8..].iter().all(|&b| b == 0));
++
++    let mut marked = bram.clone();
++    marked[0x10] = 0x5a;
++    core.load_save_ram(&marked).unwrap();
++    play(&mut core, 5);
++    assert_eq!(core.save_ram().unwrap(), marked);
++}

@@ -57,7 +57,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7) and PlayStation (Phase 8, ADR 0063) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063) and TurboGrafx-16 (Phase 10, ADR 0091) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -437,6 +437,25 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
+
+### Phase 10: TurboGrafx-16 (device gate pending)
+
+Tracking issue 81, children 82 to 90, ADR 0091, plan in docs/research/tg16-plan.md. One core, Beetle
+PCE Fast (`mednafen_pce_fast`) pinned at `3f946f2`, one shelf `Games/TG16` for HuCards, no BIOS, no core
+picker, no CD and no SuperGrafx. The platform patches (0058 to 0063) are on the main-1b20432 base (ADR 0083).
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0091 and the issues |
+| 2 | 82, done | Core build, pin and licence (`powf` bound to GLIBC_2.17) |
+| 3 | 88, done | Generated-HuCard tests: boot, 256x240 on the 360x240 canvas, the scanline-option contract, states, BRAM (patch 0057); a test file per platform step and a GBA-after-TG16 eject test (patch 0063) |
+| 4 | 83, done | `Platform::Tg16`, shelf, `.pce` scan, explicit policy; joins dist and zip-check (patch 0058) |
+| 5 | 84, done | Core options, the scanline window (3 to 242) first (patch 0059) |
+| 6 | 85, done | SNES 360x240 canvas at 2x, TG16 Screen section with Shader and Picture rows, Crop by default (no PAL Speed) (patch 0058) |
+| 7 | 86, done | Backup RAM through the standard `.sav`, a 2 KB `.sav` per game accepted; TurboCD out of scope (patch 0060) |
+| 8 | 87, done | II, I, Select, Run, X and Y turbo; Select+Run soft reset kept (patch 0061) |
+| 9 | 89, done | HuCard art, labels for ScreenScraper id 31 (patch 0062, tools/fetch-labels.py) |
+| 10 | 90 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)
 

@@ -26,6 +26,7 @@ set adds more shelves the same way:
 | Master System | `Games/SMS` (`.sms`) | Genesis Plus GX (2x) | none yet |
 | Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
 | PlayStation (planned, not shipped) | `Games/PS1` (`.chd`, `.cue`, `.pbp`, `.m3u`) | pcsx_rearmed | none |
+| TurboGrafx-16 and PC Engine (device gate pending) | `Games/TG16` (`.pce`) | Beetle PCE Fast (2x) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -36,6 +37,14 @@ are the NES and SNES retro list, stored in `Config/sega_shaders.txt`, not in `sl
 PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A device spike on the
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
+
+TurboGrafx-16 and PC Engine HuCards (Phase 10, ADR 0091, issue 81, patches 0057 to 0063) play like
+Game Gear: B is II, A is I, START is Run, SELECT reaches the game after slot's chord hold (so
+Select+Run is the console's own soft reset), X and Y are turbo I and II, and L1 and R1 are the picture.
+The Screen section has Shader (the retro list, in `Config/tg16_shader.txt`) and Picture (Crop by
+default, 8 lines off the top and bottom, then Stretch, which follows a game's wider dot clock, and
+Actual); there is no PAL Speed row. Every HuCard keeps a 2 KB `.sav` of the core's backup RAM. No BIOS
+is needed. CD games and SuperGrafx are out of scope. The device gate (issue 90) is still open.
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
