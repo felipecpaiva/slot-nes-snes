@@ -432,6 +432,19 @@ class Update(Base):
         self.assertEqual(r, 1)
         self.assertEqual(self.tree(self.tmp), before)
 
+    def test_a_neogeo_pocket_flash_save_is_copied_like_a_sav(self):
+        class Card:
+            def exists(self, p):
+                return p == "Saves/NGP/Pocket.flash"
+
+            def names(self, p):
+                return []
+
+            def isdir(self, p):
+                return False
+        self.assertEqual(hk.card_items(Card(), "NGP", "Pocket", "Pocket.ngc"),
+                         [("Games/NGP/Pocket.ngc", "move"), ("Saves/NGP/Pocket.flash", "copy")])
+
     def test_missing_base_is_refused(self):
         os.remove(os.path.join(self.lib, "gba", "Base (USA).gba"))
         before = self.tree(self.tmp)

@@ -570,7 +570,7 @@ def seated(card, system, stem):
 def card_items(card, system, stem, rom):
     """[(card path, how)] of one game: the ROM and its state folders move, the battery saves are copied."""
     items = [(f"Games/{system}/{rom}", "move")]
-    items += [(f"Saves/{system}/{stem}{e}", "copy") for e in (".sav", ".srm", ".disc")
+    items += [(f"Saves/{system}/{stem}{e}", "copy") for e in (".sav", ".srm", ".disc", ".flash")
               if card.exists(f"Saves/{system}/{stem}{e}")]
     items += [(f"States/{system}/{core}/{stem}", "move") for core in card.names(f"States/{system}")
               if card.isdir(f"States/{system}/{core}/{stem}")]

@@ -109,7 +109,12 @@ SYSTEMS = {
     # PlayStation discs are not in a No-Intro dat; ScreenScraper id 57 per Skyscraper's platforms_idmap.csv
     # (Gemba/skyscraper ccd49ae, row "psx,57,6,10"). The extensions are the ones slot scans (patch 0034).
     "PS1": ("psx", {".cue", ".chd", ".pbp", ".m3u"}, [], 57),
+    # One shelf for both Neo Geo Pockets: the mono id here, the Color id from ss_id by the header byte. Ids
+    # ngp 25 and ngpc 82 per Skyscraper's platforms_idmap.csv at ccd49ae, dats from libretro-database
+    # metadat/no-intro (docs/research/ngp-plan.md section 6).
+    "NGP": ("ngp", {".ngp", ".ngc", ".ngpc"}, ["SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color"], 25),
 }
+NGP_COLOR_ID = 82
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
 MEDIA = {"SMS": "box-2D"}
@@ -308,7 +313,7 @@ class ScreenScraper:
         spit(png, body)
         return body
 
-    def label(self, system, crc, name, size):
+    def label(self, system, crc, name, size, sysid=None):
         kind = MEDIA.get(system, LABEL)
         # a box is cached apart from the label scans, so a scan cached before ADR 0057 is never served as a box
         d = os.path.join(self.ctx.cache, "ss", system, *([kind] if kind != LABEL else []))
@@ -321,7 +326,7 @@ class ScreenScraper:
             return b""
         try:
             self.spend()
-            data = self.call("jeuInfos.php", crc=crc, systemeid=SYSTEMS[system][3], romnom=name + ".bin",
+            data = self.call("jeuInfos.php", crc=crc, systemeid=sysid or SYSTEMS[system][3], romnom=name + ".bin",
                              romtaille=size or "")
             medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
             media = self.pick(medias, name, kind)
@@ -1276,6 +1281,16 @@ class Ctx:
         self.render = render_logo  # --logo-fallback's renderer, a seam for the tests
 
 
+def ss_id(system, rom):
+    """ScreenScraper system id for one ROM: a Neo Geo Pocket Color cart (header byte 0x23 is 0x10, the
+    byte Beetle NeoPop reads) asks under ngpc 82, everything else under the system's own id."""
+    if system == "NGP":
+        head = rom.read()[:0x24]
+        if len(head) == 0x24 and head[0x23] == 0x10:
+            return NGP_COLOR_ID
+    return SYSTEMS[system][3]
+
+
 def get_label(ctx, system, crc, rom, name):
     """(bytes or None). Never raises Stop; a stopped source is recorded and the next one tried."""
     path = ctx.art.get(crc)
@@ -1289,7 +1304,7 @@ def get_label(ctx, system, crc, rom, name):
         except Stop as e:
             ctx.art_off = str(e)
             print(f"  stopped using the art host: {e}. Rerun later; what is cached is kept.")
-    return ctx.ss.label(system, crc, name or rom.stem, rom.size)
+    return ctx.ss.label(system, crc, name or rom.stem, rom.size, ss_id(system, rom))
 
 
 def process(ctx, system, roms, have, out, dat, args):
