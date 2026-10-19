@@ -112,3 +112,4 @@ the patch set looks the way it does.
 | [0093](0093-lynx-on-beetle-lynx.md) | Bring Atari Lynx into scope on pinned Beetle Lynx, with a BIOS check, our own rotation and pacing from the game's real frame rate | Accepted (Beetle Lynx; Handy rejected for now). Amends 0002 | 2026-10-18 |
 | [0094](0094-ngp-flash-staged-checked-published.md) | Keep NGP cart flash safe: a staging save dir, a check before load, an atomic publish and a flush by reload | Accepted | 2026-10-19 |
 | [0096](0096-sega-32x-on-picodrive.md) | Bring Sega 32X into scope on pinned PicoDrive, a shelf of its own beside an unchanged Mega Drive | Accepted. Amends 0002 | 2026-10-20 |
+| [0095](0095-atari-2600-and-7800-on-stella2014-and-prosystem.md) | Bring Atari 2600 and 7800 into scope on pinned Stella 2014 and ProSystem, built the NES and SNES way | Accepted. Amends 0002 | 2026-10-19 |

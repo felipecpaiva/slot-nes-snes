@@ -519,6 +519,91 @@ the libretro C ABI, the zip an aggregate of separate works. This is our reading,
 core is plain C and links only `libc` and `libm` on the device (`log` and `pow` bound to their GLIBC_2.17
 versions, ADR 0096). The notice under snes9x names PicoDrive, and the release terms do not change: the
 zip is never sold and never carries a donation or sponsor link.
+## Stella 2014 (Atari 2600)
+
+Checked at commit `7d1361e407e63f29e52892655069e5fb4096e691` of libretro/stella2014-libretro, the
+commit `SLOT_PIN` pins as `stella2014_commit` (tarball sha256 `stella2014_tarball_sha256`). It is
+built by `cores/stella2014/build.sh` for the Atari 2600 (ADR 0095) and is not in a release yet: it
+joins `dist:device` and `zip-check.sh` with the 2600 platform patch (issue 126). Until then its
+licence texts stay in `cores/stella2014/` and move to `licenses/` when the core ships (the Genesis
+Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release):
+
+- `stella2014-GPL-2.0.txt`, the tree's `stella/license.txt` verbatim and whole (the GPL-2.0 text);
+- `stella2014-Copyright-3.9.3.txt`, Stella's own `Copyright.txt` at tag `release-3.9.3`
+  (stella-emu/stella, tag object `8ab9090`), verbatim: "either version 2 of the License, or any later
+  version", with the BSD notice for Aaron Giles' MAME-derived portions. The libretro fork is Stella
+  3.9.3 (`STELLA_VERSION` in `stella/src/common/Version.hxx`) and does not carry this file, so we ship
+  it.
+
+**The combined core we will ship is GPL-3.0-or-later**, as below. This rests on the upstream grant,
+not on any file in the tree; if that reading were ever disputed, current libretro Stella (whose own
+`Copyright.txt` makes the same grant) is the fallback (ADR 0095).
+
+- Scope of the counts: the 195 `.c`, `.h`, `.cxx`, `.hxx` and `.ci` files under `stella/` plus
+  `libretro.cxx`, `libretro_core_options.h` and `libretro_core_options_intl.h` at the root, 198 files.
+  - 187 carry the Stella header ("Copyright (c) 1995-2014 by Bradford W. Mott, Stephen Anthony and
+    the Stella Team. See the file "License.txt""). None says "any later version" and none says
+    version 2 only.
+  - Of those, `stella/src/common/Array.hxx` is "Based on code from ScummVM" (GPL-2.0-or-later
+    upstream) and `stella/src/emucore/MD5.cxx` is "derived from the RSA Data Security, Inc. MD5
+    Message-Digest Algorithm", whose notice permits derived works that say so (it does).
+  - Command, run in the unpacked source root: `{ find stella -type f \( -name '*.c' -o -name '*.h' -o
+    -name '*.cxx' -o -name '*.hxx' -o -name '*.ci' \); ls libretro.cxx libretro_core_options.h
+    libretro_core_options_intl.h; } | xargs grep -l 'See the file "License.txt"' | wc -l` (187), and
+    the same with `-i 'any later version'` (0).
+- **Headerless files, a judgement.** 11 have no licence text in their first 60 lines, listed in
+  `cores/stella2014/stella2014-headerless-files.txt` with the command. They are the libretro glue
+  (`libretro.cxx` and the two options headers), `stella/stubs/Stubs.hxx`, the CDF and BUS cart types
+  backported from Stella 7 (GPL-2.0-or-later by Stella's current `Copyright.txt`) and the C
+  Thumbulator, a reshaping of the original that Stella 3.9.3 marks "Code is public domain and used
+  with the author's consent" (David Welch, modified by Fred Quimby). We treat them as covered by the
+  GPL text and the 3.9.3 grant. That is a judgement, not a quote.
+- `libretro-common/`: the objects the pinned `Makefile.common` links (`compat/*`, `encodings`,
+  `file/file_path` and `file_path_io`, `time/rtime`, `streams/file_stream` and `_transforms`,
+  `string/stdstring`, `vfs/vfs_implementation`) carry the RetroArch team's MIT text. The zlib headers
+  under `include/compat` are not compiled in.
+- The test programs under `test/` are not built into the core.
+- The core is C++. The device build links the C++ runtime statically and needs only `libc.so.6` at
+  GLIBC_2.17, which `task core:device:stella2014` checks.
+- No BIOS exists for the 2600; nothing is fetched.
+
+## ProSystem (Atari 7800)
+
+Checked at commit `8a88014287c7a01cd568067e5a557d0a2b2a051f` of libretro/prosystem-libretro, the
+commit `SLOT_PIN` pins as `prosystem_commit` (tarball sha256 `prosystem_tarball_sha256`). It is built
+by `cores/prosystem/build.sh` for the Atari 7800 (ADR 0095) and is not in a release yet: it joins
+`dist:device` and `zip-check.sh` with the 7800 platform patch (issue 133). Until then its licence
+texts stay in `cores/prosystem/`:
+
+- `prosystem-GPL-2.0.txt`, the root `License.txt` verbatim and whole;
+- `prosystem-CoreTone-zlib.txt`, `bupboop/License.txt` verbatim: the zlib licence of CoreTone
+  (Copyright (C) 2015 - 2016 Osman Celimli). Its condition 3 ("This notice may not be removed") needs
+  it shipped.
+
+**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it.
+
+- Scope of the counts: the 44 `.c` and `.h` files under `core/` and `bupboop/` (every
+  source the pinned `Makefile.common` compiles there, and their headers).
+  - 31 say "any later version": Greg Stanton's GPL-2.0-or-later header (2005), on every emulator file.
+  - 9 are CoreTone's (`bupboop/types.h` and `bupboop/coretone/*`, Osman Celimli): `coretone.c` holds
+    the zlib text, 7 point to it ("see copyright notice in coretone.c") and `types.h` points to a
+    `bupboop.h` the tree lacks; `bupboop/License.txt` is the same zlib text.
+  - `core/boolean.h` is the RetroArch team's MIT text.
+  - No file says version 2 only. `License.txt`'s "any later version" lines are the GPL's own
+    how-to-apply appendix, not a grant; the grant is the file headers.
+  - Command, run in the unpacked source root: `find core bupboop -type f \( -name '*.c' -o -name
+    '*.h' \) | xargs grep -il 'any later version' | wc -l` (31), and the same with `-l 'Osman
+    Celimli'` (9).
+- **Headerless files, a judgement.** 3: `core/libretro.c` (the glue) and the two options headers,
+  listed in `cores/prosystem/prosystem-headerless-files.txt`. We treat them as covered by
+  `License.txt`.
+- `libretro-common/`: the linked objects carry the RetroArch team's MIT text.
+- The core is plain C. CoreTone calls `pow`, so the device build force-includes
+  `cores/prosystem/glibc-2.17.h` (one `.symver` line, ours) to bind `pow@GLIBC_2.17`; the `.so` needs
+  `libc.so.6` and `libm.so.6` at GLIBC_2.17, which `task core:device:prosystem` checks.
+- **No BIOS is shipped, fetched or needed to build.** The core uses the player's own
+  `7800 BIOS (U).rom` or `(E)` from `BIOS/` only when the BIOS row is On (issue 135). The tests read
+  one only from `SLOT_7800_BIOS`.
 
 ## NES and SNES screen shaders
 
@@ -662,3 +747,7 @@ Patch `0080-ngp-core-tests` builds its synthetic NeoGeo Pocket Color cart (the S
 address at 0x1c, the colour byte at 0x23 and a `jr t,-2` spin) after nelynes/slotPlus's
 `crates/slot/tests/ngp_core.rs` ([a8eae4c](https://github.com/nelynes/slotPlus/commit/a8eae4c),
 GPL-3.0). The paint and flash-command code is new. The fork is credited in the patch commit.
+Patch `0060-atari-core-tests` builds its Atari 2600 test cart in the shape of the ROM in
+stella2014-libretro's own `test/determinism_harness.c` (a VSYNC kernel writing COLUBK), and its 7800
+cart from the register map in ProSystem's `core/Equates.h`. Both are generated bytes in a test, never
+shipped; the code and the checks are new.
