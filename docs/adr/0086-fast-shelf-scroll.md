@@ -36,6 +36,13 @@ about 20 carts a second at best. A full NES or SNES set is 700 carts or more. ma
   Fast or trailing, `browsed_rom` is None, so upstream's prefetch (an 8 MB read of the selected GBA
   ROM after 500 ms on one cart) never competes with the face reads. When the trail ends, upstream's
   behaviour is back: visible faces are waited for and the selected ROM is prefetched.
+- Fast or trailing, upstream's core picker prebuild is held back too (`App::stem_to_prebuild`, one
+  token in `frontend::sync_core_picker`). Upstream builds the selected cart's interior, board and
+  lid faces on its `slot-faces` thread at every selection change and uploads the three textures
+  when one finishes for the cart still selected. On the host, a 10 s fast hold over 1014 GBA carts
+  asked for 192 such builds and uploaded 35 sets on the frame; with the hold-back, 32 and 6, all
+  outside the fast part. The core picker still gets its faces: they are asked for once the trail
+  ends, or at once if the picker is opened.
 - Once a fast hold is let go and the row has settled (within 0.05 carts of the selection), the
   device loop logs one line:
   `slot: fast scroll: 412 frames, p50 16.72 p99 17.10 max 18.20 ms, period 16.72 ms, 380 with a placeholder, 0 empty`.
@@ -59,6 +66,11 @@ about 20 carts a second at best. A full NES or SNES set is 700 carts or more. ma
   The long frames were the release waiting for the visible faces, which the trail above removes.
   The log line now runs to the end of the trail, so a late face shows as placeholder frames rather
   than as a long frame.
+- Second device run (same shelf, with the trail): Left 6 s p99 17.45 (pass); Right 10 s p99 28.5
+  to 38.9, max 34 to 91, with placeholders on nearly every frame, so the long frames came during
+  the hold. A host profile of the same hold showed the main thread idle and upstream's `slot-faces`
+  thread busy about two thirds of the time decoding covers for the core picker, whose results were
+  also uploaded on the frame; that is what the hold-back above removes.
 - Generic, so it is an upstream candidate (ADR 0047), credited to marghost and stevolarn.
 - Ported onto upstream main 1b20432 (ADR 0083) with no conflict: `Shelf::tick`, `Shelf::update` and
   `App::face_wants` are unchanged there. Upstream's remapping does not reach this path: Left and Right
