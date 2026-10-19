@@ -58,7 +58,7 @@ builder() {
 	else
 		image=rust:1-bullseye
 		digest="$(docker image inspect --format '{{index .RepoDigests 0}}' $image 2>/dev/null ||
-			{ docker pull -q $image >/dev/null && docker image inspect --format '{{index .RepoDigests 0}}' $image; })"
+			{ docker pull -q --platform linux/arm64 $image >/dev/null && docker image inspect --format '{{index .RepoDigests 0}}' $image; })"
 		echo "$image $digest"
 	fi
 }

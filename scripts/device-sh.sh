@@ -17,7 +17,7 @@ if [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
 else
 	root="$(cd "$(dirname "$0")/.." && pwd)"
 	if [ -n "${DEVICE_ROOT:-}" ]; then
-		docker run --rm -e HOME=/root -e DEVICE_CMD="$1" -e OWNER="$(id -u):$(id -g)" \
+		docker run --rm --platform linux/arm64 -e HOME=/root -e DEVICE_CMD="$1" -e OWNER="$(id -u):$(id -g)" \
 			-v "$root":/src -w /src rust:1-bullseye sh -c '
 			test -f /src/scripts/device-sh.sh || {
 				echo "repo path not visible inside docker; under colima keep the repo under your home directory" >&2
@@ -29,7 +29,7 @@ else
 			'
 		exit
 	fi
-	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e CORE_BUILDER \
+	docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -e HOME=/tmp -e CORE_BUILDER \
 		-v "$root":/src -w /src rust:1-bullseye sh -c '
 		test -f /src/scripts/device-sh.sh || {
 			echo "repo path not visible inside docker; under colima keep the repo under your home directory" >&2

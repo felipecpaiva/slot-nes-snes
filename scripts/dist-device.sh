@@ -53,7 +53,7 @@ check_gpsp_tarball() {
 		exit 1
 	}
 	for f in "$root/vendor/gpsp-src.tar.gz" "$root/$dist/System/licenses/gpsp-$gc.tar.gz"; do
-		got="$(shasum -a 256 "$f" 2>/dev/null | cut -d' ' -f1)"
+		got="$(file_sha256 "$f" 2>/dev/null)"
 		[ "$got" = "$gpsp_tarball_sha256" ] || {
 			rm -rf "$root/$dist" "$root"/vendor/gpsp_libretro.so* "$root"/vendor/gpsp-src.*
 			echo "slot-nes-snes: ${f#"$root"/} has sha256 '$got', SLOT_PIN gpsp_tarball_sha256 wants $gpsp_tarball_sha256 (gpSP $gc), removed the dist tree and the gpSP cache" >&2
@@ -91,7 +91,7 @@ build() {
 	for p in "$root"/patches/*.patch; do
 		cp "$p" "$sys/licenses/slot-nes-snes-$(basename "$p")"
 	done
-	(cd "$sys" && shasum -a 256 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
+	(cd "$sys" && $(command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256) mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
 		nestopia_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so \
 		pcsx_rearmed_libretro.so >licenses/cores.sha256)
 	echo "device tree ready at $dist"

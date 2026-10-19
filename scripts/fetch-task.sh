@@ -16,7 +16,7 @@ version="$(sed -n 's/^task = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' 
 	exit 1
 }
 
-sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+sha256() { file_sha256 "$1"; }
 
 dir="$root/build/task-linux/v$version-$task_linux_arm64_sha256"
 tgz="$dir/task_linux_arm64.tar.gz"
