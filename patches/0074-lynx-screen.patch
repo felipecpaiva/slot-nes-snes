@@ -1,0 +1,261 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 10:58:05 +0400
+Subject: [PATCH] lynx-screen
+
+The Lynx picture is 160x102 in the middle of its 240x160 canvas. Actual
+shows it at 4x, 640x408 in the middle of the 720x480 panel, the only
+system where 4x fits: Platform::actual_scale gives Lynx a 180x120
+window of the canvas (the fork's numbers), every other system keeps its
+Actual rect. Stretch fills the panel with the 160x102 picture. Actual
+is the default in Config/picture.txt and there is no Crop (no
+overscan).
+---
+ crates/slot-store/src/platform_policy.rs |  17 +++
+ crates/slot/src/video_mode.rs            |  18 ++-
+ crates/slot/tests/lynx_screen.rs         | 174 +++++++++++++++++++++++
+ 3 files changed, 208 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/tests/lynx_screen.rs
+
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index e914406..946094b 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -243,4 +243,21 @@ impl Platform {
+             | Platform::Lynx => true,
+         }
+     }
++
++    pub fn actual_scale(self) -> Option<u32> {
++        match self {
++            Platform::Lynx => Some(4),
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Tg16
++            | Platform::Ws => None,
++        }
++    }
+ }
+diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
+index 5bae6c1..541a4f1 100644
+--- a/crates/slot/src/video_mode.rs
++++ b/crates/slot/src/video_mode.rs
+@@ -54,7 +54,10 @@ pub fn source_rect(
+ ) -> [f32; 4] {
+     let (canvas_w, canvas_h) = canvas;
+     if mode == VideoMode::Actual {
+-        return actual_rect(canvas);
++        return match platform.actual_scale() {
++            Some(scale) => window_rect(canvas, (OUT_W / scale, OUT_H / scale)),
++            None => actual_rect(canvas),
++        };
+     }
+     if mode == VideoMode::FourThree {
+         return crate::platform_video::four_three_rect((w, h), canvas);
+@@ -80,6 +83,19 @@ pub fn source_rect(
+     ]
+ }
+ 
++fn window_rect((canvas_w, canvas_h): (u32, u32), (w, h): (u32, u32)) -> [f32; 4] {
++    if canvas_w == 0 || canvas_h == 0 {
++        return WHOLE_TEXTURE;
++    }
++    let (cw, ch) = (canvas_w as f32, canvas_h as f32);
++    [
++        (cw - w as f32) / 2.0 / cw,
++        (ch - h as f32) / 2.0 / ch,
++        w as f32 / cw,
++        h as f32 / ch,
++    ]
++}
++
+ fn actual_rect((canvas_w, canvas_h): (u32, u32)) -> [f32; 4] {
+     let panel_w = canvas_h * OUT_W / OUT_H;
+     if canvas_w == 0 || panel_w <= canvas_w {
+diff --git a/crates/slot/tests/lynx_screen.rs b/crates/slot/tests/lynx_screen.rs
+new file mode 100644
+index 0000000..a7b4989
+--- /dev/null
++++ b/crates/slot/tests/lynx_screen.rs
+@@ -0,0 +1,174 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{
++    default_video_mode, picture_choices, shown, system_picture, PICTURE_FILE,
++};
++use slot::video_mode::{source_rect, VideoMode};
++use slot_gfx::{OUT_H, OUT_W};
++use slot_input::{Action, Btn};
++use slot_store::{Core, Platform, Shader, LYNX_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_cart() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let dir = root.path().join("Games/Lynx");
++    std::fs::create_dir_all(&dir).unwrap();
++    std::fs::write(dir.join("Klax.lnx"), [0u8; 16]).unwrap();
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_lynx(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenLynx.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenLynx));
++    press(app, Btn::A);
++}
++
++fn on_panel(rect: [f32; 4], (x, y, w, h): (u32, u32, u32, u32)) -> [f32; 4] {
++    let (cw, ch) = Core::MednafenLynx.canvas_f32(Platform::Lynx, false);
++    let (sx, sy) = (OUT_W as f32 / (rect[2] * cw), OUT_H as f32 / (rect[3] * ch));
++    [
++        (x as f32 - rect[0] * cw) * sx,
++        (y as f32 - rect[1] * ch) * sy,
++        w as f32 * sx,
++        h as f32 * sy,
++    ]
++    .map(f32::round)
++}
++
++#[test]
++fn lynx_closes_the_screen_list_and_opens_its_own_section() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenLynx));
++    assert_eq!(QuickRow::ScreenLynx.label(), "Lynx");
++    assert!(QuickRow::ScreenLynx.opens());
++    assert_eq!(QuickRow::ScreenLynx.child(), Some(QuickRow::LynxShader));
++    assert_eq!(
++        QuickRow::SCREEN_LYNX,
++        [QuickRow::LynxShader, QuickRow::LynxPicture]
++    );
++    for row in QuickRow::SCREEN_LYNX {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenLynx));
++    }
++    assert!(!QuickRow::PLAY_SCREEN.contains(&QuickRow::LynxShader));
++}
++
++#[test]
++fn the_lynx_row_shows_only_on_a_card_with_lynx_games() {
++    let (_root, mut app) = card_with_a_cart();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenLynx));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    assert!(boot(root.path())
++        .hidden_rows()
++        .contains(&QuickRow::ScreenLynx));
++    open_lynx(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::LynxShader));
++}
++
++#[test]
++fn actual_shows_the_lynx_picture_at_4x_640_by_408_in_the_middle_of_the_panel() {
++    let canvas = Core::MednafenLynx.canvas(Platform::Lynx);
++    assert_eq!(canvas, (240, 160));
++    let mode = VideoMode::Actual;
++    let rect = source_rect(
++        Platform::Lynx,
++        shown(Platform::Lynx, 160, mode),
++        canvas,
++        mode,
++    );
++    assert_eq!(rect, [0.125, 0.125, 0.75, 0.75]);
++    assert_eq!(
++        on_panel(rect, (40, 29, 160, 102)),
++        [40.0, 36.0, 640.0, 408.0]
++    );
++}
++
++#[test]
++fn stretch_fills_the_panel_with_the_lynx_picture() {
++    let canvas = Core::MednafenLynx.canvas(Platform::Lynx);
++    let mode = VideoMode::Stretch;
++    let rect = source_rect(
++        Platform::Lynx,
++        shown(Platform::Lynx, 160, mode),
++        canvas,
++        mode,
++    );
++    assert_eq!(on_panel(rect, (40, 29, 160, 102)), [0.0, 0.0, 720.0, 480.0]);
++}
++
++#[test]
++fn no_other_system_changes_its_actual_picture() {
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            platform.actual_scale().is_some(),
++            platform == Platform::Lynx,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn the_lynx_picture_starts_actual_and_offers_stretch_but_no_crop() {
++    assert_eq!(default_video_mode(Platform::Lynx), VideoMode::Actual);
++    assert_eq!(
++        picture_choices(Platform::Lynx),
++        [VideoMode::Stretch, VideoMode::Actual]
++    );
++    let (root, mut app) = card_with_a_cart();
++    open_lynx(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::LynxPicture));
++    assert_eq!(
++        app.quick_value(QuickRow::LynxPicture),
++        Some(QuickValue::Actual)
++    );
++    for want in [VideoMode::Stretch, VideoMode::Actual, VideoMode::Stretch] {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        assert_eq!(
++            app.quick_value(QuickRow::LynxPicture),
++            Some(want.quick_value())
++        );
++        assert_eq!(system_picture(root.path(), Platform::Lynx), want);
++    }
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "lynx = stretch\n"
++    );
++}
++
++#[test]
++fn the_lynx_shader_walks_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_lynx(&mut app);
++    assert_eq!(app.quick_value(QuickRow::LynxShader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(slot_store::read_sega_shaders(root.path()).lynx);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(LYNX_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/sega_shaders.txt").exists());
++    assert!(!root.path().join("Config/ps1_shader.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}

@@ -421,6 +421,32 @@ class Sega(Base):
         self.assertEqual(f"{rom.whole() & 0xffffffff:08X}", crc(raw))
 
 
+class Lynx(Base):
+    ss_http = NesSnes.ss_http
+    run_ss = NesSnes.run_ss
+
+    def test_lynx_names_its_library_folder_dat_and_screenscraper_id(self):
+        self.assertEqual(fl.SYSTEMS["Lynx"], ("atarilynx", {".lnx", ".lyx"}, ["Atari - Lynx"], 28))
+        self.assertNotIn("Lynx", fl.ART_SYSTEMS)
+
+    def test_a_lnx_cart_is_hashed_without_its_header(self):
+        body = b"lynx-body" * 1000
+        self.rom("Lynx", "Klax.lnx", b"LYNX" + bytes(60) + body)
+        r = self.dat("Lynx", ("Klax (USA, Europe)", crc(body)))
+        stats = self.run_ss("Lynx", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "Lynx"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("Lynx", "Klax"), PNG)
+        self.assertFalse(os.path.exists(os.path.join(self.card, "Labels", "cart_shell.txt")))
+        self.assertTrue(any("systemeid=28" in c for c in self.http.calls))
+
+    def test_a_headerless_lyx_is_hashed_whole(self):
+        raw = b"l" * 0x20000
+        self.rom("Lynx", "Lexis.lyx", raw)
+        r = self.dat("Lynx", ("Lexis (USA)", crc(raw)))
+        stats = self.run_ss("Lynx", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "Lynx"])
+        self.assertEqual(stats["written"], 1)
+
+
 class ArtHost(Base):
     def routes(self, **extra):
         index = {"AAAAAAAA": {"support-texture": "GBA/support-texture/AAAAAAAA.png"}}
