@@ -27,6 +27,7 @@ set adds more shelves the same way:
 | Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
 | PlayStation (planned, not shipped) | `Games/PS1` (`.chd`, `.cue`, `.pbp`, `.m3u`) | pcsx_rearmed | none |
 | TurboGrafx-16 and PC Engine (device gate pending) | `Games/TG16` (`.pce`) | Beetle PCE Fast (2x) | none |
+| WonderSwan and WonderSwan Color (device gate pending) | `Games/WS` (`.ws`, `.wsc`) | Beetle Cygne (3x, vertical games 2x) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -45,6 +46,15 @@ The Screen section has Shader (the retro list, in `Config/tg16_shader.txt`) and 
 default, 8 lines off the top and bottom, then Stretch, which follows a game's wider dot clock, and
 Actual); there is no PAL Speed row. Every HuCard keeps a 2 KB `.sav` of the core's backup RAM. No BIOS
 is needed. CD games and SuperGrafx are out of scope. The device gate (issue 90) is still open.
+WonderSwan and WonderSwan Color are in the patch set (Phase 11, ADR 0092, issue 91, patches 0064 to
+0069); the device gate (issue 99) is still to run. No BIOS is needed and saves are ordinary `.sav`
+files in `Saves/WS`. Horizontal games are drawn at 3x, vertical ones upright at 2x, read from the
+cart's own footer. The game runs in the core's 60 Hz mode by default; the WonderSwan Screen section's
+Refresh row switches to the native 75 Hz, from the next game. Controls on a horizontal game: the
+D-pad is the X pad, A and B are A and B, X and Y are turbo A and B, L held turns the D-pad into the Y
+pad and R held turns the face buttons into it. On a vertical game the D-pad is the Y pad, the face
+buttons the X pad and L and R are A and B; a SELECT tap turns the game sideways and back. Carts are
+black for WonderSwan games and clear for Color ones; labels come from ScreenScraper (ids 45 and 46).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
@@ -178,6 +188,7 @@ are GPL-2.0-or-later. **snes9x, snes9x2005_plus and Genesis Plus GX are not GPL*
 non-commercial use only. Builds that include them ship their licence files
 (`System/licenses/snes9x-LICENSE.txt`, `System/licenses/snes9x2005-LICENSE.txt`,
 `System/licenses/genesis_plus_gx-LICENSE.txt`) and must never be sold or bundled with anything sold.
+Beetle Cygne (WonderSwan) is GPL-2.0-or-later; its NEC V30MZ emulator is by Bryan McPhail.
 See [LICENSING.md](LICENSING.md).
 
 ## Credit
