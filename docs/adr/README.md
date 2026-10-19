@@ -101,4 +101,6 @@ the patch set looks the way it does.
 | [0082](0082-rom-hack-updates-keep-saves-move-states.md) | A ROM hack update keeps the name and the battery save, and moves every save state away | Accepted | 2026-10-18 |
 | [0083](0083-rebase-to-slot-main-1b20432.md) | Rebase the patch set onto slot main 1b20432 (the coming 1.8.0) | Accepted | 2026-10-18 |
 | [0084](0084-keep-a-crashed-start-on-the-shelf.md) | Keep a cart whose last start never finished on the shelf | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
+| [0085](0085-cpu-governor-user-option.md) | Offer the CPU governor as a General row, Performance by default | Accepted. Site (j) approved | 2026-10-18 |
+| [0086](0086-fast-shelf-scroll.md) | Hold to scroll a long shelf 3 carts at a time, drawing placeholders instead of waiting for faces | Proposed. Needs device measurement | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |
