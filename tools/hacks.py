@@ -10,6 +10,7 @@
     python3 tools/hacks.py --device --library ~/ROMS --add castlevania-2-retranslation --dry-run  # a new hack, new file
     python3 tools/hacks.py --device --init                                    # write the user settings file
     python3 tools/hacks.py --library ~/ROMS --fix-library-zips --dry-run      # unzip updated hacks' library copies
+    python3 tools/hacks.py --device --migrate-backups --dry-run               # card backups -> the backups folder
 
 Registry: tools/hacks.json (the researched seed) with the user's ~/.config/slot-nes-snes/hacks.json read on
 top: an entry with a seed id overrides those fields, a new id adds a hack (it needs system, card, source).
@@ -38,11 +39,16 @@ Any mismatch refuses. Then, on the card (ADR 0082):
     backup.json listing them;
   - the new ROM is written under the SAME file name, so labels, cart_shell, video_mode, selected_core,
     favourites, recents and the shelf memory stay attached.
+  - with the settings file's "backups" (or --backups) set to a folder instead of "card", the backup goes
+    to <folder>/<SYS>/<stem>/<stamp>_<old version>/: every file is copied there and checked (size and
+    CRC32), and only then are the old ROM and states removed from the card. An unreachable folder refuses
+    (never a silent fall back to the card); --backups card keeps one run's backup on the card.
+    --migrate-backups moves the card's Backups/hacks/ there the same way.
 The library copy gets the same: the old file is moved to ~/ROMHacks/backups/<SYS>/<stem>/<label>/ and the
 new ROM is written loose (slot reads no zip): a zip comes back as its member's name, never beside a loose
 copy. --fix-library-zips does that for hacks updated while the library copy stayed a zip. The library is the muOS card: its RetroArch
 <stem>.state* and .srm files are left alone (a note says old states there may not load). Nothing is
-deleted anywhere.
+deleted anywhere, except a card copy whose copy in the off-card backups folder has checked.
 --rollback <id> moves the current ROM, saves and states into a new backup and copies the newest update
 backup back, on the card and in the library.
 """
@@ -78,6 +84,7 @@ SOURCE = re.compile(r"github:[\w.-]+/[\w.-]+|page:https?://\S+|manual(:https?://
 FORMATS = {"bps", "ips", "ups", "xdelta", "ppf", "rom", "unknown"}
 FIELDS = {"name", "system", "card", "source", "asset", "version_regex", "format", "base_name", "base_crc32",
           "target_crc32", "saves_carry_over", "save_note", "latest_known", "home", "cite", "notes", "status", "library"}
+SETTINGS = {"backups"}  # keys of the user file that are tool settings, not hack ids
 HOUR = 3600
 CHALLENGE = re.compile(r"Anubis|Making sure you're not a bot|cf-chl|Just a moment\.\.\.", re.I)
 GITHUB_PAGE = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/?")
@@ -124,6 +131,8 @@ def load_registry(seed=SEED, user=None, warn=print):
     reg = {k: dict(v) for k, v in read_jsonc(seed).items()}
     extra = read_jsonc(user) if user and os.path.isfile(user) else {}
     for hid, fields in extra.items():
+        if hid in SETTINGS:
+            continue
         if not isinstance(fields, dict):
             warn(f"{user}: {hid} is not an object, ignored")
             continue
@@ -486,7 +495,18 @@ class LocalCard:
             return None
 
     def sizes(self, rel):
-        return {n: os.path.getsize(os.path.join(self.p(rel), n)) for n in self.names(rel)}
+        """{name: size} of the files (not folders) in rel."""
+        return {n: os.path.getsize(os.path.join(self.p(rel), n)) for n in self.names(rel)
+                if os.path.isfile(os.path.join(self.p(rel), n))}
+
+    def crc_size(self, rel):
+        return fl.file_crc(self.p(rel)), os.path.getsize(self.p(rel))
+
+    def remove(self, rel):
+        (shutil.rmtree if os.path.isdir(self.p(rel)) else os.remove)(self.p(rel))
+
+    def mkdir(self, rel):
+        os.makedirs(self.p(rel))
 
     def apply(self, op, src, dst):
         d = self.p(dst)
@@ -536,6 +556,16 @@ class AdbCard:
             rc, _ = self.run("pull", self.p(rel), local)
             return fl.slurp(local) if rc == 0 and os.path.isfile(local) else None
 
+    def crc_size(self, rel):
+        data = self.read(rel)
+        return (crc_hex(data), len(data)) if data is not None else None
+
+    def remove(self, rel):
+        self.sh(f"rm -r {shlex.quote(self.p(rel))}")
+
+    def mkdir(self, rel):
+        self.sh(f"mkdir -p {shlex.quote(self.p(rel))}")
+
     def sh(self, cmd):
         rc, out = self.run("shell", cmd)
         if rc != 0:
@@ -555,6 +585,110 @@ class AdbCard:
             self.sh(head + f"mv {shlex.quote(self.p(dst) + '.tmp')} {d}")
         else:
             self.sh(head + f"{'cp -r' if op == 'copy' else 'mv'} {shlex.quote(self.p(src))} {d}")
+
+
+def tree(side, rel):
+    """{sub path: size} of every file under rel ('' when rel is a file), through names and sizes only."""
+    if not side.isdir(rel):
+        size = side.sizes(os.path.dirname(rel)).get(os.path.basename(rel))
+        if size is None:
+            raise Refuse(f"{rel} is not there")
+        return {"": size}
+    out, sizes = {}, side.sizes(rel)
+    for n in side.names(rel):
+        if n in sizes:
+            out[n] = sizes[n]
+        else:
+            out.update({f"{n}/{k}" if k else n: v for k, v in tree(side, f"{rel}/{n}").items()})
+    return out
+
+
+def under(rel, sub):
+    return f"{rel}/{sub}" if sub else rel
+
+
+class Split:
+    """The card plus the Mac, for backups kept off the card: a card path is relative, a Mac path absolute.
+    A copy between the two goes file by file and checks each copy's size and CRC32 against the bytes it
+    read; a move between them is a copy, then a separate remove op once every copy has checked (ADR 0082)."""
+
+    def __init__(self, card):
+        self.card, self.mac = card, LocalCard("/")
+
+    def side(self, rel):
+        return self.mac if os.path.isabs(rel) else self.card
+
+    def exists(self, rel):
+        return self.side(rel).exists(rel)
+
+    def isdir(self, rel):
+        return self.side(rel).isdir(rel)
+
+    def names(self, rel):
+        return self.side(rel).names(rel)
+
+    def read(self, rel):
+        return self.side(rel).read(rel)
+
+    def sizes(self, rel):
+        return self.side(rel).sizes(rel)
+
+    def apply(self, op, src, dst):
+        if op == "remove":
+            return self.side(src).remove(src)
+        to = self.side(dst)
+        if op == "write" or self.side(src) is to:
+            return to.apply(op, src, dst)
+        if op != "copy":
+            raise Refuse(f"{op} between the card and the Mac: copy, check, then remove")
+        frm = self.side(src)
+        if to.exists(dst):
+            raise Refuse(f"{dst} already exists, refusing to overwrite it")
+        files = tree(frm, src)
+        if not files:  # an empty folder (a state folder with no states yet)
+            to.mkdir(dst)
+        for sub in files:
+            s, d = under(src, sub), under(dst, sub)
+            data = frm.read(s)
+            if data is None:
+                raise Refuse(f"could not read {s}")
+            to.apply("write", data, d)
+            if to.crc_size(d) != (crc_hex(data), len(data)):
+                raise Refuse(f"the copy {d} does not match {s} (size or CRC32): nothing removed")
+
+
+def same_files(a, ra, b, rb):
+    """True when rb holds exactly ra's files, each of the same size and CRC32."""
+    files = tree(a, ra)
+    return b.exists(rb) and tree(b, rb) == files and all(
+        a.crc_size(under(ra, f)) == b.crc_size(under(rb, f)) for f in files)
+
+
+def reach(root, dry):
+    """Refuse unless the off-card backup root can be written. A dry run only looks (nothing is created)."""
+    try:
+        if dry:
+            a = root
+            while not os.path.exists(a):
+                a = os.path.dirname(a)
+            ok = os.path.isdir(a) and os.access(a, os.W_OK)
+        else:
+            # ponytail: an unmounted Linux mount point is a plain folder and passes; /Volumes refuses it
+            os.makedirs(root, exist_ok=True)
+            tempfile.TemporaryFile(dir=root).close()
+            ok = True
+    except OSError:
+        ok = False
+    if not ok:
+        raise Refuse(f"the backup location {root} is not reachable (not mounted, or not writable): mount it, "
+                     "or rerun with --backups card to keep this run's backup on the card")
+
+
+def stem_dir(root, system, stem):
+    """<root>/<SYS>/<stem>, as an existing folder spells the stem (NFC or NFD) when there is one."""
+    folder = os.path.join(root, system)
+    names = os.listdir(folder) if os.path.isdir(folder) else []
+    return os.path.join(folder, next((n for n in names if fl.nfc(n) == fl.nfc(stem)), stem))
 
 
 def seated(card, system, stem):
@@ -805,44 +939,57 @@ def update_ops(items, bdir, to_backup, writes, meta):
     """Ops for one target: backup.json first, then the saves copied, the states and the ROM moved, the new
     ROM written last under the same name."""
     pairs = [(live, to_backup(live)) for live, _ in items]
-    ops = [("write", json.dumps(dict(meta, items=pairs), indent=2).encode(), f"{bdir}/backup.json")]
-    ops += [(how, live, to_backup(live)) for live, how in sorted(items, key=lambda x: x[1] != "copy")]
-    return ops + [("write", data, live) for data, live in writes]
+    info = [("write", json.dumps(dict(meta, items=pairs), indent=2).encode(), f"{bdir}/backup.json")]
+    ops, removes = [], []
+    for live, how in sorted(items, key=lambda x: x[1] != "copy"):
+        across = os.path.isabs(live) != os.path.isabs(bdir)  # card -> off-card backup: copy, check, remove
+        ops.append(("copy" if across else how, live, to_backup(live)))
+        if across and how == "move":
+            removes.append(("remove", live, None))
+    # off the card, backup.json comes after the checked copies: a backup that failed half way has none,
+    # so --rollback never picks it; on the card it comes first, so a half-done move can be rolled back
+    ops = ops + info if removes else info + ops
+    return ops + removes + [("write", data, live) for data, live in writes]
 
 
-def rollback_ops(target, current, base, to_backup_of, meta):
-    """Move what is there now into a new backup, then copy the newest update backup back."""
+def rollback_ops(target, current, bases, safety, to_backup_of, meta):
+    """Move what is there now into a new backup under safety, then copy the newest update backup found
+    under any of bases back. The saved paths are derived from where the backup is now (backup.json keeps
+    the paths of the day it was written; a migrated backup has moved)."""
     backups = []
-    for n in target.names(base):
-        info = target.read(f"{base}/{n}/backup.json")
-        try:
-            info = json.loads(info) if info else None
-        except ValueError:
-            info = None
-        if info and info.get("kind") == "update":
-            backups.append((n, info))
+    for base in dict.fromkeys(bases):
+        for n in target.names(base):
+            info = target.read(f"{base}/{n}/backup.json")
+            try:
+                info = json.loads(info) if info else None
+            except ValueError:
+                info = None
+            if info and info.get("kind") == "update":
+                backups.append((n, f"{base}/{n}", info))
     if not backups:
         raise Refuse("no update backup to roll back to")
-    name, info = max(backups, key=lambda b: b[0])
-    sdir = free_dir(target, base, f"{stamp()}_rollback")
+    name, found, info = max(backups, key=lambda b: b[0])
+    sdir = free_dir(target, safety, f"{stamp()}_rollback")
     ops = update_ops([(live, "move") for live, _ in current], sdir, to_backup_of(sdir), [], meta)
-    return ops + [("copy", saved, live) for live, saved in info["items"]], info
+    return ops + [("copy", to_backup_of(found)(live), live) for live, _ in info["items"]], info
 
 
 def show(ops, where):
     for op, a, b in ops:
         src = f"{len(a)} bytes" if isinstance(a, bytes) else a
-        print(f"    {where}: {op:<5} {src}  ->  {b}")
+        print(f"    {where}: {op:<5} {src}" + (f"  ->  {b}" if b else ""))
 
 
-def execute(target, ops, where):
-    """True when every op ran; else says which did and returns False."""
+def execute(target, ops, where, done=None):
+    """True when every op ran; else says which did and returns False. done, a list, gets each op that ran."""
     for n, (op, a, b) in enumerate(ops):
         try:
             target.apply(op, a, b)
+            if done is not None:
+                done.append(op)
         except (Refuse, OSError) as e:
-            print(f"  {where}: FAILED at op {n + 1} of {len(ops)} ({op} -> {b}): {e}")
-            print(f"  {where}: the {n} op(s) before it were done; nothing was deleted")
+            print(f"  {where}: FAILED at op {n + 1} of {len(ops)} ({op} -> {b or a}): {e}")
+            print(f"  {where}: the {n} op(s) before it were done; nothing that was not copied and checked was removed")
             return False
     return True
 
@@ -1093,6 +1240,8 @@ def plan_update(ctx, hid, h, args, card, state, bases=()):
             raise Refuse(f"the {where} is a clean base game ({crc}), never a hack target: fix `card`/`library`")
     if seated(card, system, stem):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
+    if args.backup_root:
+        reach(args.backup_root, args.dry_run)
     name, data, version = get_payload(ctx, hid, h, args.as_version)
     new = build(h, args.library, name, data)
     new_crc = crc_hex(new)
@@ -1102,8 +1251,8 @@ def plan_update(ctx, hid, h, args, card, state, bases=()):
     old = installed_version(state, hid, h)
     label = f"{stamp()}_{re.sub(r'[^A-Za-z0-9._-]', '_', old)}"
     meta = {"kind": "update", "hack": hid, "from": old, "from_crc32": old_crc, "to": version, "to_crc32": new_crc}
-    cbase = f"Backups/hacks/{system}/{stem}"
-    cdir = free_dir(card, cbase, label)
+    cbase = stem_dir(args.backup_root, system, stem) if args.backup_root else f"Backups/hacks/{system}/{stem}"
+    cdir = free_dir(Split(card), cbase, label)
     card_ops = update_ops(card_items(card, system, stem, rom), cdir, card_map(cdir), [(new, f"Games/{system}/{rom}")], meta)
     lib_ops, ldir, lname = library_ops(ctx, lib, system, stem, label, new, meta) if lib else ([], None, None)
     record = {"version": version, "crc32": new_crc, "date": time.strftime("%Y-%m-%d"), "card": rom,
@@ -1230,8 +1379,13 @@ def cmd_update(ctx, reg, ids, args, card):
         if not confirm(args, f"  apply {hid}?"):
             print("  skipped")
             continue
-        if not execute(card, card_ops, "card"):
-            print(f"  the card is half updated: run --rollback {hid} to put the old files back")
+        done = []
+        if not execute(Split(card), card_ops, "card", done):
+            if args.backup_root and "remove" not in done:
+                print(f"  the card is untouched; the partial copy in {record['backup']} has no backup.json, so "
+                      "--rollback ignores it")
+            else:
+                print(f"  the card is half updated: run --rollback {hid} to put the old files back")
             failed += 1
             continue
         state[hid] = record  # the card is what counts: record it before the library
@@ -1382,12 +1536,21 @@ def cmd_rollback(ctx, reg, hid, args, card):
         raise Refuse(f"{system}/{stem} is seated in slot (Config/slot.state cart=). Eject it first")
     meta = {"kind": "rollback", "hack": hid}
     current = [(live, how) for live, how in card_items(card, system, stem, rom) if card.exists(live)]
-    card_ops, info = rollback_ops(card, current, f"Backups/hacks/{system}/{stem}", card_map, meta)
+    # every place a backup of this game can be: the card, the backups setting, the state file's last one
+    bases, recorded = [f"Backups/hacks/{system}/{stem}"], (read_state(path).get(hid) or {}).get("backup") or ""
+    for root in [args.backup_root] + [os.path.dirname(os.path.dirname(os.path.dirname(recorded)))
+                                      if os.path.isabs(recorded) else None]:
+        if root:
+            reach(root, args.dry_run)
+            bases.append(stem_dir(root, system, stem))
+    safety = bases[1] if args.backup_root else bases[0]
+    card_ops, info = rollback_ops(Split(card), current, bases, safety, card_map, meta)
     lib_ops, local = [], LocalCard(args.library) if args.library else None
-    if local and os.path.isdir(os.path.join(ctx.home, "backups", system, stem)):
+    lbase = os.path.join(ctx.home, "backups", system, stem)
+    if local and os.path.isdir(lbase):
         t = library_target(args.library, h)
         cur = [(t[0], "move")] if t else []
-        lib_ops, _ = rollback_ops(local, cur, os.path.join(ctx.home, "backups", system, stem), lib_map, meta)
+        lib_ops, _ = rollback_ops(local, cur, [lbase], lbase, lib_map, meta)
     print(f"{hid}: back to {info.get('from')} ({info.get('from_crc32')})")
     show(card_ops, "card")
     show(lib_ops, "library")
@@ -1396,7 +1559,7 @@ def cmd_rollback(ctx, reg, hid, args, card):
         return
     if not confirm(args, f"  roll back {hid}?"):
         return
-    if not execute(card, card_ops, "card"):
+    if not execute(Split(card), card_ops, "card"):
         return 1
     if lib_ops and not execute(local, lib_ops, "library"):
         print("  WARNING: the card is rolled back but the library is not")
@@ -1407,12 +1570,56 @@ def cmd_rollback(ctx, reg, hid, args, card):
     print("  rolled back")
 
 
+def cmd_migrate(ctx, args, card):
+    """Move every backup in the card's Backups/hacks/ to the off-card backup root: each backup folder is
+    copied file by file, checked (size and CRC32), and only then removed from the card. A folder already
+    at the root with the same files is just removed from the card; one that differs is left alone."""
+    root, path = args.backup_root, os.path.join(ctx.config, "hacks-state.json")
+    if not root:
+        print("refused: the backups setting is the card; give --backups <folder> or set it in hacks.json")
+        return 1
+    reach(root, args.dry_run)
+    target, state, failed, plan = Split(card), read_state(path), 0, []
+    for system in card.names("Backups/hacks"):
+        for stem in card.names(f"Backups/hacks/{system}"):
+            for label in card.names(f"Backups/hacks/{system}/{stem}"):
+                src = f"Backups/hacks/{system}/{stem}/{label}"
+                plan.append((src, f"{stem_dir(root, system, stem)}/{label}", tree(card, src)))
+    for src, dst, files in plan:
+        there = " (already there: checked, then removed from the card if identical)" if os.path.exists(dst) else ""
+        print(f"  {src}  ->  {dst}  ({len(files)} file(s), {sum(files.values())} bytes){there}")
+        for hid, st in sorted(state.items()):
+            if fl.nfc(st.get("backup") or "") == fl.nfc(src):
+                print(f"    hacks-state.json: {hid} backup -> {dst}")
+    print(f"{len(plan)} backup(s), {sum(sum(f.values()) for _, _, f in plan)} bytes from the card to {root}")
+    if args.dry_run or not plan:
+        print("DRY RUN, nothing written" if args.dry_run else "nothing to migrate")
+        return 0
+    if not confirm(args, "move them?"):
+        return 0
+    for src, dst, _ in plan:
+        if os.path.exists(dst) and not same_files(card, src, target.mac, dst):
+            print(f"  {src}: {dst} exists with other files, left alone")
+            failed += 1
+            continue
+        ops = ([] if os.path.exists(dst) else [("copy", src, dst)]) + [("remove", src, None)]
+        if not execute(target, ops, "card"):
+            failed += 1
+            continue
+        for hid, st in state.items():
+            if fl.nfc(st.get("backup") or "") == fl.nfc(src):
+                st["backup"] = dst
+        write_state(path, state)
+        print(f"  moved {src}")
+    return failed
+
+
 # a GoodTools or No-Intro region tag: a retail dump or revision, not a hack (V1.1, Rev 2)
 REGION = re.compile(r"\((?:[JUEWFGSK]{1,3}|USA|Europe|Japan|World|Brazil|Korea|Unl|PD)(?:[,)]| )", re.I)
 HACKISH = re.compile(r"\bv\d+(\.\d+)+[a-z]?\b|\bhack\b|\b(redux|definitive|delta|remix)\b", re.I)
 
 
-def cmd_init(ctx, reg, card, library):
+def cmd_init(ctx, reg, card, library, backups="card"):
     """Write a commented example user settings file; never overwrite one."""
     path = os.path.join(ctx.config, "hacks.json")
     if os.path.exists(path):
@@ -1443,7 +1650,11 @@ def cmd_init(ctx, reg, card, library):
     if new and not card:
         new = []  # library names carry no extension; only a card listing gives the real file names
     lines.append("// Other files on the card that look like hacks, with a blank source to fill in:")
-    lines.append(",\n".join(new) if new else "// (none detected)")
+    lines.append(",\n".join(new + ['// where --update keeps the old version (rollback backups): "card" (the card\'s\n'
+                                    '// Backups/hacks/) or a mounted folder; --backups overrides it for one run\n'
+                                    f'  "backups": {json.dumps(backups)}']))
+    if not new:
+        lines.insert(-1, "// (none detected)")
     lines.append("}")
     os.makedirs(ctx.config, exist_ok=True)
     fl.spit(path, "\n".join(lines) + "\n", "w")
@@ -1470,6 +1681,11 @@ def main(argv=None, ctx=None):
     ap.add_argument("--accept-rename", action="store_true",
                     help="update although the card or library file name differs from the one recorded at install")
     ap.add_argument("--as-version", help="the version to record for a patch from the incoming folder")
+    ap.add_argument("--backups", metavar="card|DIR",
+                    help="where --update keeps the old version: the card, or a mounted folder (default: the "
+                         "settings file's backups, else card)")
+    ap.add_argument("--migrate-backups", action="store_true",
+                    help="move the card's Backups/hacks/ to the off-card backups folder, checked, then removed")
     args = ap.parse_args(argv)
     ctx = ctx or Ctx()
     if args.card and args.device:
@@ -1479,9 +1695,22 @@ def main(argv=None, ctx=None):
         AdbCard(ctx.adb or fl.adb_runner(), args.sd) if args.device else None
     if args.device:
         fl.Device(card.run, args.sd).check()
-    reg = load_registry(SEED, os.path.join(ctx.config, "hacks.json"))
+    user = os.path.join(ctx.config, "hacks.json")
+    reg = load_registry(SEED, user)
+    loc = args.backups or (read_jsonc(user) if os.path.isfile(user) else {}).get("backups") or "card"
+    if not isinstance(loc, str):
+        ap.error(f"{user}: backups must be \"card\" or a folder path")
+    args.backup_root = None if loc == "card" else os.path.abspath(os.path.expanduser(loc))
     if args.init:
-        return cmd_init(ctx, reg, card, args.library)
+        return cmd_init(ctx, reg, card, args.library, loc)
+    if args.migrate_backups:
+        if not card:
+            ap.error("--migrate-backups needs --card or --device")
+        try:
+            return cmd_migrate(ctx, args, card)
+        except Refuse as e:
+            print(f"refused: {e}")
+            return 1
     if args.fix_library_zips:
         if not args.library:
             ap.error("--fix-library-zips needs --library")

@@ -305,6 +305,7 @@ class Registry(Base):
         self.assertEqual(reg["sonic-fan-remix-v3-1"]["source"], "")
         self.assertNotIn("sonic-2-w-h1", reg)
         self.assertIn('//  "hack"', rd(path).decode())
+        self.assertIn('"backups": "card"', rd(path).decode())  # a setting, not a hack: load_registry skips it
         before = rd(path).decode()
         self.run_main("--card", self.card, "--init")
         self.assertEqual(rd(path).decode(), before)
@@ -719,6 +720,153 @@ class Update(Base):
             z.writestr("b.gba", NEW)
         r, out = self.update("--yes")
         self.assertIn("want exactly one", out)
+
+    # ---- backups off the card (the backups setting, ADR 0082 amendment) ----
+
+    def off(self):
+        """An off-card backup root (the backup drive) set in the user settings file."""
+        root = os.path.join(self.tmp, "drive", "_hack-backups", "dev")
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"), json.dumps({"backups": root}))
+        return root
+
+    def adb(self, *a):
+        if a[0] == "devices":
+            return 0, "List of devices attached\nabc\tdevice\n"
+        if a[0] in ("push", "pull"):
+            if not os.path.isfile(a[1]):
+                return 1, "no such file"
+            shutil.copy(a[1], a[2])
+            return 0, ""
+        r = subprocess.run(["sh", "-c", a[1]], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def device(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            r = hk.main(["--device", "--sd", self.card, "--library", self.lib, *argv],
+                        hk.Ctx(http=FakeHttp({}), env=self.env, sleep=lambda s: None, adb=self.adb))
+        return r, out.getvalue()
+
+    def check_off_card_round_trip(self, run):
+        root = self.off()
+        os.makedirs(self.at("States", "GBA", "vba", self.STEM))  # an empty state folder comes back too
+        r, out = run("--update", "hack", "--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), NEW)
+        self.assertEqual(rd(self.at("Saves", "GBA", self.STEM + ".sav")), b"battery")
+        self.assertFalse(os.path.exists(self.at("States", "GBA", "mgba", self.STEM)))
+        self.assertFalse(os.path.exists(self.at("Backups")))  # nothing of the backup on the card
+        (label,) = os.listdir(os.path.join(root, "GBA", self.STEM))
+        b = os.path.join(root, "GBA", self.STEM, label)
+        self.assertEqual(self.tree(b), sorted([
+            "Games/GBA/Hack (v1).gba", "Saves/GBA/Hack (v1).sav", "backup.json",
+            "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.state", "States/GBA/mgba/Hack (v1)/2026-10-01_10-00-00.png",
+            "States/GBA/mgba/Hack (v1)/resume.state", "States/GBA/gpsp/Hack (v1)/resume.state"]))
+        self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertFalse(os.path.exists(self.at("States", "GBA", "vba", self.STEM)))
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
+        self.assertEqual(state["hack"]["backup"], f"{os.path.join(root, 'GBA', self.STEM)}/{label}")  # where it is
+        self.write(self.at("Saves", "GBA", self.STEM + ".sav"), b"battery-v2")
+        self.write(self.at("States", "GBA", "mgba", self.STEM, "resume.state"), b"auto-v2")
+        r, out = run("--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertEqual(rd(self.at("Saves", "GBA", self.STEM + ".sav")), b"battery")
+        self.assertEqual(rd(self.at("States", "GBA", "gpsp", self.STEM, "resume.state")), b"auto2")
+        self.assertTrue(os.path.isdir(self.at("States", "GBA", "vba", self.STEM)))
+        self.assertFalse(os.path.exists(self.at("Backups")))
+        (safety,) = [n for n in os.listdir(os.path.join(root, "GBA", self.STEM)) if n.endswith("_rollback")]
+        s = os.path.join(root, "GBA", self.STEM, safety)
+        self.assertEqual(rd(os.path.join(s, "Games", "GBA", self.STEM + ".gba")), NEW)
+        self.assertEqual(rd(os.path.join(s, "Saves", "GBA", self.STEM + ".sav")), b"battery-v2")
+
+    def test_off_card_update_and_rollback_round_trip(self):
+        self.check_off_card_round_trip(lambda *a: self.run_main("--card", self.card, "--library", self.lib, *a))
+
+    def test_off_card_round_trip_over_adb(self):
+        self.check_off_card_round_trip(self.device)
+
+    def test_an_unreachable_backup_location_refuses_unless_the_card_is_asked_for(self):
+        self.write(os.path.join(self.tmp, "afile"), b"x")  # a path under a file: never writable, even as root
+        self.write(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks.json"),
+                   json.dumps({"backups": os.path.join(self.tmp, "afile", "x")}))
+        before = self.tree(self.tmp)
+        for extra in ("--dry-run", "--yes"):
+            r, out = self.update(extra)
+            self.assertEqual(r, 1, out)
+            self.assertIn("not reachable", out)
+            self.assertIn("--backups card", out)
+            self.assertEqual(self.tree(self.tmp), before)
+        r, out = self.update("--yes", "--backups", "card")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(len(os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))), 1)
+
+    def test_a_copy_that_does_not_check_removes_nothing_from_the_card(self):
+        root = self.off()
+        real = hk.LocalCard.crc_size
+        lie = lambda c, rel: ("00000000", 0) if rel.startswith(root) and rel.endswith(".gba") else real(c, rel)
+        with mock.patch.object(hk.LocalCard, "crc_size", lie):
+            r, out = self.update("--yes")
+        self.assertIn("does not match", out)
+        self.assertIn("the card is untouched", out)
+        self.assertNotIn("--rollback hack", out)
+        card = self.tree(self.card)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertTrue(os.path.exists(self.at("States", "GBA", "mgba", self.STEM, "resume.state")))
+        # the half-made folder has no backup.json: a rollback finds nothing to roll back to, touches nothing
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("no update backup", out)
+        self.assertEqual(self.tree(self.card), card)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+
+    def test_a_card_backup_from_before_the_setting_still_rolls_back(self):
+        r, out = self.update("--yes")
+        self.assertEqual(r, 0, out)
+        (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
+        root = self.off()
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertEqual(rd(self.at("States", "GBA", "mgba", self.STEM, "resume.state")), b"auto")
+        self.assertEqual(os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)), [label])  # nothing new on the card
+        (safety,) = os.listdir(os.path.join(root, "GBA", self.STEM))
+        self.assertTrue(safety.endswith("_rollback"))
+        self.assertEqual(rd(os.path.join(root, "GBA", self.STEM, safety, "Games", "GBA", self.STEM + ".gba")), NEW)
+
+    def test_migrate_moves_card_backups_off_and_rollback_finds_them(self):
+        r, out = self.update("--yes")  # an update from before the setting: its backup is on the card
+        self.assertEqual(r, 0, out)
+        (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
+        root = self.off()
+        before = self.tree(self.tmp)
+        r, out = self.run_main("--card", self.card, "--migrate-backups", "--dry-run")
+        self.assertIn(f"Backups/hacks/GBA/{self.STEM}/{label}  ->  {root}/GBA/{self.STEM}/{label}", out)
+        self.assertIn("hacks-state.json: hack backup ->", out)
+        self.assertIn("DRY RUN", out)
+        self.assertEqual(self.tree(self.tmp), before)
+        r, out = self.run_main("--card", self.card, "--migrate-backups", "--yes")
+        self.assertEqual(r, 0, out)
+        self.assertEqual(os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)), [])
+        b = os.path.join(root, "GBA", self.STEM, label)
+        self.assertEqual(rd(os.path.join(b, "Games", "GBA", self.STEM + ".gba")), self.old)
+        state = json.loads(rd(os.path.join(self.env["SLOT_HACKS_CONFIG"], "hacks-state.json")))
+        self.assertEqual(state["hack"]["backup"], f"{os.path.join(root, 'GBA', self.STEM)}/{label}")
+        # backup.json still names the card paths of the day; rollback reads the backup where it is now
+        r, out = self.run_main("--card", self.card, "--library", self.lib, "--rollback", "hack", "--yes")
+        self.assertIn("rolled back", out)
+        self.assertEqual(rd(self.at("Games", "GBA", self.STEM + ".gba")), self.old)
+        self.assertEqual(rd(self.at("States", "GBA", "mgba", self.STEM, "resume.state")), b"auto")
+
+    def test_migrate_over_adb_and_an_identical_copy_already_there(self):
+        self.update("--yes")
+        (label,) = os.listdir(self.at("Backups", "hacks", "GBA", self.STEM))
+        root = self.off()
+        shutil.copytree(self.at("Backups", "hacks", "GBA", self.STEM, label), os.path.join(root, "GBA", self.STEM, label))
+        r, out = self.device("--migrate-backups", "--yes")
+        self.assertEqual(r, 0, out)
+        self.assertIn("already there", out)
+        self.assertEqual(os.listdir(self.at("Backups", "hacks", "GBA", self.STEM)), [])
+        self.assertEqual(rd(os.path.join(root, "GBA", self.STEM, label, "Saves", "GBA", self.STEM + ".sav")), b"battery")
 
 
 class Add(Base):
