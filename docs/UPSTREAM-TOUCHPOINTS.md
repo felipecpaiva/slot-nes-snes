@@ -45,7 +45,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/core_picker.rs` | 6 | 14 (+10/-4) | 0009-core-picker-pairs |
 | `crates/slot/src/device_app.rs` | 9 | 28 (+27/-1) | 0015-frame-trace, 0050-doze-rest, 0053-cpu-governor, 0054-fast-shelf-scroll |
 | `crates/slot/src/emu.rs` | 36 | 129 (+109/-20) | 0004-canvas, 0006-libretro-env, 0007-input, 0018-audio-reopen, 0026-platform-md, 0034-platform-ps1, 0037-ps1-discs, 0043-pal-pacing |
-| `crates/slot/src/frontend.rs` | 12 | 30 (+25/-5) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0017-retro-shaders, 0024-platform-gg |
+| `crates/slot/src/frontend.rs` | 13 | 32 (+26/-6) | 0004-canvas, 0009-core-picker-pairs, 0012-cart-art, 0017-retro-shaders, 0024-platform-gg, 0054-fast-shelf-scroll |
 | `crates/slot/src/input/device.rs` | 7 | 14 (+11/-3) | 0040-ps1-analog |
 | `crates/slot/src/input/mask.rs` | 1 | 4 (+4/-0) | 0007-input |
 | `crates/slot/src/input/mod.rs` | 1 | 2 (+2/-0) | 0007-input, 0040-ps1-analog |
@@ -401,6 +401,7 @@ the reasons (docs/REBASE.md).
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#L836#99c90f67 | 836 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#L840#ecb10066 | 840 | +1/-1 | impl UiFaces { | Builds faces for every core, including the new ones |
 | `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#impl UiFaces {#L856#767912e8 | 856 | +1/-1 | impl UiFaces { | Builds toast faces for our toasts too (Toast::every) |
+| `crates/slot/src/frontend.rs` | crates/slot/src/frontend.rs#fn sync_core_picker(#L1177#a388bf27 | 1177 | +1/-1 | fn sync_core_picker( | Fast scroll (0054, ADR 0086): the core picker's faces for the selected cart are not prebuilt while the shelf is fast or trailing, so its cover decode and three uploads stay off the hold |
 | `crates/slot/src/input/device.rs` | crates/slot/src/input/device.rs#use super::evdev::{#L12#6b4c2aa0 | 12 | +1/-0 | use super::evdev::{ | PS1 analog (0039): imports the stick map and reader from the new sticks.rs |
 | `crates/slot/src/input/device.rs` | crates/slot/src/input/device.rs#impl DeviceInput {#L36#67de78fa | 36 | +2/-1 | impl DeviceInput { | PS1 analog (0039): reads Config/sticks.txt once at open and passes the map on (rustfmt splits the call over lines) |
 | `crates/slot/src/input/device.rs` | crates/slot/src/input/device.rs#impl DeviceInput {#L39#45456826 | 39 | +1/-1 | impl DeviceInput { | PS1 analog (0040): open_traced takes the stick map |

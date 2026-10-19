@@ -20,14 +20,15 @@ stevolarn/slot, GPL-3.0.
 ---
  crates/slot-ui/src/shelf.rs               |   5 +-
  crates/slot-ui/src/shelf/fast.rs          |  28 ++++
- crates/slot-ui/tests/shelf_fast_scroll.rs | 105 ++++++++++++++
+ crates/slot-ui/tests/shelf_fast_scroll.rs | 105 +++++++++++++
  crates/slot/src/app.rs                    |  13 +-
- crates/slot/src/app/fast_scroll.rs        |  42 ++++++
+ crates/slot/src/app/fast_scroll.rs        |  49 ++++++
  crates/slot/src/device_app.rs             |   5 +
- crates/slot/src/fast_scroll_trace.rs      |  73 ++++++++++
+ crates/slot/src/fast_scroll_trace.rs      |  73 +++++++++
+ crates/slot/src/frontend.rs               |   2 +-
  crates/slot/src/lib.rs                    |   1 +
- crates/slot/tests/fast_scroll.rs          | 163 ++++++++++++++++++++++
- 9 files changed, 432 insertions(+), 3 deletions(-)
+ crates/slot/tests/fast_scroll.rs          | 172 ++++++++++++++++++++++
+ 10 files changed, 449 insertions(+), 4 deletions(-)
  create mode 100644 crates/slot-ui/src/shelf/fast.rs
  create mode 100644 crates/slot-ui/tests/shelf_fast_scroll.rs
  create mode 100644 crates/slot/src/app/fast_scroll.rs
@@ -275,10 +276,10 @@ index c957e25..22e4e1b 100644
          let shelf = self.shelf();
 diff --git a/crates/slot/src/app/fast_scroll.rs b/crates/slot/src/app/fast_scroll.rs
 new file mode 100644
-index 0000000..78533db
+index 0000000..29fe1d2
 --- /dev/null
 +++ b/crates/slot/src/app/fast_scroll.rs
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,49 @@
 +use crate::fast_scroll_trace::FastView;
 +
 +use super::{App, Phase};
@@ -303,6 +304,13 @@ index 0000000..78533db
 +
 +    pub fn shelf_racing(&self) -> bool {
 +        self.shelf().fast() || self.fast_trail
++    }
++
++    pub fn stem_to_prebuild(&self) -> Option<&str> {
++        if self.shelf_racing() && self.core_picker.is_none() {
++            return None;
++        }
++        self.selected_stem()
 +    }
 +
 +    pub(super) fn track_fast(&mut self) {
@@ -423,6 +431,19 @@ index 0000000..3a38d74
 +        Some(line)
 +    }
 +}
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index 375c571..9faf9a5 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -1194,7 +1194,7 @@ fn sync_core_picker(
+     tex: &mut CoreTextures,
+     built: &mut Option<String>,
+ ) {
+-    let highlighted = app.selected_stem().map(str::to_string);
++    let highlighted = app.stem_to_prebuild().map(str::to_string);
+     if highlighted.is_some() && *asked != highlighted {
+         if let Some(cart) = app
+             .carts()
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
 index 82c22ff..6768ae4 100644
 --- a/crates/slot/src/lib.rs
@@ -437,10 +458,10 @@ index 82c22ff..6768ae4 100644
  pub mod frontend;
 diff --git a/crates/slot/tests/fast_scroll.rs b/crates/slot/tests/fast_scroll.rs
 new file mode 100644
-index 0000000..7323c05
+index 0000000..b2bb6ec
 --- /dev/null
 +++ b/crates/slot/tests/fast_scroll.rs
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,172 @@
 +mod common;
 +
 +use std::time::{Duration, Instant};
@@ -481,6 +502,11 @@ index 0000000..7323c05
 +    hold_right(&mut app, 180);
 +    assert_eq!(app.face_wants(), Vec::new());
 +    assert_eq!(app.browsed_rom(), None);
++    assert_eq!(
++        app.stem_to_prebuild(),
++        None,
++        "the core picker faces were built mid-hold"
++    );
 +}
 +
 +fn settle(app: &mut App) {
@@ -503,6 +529,7 @@ index 0000000..7323c05
 +        None,
 +        "prefetched while faces were still missing"
 +    );
++    assert_eq!(app.stem_to_prebuild(), None);
 +    for (n, w) in wants.iter().enumerate() {
 +        app.set_cart_face(w.shelf, w.index, slot_gfx::TexId::from_raw(1000 + n));
 +    }
@@ -511,6 +538,8 @@ index 0000000..7323c05
 +        app.browsed_rom().is_some(),
 +        "no prefetch once the faces are back"
 +    );
++    assert!(app.stem_to_prebuild().is_some());
++    assert_eq!(app.stem_to_prebuild(), app.selected_stem());
 +    assert_eq!(app.fast_scroll_view(), None);
 +}
 +
@@ -520,6 +549,7 @@ index 0000000..7323c05
 +    hold_right(&mut app, 20);
 +    assert!(app.face_wants().iter().any(|w| w.on_screen));
 +    assert!(app.browsed_rom().is_some());
++    assert_eq!(app.stem_to_prebuild(), app.selected_stem());
 +}
 +
 +#[test]
