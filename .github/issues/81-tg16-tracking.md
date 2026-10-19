@@ -15,12 +15,12 @@ Child work, in merge order:
 - [x] 1. Decision record: ADR 0091 and these issues.
 - [x] 2. 82-tg16-core-build (groundwork, on the v1.7.0 base)
 - [x] 3. 88-tg16-tests, core half: patch 0052 (groundwork; the platform half grows with each step below)
-- [ ] 4. 83-platform-tg16 (on the 1.8.0 base, like everything below)
-- [ ] 5. 84-tg16-options
-- [ ] 6. 85-tg16-canvas-screen
-- [ ] 7. 86-tg16-saves
-- [ ] 8. 87-tg16-input
-- [ ] 9. 89-tg16-carts
+- [x] 4. 83-platform-tg16 (on the 1.8.0 base, like everything below)
+- [x] 5. 84-tg16-options
+- [x] 6. 85-tg16-canvas-screen
+- [x] 7. 86-tg16-saves
+- [x] 8. 87-tg16-input
+- [x] 9. 89-tg16-carts
 - [ ] 10. 90-tg16-device-gate
 
 Out of scope (ADR 0091): TurboCD / CD-ROM² / Super CD-ROM² / Arcade CD (system card BIOS, disc images, CD save model) and SuperGrafx.

@@ -264,10 +264,10 @@ the commit that added the build.
 
 Checked at commit `3f946f277aef3aa99a95551618bbcd1dd2bda0d9` of libretro/beetle-pce-fast-libretro, the
 commit `SLOT_PIN` pins as `mednafen_pce_fast_commit` (tarball sha256 `mednafen_pce_fast_tarball_sha256`). It
-is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091) and is
-not in a release yet: it joins `dist:device` and `zip-check.sh` with the TG16 platform patch (issue 83).
-Until then its licence files stay in `cores/mednafen_pce_fast/` and move to `licenses/` when the core
-ships (the Genesis Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release):
+is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091). It
+joined `dist:device` and `zip-check.sh` with the TG16 platform patch (patch 0053, issue 83), and its
+licence files moved from `cores/mednafen_pce_fast/` to `licenses/`, which `dist-device.sh` copies whole
+into the release:
 
 - `mednafen_pce_fast-GPL-2.0.txt`, the root `COPYING` of that source, copied verbatim and whole. It is
   the GPL version 2 text once. The fork review's remark that the file is "GPLv2 twice plus Xiph BSD"
@@ -275,10 +275,10 @@ ships (the Genesis Plus GX precedent: `dist-device.sh` copies every file in `lic
 - `mednafen_pce_fast-tremor-BSD.txt`, `mednafen/tremor/COPYING` verbatim: the Xiph.org BSD licence of the
   Tremor Vorbis decoder. The makefile always links Tremor (CD audio), so the binary must carry its notice.
 
-The exact source will ship with the core as `mednafen_pce_fast-src.tar.gz`, with `mednafen_pce_fast-src.meta`
+The exact source ships with the core as `mednafen_pce_fast-src.tar.gz`, with `mednafen_pce_fast-src.meta`
 recording its sha256.
 
-**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
 
 - The Mednafen files say "Mednafen - Multi-system Emulator", GPL. `README.md` has no licence line. The
   sound buffer is Shay Green's Blip_Buffer.
@@ -296,7 +296,7 @@ recording its sha256.
   - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h'
     -o -name '*.cpp' \); ls *.c *.h; } | xargs grep -l -i 'any later version' | wc -l`.
 - **Headerless files, a judgement.** 31 of the 99 have no licence text in their first 60 lines. They
-  are listed in `cores/mednafen_pce_fast/mednafen_pce_fast-headerless-files.txt` with the command that
+  are listed in `licenses/mednafen_pce_fast-headerless-files.txt` with the command that
   produced the list. They include most of the `mednafen/pce_fast/` headers. `libretro.c` is on the list
   too, because its GPL-2.0-or-later block is past line 60; the other 30 have no licence text anywhere.
   We treat them as covered by `COPYING`. That is a judgement, not a quote.
@@ -420,4 +420,7 @@ bytes pointing at $E000, and a `bra *` spin) after nelynes/slotPlus's `crates/sl
 ([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0), the same recipe as
 cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
 ([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The palette code is new. Both forks
-are credited in the patch commit.
+are credited in the patch commit. The TG16 Screen page (patch `0053-platform-tg16`), the pad layout
+(`0056-tg16-input`) and the HuCard drawing (`0057-tg16-carts`, after `assets/src/carts.py`) follow
+nelynes/slotPlus [92b7022](https://github.com/nelynes/slotPlus/commit/92b7022) (GPL-3.0); each is
+reimplemented and credited in its patch commit.
