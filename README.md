@@ -38,10 +38,12 @@ PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A de
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
 
-NeoGeo Pocket and Pocket Color are planned, not shipped (Phase 9, ADR 0090, issue 70). The core is
-built and tested; the shelf waits for the upstream 1.8.0 base. No BIOS is needed. The game keeps its
-saves in the cart's flash, which the core writes itself, so making that write safe is its own step
-(issue 75).
+NeoGeo Pocket and Pocket Color are in the patch set and wait for their device gate (Phase 9, ADRs
+0090 and 0091, issue 70): one `Games/NGP` shelf for `.ngp`, `.ngc` and `.ngpc` on Beetle NeoPop, no
+BIOS, the 160x152 screen at 3x, and its own Screen section. The game keeps its saves in the cart's
+flash, which the core writes itself; slot checks that file before the core reads it and publishes it
+atomically at every lid close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`. The carts
+still show a placeholder shape (issue 78). The NGP work credits nelynes/slotPlus (a8eae4c, 1ef7226).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays

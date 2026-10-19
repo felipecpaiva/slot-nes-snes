@@ -438,23 +438,23 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
 
-### Phase 9: NeoGeo Pocket (planned, not shipped)
+### Phase 9: NeoGeo Pocket (in the patch set, device gate pending)
 
 Tracking issue 70, children 71 to 79, ADR 0090, plan in docs/research/ngp-plan.md. One core, Beetle
 NeoPop (`mednafen_ngp`) pinned at `a50d5ac`, one shelf `Games/NGP` for Pocket and Pocket Color, no
-BIOS, no core picker. The platform patches wait for the upstream 1.8.0 base.
+BIOS, no core picker. Patches 0052 to 0058 on upstream main 1b20432; flash durability in ADR 0091.
 
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0090 and the issues |
 | 2 | 71, done | Core build, pin and licence |
 | 3 | 77, core half done | Generated-cart tests: boot, 160x152 picture, states, flash across a restart (patch 0052) |
-| 4 | 72 | `Platform::Ngp`, shelf, scan, header colour flag, explicit policy; joins dist and zip-check |
-| 5 | 73 | Core options (`ngp_language=english`) |
-| 6 | 74 | 240x160 canvas at 3x, NGP Screen section with Shader and Picture rows (no PAL Speed) |
-| 7 | 75 | Flash durability: core save dir `Saves/NGP`, atomic publish, flush by reload |
-| 8 | 76 | A, B and Option |
-| 9 | 78 | Mono and Color carts, labels for ScreenScraper ids 25 and 82 |
+| 4 | 72, done (0053) | `Platform::Ngp`, shelf, scan, header colour flag, explicit policy; joins dist and zip-check |
+| 5 | 73, done (0054) | Core options (`ngp_language=english`) |
+| 6 | 74, done (0055) | 240x160 canvas at 3x, NGP Screen section with Shader and Picture rows (no PAL Speed) |
+| 7 | 75, done (0056, ADR 0091) | Flash durability: staging save dir `Saves/NGP/.core`, check before load, atomic publish, flush by reload |
+| 8 | 76, done (0057) | A, B and Option |
+| 9 | 78, labels done; carts open | Mono and Color carts (placeholder shape until the Color shell colour is decided), labels for ScreenScraper ids 25 and 82 |
 | 10 | 79 | Device gate, including a lid-close and battery-pull flash test |
 
 ### Phase 6+: deferred (non-blocking)

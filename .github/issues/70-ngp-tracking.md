@@ -15,12 +15,12 @@ Child work, in merge order:
 - [x] 1. Decision record: ADR 0090 and these issues.
 - [x] 2. 71-ngp-core-build (groundwork, on the v1.7.0 base)
 - [x] 3. 77-ngp-tests, core half: patch 0052 (groundwork; the platform half grows with each step below)
-- [ ] 4. 72-platform-ngp (on the 1.8.0 base, like everything below)
-- [ ] 5. 73-ngp-options
-- [ ] 6. 74-ngp-canvas-screen
-- [ ] 7. 75-ngp-flash-saves
-- [ ] 8. 76-ngp-input
-- [ ] 9. 78-ngp-carts
+- [x] 4. 72-platform-ngp (patch 0053, on upstream main 1b20432 like everything below)
+- [x] 5. 73-ngp-options (patch 0054)
+- [x] 6. 74-ngp-canvas-screen (patch 0055)
+- [x] 7. 75-ngp-flash-saves (patch 0056, ADR 0091)
+- [x] 8. 76-ngp-input (patch 0057, tests only)
+- [ ] 9. 78-ngp-carts (labels done in tools/fetch-labels.py; the pak drawing waits on a sourced Color shell colour)
 - [ ] 10. 79-ngp-device-gate
 
 ## Tests
@@ -44,7 +44,7 @@ Issue 79.
 ## Review notes
 - slot#30: no more systems upstream. Only generic seams go upstream (ADR 0047).
 - Phase 9 is new: `scripts/setup-github-project.py` now lists "Phase 9: NeoGeo Pocket", which the board's Phase field gets on the next sync. No `numbers.json` entries until then.
-- Written while another branch ports the patch set to upstream 1.8.0. Steps 4 on wait for that base; issue numbers 70 to 79 and ADR 0090 may be renumbered at merge.
+- Steps 4 on landed on upstream main 1b20432 (ADR 0083). The groundwork ADR became 0090 and the flash ADR is 0091; issue numbers 70 to 79 are unchanged. The platform half of issue 77 is patch 0058 plus the tests in each step's patch.
 
 ## References
 - ADR 0090; docs/research/ngp-plan.md; docs/research/fork-nelynes.md section 1
