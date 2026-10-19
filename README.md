@@ -26,7 +26,7 @@ set adds more shelves the same way:
 | Master System | `Games/SMS` (`.sms`) | Genesis Plus GX (2x) | none yet |
 | Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
 | PlayStation (planned, not shipped) | `Games/PS1` (`.chd`, `.cue`, `.pbp`, `.m3u`) | pcsx_rearmed | none |
-| WonderSwan and WonderSwan Color (planned, not shipped) | `Games/WS` (`.ws`, `.wsc`) | Beetle Cygne (3x, vertical games 2x) | none |
+| WonderSwan and WonderSwan Color (device gate pending) | `Games/WS` (`.ws`, `.wsc`) | Beetle Cygne (3x, vertical games 2x) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -38,10 +38,15 @@ PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A de
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
 
-WonderSwan and WonderSwan Color are planned, not shipped (Phase 11, ADR 0092, issue 91). The core is
-built and tested; the shelf waits for the upstream 1.8.0 base. No BIOS is needed and saves are
-ordinary `.sav` files. Vertical games are drawn upright by the core. The game runs in the core's
-60 Hz mode by default, with the native 75 Hz as an option in its Screen section.
+WonderSwan and WonderSwan Color are in the patch set (Phase 11, ADR 0092, issue 91, patches 0052 to
+0057); the device gate (issue 99) is still to run. No BIOS is needed and saves are ordinary `.sav`
+files in `Saves/WS`. Horizontal games are drawn at 3x, vertical ones upright at 2x, read from the
+cart's own footer. The game runs in the core's 60 Hz mode by default; the WonderSwan Screen section's
+Refresh row switches to the native 75 Hz, from the next game. Controls on a horizontal game: the
+D-pad is the X pad, A and B are A and B, X and Y are turbo A and B, L held turns the D-pad into the Y
+pad and R held turns the face buttons into it. On a vertical game the D-pad is the Y pad, the face
+buttons the X pad and L and R are A and B; a SELECT tap turns the game sideways and back. Carts are
+black for WonderSwan games and clear for Color ones; labels come from ScreenScraper (ids 45 and 46).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
@@ -175,6 +180,7 @@ are GPL-2.0-or-later. **snes9x, snes9x2005_plus and Genesis Plus GX are not GPL*
 non-commercial use only. Builds that include them ship their licence files
 (`System/licenses/snes9x-LICENSE.txt`, `System/licenses/snes9x2005-LICENSE.txt`,
 `System/licenses/genesis_plus_gx-LICENSE.txt`) and must never be sold or bundled with anything sold.
+Beetle Cygne (WonderSwan) is GPL-2.0-or-later; its NEC V30MZ emulator is by Bryan McPhail.
 See [LICENSING.md](LICENSING.md).
 
 ## Credit

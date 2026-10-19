@@ -8,7 +8,8 @@ shelves.
 @NOTICE@
 
 The rest is GPL: slot and this patch set are GPL-3.0-or-later, fceumm and nestopia are
-GPL-2.0-or-later. The corresponding source is `slot-nes-snes-src-@TAG@.tar.gz`, attached here and
+GPL-2.0-or-later, and so is Beetle Cygne, the WonderSwan core, whose NEC V30MZ emulator is by Bryan
+McPhail. The corresponding source is `slot-nes-snes-src-@TAG@.tar.gz`, attached here and
 inside the zip at `System/licenses/`. See LICENSING.md in the repo.
 
 ## Do not report issues to slot's tracker

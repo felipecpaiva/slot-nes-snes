@@ -264,15 +264,14 @@ the commit that added the build.
 
 Checked at commit `4b01295838ea89e3f1355bbe4cb5cf98aa6108cd` of libretro/beetle-wswan-libretro, the
 commit `SLOT_PIN` pins as `mednafen_wswan_commit` (tarball sha256 `mednafen_wswan_tarball_sha256`).
-It is built by `cores/mednafen_wswan/build.sh` for WonderSwan and WonderSwan Color (ADR 0092) and is
-not in a release yet: it joins `dist:device` and `zip-check.sh` with the WonderSwan platform patch
-(issue 93). Until then its licence, the root `COPYING` of that source copied verbatim and whole, is
-`cores/mednafen_wswan/mednafen_wswan-GPL-2.0.txt`, and moves to `licenses/` when the core ships (the
-Genesis Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release). The
-exact source will ship with the core as `mednafen_wswan-src.tar.gz`, with `mednafen_wswan-src.meta`
+It is built by `cores/mednafen_wswan/build.sh` for WonderSwan and WonderSwan Color (ADR 0092) and
+ships from the WonderSwan platform patch (issue 93, patch 0053) in `dist:device`, checked by
+`zip-check.sh`. Its licence, the root `COPYING` of that source copied verbatim and whole, is
+`licenses/mednafen_wswan-GPL-2.0.txt` (`dist-device.sh` copies every file in `licenses/` into the
+release). The exact source ships as `mednafen_wswan-src.tar.gz`, with `mednafen_wswan-src.meta`
 recording its sha256.
 
-**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
 
 - `COPYING` is the GNU GPL version 2 text. `readme.md` has no licence line. The WonderSwan files
   derive from Cygne by Dox; the CPU is Bryan McPhail's NEC V30MZ emulator; the sound buffer is Shay
@@ -288,7 +287,7 @@ recording its sha256.
   - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h'
     -o -name '*.cpp' \); ls *.c *.h; } | xargs grep -l -i 'any later version' | wc -l`.
 - **Headerless files, a judgement.** 24 of the 35 have no licence text in their first 60 lines. They
-  are listed in `cores/mednafen_wswan/mednafen_wswan-headerless-files.txt` with the command that
+  are listed in `licenses/mednafen_wswan-headerless-files.txt` with the command that
   produced the list. Two of them do carry a notice further down or in other words:
   - `libretro.c` is GPL-2.0-or-later (line 385);
   - `mednafen/wswan/v30mz.c` says "This NEC V30MZ emulator may be used for purposes both commercial
