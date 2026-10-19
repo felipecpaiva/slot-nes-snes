@@ -265,7 +265,7 @@ the commit that added the build.
 Checked at commit `3f946f277aef3aa99a95551618bbcd1dd2bda0d9` of libretro/beetle-pce-fast-libretro, the
 commit `SLOT_PIN` pins as `mednafen_pce_fast_commit` (tarball sha256 `mednafen_pce_fast_tarball_sha256`). It
 is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091). It
-joined `dist:device` and `zip-check.sh` with the TG16 platform patch (patch 0053, issue 83), and its
+joined `dist:device` and `zip-check.sh` with the TG16 platform patch (patch 0058, issue 83), and its
 licence files moved from `cores/mednafen_pce_fast/` to `licenses/`, which `dist-device.sh` copies whole
 into the release:
 
@@ -435,12 +435,12 @@ cloudwithax/unslot ([42ef0f8](https://github.com/cloudwithax/unslot/commit/42ef0
 suprsomething/slot.advance ([e761baa](https://github.com/suprsomething/slot.advance/commit/e761baa)),
 reimplemented. Both forks are GPL-3.0 and are credited in the patch commits.
 
-Patch `0052-tg16-core-tests` builds its synthetic HuCard (one 8 KB bank, the reset vector at the last two
+Patch `0057-tg16-core-tests` builds its synthetic HuCard (one 8 KB bank, the reset vector at the last two
 bytes pointing at $E000, and a `bra *` spin) after nelynes/slotPlus's `crates/slot/tests/pce_core.rs`
 ([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0), the same recipe as
 cloudwithax/unslot's `crates/slot-retro/tests/systems.rs`
 ([00296a5](https://github.com/cloudwithax/unslot/commit/00296a5), GPL-3.0). The palette code is new. Both forks
-are credited in the patch commit. The TG16 Screen page (patch `0053-platform-tg16`), the pad layout
-(`0056-tg16-input`) and the HuCard drawing (`0057-tg16-carts`, after `assets/src/carts.py`) follow
+are credited in the patch commit. The TG16 Screen page (patch `0058-platform-tg16`), the pad layout
+(`0061-tg16-input`) and the HuCard drawing (`0062-tg16-carts`, after `assets/src/carts.py`) follow
 nelynes/slotPlus [92b7022](https://github.com/nelynes/slotPlus/commit/92b7022) (GPL-3.0); each is
 reimplemented and credited in its patch commit.

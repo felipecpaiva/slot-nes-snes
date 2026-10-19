@@ -38,7 +38,7 @@ PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A de
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
 
-TurboGrafx-16 and PC Engine HuCards (Phase 10, ADR 0091, issue 81, patches 0052 to 0058) play like
+TurboGrafx-16 and PC Engine HuCards (Phase 10, ADR 0091, issue 81, patches 0057 to 0063) play like
 Game Gear: B is II, A is I, START is Run, SELECT reaches the game after slot's chord hold (so
 Select+Run is the console's own soft reset), X and Y are turbo I and II, and L1 and R1 are the picture.
 The Screen section has Shader (the retro list, in `Config/tg16_shader.txt`) and Picture (Crop by
