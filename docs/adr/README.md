@@ -99,4 +99,6 @@ the patch set looks the way it does.
 | [0080](0080-volume-hud-on-a-silent-start.md) | Show the volume HUD when a game starts muted or at zero | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
 | [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
 | [0082](0082-rom-hack-updates-keep-saves-move-states.md) | A ROM hack update keeps the name and the battery save, and moves every save state away | Accepted | 2026-10-18 |
+| [0083](0083-rebase-to-slot-main-1b20432.md) | Rebase the patch set onto slot main 1b20432 (the coming 1.8.0) | Accepted | 2026-10-18 |
+| [0084](0084-keep-a-crashed-start-on-the-shelf.md) | Keep a cart whose last start never finished on the shelf | Accepted. Drop when upstream lands (0047) | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |

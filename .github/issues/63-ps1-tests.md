@@ -58,5 +58,23 @@ Both names must match the files in `/mnt/sdcard/Games/PS1` without the extension
 Record the rows in `docs/DEVICE-GATE.md` (PlayStation section). These are 3-minute runs, not the
 10-minute success criterion 4.
 
+## Note: the second "Zzz" disc in the seat tests (checked 2026-10-18)
+`ps1_card.rs` and `ps1_seat.rs` add a second disc, "Zzz", because a root with one PS1 game
+auto-inserts it at boot and a held MENU then does not eject. That is not a PS1 bug. It is
+upstream's single-cart mode: `App::carts()` counts every cart on every system shelf, and when the
+card holds exactly one, `App::start` seats it at boot (`one_cart_boots_straight_into_the_game`)
+and `App::eject` answers a held MENU with `refuse()` (`eject_is_refused_with_only_one_cart`, both
+in upstream `crates/slot/tests/single.rs`). A `.cue` with its `.bin` counts as one cart. A probe on
+the patched tree showed it: one PS1 game gives `carts=1 single=true`, the held MENU leaves it
+`Playing` with the refusal shown; add one GBA game and it is `carts=2 single=false`. So a player
+with one PS1 game and anything else on the card ejects normally; a player whose card holds only
+one game of any system cannot, by upstream's design. `gg_seat.rs` and `md_seat.rs` use the same
+"Zzz" for the same reason. Removing it is not safe: every eject in those tests would be refused.
+It stays.
+
+Device check: put one PS1 game alone on the card (move every other game out of `Games/`), boot:
+it goes straight into the game. Hold MENU: the refusal shows and it does not eject. Put any second
+game back: the held MENU ejects.
+
 ## References
 - ADR 0063; the 2026-10-16 code review (bently `pcsx.rs` passes against our host build)

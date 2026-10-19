@@ -346,3 +346,6 @@ which adapts suprsomething/slot.advance commit
 [bf810b6](https://github.com/suprsomething/slot.advance/commit/bf810b6). Patch `0051-silent-start-hud`
 follows jgraving/slot commit [12f7b3a](https://github.com/jgraving/slot/commit/12f7b3a). All three forks are GPL-3.0 and are
 credited in the patch commits.
+
+Patch `0052-crash-guard` takes only the idea of oauramos/omega-zero commit be6eb11 (keep a game whose
+start crashed on the shelf, with a notice); no code is copied. Credited in the patch commit and ADR 0084.
