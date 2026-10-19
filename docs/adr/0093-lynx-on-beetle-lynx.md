@@ -1,7 +1,7 @@
 # 0093. Bring Atari Lynx into scope on pinned Beetle Lynx, with a BIOS check, our own rotation and pacing from the game's real frame rate
 
-- Status: Accepted for the groundwork (core build, licence record, core tests). **The core choice is open for the maintainer**: Beetle Lynx is built and tested, Handy is the evidenced alternative (see Context). Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
-- Date: 2026-10-18
+- Status: Accepted. Beetle Lynx is the core; Handy is rejected for now because `lynx/lynxdec.cpp` has no licence (maintainer, 2026-10-19). Integrated on slot main 1b20432 as patches 0052 to 0061; the device gate (issue 112) is pending. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
+- Date: 2026-10-18, integration 2026-10-19
 - Deciders: maintainer (Felipe Paiva)
 - Related: [Lynx plan](../research/lynx-plan.md), [nelynes survey](../research/fork-nelynes.md) section 3, [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md) (pacing), [ADR 0083](0083-rebase-to-slot-main-1b20432.md) (the base it lands on), [issue 101](../../.github/issues/101-lynx-tracking.md), [issue 102](../../.github/issues/102-lynx-core-build.md), patch `patches/0052-lynx-core-tests.patch`
 
@@ -10,7 +10,7 @@
 The 2026-10-18 fork review put Atari Lynx last on the new-system list: small library, the smallest
 picture, a BIOS we cannot ship, rotated carts, and a frame rate that is not 60. nelynes/slotPlus
 (`main`, 749523c, d7d0e74, 185257a) runs it on libretro/beetle-lynx-libretro. We reimplement and
-credit, as for NGP.
+credit.
 
 What the core does at `fcdefcf` (read in the source and pinned by `lynx_core.rs`):
 
@@ -59,7 +59,7 @@ a BIOS.
 
 - Lynx is in scope as Phase 12, one shelf `Games/Lynx` for `.lnx` and `.lyx`. `Platform::Lynx` is
   appended to `SHELVES` and `Core::MednafenLynx` to `EVERY`, upstream's `ALL` untouched, every policy
-  method answered explicitly (the PS1 and NGP shape).
+  method answered explicitly (the PS1 shape).
 - **Core: libretro/beetle-lynx-libretro, pinned at `fcdefcfb3c11d6d2e71be076a5d3df2e88ab73ed`** (its
   HEAD on 2026-10-18 and nelynes' pin). Archive sha256
   `3dd45a6f6585c444a415cb097996c572467754748e7163eca466d89b31bd8b37`, checked by `build.sh fetch`.
@@ -67,10 +67,10 @@ a BIOS.
   `-static-libstdc++ -static-libgcc`; the device `.so` needs only glibc at 2.17 or older and
   `task core:device:mednafen_lynx` fails otherwise. Output `mednafen_lynx_libretro.<ext>`, so the
   core name is `mednafen_lynx` and the option prefix `lynx`.
-  - **Open for the maintainer:** Handy instead. It removes the black-screen failure (HLE boot) and
-    gives EEPROM saves, at the cost of an unlicensed source file in the build, a save written only on
-    unload (the NGP issue 75 shape again), and a core no slot fork runs. Choosing Handy changes
-    issues 102, 104, 107 and 108 (each says how) and nothing else in this plan.
+  - **Handy, rejected for now:** it would remove the black-screen failure (HLE boot) and give EEPROM
+    saves, but it builds an unlicensed source file (`lynx/lynxdec.cpp`), writes its EEPROM only on
+    unload, and no slot fork runs it. Revisit if `lynxdec.cpp` gains a licence; issues 102, 104, 107
+    and 108 say what would change.
 - **BIOS: never shipped, never downloaded.** Before launch slot checks `BIOS/lynxboot.img`: present,
   512 bytes, crc32 `0x0d973c9d` (the `[BIOS] Atari Lynx` entry in the core's own list). Missing or
   short: refuse to launch and toast where to put it. Wrong checksum: launch, toast once (a modified
@@ -79,9 +79,14 @@ a BIOS.
   leaves it to the declared `auto`: `0` (raw picture, raw pad) for upright and left carts, `180`
   for right carts, with slot drawing that frame flipped (a reversed row copy, or answering
   `SET_ROTATION` 2 as a flip). The player turns the handheld one way for every turned cart. Which
-  cart is turned comes from header byte 0x3a, the rotated entries of the core's list, nelynes'
-  by-title list (d7d0e74) and `Config/lynx_rotation.txt`, which wins. The upright tall view
-  (`90`/`270`, full host rotation) is deferred. The choice of flip direction is a device check.
+  cart is turned comes from `Config/lynx_rotation.txt` (wins), then nelynes' by-title list (d7d0e74,
+  matched on the stem or the header title), then header byte 0x3a. The core's own checksum list is
+  not read: its right-turned entries (Klax, two Gauntlet III dumps) are all on the title list, and a
+  left cart is drawn as made anyway. The upright tall view (`90`/`270`, full host rotation) is
+  deferred. The choice of flip direction is a device check.
+  - As built (patch 0059): slot answers `SET_ROTATION` 0 and 2 (a reversed copy of the canvas, the
+    picture sits symmetrically in it) and refuses quarter turns. The Screen row is **Flip Right
+    Carts** (On by default, `Config/lynx_flip.txt`, `right = on|off`); Off sets `0` for every cart.
 - **Pacing follows the game's real frame rate, not the reported 75.** The Lynx Screen section gets a
   **Lynx Speed** row: **Native** (default) paces each game at the rate its frames carry (sample frames
   per run over the sample rate, smoothed), through ADR 0071's owed-frames path, which already runs 1 or
@@ -89,8 +94,23 @@ a BIOS.
   frame carried (a 75 Hz game then plays at 80%). `lynx_force_60hz` stays disabled: it changes only
   the reported number. Native is the default for the same reason as ADR 0071: it is the content's
   own speed on any panel. A 59.9 Hz game is inside ADR 0071's 2 fps window either way.
+  - As built (patch 0057): the emu measures only for a core that does not report its own rate
+    (`Core::reports_its_frame_rate`, false for Beetle Lynx alone), over windows of 20 frames, and
+    takes a rate once two windows in a row agree within 0.5 fps and it moved more than 0.1 fps; a
+    window outside 50 to 80 fps or a frame with no sound is ignored. Until the first measure the game
+    runs one frame a tick at the core's own sample rate. The row is stored as `lynx` in
+    `Config/pal_speed.txt`, beside the PAL Speed rows.
+  - Measured on the host with the real boot ROM over 20 seconds of each of the 88 carts of the
+    maintainer's set (2026-10-19): most run at 59.9 Hz; Batman Returns, Checkered Flag, Desert Strike,
+    European Soccer Challenge, Klax, Rampart and Switchblade II at 75; Lemmings, Lexis, Ninja Gaiden,
+    Dinolympics, Super Off-Road and five prototypes at 50.1; Krazy Ace at 52.6; Ishido and California
+    Games change rate between screens. The 50 Hz games take the same Native path as PAL content.
 - **Canvas**: 160x102 in a 240x160 canvas, shown at 4x (640x408) on the 720x480 panel; its own
-  Screen section (Shader, Picture, Lynx Speed, Turned carts).
+  Screen section (Shader, Picture, Lynx Speed, Flip Right Carts). Actual is a centred 180x120 window
+  of the canvas (`Platform::actual_scale`); Stretch crops to the 160x102 picture and fills the panel
+  (`stretch_crops_height` is true for Lynx, against issue 103's first draft, so Stretch fills).
+- **Upstream test sites:** (b) and (e) take `| Platform::Lynx` and `| Core::MednafenLynx`, (g) and
+  (h) take `, "Lynx"` and `, QuickRow::ScreenLynx` after the PlayStation tokens, as PS1 did (ADR 0065).
 - **Saves: states only.** The README says so, with the EEPROM gap named.
 - **Licence**: the combined core is GPL-3.0-or-later; counts and lists in LICENSING.md. Two licence
   files ship with the platform patch: `COPYING` and `mednafen/lynx/license.txt` (Handy, zlib), which
@@ -100,7 +120,7 @@ a BIOS.
 
 ## Consequences
 
-- About 10 patches (issues 102 to 112). Nothing touches GBA, GB or GBC; the GBA harness compare stays
+- Ten patches, 0052 to 0061 (issues 102 to 111; 112 is the device gate). Nothing touches GBA, GB or GBC; the GBA harness compare stays
   at 0 diffs.
 - **CI cannot boot a cart.** The no-BIOS tests (homebrew draw, real rate, state, the missing-BIOS
   signature) run everywhere; the cart-through-BIOS tests run only with `SLOT_LYNX_BIOS` and print a

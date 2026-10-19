@@ -100,4 +100,4 @@ the patch set looks the way it does.
 | [0081](0081-start-closes-the-core-picker.md) | START closes the core picker it opened: upstream only | Accepted (not carried) | 2026-10-18 |
 | [0082](0082-rom-hack-updates-keep-saves-move-states.md) | A ROM hack update keeps the name and the battery save, and moves every save state away | Accepted | 2026-10-18 |
 | [0089](0089-ps1-disc-hacks-patch-track-1-through-chdman.md) | A PS1 disc hack patches track 1 of a bin/cue extracted with chdman, and goes back as a new .chd | Accepted | 2026-10-18 |
-| [0093](0093-lynx-on-beetle-lynx.md) | Bring Atari Lynx into scope on pinned Beetle Lynx, with a BIOS check, our own rotation and pacing from the game's real frame rate | Accepted for the groundwork; core choice open. Amends 0002 | 2026-10-18 |
+| [0093](0093-lynx-on-beetle-lynx.md) | Bring Atari Lynx into scope on pinned Beetle Lynx, with a BIOS check, our own rotation and pacing from the game's real frame rate | Accepted (Beetle Lynx; Handy rejected for now). Amends 0002 | 2026-10-18 |

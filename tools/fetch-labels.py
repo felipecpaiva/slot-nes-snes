@@ -109,6 +109,9 @@ SYSTEMS = {
     # PlayStation discs are not in a No-Intro dat; ScreenScraper id 57 per Skyscraper's platforms_idmap.csv
     # (Gemba/skyscraper ccd49ae, row "psx,57,6,10"). The extensions are the ones slot scans (patch 0034).
     "PS1": ("psx", {".cue", ".chd", ".pbp", ".m3u"}, [], 57),
+    # Atari Lynx: ScreenScraper id 28 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row
+    # "atarilynx,28,18,4924"); No-Intro and the core both hash a .lnx without its 64-byte header (ADR 0093).
+    "Lynx": ("atarilynx", {".lnx", ".lyx"}, ["Atari - Lynx"], 28),
 }
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
 # ScreenScraper media type per system: the cart label scan, or the front box for Master System (ADR 0057)
@@ -512,7 +515,10 @@ class Rom:
     def crcs(self, system):
         """CRC32 candidates in the order the issue gives: NES whole file then without the 16-byte header,
         SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a Mega Drive SMD
-        dump (as Genesis Plus GX detects one) de-interleaved, since No-Intro hashes the raw ROM."""
+        dump (as Genesis Plus GX detects one) de-interleaved, since No-Intro hashes the raw ROM. A .lnx
+        without its 64-byte LYNX header first, the way No-Intro and Beetle Lynx hash it."""
+        if system == "Lynx" and self.size > 64 and self.read()[:4] == b"LYNX":
+            yield zlib.crc32(self.read()[64:])
         if system == "SNES" and self.size % 1024 == 512:
             yield zlib.crc32(self.read()[512:])
         if system == "MD" and self.size % 512 == 0 and (self.size // 512) % 2 == 1:
@@ -1546,7 +1552,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, Lynx) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
@@ -1571,8 +1577,9 @@ def main(argv=None, ctx=None):
     args.library = os.path.abspath(os.path.expanduser(args.library)) if args.library else None
     args.only_system = args.only_stem = None
     if args.only:
-        if args.only.upper() in SYSTEMS:
-            args.only_system = args.only.upper()
+        system = next((s for s in SYSTEMS if s.upper() == args.only.upper()), None)
+        if system:
+            args.only_system = system
         else:
             args.only_stem = args.only
     if (args.suggest or args.aliases or args.logo_fallback) and not args.by_name:

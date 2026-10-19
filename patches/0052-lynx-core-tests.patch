@@ -26,56 +26,33 @@ Kaksonen (zlib licence). The test approach follows nelynes/slotPlus's
 Lynx work, commit 749523c (https://github.com/nelynes/slotPlus/commit/749523c,
 GPL-3.0); the carts and checks are new.
 ---
- crates/slot/tests/lynx_core.rs | 428 ++++++++++++++++++++
- 1 file changed, 428 insertions(+)
+ crates/slot/tests/lynx_common/mod.rs | 141 +++++++++++++
+ crates/slot/tests/lynx_core.rs       | 292 +++++++++++++++++++++++++++
+ 2 files changed, 433 insertions(+)
+ create mode 100644 crates/slot/tests/lynx_common/mod.rs
  create mode 100644 crates/slot/tests/lynx_core.rs
 
-diff --git a/crates/slot/tests/lynx_core.rs b/crates/slot/tests/lynx_core.rs
+diff --git a/crates/slot/tests/lynx_common/mod.rs b/crates/slot/tests/lynx_common/mod.rs
 new file mode 100644
-index 0000000..3acefc3
+index 0000000..b89f011
 --- /dev/null
-+++ b/crates/slot/tests/lynx_core.rs
-@@ -0,0 +1,428 @@
-+// Beetle Lynx (Atari Lynx) on the generic libretro host, before any Lynx platform code exists (issues
-+// 102 and 110, ADR 0093).
-+//
-+// The core has no high-level boot at the pinned commit: with no `lynxboot.img` in the system dir it
-+// fills the boot ROM with 0x88 and returns, so a cart "loads" and shows nothing, with no error. Two
-+// kinds of test follow from that:
-+//
-+// - Tests that need no BIOS always run (CI included). They use a BS93 homebrew image, which the core
-+//   copies straight into RAM and starts at its load address with the display timers preset, so the
-+//   boot ROM is never used. They also pin the missing-BIOS signature that slot's BIOS check (issue 104)
-+//   exists to prevent.
-+// - Tests that boot a .lnx cart through the real boot ROM read it from `SLOT_LYNX_BIOS` (a path to a
-+//   `lynxboot.img`, 512 bytes, crc32 0x0d973c9d, the `[BIOS] Atari Lynx` entry in the core's own
-+//   cart database). No BIOS is in the repo or on CI, so there they print a skip naming the BIOS,
-+//   which run-tests.sh lists as a ROM skip and does not count as a missing core, also under
-+//   SLOT_REQUIRE_CORES=1. The core itself is still required first.
-+//
-+// The encrypted one-block boot loader in `lnx_cart` is the public cc65 loader by Karri Kaksonen
-+// (cc65 libsrc/lynx/bootldr.s, zlib licence): the boot ROM decrypts it to $0200, it reads the next 151
-+// cart bytes to $FB68 and jumps there. Our paint code sits in those 151 bytes.
-+mod common;
-+mod core_common;
++++ b/crates/slot/tests/lynx_common/mod.rs
+@@ -0,0 +1,141 @@
++#![allow(dead_code)]
 +
 +use std::path::{Path, PathBuf};
 +
-+use common::core_lock;
-+use core_common::require_core;
-+use slot_retro::{ButtonMask, LibretroCore, RetroCore};
-+
-+const W: usize = 160;
-+const H: usize = 102;
++pub const W: usize = 160;
++pub const H: usize = 102;
 +// The 160x102 picture in the middle of the 240x160 buffer the generic host draws into.
-+const LEFT: usize = (240 - W) / 2;
-+const TOP: usize = (160 - H) / 2;
-+const BIOS_CRC32: u32 = 0x0d97_3c9d;
++pub const LEFT: usize = (240 - W) / 2;
++pub const TOP: usize = (160 - H) / 2;
++pub const BIOS_CRC32: u32 = 0x0d97_3c9d;
 +
 +/// Sets all 16 pens to pure red (GREENx = 0, BLUEREDx = 0x0f), then spins. `at` is where it runs.
 +/// With `hz75` it first reprograms the line timer the way a 75 Hz game does (HTIMBKUP $7E, PBKUP $20,
 +/// against the $9E and $29 of 60 Hz).
-+fn paint(at: u16, hz75: bool) -> Vec<u8> {
++pub fn paint(at: u16, hz75: bool) -> Vec<u8> {
 +    let mut code = vec![0x78]; // sei
 +    if hz75 {
 +        code.extend([0xa9, 0x7e, 0x8d, 0x00, 0xfd]); // lda #$7e, sta HTIMBKUP
@@ -97,7 +74,7 @@ index 0000000..3acefc3
 +
 +/// Copies the joystick byte (JOYSTICK, $FCB0) into every pen's blue and red nibbles forever, so the
 +/// picture's colour shows which buttons the game saw. `at` is where it runs.
-+fn echo_pad(at: u16) -> Vec<u8> {
++pub fn echo_pad(at: u16) -> Vec<u8> {
 +    let lp = at + 11;
 +    vec![
 +        0x78, // sei
@@ -129,7 +106,7 @@ index 0000000..3acefc3
 +}
 +
 +/// A BS93 homebrew image: the 10-byte header (0x80 0x08 is `bra +8` over it), loaded at `at - 10`.
-+fn homebrew(dir: &Path, stem: &str, hz75: bool) -> PathBuf {
++pub fn homebrew(dir: &Path, stem: &str, hz75: bool) -> PathBuf {
 +    const AT: u16 = 0x0400;
 +    let code = paint(AT, hz75);
 +    let size = (10 + code.len()) as u16;
@@ -143,7 +120,7 @@ index 0000000..3acefc3
 +    path
 +}
 +
-+const CC65_LOADER: [u8; 52] = [
++pub const CC65_LOADER: [u8; 52] = [
 +    0xff, 0xb6, 0xbb, 0x82, 0xd5, 0x9f, 0x48, 0xcf, 0x23, 0x37, 0x8e, 0x07, 0x38, 0xf5, 0xb6, 0x30,
 +    0xd6, 0x2f, 0x12, 0x29, 0x9f, 0x43, 0x5b, 0x2e, 0xf5, 0x66, 0x5c, 0xdb, 0x93, 0x1a, 0x78, 0x55,
 +    0x5e, 0xc9, 0x0d, 0x72, 0x1b, 0xe9, 0xd8, 0x4d, 0x2f, 0xe4, 0x95, 0xc0, 0x4f, 0x7f, 0x1b, 0x66,
@@ -153,7 +130,7 @@ index 0000000..3acefc3
 +/// A 128 KB .lnx cart: the 64-byte LYNX header (bank 0 pages of 512 bytes, version 1, title at 0x0a,
 +/// rotation byte at 0x3a), the cc65 encrypted loader, then `code` (built to run at $FB68), which the
 +/// loader copies there.
-+fn lnx_cart(dir: &Path, stem: &str, rotation: u8, code: Vec<u8>) -> PathBuf {
++pub fn lnx_cart(dir: &Path, stem: &str, rotation: u8, code: Vec<u8>) -> PathBuf {
 +    let mut hdr = vec![0u8; 64];
 +    hdr[..4].copy_from_slice(b"LYNX");
 +    hdr[4..6].copy_from_slice(&0x0200u16.to_le_bytes());
@@ -169,7 +146,7 @@ index 0000000..3acefc3
 +    path
 +}
 +
-+fn crc32(data: &[u8]) -> u32 {
++pub fn crc32(data: &[u8]) -> u32 {
 +    let mut crc = !0u32;
 +    for &b in data {
 +        crc ^= b as u32;
@@ -185,7 +162,7 @@ index 0000000..3acefc3
 +}
 +
 +/// The maintainer's own boot ROM from `SLOT_LYNX_BIOS`, checked like slot's BIOS check will check it.
-+fn lynx_bios() -> Option<Vec<u8>> {
++pub fn lynx_bios() -> Option<Vec<u8>> {
 +    let Some(path) = std::env::var_os("SLOT_LYNX_BIOS") else {
 +        eprintln!("skipping: no Lynx BIOS, set SLOT_LYNX_BIOS to a lynxboot.img (512 bytes, crc32 0d973c9d)");
 +        return None;
@@ -202,6 +179,42 @@ index 0000000..3acefc3
 +    }
 +    Some(bytes)
 +}
+diff --git a/crates/slot/tests/lynx_core.rs b/crates/slot/tests/lynx_core.rs
+new file mode 100644
+index 0000000..7323de2
+--- /dev/null
++++ b/crates/slot/tests/lynx_core.rs
+@@ -0,0 +1,292 @@
++// Beetle Lynx (Atari Lynx) on the generic libretro host, before any Lynx platform code exists (issues
++// 102 and 110, ADR 0093).
++//
++// The core has no high-level boot at the pinned commit: with no `lynxboot.img` in the system dir it
++// fills the boot ROM with 0x88 and returns, so a cart "loads" and shows nothing, with no error. Two
++// kinds of test follow from that:
++//
++// - Tests that need no BIOS always run (CI included). They use a BS93 homebrew image, which the core
++//   copies straight into RAM and starts at its load address with the display timers preset, so the
++//   boot ROM is never used. They also pin the missing-BIOS signature that slot's BIOS check (issue 104)
++//   exists to prevent.
++// - Tests that boot a .lnx cart through the real boot ROM read it from `SLOT_LYNX_BIOS` (a path to a
++//   `lynxboot.img`, 512 bytes, crc32 0x0d973c9d, the `[BIOS] Atari Lynx` entry in the core's own
++//   cart database). No BIOS is in the repo or on CI, so there they print a skip naming the BIOS,
++//   which run-tests.sh lists as a ROM skip and does not count as a missing core, also under
++//   SLOT_REQUIRE_CORES=1. The core itself is still required first.
++//
++// The encrypted one-block boot loader in `lnx_cart` is the public cc65 loader by Karri Kaksonen
++// (cc65 libsrc/lynx/bootldr.s, zlib licence): the boot ROM decrypts it to $0200, it reads the next 151
++// cart bytes to $FB68 and jumps there. Our paint code sits in those 151 bytes.
++mod common;
++mod core_common;
++mod lynx_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use core_common::require_core;
++use lynx_common::{echo_pad, homebrew, lnx_cart, lynx_bios, paint, H, LEFT, TOP, W};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
 +
 +/// The core opened the way slot opens every core today: BIOS/ as the system dir and Saves/ as the save
 +/// dir (`slot::core::open_named`). `bios` goes into BIOS/lynxboot.img when given.
@@ -464,6 +477,3 @@ index 0000000..3acefc3
 +        down
 +    );
 +}
--- 
-2.50.0
-

@@ -26,7 +26,7 @@ set adds more shelves the same way:
 | Master System | `Games/SMS` (`.sms`) | Genesis Plus GX (2x) | none yet |
 | Mega Drive | `Games/MD` (`.md`, `.gen`, `.bin`) | Genesis Plus GX (2x, 6-button) | none yet |
 | PlayStation (planned, not shipped) | `Games/PS1` (`.chd`, `.cue`, `.pbp`, `.m3u`) | pcsx_rearmed | none |
-| Atari Lynx (planned, not shipped) | `Games/Lynx` (`.lnx`, `.lyx`) | Beetle Lynx (4x) | none |
+| Atari Lynx (device gate pending) | `Games/Lynx` (`.lnx`, `.lyx`) | Beetle Lynx (4x) | none |
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -38,10 +38,17 @@ PlayStation is planned, not shipped (Phase 8, ADRs 0063 to 0069, issue 56). A de
 RG34XXSP passed on 2026-10-16. v1 will be a digital pad with L2 and R2 for the game, user-supplied
 BIOS files in `BIOS/` (none shipped, HLE otherwise), disc swap, and no rewind.
 
-Atari Lynx is planned, not shipped (Phase 12, ADR 0093, issue 101). The core is built and tested;
-the shelf waits for the upstream 1.8.0 base. It needs your own `BIOS/lynxboot.img` (never shipped):
-without it the core shows a dark screen and no error, so slot will check the file first. Saves are
-save states only (no EEPROM).
+Atari Lynx is in the patch set, its device gate pending (Phase 12, ADR 0093, issue 101). It needs
+your own `BIOS/lynxboot.img` (512 bytes; slot never ships or fetches it, and a 0-byte placeholder
+counts as missing): without one the core would show a dark screen with no error, so slot keeps the
+cart on the shelf and says "Lynx needs BIOS/lynxboot.img"; a 512-byte file that is not the known dump
+launches with a one-time toast. The 160x102 picture shows at 4x (Actual) or fills the panel
+(Stretch). Each game runs at the rate it programs (most at 59.9 Hz, some at 75 or 50), measured
+from its sound; the Lynx Speed row's Panel runs one frame a vsync instead. Carts made to be held
+sideways keep the picture as drawn, so you turn the handheld; Flip Right Carts (on by default)
+draws right-turned carts upside down with the pad turned to match, so every turned cart is held the
+same way. `Config/lynx_rotation.txt` (`<stem> = left`, `right` or `none`) overrides what slot reads
+from the header and its title list. L and R are Option 1 and 2, START is Pause.
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays
@@ -65,6 +72,7 @@ Buttons row does nothing on SNES, where X and Y are real buttons and always reac
   mode 2 (Sonic 2 two-player) uses the core's single-field blend. Sega bezels use the GBA bezel
   choice, like NES and SNES.
 - PlayStation (planned): no rewind and no fast-forward gesture (L2 and R2 belong to the game). The pad is a DualShock with both sticks, but which physical stick is left is not verified yet (`sh scripts/stick-check.sh` writes `Config/sticks.txt`), and L3 and R3 are not mapped.
+- Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few carts that save to an EEPROM keep progress only through the resume state and save states; an `.eeprom` from another frontend is ignored. The upright tall view of a turned cart (a 90 degree turn on the panel) is not there yet.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.
 

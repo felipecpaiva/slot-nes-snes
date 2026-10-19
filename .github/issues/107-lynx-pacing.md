@@ -11,11 +11,11 @@ depends_on: [106-lynx-canvas-screen, 66-pal-pacing]
 Step 8. Beetle Lynx reports a constant 75 fps but each `retro_run` is one game frame of whatever length the game programmed: 59.9 Hz as the boot ROM leaves it (736 sample frames at 44.1 kHz), 75 Hz for a game that sets it (588). ADR 0071 paces from the reported fps, so it would run a 59.9 Hz game 25% fast, and its Panel choice would drop the pitch. The rule "options stay available, the player's choice becomes the default" gives a row (ADR 0093).
 
 ## Scope
-- [ ] Measure the content rate from the sound each frame carries: sample frames per run over the sample rate, smoothed (EMA over about 30 frames, clamped 50 to 80 fps), for cores flagged as reporting no real rate (Lynx only). nelynes 0848fcb and b264635 follow the same idea; credit them.
-- [ ] **Native** (default): feed that rate to ADR 0071's period and owed-frames path (1 or 2 frames a tick at 75 Hz on the 59.6 Hz panel, 0 or 1 below). The resampler is built on the measured rate, so one second of game feeds one second of sound.
-- [ ] **Panel**: one frame per vsync, sound resampled from what each frame carried; a 75 Hz game plays at 80%.
-- [ ] Stored as `lynx = panel` in `Config/pal_speed.txt` or its own file (decide with issue 106); missing line is Native.
-- [ ] `lynx_force_60hz` stays disabled (issue 105).
+- [x] Measure the content rate from the sound each frame carries: sample frames per run over the sample rate, smoothed (EMA over about 30 frames, clamped 50 to 80 fps), for cores flagged as reporting no real rate (Lynx only). nelynes 0848fcb and b264635 follow the same idea; credit them.
+- [x] **Native** (default): feed that rate to ADR 0071's period and owed-frames path (1 or 2 frames a tick at 75 Hz on the 59.6 Hz panel, 0 or 1 below). The resampler is built on the measured rate, so one second of game feeds one second of sound.
+- [x] **Panel**: one frame per vsync, sound resampled from what each frame carried; a 75 Hz game plays at 80%.
+- [x] Stored as `lynx = panel` in `Config/pal_speed.txt` or its own file (decide with issue 106); missing line is Native.
+- [x] `lynx_force_60hz` stays disabled (issue 105).
 - If the maintainer picks Handy: it runs fixed cycles per run (`handy_refresh_rate`), so Native is "set 75 and pace at 75" and Panel "set 60", with no measuring.
 
 ## Tests
@@ -32,7 +32,10 @@ Step 8. Beetle Lynx reports a constant 75 fps but each `retro_run` is one game f
 | No display frame ends (missing BIOS, 43.75 ms cap) | Cannot happen: issue 104 refuses the launch |
 
 ## Acceptance
-- [ ] GBA harness compare 0 diffs; `pal_pacing.rs` unchanged.
+- [x] GBA harness compare 0 diffs; `pal_pacing.rs` unchanged.
+
+## Status
+Landed as patch 0057-lynx-pacing (2026-10-19). As built: windows of 20 frames, a rate taken once two windows agree within 0.5 fps (no EMA), clamp 50 to 80; stored as `lynx` in `Config/pal_speed.txt`. `EmuHandle::paced_fps` reports the period in use.
 
 ## Device check (RG34XXSP)
 Zero underruns at Native on a 60 Hz and a 75 Hz game (issue 112 lists them once measured).

@@ -438,26 +438,26 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
 
-### Phase 12: Atari Lynx (planned, not shipped)
+### Phase 12: Atari Lynx (device gate pending)
 
 Tracking issue 101, children 102 to 112, ADR 0093, plan in docs/research/lynx-plan.md. One core,
-Beetle Lynx (`mednafen_lynx`) pinned at `fcdefcf` (Handy is the open alternative, ADR 0093), one shelf
-`Games/Lynx`, the player's own BIOS, no core picker. The platform patches wait for the upstream 1.8.0
-base.
+Beetle Lynx (`mednafen_lynx`) pinned at `fcdefcf` (Handy rejected for now, ADR 0093), one shelf
+`Games/Lynx`, the player's own BIOS, no core picker. Integrated on slot main 1b20432 as patches 0052
+to 0061 (2026-10-19).
 
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0093 and the issues |
 | 2 | 102, done | Core build, pin and licence (GPL text plus the Handy zlib text) |
-| 3 | 110, core half done | Homebrew and synthetic-cart tests: picture, real rate, states, missing-BIOS signature; BIOS-gated cart boot and pad rotation (patch 0052) |
-| 4 | 103 | `Platform::Lynx`, shelf, scan, LNX header (title, rotation byte), explicit policy; joins dist and zip-check |
-| 5 | 104 | BIOS check before launch, toast |
-| 6 | 105 | Core options: `lynx_rot_screen` always set, `lynx_force_60hz` off |
-| 7 | 106 | 240x160 canvas at 4x, Lynx Screen section (Shader, Picture, Lynx Speed, Turned carts) |
-| 8 | 107 | Pacing at the game's measured rate, Lynx Speed row (Native default) |
-| 9 | 109 | Buttons, turned carts through the core's own pad turn |
-| 10 | 108 | Saves: states only |
-| 11 | 111 | Cards, labels for ScreenScraper id 28 |
+| 3 | 110, done (0052, each patch, 0061) | Homebrew and synthetic-cart tests: picture, real rate, states, missing-BIOS signature; BIOS-gated cart boot and pad rotation (patch 0052) |
+| 4 | 103, done (0053) | `Platform::Lynx`, shelf, scan, LNX header (title, rotation byte), explicit policy; joins dist and zip-check |
+| 5 | 104, done (0054) | BIOS check before launch, toast |
+| 6 | 105, done (0055) | Core options: `lynx_rot_screen` always set, `lynx_force_60hz` off |
+| 7 | 106, done (0053, 0056) | 240x160 canvas at 4x, Lynx Screen section (Shader, Picture, Lynx Speed, Flip Right Carts) |
+| 8 | 107, done (0057) | Pacing at the game's measured rate, Lynx Speed row (Native default) |
+| 9 | 109, done (0059) | Buttons, turned carts through the core's own pad turn |
+| 10 | 108, done (0058) | Saves: states only |
+| 11 | 111, done (0060) | Cards, labels for ScreenScraper id 28 |
 | 12 | 112 | Device gate with the maintainer's BIOS |
 
 ### Phase 6+: deferred (non-blocking)

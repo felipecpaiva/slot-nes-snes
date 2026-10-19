@@ -11,11 +11,11 @@ depends_on: [103-platform-lynx]
 Step 5. With no `lynxboot.img`, or one under 512 bytes, Beetle Lynx loads the cart without an error and never draws (pinned by `lynx_core.rs`). The player sees a dark screen and no reason. slot must catch it before launch (ADR 0093).
 
 ## Scope
-- [ ] Before seating a Lynx cart, check `BIOS/lynxboot.img`: present, exactly 512 bytes, crc32 `0x0d973c9d` (the `[BIOS] Atari Lynx` entry in the core's own cart list; md5 `fcd403db69f54290b51035d82f835e7b`).
-- [ ] Missing, unreadable or the wrong size: do not launch; toast "Lynx needs BIOS/lynxboot.img" and leave the cart on the shelf. No resume attempt, no crash-guard mark (issue 67).
-- [ ] Right size, wrong checksum: launch and toast once per session ("lynxboot.img is not the known dump").
-- [ ] The check is one function shared by the shelf launch and the resume path, so a resumed Lynx game is checked too.
-- [ ] README: where the file goes, that slot never ships or fetches it, and that a 0-byte placeholder of the right name is treated as missing.
+- [x] Before seating a Lynx cart, check `BIOS/lynxboot.img`: present, exactly 512 bytes, crc32 `0x0d973c9d` (the `[BIOS] Atari Lynx` entry in the core's own cart list; md5 `fcd403db69f54290b51035d82f835e7b`).
+- [x] Missing, unreadable or the wrong size: do not launch; toast "Lynx needs BIOS/lynxboot.img" and leave the cart on the shelf. No resume attempt, no crash-guard mark (issue 67).
+- [x] Right size, wrong checksum: launch and toast once per session ("lynxboot.img is not the known dump").
+- [x] The check is one function shared by the shelf launch and the resume path, so a resumed Lynx game is checked too.
+- [x] README: where the file goes, that slot never ships or fetches it, and that a 0-byte placeholder of the right name is treated as missing.
 - If the maintainer picks Handy: missing or wrong BIOS launches on the HLE boot with a one-time toast instead of refusing.
 
 ## Tests
@@ -33,7 +33,10 @@ Step 5. With no `lynxboot.img`, or one under 512 bytes, Beetle Lynx loads the ca
 | `LYNXBOOT.IMG` on a case-insensitive card | Found, the filesystem decides |
 
 ## Acceptance
-- [ ] `task check` green; the toast shows on the host render test.
+- [x] `task check` green; the toast shows on the host render test.
+
+## Status
+Landed as patch 0054-lynx-bios (2026-10-19): the check sits in `App::insert`, which both the shelf launch and the boot resume go through; the toasts are their own list after the disc toasts.
 
 ## Device check (RG34XXSP)
 Rename the BIOS away: launching shows the toast, no dark screen. Put it back: the game boots.

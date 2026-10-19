@@ -264,20 +264,19 @@ the commit that added the build.
 
 Checked at commit `fcdefcfb3c11d6d2e71be076a5d3df2e88ab73ed` of libretro/beetle-lynx-libretro, the
 commit `SLOT_PIN` pins as `mednafen_lynx_commit` (tarball sha256 `mednafen_lynx_tarball_sha256`). It
-is built by `cores/mednafen_lynx/build.sh` for Atari Lynx (ADR 0093) and is not in a release yet: it
-joins `dist:device` and `zip-check.sh` with the Lynx platform patch (issue 103). Until then its two
-licence texts stay in `cores/mednafen_lynx/` and move to `licenses/` when the core ships (the Genesis
-Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release):
+is built by `cores/mednafen_lynx/build.sh` for Atari Lynx (ADR 0093) and ships through `dist:device`
+and `zip-check.sh` since the Lynx platform patches (0053 on). Its licence texts are in `licenses/`,
+which `dist-device.sh` copies whole into the release:
 
 - `mednafen_lynx-GPL-2.0.txt`, the root `COPYING` of that source, verbatim and whole;
 - `mednafen_lynx-Handy-zlib.txt`, `mednafen/lynx/license.txt` verbatim: the zlib licence of Handy
   (Copyright (c) 2004 K. Wilkins). nelynes/slotPlus ships only a GPL-2.0 text for this core, which
   leaves the zlib notice out; its condition 3 ("This notice may not be removed") needs it shipped.
 
-The exact source will ship with the core as `mednafen_lynx-src.tar.gz`, with `mednafen_lynx-src.meta`
+The exact source ships with the core as `mednafen_lynx-src.tar.gz`, with `mednafen_lynx-src.meta`
 recording its sha256.
 
-**The combined core we will ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
 
 - Scope of the counts: the 47 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.cpp`,
   `libretro_core_options.h`, `libretro_core_options_intl.h`, `scrc32.c` and `scrc32.h` at the root,
@@ -296,7 +295,7 @@ recording its sha256.
     scrc32.c scrc32.h; } | xargs grep -l -i 'any later version' | wc -l` (9), and the same with
     `'Permission is granted to anyone to use this software'` (20).
 - **Headerless files, a judgement.** 20 of the 52 have no licence text in their first 60 lines. They
-  are listed in `cores/mednafen_lynx/mednafen_lynx-headerless-files.txt` with the command that
+  are listed in `licenses/mednafen_lynx-headerless-files.txt` with the command that
   produced the list. They include `libretro.cpp` (the glue), `mednafen/lynx/c65c02.cpp` (Handy's
   CPU, zlib by origin) and `scrc32.c` (a CRC-32 table). We treat them as covered by `COPYING`.
   That is a judgement, not a quote.
@@ -406,3 +405,14 @@ boot loader (`libsrc/lynx/bootldr.s`, Karri Kaksonen, 2011, cc65's zlib licence)
 a test, never shipped. The test approach follows nelynes/slotPlus's Lynx work
 ([749523c](https://github.com/nelynes/slotPlus/commit/749523c), GPL-3.0); the carts, the homebrew
 image and the checks are new. The fork is credited in the patch commit.
+
+The Lynx platform patches reimplement ideas from nelynes/slotPlus (GPL-3.0), credited in each patch
+commit: the shelf shape ([749523c](https://github.com/nelynes/slotPlus/commit/749523c), patch
+`0053-platform-lynx`), measuring the rate from the sound
+([0848fcb](https://github.com/nelynes/slotPlus/commit/0848fcb),
+[b264635](https://github.com/nelynes/slotPlus/commit/b264635), patch `0057-lynx-pacing`), the
+by-title rotation list, the override file and the turned play
+([d7d0e74](https://github.com/nelynes/slotPlus/commit/d7d0e74),
+[185257a](https://github.com/nelynes/slotPlus/commit/185257a), patch `0059-lynx-rotation`) and the
+flat card ([98419f4](https://github.com/nelynes/slotPlus/commit/98419f4), patch `0060-lynx-carts`,
+drawn by our own generator, no asset copied).

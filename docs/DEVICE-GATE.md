@@ -239,6 +239,28 @@ a few Brazilian and prototype entries). Pick a European cart **not** in that lis
 
 Master System region gate passed on 2026-10-18. Logs: `docs/perf/2026-10-18/play/sms-region-*.1.log`.
 
+## Atari Lynx (issue 112, ADR 0093)
+
+Pending. Needs the player's own `BIOS/lynxboot.img` (512 bytes, crc32 0d973c9d). The host measured
+the rate each cart programs (docs/research/lynx-plan.md section 11); a `slot: emu: the game runs at`
+and a `slot: emu: pacing at` line in `slot.log` say what the device ran.
+
+1. Boot: the cart seats, the first picture comes after the boot ROM (about half a second).
+2. Picture: Actual is 640x408 in the middle; SELECT+X or the Picture row gives Stretch (full panel).
+3. Rotation: a right-turned cart (Klax, Gauntlet: The Third Encounter) is drawn upside down with
+   Flip Right Carts on; with the handheld turned, the d-pad moves the way the picture faces. Off draws
+   it as made. Lexis (left) is drawn as made either way.
+4. Controls: A and B, L and R (Option 1 and 2), START (Pause).
+5. Audio: no crackle; `starved` and `dropped` stay 0 under `SLOT_TRACE`.
+6. Speed: Native paces a 75 Hz game at 75 fps (1 or 2 frames a vsync) and a 50 Hz one at 50;
+   Panel runs one frame a vsync.
+7. States: save and load a state; eject and power cycle resume where it was.
+8. Missing BIOS: rename `BIOS/lynxboot.img`; launching shows "Lynx needs BIOS/lynxboot.img" and the
+   cart stays on the shelf. Put it back.
+
+| Title | Turn | Measured fps (host) | Device pacing line | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

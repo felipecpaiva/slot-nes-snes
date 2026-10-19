@@ -8,17 +8,17 @@ depends_on: [102-lynx-core-build]
 ---
 
 ## Why
-Step 4. The shelf and the policy answers, built on the 1.8.0 base (ADR 0086).
+Step 4. The shelf and the policy answers, built on slot main 1b20432 (ADR 0083) (ADR 0093).
 
 ## Scope
-- [ ] `Platform::Lynx` in `SHELVES` (not `ALL`), `Core::MednafenLynx` in `EVERY` with `as_str() == "mednafen_lynx"` and option prefix `lynx`. Folders `Games/Lynx`, `Labels/Lynx`, `Saves/Lynx`, `States/Lynx`.
-- [ ] Scan `.lnx` and `.lyx`. Not `.o` or `.bll` (homebrew loaders the core accepts; no dat). A `.lyx` that is not exactly 128, 256 or 512 KB still lists, with a one-line log, because the core will refuse it silently (it goes "illegal" and shows the undrawn fill).
-- [ ] Header reader in our own `slot_store::lynx` module: `LYNX` magic, version 1, title at 0x0a (32 bytes, NUL or space padded), rotation byte at 0x3a (1 left, 2 right, anything else none). Title falls back to the stem for `.lyx`, a short file or a blank title. Never panics.
-- [ ] Every policy method answers explicitly: `owns_shoulders` false (L and R are Option 1 and 2), `passes_xy_through` false, `select_x_toggles_picture` true, `picker_cores` None, `stretch_crops_height` false, `overscan` (0, 0), `follows_frame_width` false, `has_gb_palettes` false, `rewinds` true, `Core::canvas(MednafenLynx, Lynx) = (240, 160)`.
-- [ ] Placeholder cart until issue 111.
-- [ ] Named test sites (b) and (e) take `Platform::Lynx` and `Core::MednafenLynx` (ADR 0055).
-- [ ] Release: move both licence files to `licenses/`; add the core to `scripts/dist-device.sh` and every list in `scripts/zip-check.sh` (cores, `req`, `ok`, licence and srcmeta checks, the strings pair `mednafen_lynx:Beetle Lynx`), and `Lynx` to its `games` list. README row "planned, not shipped".
-- [ ] Credit nelynes/slotPlus 749523c for the shelf shape.
+- [x] `Platform::Lynx` in `SHELVES` (not `ALL`), `Core::MednafenLynx` in `EVERY` with `as_str() == "mednafen_lynx"` and option prefix `lynx`. Folders `Games/Lynx`, `Labels/Lynx`, `Saves/Lynx`, `States/Lynx`.
+- [x] Scan `.lnx` and `.lyx`. Not `.o` or `.bll` (homebrew loaders the core accepts; no dat). A `.lyx` that is not exactly 128, 256 or 512 KB still lists, with a one-line log, because the core will refuse it silently (it goes "illegal" and shows the undrawn fill).
+- [x] Header reader in our own `slot_store::lynx` module: `LYNX` magic, version 1, title at 0x0a (32 bytes, NUL or space padded), rotation byte at 0x3a (1 left, 2 right, anything else none). Title falls back to the stem for `.lyx`, a short file or a blank title. Never panics.
+- [x] Every policy method answers explicitly: `owns_shoulders` false (L and R are Option 1 and 2), `passes_xy_through` false, `select_x_toggles_picture` true, `picker_cores` None, `stretch_crops_height` false, `overscan` (0, 0), `follows_frame_width` false, `has_gb_palettes` false, `rewinds` true, `Core::canvas(MednafenLynx, Lynx) = (240, 160)`.
+- [x] Placeholder cart until issue 111.
+- [x] Named test sites (b) and (e) take `Platform::Lynx` and `Core::MednafenLynx` (ADR 0055).
+- [x] Release: move both licence files to `licenses/`; add the core to `scripts/dist-device.sh` and every list in `scripts/zip-check.sh` (cores, `req`, `ok`, licence and srcmeta checks, the strings pair `mednafen_lynx:Beetle Lynx`), and `Lynx` to its `games` list. README row "planned, not shipped".
+- [x] Credit nelynes/slotPlus 749523c for the shelf shape.
 
 ## Tests
 | ID | File | Asserts |
@@ -35,10 +35,13 @@ Step 4. The shelf and the policy answers, built on the 1.8.0 base (ADR 0086).
 | A title with high-bit bytes | Lossy to UTF-8, trimmed |
 
 ## Acceptance
-- [ ] `task check` green; GBA harness compare 0 diffs.
+- [x] `task check` green; GBA harness compare 0 diffs.
+
+## Status
+Landed as patch 0053-platform-lynx (2026-10-19). As built: `stretch_crops_height` is true, so Stretch fills the panel with the 160x102 picture (issue 106's acceptance); the cart was a placeholder until 0060. Named sites (g) and (h) also take the Lynx tokens.
 
 ## Device check (RG34XXSP)
 A Lynx cart boots from the shelf with the BIOS in place. Full gate in issue 112.
 
 ## References
-- ADR 0050, 0055, 0086; patch 0034 for the shape; docs/research/lynx-plan.md section 6
+- ADR 0050, 0055, 0093; patch 0034 for the shape; docs/research/lynx-plan.md section 6

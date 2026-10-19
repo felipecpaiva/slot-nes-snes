@@ -1,7 +1,7 @@
 # Atari Lynx on slot-nes-snes: plan (2026-10-18)
 
-"Our tree" means slot v1.7.0 plus our patches. The integration patches will be written on the
-upstream 1.8.0 base once that port lands, so this plan names seams, not line numbers. "Beetle" means
+"Our tree" means slot v1.7.0 plus our patches at the time of writing. The integration landed on
+slot main 1b20432 (ADR 0083) on 2026-10-19, as patches 0052 to 0061 (section 11). "Beetle" means
 libretro/beetle-lynx-libretro at `fcdefcf` (ADR 0093). The reference is nelynes/slotPlus branch
 `main`: [749523c](https://github.com/nelynes/slotPlus/commit/749523c) (core, shelf, rotation),
 [98419f4](https://github.com/nelynes/slotPlus/commit/98419f4) (card),
@@ -28,7 +28,7 @@ reimplement them with credit; nothing is cherry-picked.
      set that option (issues 105 and 109).
   3. **Missing BIOS:** the cart loads, no error, no frame ever ends, dark fill. slot checks the file
      first (issue 104).
-- Expected size: about 10 patches on the 1.8.0 base. Effort L, value low to medium.
+- Size: ten patches (0052 to 0061) on slot main 1b20432. Effort L, value low to medium.
 
 ## 1. What nelynes did (reference only)
 
@@ -144,7 +144,7 @@ turned-cart direction; eject and GBA.
 
 ## 9. Issue list (Phase 12)
 
-| Issue | Title | Size | Needs the 1.8.0 base |
+| Issue | Title | Size | Needs the new base |
 |---|---|---|---|
 | 101 | Tracking | L | n/a |
 | 102 | Build Beetle Lynx pinned for host and device, licence | S | No, done |
@@ -159,10 +159,33 @@ turned-cart direction; eject and GBA.
 | 111 | Cards and labels | M | Yes |
 | 112 | Device gate | S | Yes |
 
-## 10. What remains for the integration step (on 1.8.0)
+## 10. Integration (done 2026-10-19)
 
-Issues 103 to 109 and 111 to 112, plus the platform half of 110. When the platform patch lands:
-both licence files move from `cores/mednafen_lynx/` to `licenses/`; the core joins
-`scripts/dist-device.sh` and `scripts/zip-check.sh`; `Lynx` joins the `games` list. If the
-maintainer picks Handy first, redo issue 102 for it and resolve `lynxdec.cpp`'s licence before
-anything ships.
+Issues 103 to 111 landed on slot main 1b20432 with the licence files moved to `licenses/`, the core
+in `scripts/dist-device.sh` and `scripts/zip-check.sh` (strings pair `mednafen_lynx:Beetle.Lynx`),
+`Lynx` in the zip's `games` list, and `Lynx` (ScreenScraper 28, dat `Atari - Lynx`, the CRC of the
+body after the 64-byte header) in `tools/fetch-labels.py`. The maintainer picked Beetle Lynx; Handy
+stays out while `lynxdec.cpp` has no licence. Issue 112, the device gate, is open.
+
+## 11. Patches
+
+| Patch | Issue | What |
+|---|---|---|
+| 0052-lynx-core-tests | 110 | Core tests (groundwork), helpers now in `tests/lynx_common` |
+| 0053-platform-lynx | 103 | `Platform::Lynx`, `Core::MednafenLynx`, `slot_store::lynx` header reader, shelf, Screen section with Shader and Picture, named sites (b), (e), (g), (h) |
+| 0054-lynx-bios | 104 | BIOS check in `App::insert`, the refusal toast, the one-time unknown-dump toast |
+| 0055-lynx-options | 105 | `lynx_rot_screen` 0, `lynx_force_60hz` disabled, `lynx_pix_format` 16 |
+| 0056-lynx-screen | 106 | Actual at 4x (180x120 window), Stretch fills |
+| 0057-lynx-pacing | 107 | Measured rate, Lynx Speed row, `EmuHandle::paced_fps` |
+| 0058-lynx-saves | 108 | States only, pinned by a real session test |
+| 0059-lynx-rotation | 109 | Turn sources, `SET_ROTATION` 2 as a flip, Flip Right Carts row |
+| 0060-lynx-carts | 111 | Generated Lynx card and its neutral |
+| 0061-lynx-tests | 110 | GBA after a turned 75 Hz Lynx game equals a GBA-only run |
+
+Host measurement of the maintainer's 88-cart set with the real boot ROM (20 s each, no input but a
+START and A tap): 59.9 Hz for most; 75 Hz for Batman Returns, Checkered Flag, Desert Strike,
+European Soccer Challenge, Klax, Rampart and Switchblade II; 50.1 Hz for Alien vs Predator (proto),
+Daemonsgate (proto), Dinolympics, Lemmings, Lexis, Marlboro Go! (proto), Ninja Gaiden, Road Riot 4WD
+(proto) and Super Off-Road; 52.6 Hz for Krazy Ace; Ishido and California Games change rate between
+screens. Turned by slot: Gauntlet - The Third Encounter and Klax (right), Lexis and NFL Football
+(left).

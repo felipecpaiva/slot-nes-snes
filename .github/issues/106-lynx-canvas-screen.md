@@ -11,14 +11,14 @@ depends_on: [105-lynx-options]
 Step 7. The Lynx picture is 160x102. At 4x it is 640x408, which fits the 720x480 panel; it is the only system where 4x fits. Every system has its own Screen section (maintainer's rule).
 
 ## Scope
-- [ ] `Core::canvas(MednafenLynx, Lynx) = (240, 160)`; the frame lands at (40, 29) (pinned by `lynx_core.rs`). Source window 180x120 for 4x, the fork's numbers.
-- [ ] Own Screen section `SCREEN_LYNX`, rows:
+- [x] `Core::canvas(MednafenLynx, Lynx) = (240, 160)`; the frame lands at (40, 29) (pinned by `lynx_core.rs`). Source window 180x120 for 4x, the fork's numbers.
+- [x] Own Screen section `SCREEN_LYNX`, rows:
   - **Shader**: Off, Grid, Dot, then the shared retro list. No LCD3x (tuned for 3x, the Lynx sits at 4x). Stored in its own `Config/` file (ADR 0051).
   - **Picture**: Actual 4x (default) and Stretch; no Crop (no overscan). Default in `Config/picture.txt` (ADR 0061).
   - **Lynx Speed**: Native / Panel (issue 107).
   - **Turned carts**: Flip right-turned (default) / As drawn (issue 109).
-- [ ] Options stay available and the player's choice becomes the default, as for every Screen row.
-- [ ] The upright "tall" view (102x160 at 3x) is deferred.
+- [x] Options stay available and the player's choice becomes the default, as for every Screen row.
+- [x] The upright "tall" view (102x160 at 3x) is deferred.
 
 ## Tests
 | ID | File | Asserts |
@@ -32,7 +32,10 @@ Step 7. The Lynx picture is 160x102. At 4x it is 640x408, which fits the 720x480
 | An older card with no Lynx lines | Defaults |
 
 ## Acceptance
-- [ ] `task check` green; render test of the Screen page with the new section (ADR 0070 scrolling).
+- [x] `task check` green; render test of the Screen page with the new section (ADR 0070 scrolling).
+
+## Status
+Landed as patches 0053 (section, Shader, Picture) and 0056-lynx-screen (Actual at 4x, 2026-10-19). The turned-carts row is "Flip Right Carts" (On/Off) and arrives with 0059; the speed row with 0057.
 
 ## Device check (RG34XXSP)
 Actual and Stretch on California Games.

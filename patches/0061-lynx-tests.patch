@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:22:20 +0400
+Subject: [PATCH] lynx-tests
+
+A GBA game seated after a right-turned Lynx cart that runs at 75 Hz gets
+the same input, the same picture and the same 60 Hz pacing as in a
+GBA-only run: the half turn, the measured rate and the 4x window stay
+with the Lynx session. It needs the BIOS (SLOT_LYNX_BIOS) and skips
+without it, like the other Lynx tests that boot a cart.
+---
+ crates/slot/tests/lynx_then_gba.rs | 160 +++++++++++++++++++++++++++++
+ 1 file changed, 160 insertions(+)
+ create mode 100644 crates/slot/tests/lynx_then_gba.rs
+
+diff --git a/crates/slot/tests/lynx_then_gba.rs b/crates/slot/tests/lynx_then_gba.rs
+new file mode 100644
+index 0000000..9e980c8
+--- /dev/null
++++ b/crates/slot/tests/lynx_then_gba.rs
+@@ -0,0 +1,160 @@
++mod common;
++mod core_common;
++mod lynx_common;
++mod real_seat;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use lynx_common::{lnx_cart, lynx_bios, paint, put_bios};
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(20);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn booted(beetle: &Path, mgba: &Path, bios: &[u8]) -> Rig {
++        let carts = tempfile::tempdir().expect("tempdir");
++        let rom = lnx_cart(carts.path(), "Aaa", 2, paint(0xfb68, true));
++        let root = real_seat::rooted(Platform::Lynx, "Aaa", &rom, beetle);
++        put_bios(root.path(), Some(bios));
++        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
++        std::os::unix::fs::symlink(
++            std::fs::canonicalize(mgba).expect("core path"),
++            root.path().join("System").join(dylib_name(Core::Mgba)),
++        )
++        .expect("link core");
++        let mut sink = StubSink::draining();
++        sink.open(32_768).expect("the stub refused to open");
++        Rig {
++            session: Session::boot_with(root.path().to_path_buf(), Box::new(sink)),
++            root,
++            now: 0,
++        }
++    }
++
++    fn playing(&mut self, what: &str) {
++        self.until(what, |s| {
++            matches!(s.app().phase(), Phase::Playing { .. }) && s.frames_published() >= 10
++        });
++    }
++
++    fn gba(after_lynx: bool) -> Option<Rig> {
++        let bios = lynx_bios()?;
++        let beetle = core_common::require_core("mednafen_lynx")?;
++        let mgba = core_common::require_core("mgba")?;
++        let mut r = Rig::booted(&beetle, &mgba, &bios);
++        if after_lynx {
++            r.tap(Btn::R1);
++            r.tap(Btn::A);
++            r.playing("the lynx cart to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Lynx);
++            r.until("the lynx rate", |s| {
++                s.emu().is_some_and(|e| (e.paced_fps() - 75.0).abs() < 0.5)
++            });
++            r.feed(RawEvent::Down(Btn::Menu));
++            r.until("the eject", |s| !s.has_core());
++            r.feed(RawEvent::Up(Btn::Menu));
++            r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++            r.tap(Btn::L1);
++        }
++        r.tap(Btn::A);
++        r.playing("the gba cart to seat");
++        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
++        Some(r)
++    }
++
++    fn input(&mut self) -> Vec<u16> {
++        let mut seen = vec![u16::from(
++            self.session.emu().expect("core").passes_through(),
++        )];
++        for btn in [Btn::A, Btn::B, Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++            self.feed(RawEvent::Down(btn));
++            seen.push(self.pad());
++            self.feed(RawEvent::Up(btn));
++            seen.push(self.pad());
++        }
++        self.feed(RawEvent::Down(Btn::Select));
++        self.feed(RawEvent::Down(Btn::X));
++        seen.push(self.pad() & ButtonMask::X);
++        self.feed(RawEvent::Up(Btn::X));
++        self.feed(RawEvent::Up(Btn::Select));
++        seen.push(u16::from(
++            self.root.path().join("Config/video_mode.txt").exists(),
++        ));
++        seen
++    }
++
++    fn picture(&self) -> ([f32; 4], u32, usize, u64) {
++        let emu = self.session.emu().expect("core");
++        let frame = emu.latest_frame().expect("nothing was published").len();
++        let paced = (emu.paced_fps() * 1000.0).round() as u64;
++        (
++            self.session.app().source_rect(),
++            emu.frame_width(),
++            frame,
++            paced,
++        )
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_turned_75_hz_lynx_game_gets_the_same_input_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(mut alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.input();
++    drop(alone);
++    let mut after = Rig::gba(true).expect("cores");
++    assert_eq!(after.input(), want);
++}
++
++#[test]
++fn a_gba_game_after_a_turned_75_hz_lynx_game_gets_the_same_picture_and_pace_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.picture();
++    assert_eq!(want.2, 240 * 160 * 4);
++    drop(alone);
++    let after = Rig::gba(true).expect("cores");
++    assert_eq!(after.picture(), want);
++}

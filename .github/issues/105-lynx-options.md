@@ -11,10 +11,10 @@ depends_on: [103-platform-lynx]
 Step 6. Beetle Lynx declares three options. Two of them change behaviour slot owns, so slot answers all three explicitly (ADR 0093), never the declared defaults.
 
 ## Scope
-- [ ] `lynx_rot_screen`: always set by slot per game, `0` or `180` (issue 109). Never `auto` (its declared default, which turns the pad 90 or 270 and asks for `SET_ROTATION`), never `manual` (SELECT would turn the screen, and SELECT is slot's).
-- [ ] `lynx_force_60hz`: `disabled`. It only changes the reported fps (pinned by `force_60hz_only_changes_the_reported_fps_not_the_game_speed`); pacing is issue 107.
-- [ ] `lynx_pix_format`: `16` (RGB565, the declared default; the canvas copy handles it).
-- [ ] The declared-key check (patch 0003, `core_option_keys.rs`) covers the `lynx` prefix.
+- [x] `lynx_rot_screen`: always set by slot per game, `0` or `180` (issue 109). Never `auto` (its declared default, which turns the pad 90 or 270 and asks for `SET_ROTATION`), never `manual` (SELECT would turn the screen, and SELECT is slot's).
+- [x] `lynx_force_60hz`: `disabled`. It only changes the reported fps (pinned by `force_60hz_only_changes_the_reported_fps_not_the_game_speed`); pacing is issue 107.
+- [x] `lynx_pix_format`: `16` (RGB565, the declared default; the canvas copy handles it).
+- [x] The declared-key check (patch 0003, `core_option_keys.rs`) covers the `lynx` prefix.
 
 ## Tests
 | ID | File | Asserts |
@@ -28,7 +28,10 @@ Step 6. Beetle Lynx declares three options. Two of them change behaviour slot ow
 | A future pin renames an option | The declared-key test fails |
 
 ## Acceptance
-- [ ] `task check` green.
+- [x] `task check` green.
+
+## Status
+Landed as patch 0055-lynx-options (2026-10-19); `lynx_options.rs` pins the declared option set and values.
 
 ## Device check (RG34XXSP)
 None beyond issue 112.

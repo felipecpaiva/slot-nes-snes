@@ -19,7 +19,7 @@ No BIOS can be committed, so CI cannot boot a Lynx cart. The core tests split in
   - the missing-BIOS signature (loads, never draws, frames run to the cycle cap) and the short-BIOS case.
 - [x] BIOS-gated (`SLOT_LYNX_BIOS` = path to `lynxboot.img`, 512 bytes, crc32 `0d973c9d`): a synthetic `.lnx` boots through the cc65 encrypted loader, draws, runs at the boot ROM's 59.9 Hz, round-trips its state; the pad rotation contract.
 - [x] Without the variable, or with a file that is not the known dump, those tests print `skipping: no Lynx BIOS, ...`. `run-tests.sh` lists a skip naming a BIOS as a ROM skip, never CORE MISSING, so `SLOT_REQUIRE_CORES=1` (and CI) stays green; the core itself is still required first.
-- [ ] Platform half, one per step: `lynx_platform.rs`, `lynx_bios.rs`, `lynx_seat.rs` (BIOS-gated), `lynx_pacing.rs` (MockCore), `lynx_rotation.rs`, `lynx_then_gba.rs`.
+- [x] Platform half, one per step: `lynx_platform.rs`, `lynx_bios.rs`, `lynx_seat.rs` (BIOS-gated), `lynx_pacing.rs` (MockCore), `lynx_rotation.rs`, `lynx_then_gba.rs`.
 
 ## Tests
 | ID | File | Asserts |
@@ -33,6 +33,9 @@ No BIOS can be committed, so CI cannot boot a Lynx cart. The core tests split in
 
 ## Acceptance
 - [x] Core half green with and without `SLOT_LYNX_BIOS`.
+
+## Status
+Platform half landed with each patch: `lynx_platform.rs` (0053), `lynx_bios.rs` (0054), `lynx_options.rs` (0055), `lynx_screen.rs` (0056 to 0059), `lynx_pacing.rs` (0057), `lynx_seat.rs` (0053, 0058), `lynx_rotation.rs` (0059), `lynx_then_gba.rs` (0061).
 
 ## Device check (RG34XXSP)
 None (host only).

@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:03:54 +0400
+Subject: [PATCH] lynx-saves
+
+Beetle Lynx at the pinned commit has no EEPROM emulation and exposes no
+save RAM, so a Lynx game's progress lives in its states only: the
+resume state and the 60 s autosave, as for any game without a battery.
+Nothing is written to Saves/Lynx. A real session pins it: eject writes
+the resume state and no .sav, and the next boot resumes from that state
+instead of the boot ROM.
+---
+ crates/slot/tests/lynx_seat.rs | 71 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 70 insertions(+), 1 deletion(-)
+
+diff --git a/crates/slot/tests/lynx_seat.rs b/crates/slot/tests/lynx_seat.rs
+index c9d853b..0f7c47b 100644
+--- a/crates/slot/tests/lynx_seat.rs
++++ b/crates/slot/tests/lynx_seat.rs
+@@ -8,8 +8,11 @@ use std::time::{Duration, Instant};
+ use common::core_lock;
+ use core_common::require_core;
+ use lynx_common::{lnx_cart, lynx_bios, paint, put_bios, red_box};
++use slot::app::Phase;
++use slot::persist::read_resume;
+ use slot::session::Session;
+-use slot_store::{Core, Platform};
++use slot_input::{Btn, RawEvent};
++use slot_store::{read_slot_state, write_slot_state, Core, Platform};
+ 
+ fn picture_box(session: &mut Session) -> Option<(usize, usize, usize, usize)> {
+     let deadline = Instant::now() + Duration::from_secs(10);
+@@ -45,3 +48,69 @@ fn an_lnx_cart_seats_on_beetle_lynx_through_a_real_session() {
+     assert_eq!(session.app().playing_platform(), Platform::Lynx);
+     assert_eq!(picture_box(&mut session), Some((40, 29, 199, 130)));
+ }
++
++fn frames_until_red(session: &mut Session) -> u64 {
++    let deadline = Instant::now() + Duration::from_secs(10);
++    loop {
++        let red = session
++            .emu()
++            .and_then(|e| e.latest_frame())
++            .is_some_and(|f| red_box(&f, 240).is_some());
++        if red {
++            return session.frames_published();
++        }
++        assert!(Instant::now() < deadline, "never drew the game");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++#[test]
++fn a_lynx_game_saves_only_a_state_and_resumes_from_it() {
++    let _g = core_lock();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some(dylib) = require_core("mednafen_lynx") else {
++        return;
++    };
++    let carts = tempfile::tempdir().unwrap();
++    let rom = lnx_cart(carts.path(), "Paint", 0, paint(0xfb68, false));
++    let root = real_seat::rooted(Platform::Lynx, "Paint", &rom, &dylib);
++    put_bios(root.path(), Some(&bios));
++    std::fs::copy(&rom, root.path().join("Games/Lynx/Zzz.lnx")).unwrap();
++    let mut session = real_seat::play(root.path(), true);
++    let booted = frames_until_red(&mut session);
++    eject(&mut session);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while read_resume(root.path(), Platform::Lynx, Core::MednafenLynx, "Paint").is_none() {
++        assert!(Instant::now() < deadline, "no resume state on eject");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    drop(session);
++    let saves: Vec<_> = std::fs::read_dir(root.path().join("Saves/Lynx"))
++        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
++        .unwrap_or_default();
++    assert!(saves.is_empty(), "{saves:?}");
++    let mut state = read_slot_state(root.path());
++    state.cart = Some("Paint".into());
++    state.cart_platform = Some(Platform::Lynx);
++    write_slot_state(root.path(), &state).unwrap();
++    let mut resumed = real_seat::play(root.path(), false);
++    let restored = frames_until_red(&mut resumed);
++    assert!(
++        restored < booted,
++        "resumed after {restored} frames, a clean boot took {booted}"
++    );
++}

@@ -1,0 +1,1652 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 10:52:52 +0400
+Subject: [PATCH] platform-lynx
+
+Atari Lynx gets its own shelf, Games/Lynx, for .lnx carts and headerless
+.lyx images, on Beetle Lynx (Core::MednafenLynx, mednafen_lynx, option
+prefix lynx) alone on a 240x160 canvas. Platform::Lynx is appended to
+SHELVES and Core::MednafenLynx to EVERY; upstream's ALL lists stay as
+they are and every policy question has an explicit Lynx answer: L and R
+reach the game as Option 1 and 2, X and Y stay slot's, SELECT+X flips
+the picture, rewind on, no core picker, no overscan, Stretch crops to
+the 160x102 picture. slot_store::lynx reads the 64-byte LNX header
+(LYNX, version 1): the title at 0x0a and the rotation byte at 0x3a; a
+.lyx, a short file or another version falls back to the stem, and a
+.lyx that is not 128, 256 or 512 KB is listed with a log line because
+the core refuses it silently.
+
+The Screen list gains Lynx, with Shader (Off, Grid, Dot and the retro
+list, in Config/lynx_shader.txt) and Picture rows. Upstream test sites
+(b), (e), (g) and (h) take the Lynx tokens. The cart is a placeholder
+until the cards patch.
+
+The shelf shape follows nelynes/slotPlus 749523c (GPL-3.0),
+https://github.com/nelynes/slotPlus/commit/749523c
+---
+ crates/slot-store/src/bindings.rs            |   4 +-
+ crates/slot-store/src/core.rs                |  35 +++-
+ crates/slot-store/src/core_policy.rs         |  12 +-
+ crates/slot-store/src/lib.rs                 |   4 +-
+ crates/slot-store/src/lynx.rs                |  73 +++++++++
+ crates/slot-store/src/platform.rs            |   5 +
+ crates/slot-store/src/platform_policy.rs     |  45 +++--
+ crates/slot-store/src/scan.rs                |   5 +
+ crates/slot-store/src/sega_shader.rs         |  10 +-
+ crates/slot-store/tests/core_pairs.rs        |   4 +-
+ crates/slot-store/tests/lynx_platform.rs     | 164 +++++++++++++++++++
+ crates/slot-store/tests/nes_core.rs          |   3 +-
+ crates/slot-store/tests/ps1_platform.rs      |   3 +-
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-ui/src/cart.rs                   |   7 +-
+ crates/slot-ui/src/quick_menu.rs             |  23 ++-
+ crates/slot-ui/src/quick_retro.rs            |   1 +
+ crates/slot-ui/src/retro_cart.rs             |   4 +-
+ crates/slot-ui/src/shell.rs                  |   1 +
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot-ui/tests/quick_menu.rs           |   4 +-
+ crates/slot/src/app.rs                       |  49 ++++--
+ crates/slot/src/core.rs                      |   3 +-
+ crates/slot/src/core_options_policy.rs       |  12 +-
+ crates/slot/src/platform_video.rs            |  14 +-
+ crates/slot/src/retro_quick.rs               |  14 +-
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/snes_input.rs                |   4 +-
+ crates/slot/tests/crop_overscan.rs           |   3 +-
+ crates/slot/tests/gpsp.rs                    |   2 +-
+ crates/slot/tests/lynx_common/mod.rs         |  22 +++
+ crates/slot/tests/lynx_seat.rs               |  47 ++++++
+ crates/slot/tests/ps1_screen.rs              |   4 +-
+ crates/slot/tests/sega_quick_shader.rs       |   7 +-
+ crates/slot/tests/snes_select.rs             |   2 +-
+ crates/slot/tests/system_picture.rs          |   2 +-
+ 36 files changed, 515 insertions(+), 86 deletions(-)
+ create mode 100644 crates/slot-store/src/lynx.rs
+ create mode 100644 crates/slot-store/tests/lynx_platform.rs
+ create mode 100644 crates/slot/tests/lynx_seat.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index d13fdaf..d76f167 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -204,7 +204,9 @@ impl GameButton {
+ 
+     pub fn of(platform: Platform) -> &'static [GameButton] {
+         match platform {
+-            Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 => &GameButton::ALL,
++            Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Lynx => {
++                &GameButton::ALL
++            }
+             Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => {
+                 &GameButton::ALL[..8]
+             }
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 15446ee..5bd3966 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -16,6 +16,7 @@ pub enum Core {
+     Snes9x2005Plus,
+     GenesisPlusGx,
+     PcsxRearmed,
++    MednafenLynx,
+ }
+ 
+ impl Core {
+@@ -31,6 +32,7 @@ impl Core {
+             Core::Snes9x2005Plus => "snes9x2005_plus",
+             Core::GenesisPlusGx => "genesis_plus_gx",
+             Core::PcsxRearmed => "pcsx_rearmed",
++            Core::MednafenLynx => "mednafen_lynx",
+         }
+     }
+ 
+@@ -48,6 +50,7 @@ impl Core {
+             Core::Snes9x2005Plus => "Snes9x 2005+",
+             Core::GenesisPlusGx => "Genesis Plus GX",
+             Core::PcsxRearmed => "PCSX ReARMed",
++            Core::MednafenLynx => "Beetle Lynx",
+         }
+     }
+ 
+@@ -61,6 +64,7 @@ impl Core {
+             "snes9x2005_plus" => Some(Core::Snes9x2005Plus),
+             "genesis_plus_gx" => Some(Core::GenesisPlusGx),
+             "pcsx_rearmed" => Some(Core::PcsxRearmed),
++            "mednafen_lynx" => Some(Core::MednafenLynx),
+             _ => None,
+         }
+     }
+@@ -74,7 +78,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Lynx => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+@@ -85,7 +90,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Lynx => false,
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+@@ -96,7 +102,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Lynx => false,
+             },
+             Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+@@ -107,7 +114,8 @@ impl Core {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Lynx => false,
+             },
+             Core::GenesisPlusGx => match platform {
+                 Platform::Gg | Platform::Sms | Platform::Md => true,
+@@ -116,7 +124,8 @@ impl Core {
+                 | Platform::Gbc
+                 | Platform::Nes
+                 | Platform::Snes
+-                | Platform::Ps1 => false,
++                | Platform::Ps1
++                | Platform::Lynx => false,
+             },
+             Core::PcsxRearmed => match platform {
+                 Platform::Ps1 => true,
+@@ -127,7 +136,20 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+-                | Platform::Md => false,
++                | Platform::Md
++                | Platform::Lynx => false,
++            },
++            Core::MednafenLynx => match platform {
++                Platform::Lynx => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1 => false,
+             },
+         }
+     }
+@@ -139,6 +161,7 @@ impl Core {
+             Platform::Snes => Core::Snes9x,
+             Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
+             Platform::Ps1 => Core::PcsxRearmed,
++            Platform::Lynx => Core::MednafenLynx,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 68faf87..16366a0 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 8] = [
++    pub const EVERY: [Core; 9] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -11,6 +11,7 @@ impl Core {
+         Core::Snes9x2005Plus,
+         Core::GenesisPlusGx,
+         Core::PcsxRearmed,
++        Core::MednafenLynx,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -23,6 +24,7 @@ impl Core {
+             Core::Snes9x2005Plus => "snes9x_2005",
+             Core::GenesisPlusGx => "genesis_plus_gx",
+             Core::PcsxRearmed => "pcsx_rearmed",
++            Core::MednafenLynx => "lynx",
+         }
+     }
+ 
+@@ -33,6 +35,7 @@ impl Core {
+             Core::Snes9x | Core::Snes9x2005Plus => (Core::Snes9x, Core::Snes9x2005Plus),
+             Core::GenesisPlusGx => (Core::GenesisPlusGx, Core::GenesisPlusGx),
+             Core::PcsxRearmed => (Core::PcsxRearmed, Core::PcsxRearmed),
++            Core::MednafenLynx => (Core::MednafenLynx, Core::MednafenLynx),
+         }
+     }
+ 
+@@ -49,9 +52,11 @@ impl Core {
+                 | Platform::Snes
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => (360, 240),
++                | Platform::Ps1
++                | Platform::Lynx => (360, 240),
+             },
+             Core::PcsxRearmed => (640, 480),
++            Core::MednafenLynx => (240, 160),
+         }
+     }
+ 
+@@ -68,7 +73,8 @@ impl Core {
+             | Core::Nestopia
+             | Core::Snes9x2005Plus
+             | Core::GenesisPlusGx
+-            | Core::PcsxRearmed => false,
++            | Core::PcsxRearmed
++            | Core::MednafenLynx => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 6e434c1..7971f2c 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -8,6 +8,7 @@ pub mod gb;
+ mod gb_palette;
+ mod gba;
+ pub mod ini;
++pub mod lynx;
+ pub mod nes;
+ mod platform;
+ mod platform_policy;
+@@ -40,7 +41,8 @@ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+-    read_sega_shaders, write_sega_shaders, SegaShaders, PS1_SHADER_FILE, SEGA_SHADERS_FILE,
++    read_sega_shaders, write_sega_shaders, SegaShaders, LYNX_SHADER_FILE, PS1_SHADER_FILE,
++    SEGA_SHADERS_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/lynx.rs b/crates/slot-store/src/lynx.rs
+new file mode 100644
+index 0000000..e68b87f
+--- /dev/null
++++ b/crates/slot-store/src/lynx.rs
+@@ -0,0 +1,73 @@
++use std::fs::File;
++use std::io::Read;
++use std::path::Path;
++
++pub const HEADER_LEN: usize = 64;
++const MAGIC: &[u8; 4] = b"LYNX";
++const VERSION_OFF: usize = 8;
++const TITLE: std::ops::Range<usize> = 10..42;
++const TURN_OFF: usize = 58;
++const RAW_SIZES: [u64; 3] = [128 << 10, 256 << 10, 512 << 10];
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
++pub enum Turn {
++    #[default]
++    Upright,
++    Left,
++    Right,
++}
++
++pub fn header(rom: &Path) -> Option<[u8; HEADER_LEN]> {
++    let mut head = [0u8; HEADER_LEN];
++    File::open(rom).ok()?.read_exact(&mut head).ok()?;
++    is_header(&head).then_some(head)
++}
++
++pub fn is_header(head: &[u8]) -> bool {
++    head.len() >= HEADER_LEN
++        && head.starts_with(MAGIC)
++        && u16::from_le_bytes([head[VERSION_OFF], head[VERSION_OFF + 1]]) == 1
++}
++
++pub fn title_of(head: &[u8; HEADER_LEN]) -> Option<String> {
++    let field = &head[TITLE];
++    let end = field.iter().position(|b| *b == 0).unwrap_or(field.len());
++    let title = String::from_utf8_lossy(&field[..end]).trim().to_string();
++    (!title.is_empty()).then_some(title)
++}
++
++pub fn turn_of(head: &[u8; HEADER_LEN]) -> Turn {
++    match head[TURN_OFF] {
++        1 => Turn::Left,
++        2 => Turn::Right,
++        _ => Turn::Upright,
++    }
++}
++
++pub fn title(rom: &Path) -> Option<String> {
++    let head = header(rom);
++    if head.is_none() {
++        warn_odd_size(rom);
++    }
++    title_of(&head?)
++}
++
++pub fn header_turn(rom: &Path) -> Turn {
++    header(rom).map_or(Turn::Upright, |head| turn_of(&head))
++}
++
++pub fn loads_headerless(len: u64) -> bool {
++    RAW_SIZES.contains(&len)
++}
++
++fn warn_odd_size(rom: &Path) {
++    let Ok(len) = std::fs::metadata(rom).map(|m| m.len()) else {
++        return;
++    };
++    if !loads_headerless(len) {
++        eprintln!(
++            "slot: lynx: {} has no LNX header and is {len} bytes, Beetle Lynx loads only 128, 256 or 512 KB",
++            rom.display()
++        );
++    }
++}
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index fc1379c..d89b213 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -12,6 +12,7 @@ pub enum Platform {
+     Sms,
+     Md,
+     Ps1,
++    Lynx,
+ }
+ 
+ impl Platform {
+@@ -28,6 +29,7 @@ impl Platform {
+             Platform::Sms => "Sega Master System",
+             Platform::Md => "Sega Mega Drive",
+             Platform::Ps1 => "Sony PlayStation",
++            Platform::Lynx => "Atari Lynx",
+         }
+     }
+ 
+@@ -42,6 +44,7 @@ impl Platform {
+             Platform::Sms => "SMS",
+             Platform::Md => "MD",
+             Platform::Ps1 => "PS1",
++            Platform::Lynx => "Lynx",
+         }
+     }
+ 
+@@ -55,6 +58,7 @@ impl Platform {
+             Platform::Sms => &["sms"],
+             Platform::Md => &["md", "gen", "bin"],
+             Platform::Ps1 => &["cue", "chd", "pbp", "m3u"],
++            Platform::Lynx => &["lnx", "lyx"],
+         }
+     }
+ 
+@@ -68,6 +72,7 @@ impl Platform {
+             Platform::Sms => (256, 192),
+             Platform::Md => (320, 224),
+             Platform::Ps1 => (640, 480),
++            Platform::Lynx => (160, 102),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 6215838..be9d32b 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -3,7 +3,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 9] = [
++    pub const SHELVES: [Platform; 10] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -13,6 +13,7 @@ impl Platform {
+         Platform::Sms,
+         Platform::Md,
+         Platform::Ps1,
++        Platform::Lynx,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -23,14 +24,15 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Lynx => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+ 
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+-            Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 => false,
++            Platform::Gba | Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Lynx => false,
+             Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => true,
+         }
+     }
+@@ -43,13 +45,14 @@ impl Platform {
+             | Platform::Gbc
+             | Platform::Nes
+             | Platform::Gg
+-            | Platform::Sms => false,
++            | Platform::Sms
++            | Platform::Lynx => false,
+         }
+     }
+ 
+     pub fn select_x_toggles_picture(self) -> bool {
+         match self {
+-            Platform::Snes | Platform::Md | Platform::Ps1 => true,
++            Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Lynx => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -69,14 +72,15 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => None,
++            | Platform::Ps1
++            | Platform::Lynx => None,
+         }
+     }
+ 
+     pub fn stretch_crops_height(self) -> bool {
+         match self {
+             Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => false,
+-            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md => true,
++            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Lynx => true,
+         }
+     }
+ 
+@@ -90,7 +94,8 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => (0, 0),
++            | Platform::Ps1
++            | Platform::Lynx => (0, 0),
+         }
+     }
+ 
+@@ -99,9 +104,12 @@ impl Platform {
+             Platform::Gba => &Shader::GBA,
+             Platform::Gb | Platform::Gbc => &Shader::GB,
+             Platform::Gg => &Shader::GG,
+-            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Ps1 => {
+-                &Shader::RETRO
+-            }
++            Platform::Nes
++            | Platform::Snes
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Lynx => &Shader::RETRO,
+         }
+     }
+ 
+@@ -115,7 +123,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Lynx => false,
+         }
+     }
+ 
+@@ -129,7 +138,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => true,
++            | Platform::Md
++            | Platform::Lynx => true,
+         }
+     }
+ 
+@@ -143,7 +153,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => false,
++            | Platform::Md
++            | Platform::Lynx => false,
+         }
+     }
+ 
+@@ -157,7 +168,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => false,
++            | Platform::Md
++            | Platform::Lynx => false,
+         }
+     }
+ 
+@@ -171,7 +183,8 @@ impl Platform {
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+-            | Platform::Md => true,
++            | Platform::Md
++            | Platform::Lynx => true,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 0bd625f..6b2ff95 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -46,6 +46,11 @@ impl Cart {
+                     self.title = title;
+                 }
+             }
++            Platform::Lynx => {
++                if let Some(title) = crate::lynx::title(&self.rom) {
++                    self.title = title;
++                }
++            }
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index 64c6a58..5298371 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -6,6 +6,7 @@ use crate::Platform;
+ 
+ pub const SEGA_SHADERS_FILE: &str = "sega_shaders.txt";
+ pub const PS1_SHADER_FILE: &str = "ps1_shader.txt";
++pub const LYNX_SHADER_FILE: &str = "lynx_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -13,6 +14,7 @@ pub struct SegaShaders {
+     pub sms: Shader,
+     pub md: Shader,
+     pub ps1: Shader,
++    pub lynx: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -22,13 +24,14 @@ impl Default for SegaShaders {
+             sms: Shader::Off,
+             md: Shader::Off,
+             ps1: Shader::Off,
++            lynx: Shader::Off,
+         }
+     }
+ }
+ 
+ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+     let mut s = SegaShaders::default();
+-    for file in [SEGA_SHADERS_FILE, PS1_SHADER_FILE] {
++    for file in [SEGA_SHADERS_FILE, PS1_SHADER_FILE, LYNX_SHADER_FILE] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+             let (shader, platform) = match (file, key.trim()) {
+@@ -36,6 +39,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (SEGA_SHADERS_FILE, "sms") => (&mut s.sms, Platform::Sms),
+                 (SEGA_SHADERS_FILE, "md") => (&mut s.md, Platform::Md),
+                 (PS1_SHADER_FILE, "ps1") => (&mut s.ps1, Platform::Ps1),
++                (LYNX_SHADER_FILE, "lynx") => (&mut s.lynx, Platform::Lynx),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -61,7 +65,9 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let sega_default = (s.gg, s.sms, s.md) == (d.gg, d.sms, d.md);
+     write_unless_unchanged(root, SEGA_SHADERS_FILE, &sega, sega_default)?;
+     let ps1 = format!("ps1={}\n", s.ps1.name());
+-    write_unless_unchanged(root, PS1_SHADER_FILE, &ps1, s.ps1 == d.ps1)
++    write_unless_unchanged(root, PS1_SHADER_FILE, &ps1, s.ps1 == d.ps1)?;
++    let lynx = format!("lynx={}\n", s.lynx.name());
++    write_unless_unchanged(root, LYNX_SHADER_FILE, &lynx, s.lynx == d.lynx)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index 0af6961..4d5dcca 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_eight() {
++fn the_pinned_core_list_stays_two_while_every_lists_nine() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 8);
++    assert_eq!(Core::EVERY.len(), 9);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/lynx_platform.rs b/crates/slot-store/tests/lynx_platform.rs
+new file mode 100644
+index 0000000..5790771
+--- /dev/null
++++ b/crates/slot-store/tests/lynx_platform.rs
+@@ -0,0 +1,164 @@
++mod common;
++
++use std::path::{Path, PathBuf};
++
++use common::tmp_root;
++use slot_store::lynx::{header_turn, loads_headerless, title, Turn};
++use slot_store::{scan, Core, Platform, Shader};
++
++fn lnx(title: &[u8], turn: u8, version: u16) -> Vec<u8> {
++    let mut rom = vec![0u8; 64];
++    rom[..4].copy_from_slice(b"LYNX");
++    rom[4..6].copy_from_slice(&0x0200u16.to_le_bytes());
++    rom[8..10].copy_from_slice(&version.to_le_bytes());
++    rom[10..10 + title.len()].copy_from_slice(title);
++    rom[58] = turn;
++    rom.extend(vec![0u8; 128 * 1024]);
++    rom
++}
++
++fn write(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
++    let dir = root.join("Games/Lynx");
++    std::fs::create_dir_all(&dir).unwrap();
++    let path = dir.join(name);
++    std::fs::write(&path, bytes).unwrap();
++    path
++}
++
++#[test]
++fn lynx_is_the_last_shelf_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES.last(), Some(&Platform::Lynx));
++    assert_eq!(Platform::SHELVES.len(), 10);
++    assert_eq!(Platform::ALL.len(), 3);
++}
++
++#[test]
++fn lynx_has_its_own_name_folder_extensions_and_picture() {
++    assert_eq!(Platform::Lynx.name(), "Atari Lynx");
++    assert_eq!(Platform::Lynx.dir_name(), "Lynx");
++    for name in ["x.lnx", "x.lyx", "X.LNX"] {
++        assert!(Platform::Lynx.accepts(Path::new(name)), "{name}");
++    }
++    for name in ["x.o", "x.bll", "x.lyn", "x.zip"] {
++        assert!(!Platform::Lynx.accepts(Path::new(name)), "{name}");
++    }
++    assert_eq!(Platform::Lynx.picture(), (160, 102));
++}
++
++#[test]
++fn lynx_answers_every_policy_question_explicitly() {
++    assert!(!Platform::Lynx.owns_shoulders());
++    assert!(!Platform::Lynx.passes_xy_through());
++    assert!(Platform::Lynx.select_x_toggles_picture());
++    assert!(Platform::Lynx.stretch_crops_height());
++    assert!(!Platform::Lynx.follows_frame_width());
++    assert!(!Platform::Lynx.has_gb_palettes());
++    assert!(Platform::Lynx.rewinds());
++    assert!(!Platform::Lynx.fills_canvas());
++    assert!(!Platform::Lynx.swaps_discs());
++    assert!(Platform::Lynx.owns_triggers());
++    assert_eq!(Platform::Lynx.overscan(), (0, 0));
++    assert_eq!(Platform::Lynx.picker_cores(), None);
++    assert_eq!(Platform::Lynx.shader_choices(), &Shader::RETRO);
++    assert!(!Platform::Lynx.shader_choices().contains(&Shader::Lcd3x));
++}
++
++#[test]
++fn lynx_runs_on_beetle_lynx_alone_on_a_240_by_160_canvas() {
++    assert_eq!(Core::default_for(Platform::Lynx), Core::MednafenLynx);
++    assert_eq!(Core::EVERY.last(), Some(&Core::MednafenLynx));
++    assert_eq!(Core::MednafenLynx.as_str(), "mednafen_lynx");
++    assert_eq!(Core::MednafenLynx.option_prefix(), "lynx");
++    assert_eq!(Core::parse("mednafen_lynx"), Some(Core::MednafenLynx));
++    for core in Core::EVERY {
++        assert_eq!(
++            core.runs(Platform::Lynx),
++            core == Core::MednafenLynx,
++            "{core:?}"
++        );
++    }
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            Core::MednafenLynx.runs(platform),
++            platform == Platform::Lynx,
++            "{platform:?}"
++        );
++    }
++    assert_eq!(Core::MednafenLynx.canvas(Platform::Lynx), (240, 160));
++    assert!(!Core::MednafenLynx.has_colour_correction());
++}
++
++#[test]
++fn an_lnx_cart_lands_on_the_lynx_shelf_with_its_header_title() {
++    let root = tmp_root();
++    write(
++        root.path(),
++        "chips.lnx",
++        &lnx(b"Chip's Challenge\0\0", 0, 1),
++    );
++    let mut carts = scan(root.path()).unwrap();
++    assert_eq!(carts.len(), 1);
++    assert_eq!(carts[0].platform, Platform::Lynx);
++    assert_eq!(carts[0].stem, "chips");
++    carts[0].read_header();
++    assert_eq!(carts[0].title, "Chip's Challenge");
++}
++
++#[test]
++fn a_space_padded_or_high_bit_title_is_trimmed_and_read_lossily() {
++    let root = tmp_root();
++    let padded = write(root.path(), "a.lnx", &lnx(b"  Klax      ", 0, 1));
++    assert_eq!(title(&padded).as_deref(), Some("Klax"));
++    let high = write(root.path(), "b.lnx", &lnx(b"Caf\xe9", 0, 1));
++    assert_eq!(title(&high).as_deref(), Some("Caf\u{fffd}"));
++    let blank = write(root.path(), "c.lnx", &lnx(b"   ", 0, 1));
++    assert_eq!(title(&blank), None);
++}
++
++#[test]
++fn the_header_rotation_byte_reads_left_right_or_upright() {
++    let root = tmp_root();
++    for (byte, want) in [
++        (0, Turn::Upright),
++        (1, Turn::Left),
++        (2, Turn::Right),
++        (7, Turn::Upright),
++    ] {
++        let rom = write(root.path(), &format!("t{byte}.lnx"), &lnx(b"T", byte, 1));
++        assert_eq!(header_turn(&rom), want, "{byte}");
++    }
++}
++
++#[test]
++fn a_headerless_lyx_lists_under_its_stem() {
++    let root = tmp_root();
++    write(root.path(), "Lexis.lyx", &vec![0u8; 256 * 1024]);
++    write(root.path(), "Odd.lyx", &vec![0u8; 100 * 1024]);
++    write(root.path(), "Short.lnx", b"LYNX");
++    let mut carts = scan(root.path()).unwrap();
++    let stems: Vec<&str> = carts.iter().map(|c| c.stem.as_str()).collect();
++    assert_eq!(stems, ["Lexis", "Odd", "Short"]);
++    for cart in &mut carts {
++        cart.read_header();
++        assert_eq!(cart.title, "", "{}", cart.stem);
++        assert_eq!(header_turn(&cart.rom), Turn::Upright);
++    }
++}
++
++#[test]
++fn a_lnx_with_another_header_version_reads_as_headerless() {
++    let root = tmp_root();
++    let rom = write(root.path(), "v2.lnx", &lnx(b"Two", 2, 2));
++    assert_eq!(title(&rom), None);
++    assert_eq!(header_turn(&rom), Turn::Upright);
++}
++
++#[test]
++fn only_128_256_and_512_kb_load_without_a_header() {
++    for kb in [128u64, 256, 512] {
++        assert!(loads_headerless(kb << 10), "{kb}");
++    }
++    for len in [0u64, 64 + (128 << 10), 100 << 10, 1 << 20] {
++        assert!(!loads_headerless(len), "{len}");
++    }
++}
+diff --git a/crates/slot-store/tests/nes_core.rs b/crates/slot-store/tests/nes_core.rs
+index 5b9f6bf..0fea8ed 100644
+--- a/crates/slot-store/tests/nes_core.rs
++++ b/crates/slot-store/tests/nes_core.rs
+@@ -64,10 +64,11 @@ fn each_core_runs_only_its_own_platforms() {
+ }
+ 
+ #[test]
+-fn each_core_names_its_option_prefix_after_its_dylib_but_snes9x_2005() {
++fn each_core_names_its_option_prefix_after_its_dylib_but_snes9x_2005_and_beetle_lynx() {
+     for core in Core::EVERY {
+         let named = match core {
+             Core::Snes9x2005Plus => "snes9x_2005",
++            Core::MednafenLynx => "lynx",
+             other => other.as_str(),
+         };
+         assert_eq!(core.option_prefix(), named);
+diff --git a/crates/slot-store/tests/ps1_platform.rs b/crates/slot-store/tests/ps1_platform.rs
+index 2873d22..4fdfe76 100644
+--- a/crates/slot-store/tests/ps1_platform.rs
++++ b/crates/slot-store/tests/ps1_platform.rs
+@@ -9,9 +9,8 @@ use slot_store::{
+ };
+ 
+ #[test]
+-fn playstation_is_the_last_shelf_and_upstreams_list_stays_three() {
++fn playstation_follows_the_sega_shelves_and_upstreams_list_stays_three() {
+     assert_eq!(Platform::SHELVES[8], Platform::Ps1);
+-    assert_eq!(Platform::SHELVES.len(), 9);
+     assert_eq!(Platform::ALL.len(), 3);
+ }
+ 
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index 265680c..ec6f2f3 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -21,6 +21,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         sms: Shader::Grid,
+         md: Shader::Retro(RetroShader::Line),
+         ps1: Shader::Off,
++        lynx: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 40a567d..a1460d1 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -93,7 +93,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => None,
++        | Platform::Ps1
++        | Platform::Lynx => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -174,7 +175,7 @@ const GB_SEATED_H: u32 = 259;
+ 
+ pub fn seated_box(platform: Platform) -> (u32, u32) {
+     match platform {
+-        Platform::Gba => (SEATED_W, SEATED_H),
++        Platform::Gba | Platform::Lynx => (SEATED_W, SEATED_H),
+         Platform::Ps1 => (SEATED_W, PS1_SEATED_H),
+         Platform::Nes => (SEATED_W, NES_SEATED_H),
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+@@ -187,7 +188,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+ 
+ pub fn cart_box(platform: Platform) -> (u32, u32) {
+     let s = spec(match platform {
+-        Platform::Gba => Shape::Gba,
++        Platform::Gba | Platform::Lynx => Shape::Gba,
+         Platform::Ps1 => return retro_box(RetroShell::Ps1(Ps1Case::Us)),
+         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+         Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index deea6e7..2468bee 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -106,10 +106,13 @@ pub enum QuickRow {
+     MdPalSpeed,
+     Ps1PalSpeed,
+     SmsRegion,
++    LynxShader,
++    ScreenLynx,
++    LynxPicture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 96] = [
++    pub const ALL: [QuickRow; 99] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -206,6 +209,9 @@ impl QuickRow {
+         QuickRow::MdPalSpeed,
+         QuickRow::Ps1PalSpeed,
+         QuickRow::SmsRegion,
++        QuickRow::LynxShader,
++        QuickRow::ScreenLynx,
++        QuickRow::LynxPicture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -267,7 +273,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 9] = [
++    pub const SCREEN: [QuickRow; 10] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -277,6 +283,7 @@ impl QuickRow {
+         QuickRow::ScreenSms,
+         QuickRow::ScreenMd,
+         QuickRow::ScreenPs1,
++        QuickRow::ScreenLynx,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -342,7 +349,8 @@ impl QuickRow {
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
+-            | QuickRow::ScreenPs1 => &QuickRow::SCREEN,
++            | QuickRow::ScreenPs1
++            | QuickRow::ScreenLynx => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -397,6 +405,7 @@ impl QuickRow {
+             QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
+                 &QuickRow::SCREEN_PS1
+             }
++            QuickRow::LynxShader | QuickRow::LynxPicture => &QuickRow::SCREEN_LYNX,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -432,6 +441,7 @@ impl QuickRow {
+             QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
+                 Some(QuickRow::ScreenPs1)
+             }
++            QuickRow::LynxShader | QuickRow::LynxPicture => Some(QuickRow::ScreenLynx),
+             _ => None,
+         }
+     }
+@@ -477,6 +487,7 @@ impl QuickRow {
+             QuickRow::ScreenSms => Some(QuickRow::SCREEN_SMS[0]),
+             QuickRow::ScreenMd => Some(QuickRow::SCREEN_MD[0]),
+             QuickRow::ScreenPs1 => Some(QuickRow::SCREEN_PS1[0]),
++            QuickRow::ScreenLynx => Some(QuickRow::SCREEN_LYNX[0]),
+             _ => None,
+         }
+     }
+@@ -578,16 +589,19 @@ impl QuickRow {
+             QuickRow::SmsShader => "Shader",
+             QuickRow::MdShader => "Shader",
+             QuickRow::Ps1Shader => "Shader",
++            QuickRow::LynxShader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+             QuickRow::ScreenPs1 => "PlayStation",
++            QuickRow::ScreenLynx => "Lynx",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+-            | QuickRow::Ps1Picture => "Picture",
++            | QuickRow::Ps1Picture
++            | QuickRow::LynxPicture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -625,6 +639,7 @@ impl QuickRow {
+                 | QuickRow::ScreenSms
+                 | QuickRow::ScreenMd
+                 | QuickRow::ScreenPs1
++                | QuickRow::ScreenLynx
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index f89be41..9466be3 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -30,6 +30,7 @@ impl QuickRow {
+         QuickRow::Ps1Picture,
+         QuickRow::Ps1PalSpeed,
+     ];
++    pub const SCREEN_LYNX: [QuickRow; 2] = [QuickRow::LynxShader, QuickRow::LynxPicture];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 242699a..3b243c4 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -207,7 +207,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+                 .unwrap_or(SegaShell::Genesis),
+         )),
+         Platform::Ps1 => Some(RetroShell::Ps1(crate::ps1_case::case_of(cart))),
+-        Platform::Gba | Platform::Gb | Platform::Gbc => None,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => None,
+     }
+ }
+ 
+@@ -360,7 +360,7 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         Platform::Nes | Platform::Snes | Platform::Gg | Platform::Md => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+-        Platform::Gba | Platform::Gb | Platform::Gbc => sh,
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => sh,
+     };
+     let top = src.get(..(sw as usize * rows as usize * 4))?;
+     cover_rgba(top, sw, rows, w, h)
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index 11dac5f..4e3ed6e 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -96,6 +96,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::Ps1 => crate::retro_shell::plastic_for(cart),
++        Platform::Lynx => DEFAULT_SHELL,
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index f994f18..285bf94 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Lynx => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 4d04670..2b420d9 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -103,7 +103,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "Lynx"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -151,7 +151,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenLynx
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9c5fefb..39a122e 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1011,6 +1011,7 @@ impl App {
+             (QuickRow::Shader, Platform::Sms) => QuickRow::SmsShader,
+             (QuickRow::Shader, Platform::Md) => QuickRow::MdShader,
+             (QuickRow::Shader, Platform::Ps1) => QuickRow::Ps1Shader,
++            (QuickRow::Shader, Platform::Lynx) => QuickRow::LynxShader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -1022,7 +1023,8 @@ impl App {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1,
++                | Platform::Ps1
++                | Platform::Lynx,
+             ) => QuickRow::GbaBezel,
+             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
+             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
+@@ -1054,12 +1056,14 @@ impl App {
+             QuickRow::SmsShader => Some(shader_value(self.sega_shaders.sms)),
+             QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
+             QuickRow::Ps1Shader => Some(shader_value(self.sega_shaders.ps1)),
++            QuickRow::LynxShader => Some(shader_value(self.sega_shaders.lynx)),
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+-            | QuickRow::Ps1Picture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::Ps1Picture
++            | QuickRow::LynxPicture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -1116,6 +1120,7 @@ impl App {
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
+             | QuickRow::ScreenPs1
++            | QuickRow::ScreenLynx
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -1184,7 +1189,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => Vec::new(),
++            | Platform::Ps1
++            | Platform::Lynx => Vec::new(),
+             Platform::Gb | Platform::Gbc => self
+                 .root()
+                 .map(|root| crate::bezel::list(root, platform))
+@@ -1212,7 +1218,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &mut self.state.bezel_gba,
++            | Platform::Ps1
++            | Platform::Lynx => &mut self.state.bezel_gba,
+             Platform::Gb => &mut self.state.bezel_gb,
+             Platform::Gbc => &mut self.state.bezel_gbc,
+         }
+@@ -1226,7 +1233,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &self.state.bezel_gba,
++            | Platform::Ps1
++            | Platform::Lynx => &self.state.bezel_gba,
+             Platform::Gb => &self.state.bezel_gb,
+             Platform::Gbc => &self.state.bezel_gbc,
+         };
+@@ -2140,6 +2148,7 @@ impl App {
+             Platform::Sms => self.sega_shaders.sms,
+             Platform::Md => self.sega_shaders.md,
+             Platform::Ps1 => self.sega_shaders.ps1,
++            Platform::Lynx => self.sega_shaders.lynx,
+         }
+     }
+ 
+@@ -2165,7 +2174,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => false,
++            | Platform::Ps1
++            | Platform::Lynx => false,
+         }
+     }
+ 
+@@ -2622,7 +2632,8 @@ impl App {
+             | QuickRow::ScreenGg
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
+-            | QuickRow::ScreenPs1 => {
++            | QuickRow::ScreenPs1
++            | QuickRow::ScreenLynx => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(&self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2705,7 +2716,9 @@ impl App {
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
+-            | QuickRow::SmsRegion => {}
++            | QuickRow::SmsRegion
++            | QuickRow::LynxShader
++            | QuickRow::LynxPicture => {}
+         }
+     }
+ 
+@@ -2837,15 +2850,18 @@ impl App {
+             QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
+             QuickRow::Theme => s.appearance = s.appearance.toggle(),
+             QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
+-            QuickRow::GgShader | QuickRow::SmsShader | QuickRow::MdShader | QuickRow::Ps1Shader => {
+-                return
+-            }
++            QuickRow::GgShader
++            | QuickRow::SmsShader
++            | QuickRow::MdShader
++            | QuickRow::Ps1Shader
++            | QuickRow::LynxShader => return,
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+             | QuickRow::SmsPicture
+             | QuickRow::MdPicture
+             | QuickRow::Ps1Picture
++            | QuickRow::LynxPicture
+             | QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -2878,6 +2894,7 @@ impl App {
+             | QuickRow::ScreenSms
+             | QuickRow::ScreenMd
+             | QuickRow::ScreenPs1
++            | QuickRow::ScreenLynx
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -2938,6 +2955,7 @@ impl App {
+             Platform::Sms => (&mut self.sega_shaders.sms, &Shader::RETRO[..]),
+             Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
+             Platform::Ps1 => (&mut self.sega_shaders.ps1, &Shader::RETRO[..]),
++            Platform::Lynx => (&mut self.sega_shaders.lynx, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -2997,7 +3015,8 @@ impl App {
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+-                | Platform::Ps1 => return false,
++                | Platform::Ps1
++                | Platform::Lynx => return false,
+             };
+             self.change_setting(row, true);
+             let said = match self.colour_correction() {
+@@ -3397,7 +3416,8 @@ impl App {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => [0xe6, 0xe4, 0xda],
++            | Platform::Ps1
++            | Platform::Lynx => [0xe6, 0xe4, 0xda],
+         };
+         let k = (self.blank_s / BLANK_WARM_S).min(1.0);
+         let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
+@@ -5577,7 +5597,8 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => 0,
++        | Platform::Ps1
++        | Platform::Lynx => 0,
+         Platform::Gb => 1,
+         Platform::Gbc => 2,
+     }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 3ad74b5..b35705e 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -191,7 +191,8 @@ pub fn colour_option(
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+         | Core::GenesisPlusGx
+-        | Core::PcsxRearmed => None,
++        | Core::PcsxRearmed
++        | Core::MednafenLynx => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 12a3d23..9bb9b10 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -42,7 +42,8 @@ pub fn answers_declared_defaults(which: Core) -> bool {
+         | Core::Snes9x
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+-        | Core::GenesisPlusGx => false,
++        | Core::GenesisPlusGx
++        | Core::MednafenLynx => false,
+     }
+ }
+ 
+@@ -79,7 +80,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Snes9x
+         | Core::Snes9x2005Plus
+         | Core::GenesisPlusGx
+-        | Core::PcsxRearmed => &[],
++        | Core::PcsxRearmed
++        | Core::MednafenLynx => &[],
+     };
+     for key in overscan {
+         core.set_option(key, "0");
+@@ -91,7 +93,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Fceumm
+         | Core::Snes9x
+         | Core::Nestopia
+-        | Core::Snes9x2005Plus => &[],
++        | Core::Snes9x2005Plus
++        | Core::MednafenLynx => &[],
+         Core::PcsxRearmed => &PCSX_REARMED,
+     };
+     for (key, value) in fixed {
+@@ -111,6 +114,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::Snes9x
+         | Core::Nestopia
+         | Core::Snes9x2005Plus
+-        | Core::GenesisPlusGx => None,
++        | Core::GenesisPlusGx
++        | Core::MednafenLynx => None,
+     }
+ }
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 16b5b66..085b8db 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -8,20 +8,24 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 6] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 7] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+     (QuickRow::SmsPicture, Platform::Sms),
+     (QuickRow::MdPicture, Platform::Md),
+     (QuickRow::Ps1Picture, Platform::Ps1),
++    (QuickRow::LynxPicture, Platform::Lynx),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+     match platform {
+-        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Ps1 => {
+-            VideoMode::Actual
+-        }
++        Platform::Gba
++        | Platform::Gb
++        | Platform::Gbc
++        | Platform::Gg
++        | Platform::Ps1
++        | Platform::Lynx => VideoMode::Actual,
+         Platform::Nes | Platform::Snes => VideoMode::Crop,
+         Platform::Sms | Platform::Md => VideoMode::Stretch,
+     }
+@@ -126,7 +130,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 6]);
++pub struct SystemPictures([VideoMode; 7]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 1f5f107..8fc2eef 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -16,6 +16,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::SmsShader => (&mut shaders.sms, Platform::Sms),
+         QuickRow::MdShader => (&mut shaders.md, Platform::Md),
+         QuickRow::Ps1Shader => (&mut shaders.ps1, Platform::Ps1),
++        QuickRow::LynxShader => (&mut shaders.lynx, Platform::Lynx),
+         _ => return false,
+     };
+     *shader = shader.step(platform.shader_choices(), right);
+@@ -30,7 +31,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::Gg
+         | Platform::Sms
+         | Platform::Md
+-        | Platform::Ps1 => {
++        | Platform::Ps1
++        | Platform::Lynx => {
+             let mut hidden = vec![QuickRow::ColourCorrection, QuickRow::Palette];
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
+@@ -40,8 +42,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 5] {
+-    let mut seen = [false; 5];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 6] {
++    let mut seen = [false; 6];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -50,21 +52,23 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 5] {
+             Platform::Sms => 2,
+             Platform::Md => 3,
+             Platform::Ps1 => 4,
++            Platform::Lynx => 5,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 5] = [
++const SYSTEM_ROWS: [&[QuickRow]; 6] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+     &[QuickRow::ScreenMd],
+     &[QuickRow::ScreenPs1],
++    &[QuickRow::ScreenLynx],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 5]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 6]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 83364c9..d22a156 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 48] = [
++pub const DIRS: [&str; 52] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -16,6 +16,7 @@ pub const DIRS: [&str; 48] = [
+     "Games/SMS",
+     "Games/MD",
+     "Games/PS1",
++    "Games/Lynx",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -27,6 +28,7 @@ pub const DIRS: [&str; 48] = [
+     "Labels/SMS",
+     "Labels/MD",
+     "Labels/PS1",
++    "Labels/Lynx",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -37,6 +39,7 @@ pub const DIRS: [&str; 48] = [
+     "Saves/SMS",
+     "Saves/MD",
+     "Saves/PS1",
++    "Saves/Lynx",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -47,6 +50,7 @@ pub const DIRS: [&str; 48] = [
+     "States/SMS",
+     "States/MD",
+     "States/PS1",
++    "States/Lynx",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 0db0051..afa34d5 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -5,7 +5,9 @@ use crate::video_mode::VideoMode;
+ impl VideoMode {
+     pub fn flipped(self, platform: Platform) -> VideoMode {
+         match (platform, self) {
+-            (Platform::Snes | Platform::Md | Platform::Ps1, mode) => mode.stepped(platform, true),
++            (Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Lynx, mode) => {
++                mode.stepped(platform, true)
++            }
+             (
+                 Platform::Gba
+                 | Platform::Gb
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index cb5edca..8818f73 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -77,7 +77,8 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Ps1 => &[Stretch, Actual],
++            | Platform::Ps1
++            | Platform::Lynx => &[Stretch, Actual],
+         };
+         assert_eq!(picture_choices(platform), want, "{platform:?}");
+     }
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index 16e2f91..8dc713a 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenLynx => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/lynx_common/mod.rs b/crates/slot/tests/lynx_common/mod.rs
+index b89f011..121653a 100644
+--- a/crates/slot/tests/lynx_common/mod.rs
++++ b/crates/slot/tests/lynx_common/mod.rs
+@@ -139,3 +139,25 @@ pub fn lynx_bios() -> Option<Vec<u8>> {
+     }
+     Some(bytes)
+ }
++
++pub fn red_box(video: &[u8], width: usize) -> Option<(usize, usize, usize, usize)> {
++    let mut found: Option<(usize, usize, usize, usize)> = None;
++    for (i, px) in video.chunks_exact(4).enumerate() {
++        if px[2] > 200 && px[1] < 60 && px[0] < 60 {
++            let (x, y) = (i % width, i / width);
++            found = Some(match found {
++                None => (x, y, x, y),
++                Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
++            });
++        }
++    }
++    found
++}
++
++pub fn put_bios(root: &Path, bios: Option<&[u8]>) {
++    let dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&dir).unwrap();
++    if let Some(bios) = bios {
++        std::fs::write(dir.join("lynxboot.img"), bios).unwrap();
++    }
++}
+diff --git a/crates/slot/tests/lynx_seat.rs b/crates/slot/tests/lynx_seat.rs
+new file mode 100644
+index 0000000..c9d853b
+--- /dev/null
++++ b/crates/slot/tests/lynx_seat.rs
+@@ -0,0 +1,47 @@
++mod common;
++mod core_common;
++mod lynx_common;
++mod real_seat;
++
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use core_common::require_core;
++use lynx_common::{lnx_cart, lynx_bios, paint, put_bios, red_box};
++use slot::session::Session;
++use slot_store::{Core, Platform};
++
++fn picture_box(session: &mut Session) -> Option<(usize, usize, usize, usize)> {
++    let deadline = Instant::now() + Duration::from_secs(10);
++    loop {
++        let frame = session.emu().and_then(|e| e.latest_frame());
++        if let Some(found) = frame.as_ref().and_then(|f| red_box(f, 240)) {
++            assert_eq!(frame.map(|f| f.len()), Some(240 * 160 * 4));
++            return Some(found);
++        }
++        if Instant::now() > deadline {
++            return None;
++        }
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(2));
++    }
++}
++
++#[test]
++fn an_lnx_cart_seats_on_beetle_lynx_through_a_real_session() {
++    let _g = core_lock();
++    let Some(bios) = lynx_bios() else {
++        return;
++    };
++    let Some(dylib) = require_core("mednafen_lynx") else {
++        return;
++    };
++    let carts = tempfile::tempdir().unwrap();
++    let rom = lnx_cart(carts.path(), "Paint", 0, paint(0xfb68, false));
++    let root = real_seat::rooted(Platform::Lynx, "Paint", &rom, &dylib);
++    put_bios(root.path(), Some(&bios));
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().core(), Core::MednafenLynx);
++    assert_eq!(session.app().playing_platform(), Platform::Lynx);
++    assert_eq!(picture_box(&mut session), Some((40, 29, 199, 130)));
++}
+diff --git a/crates/slot/tests/ps1_screen.rs b/crates/slot/tests/ps1_screen.rs
+index 2e9c792..587f6a1 100644
+--- a/crates/slot/tests/ps1_screen.rs
++++ b/crates/slot/tests/ps1_screen.rs
+@@ -35,8 +35,8 @@ fn open_playstation(app: &mut App) {
+ }
+ 
+ #[test]
+-fn playstation_closes_the_screen_list_and_opens_its_own_section() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenPs1));
++fn playstation_follows_mega_drive_in_the_screen_list_and_opens_its_own_section() {
++    assert_eq!(QuickRow::SCREEN[8], QuickRow::ScreenPs1);
+     assert_eq!(QuickRow::ScreenPs1.label(), "PlayStation");
+     assert!(QuickRow::ScreenPs1.opens());
+     assert_eq!(QuickRow::ScreenPs1.child(), Some(QuickRow::Ps1Shader));
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index 31a1476..6e8d918 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,9 +92,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 5]).is_empty());
+-    for key in 0..31u8 {
+-        let systems = [0, 1, 2, 3, 4].map(|i| key & 1 << i != 0);
++    assert!(hidden_on_shelf([true; 6]).is_empty());
++    for key in 0..63u8 {
++        let systems = [0, 1, 2, 3, 4, 5].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -102,6 +102,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenSms), !systems[2]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenMd), !systems[3]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenPs1), !systems[4]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenLynx), !systems[5]);
+     }
+ }
+ 
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 66f05ad..3d5d2ea 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -253,7 +253,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+     for platform in Platform::SHELVES {
+         let (from_actual, from_stretch, from_crop) = match platform {
+             Platform::Snes => (Crop, Actual, Stretch),
+-            Platform::Md | Platform::Ps1 => (Stretch, Actual, Stretch),
++            Platform::Md | Platform::Ps1 | Platform::Lynx => (Stretch, Actual, Stretch),
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 8658f2f..c5926eb 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -155,7 +155,7 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+         );
+         let walk: &[VideoMode] = match platform {
+             Platform::Nes | Platform::Snes => &[Stretch, Actual, Crop],
+-            Platform::Gg | Platform::Ps1 => &[Stretch, Actual],
++            Platform::Gg | Platform::Ps1 | Platform::Lynx => &[Stretch, Actual],
+             Platform::Sms | Platform::Md => &[Actual, Stretch],
+             Platform::Gba | Platform::Gb | Platform::Gbc => &[],
+         };
