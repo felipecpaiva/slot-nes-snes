@@ -21,7 +21,8 @@ Upstream v1.7.0 resumes the last game on boot unconditionally (`session.rs:475`)
 | (new) | `slot/tests/crash_guard.rs` `a_start_that_never_got_through_leaves_the_cart_on_the_shelf` | a mark left by a start that ran no frames keeps the cart selected on the shelf with the banner |
 | (new) | `crash_guard.rs` `a_start_that_never_got_through_keeps_its_resume_state` | the resume state is untouched |
 | (new) | `crash_guard.rs` `a_cart_kept_on_the_shelf_stays_there_until_a_start_gets_through` | a second boot still shows the shelf |
-| (new) | `crash_guard.rs` `a_start_that_runs_its_first_frames_resumes_on_the_next_boot` | 300 published frames clear the mark; the next boot resumes, no banner |
+| (new) | `crash_guard.rs` `the_mark_stays_down_until_the_300th_published_frame` | 299 frames keep the mark (shelf on the next boot), 300 clear it (resume, no banner); no core, no wall clock |
+| (new) | `crash_guard.rs` `a_start_that_runs_its_first_frames_resumes_on_the_next_boot` | 300 published frames clear the mark; the next boot resumes, no banner; through a real Session, waiting on the frame count with a 120 s bound |
 | (new) | `crash_guard.rs` `a_flush_before_the_first_frames_also_clears_the_mark` | a resume flush clears it too |
 | (new) | `crash_guard.rs` `the_mark_holds_back_only_the_cart_it_names` | another seated cart resumes as today |
 | (new) | `crash_guard.rs` `the_start_failed_banner_uploads_in_its_own_place` | the banner has its own place in `Toast::every()` |

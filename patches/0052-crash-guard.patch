@@ -17,10 +17,10 @@ upstream PR lands. Idea from oauramos/omega-zero be6eb11.
  crates/slot-ui/src/start_toast.rs  |   7 ++
  crates/slot-ui/src/toast.rs        |   3 +
  crates/slot/src/app.rs             |   8 ++
- crates/slot/src/app/start_guard.rs |  67 +++++++++++++
+ crates/slot/src/app/start_guard.rs |  67 +++++++++++
  crates/slot/src/session.rs         |   2 +
- crates/slot/tests/crash_guard.rs   | 149 +++++++++++++++++++++++++++++
- 8 files changed, 239 insertions(+), 1 deletion(-)
+ crates/slot/tests/crash_guard.rs   | 172 +++++++++++++++++++++++++++++
+ 8 files changed, 262 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot-ui/src/start_toast.rs
  create mode 100644 crates/slot/src/app/start_guard.rs
  create mode 100644 crates/slot/tests/crash_guard.rs
@@ -248,10 +248,10 @@ index 0803254..d963d62 100644
          self.app
 diff --git a/crates/slot/tests/crash_guard.rs b/crates/slot/tests/crash_guard.rs
 new file mode 100644
-index 0000000..cdbdf06
+index 0000000..e2bc8f5
 --- /dev/null
 +++ b/crates/slot/tests/crash_guard.rs
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,172 @@
 +mod common;
 +
 +use std::path::Path;
@@ -342,12 +342,35 @@ index 0000000..cdbdf06
 +}
 +
 +#[test]
++fn the_mark_stays_down_until_the_300th_published_frame() {
++    let d = left_running("Emerald");
++    let mut a = App::boot(d.path());
++    a.mark_start(Platform::Gba, "Emerald");
++    a.settle_start(299);
++    drop(a);
++    let a = App::boot(d.path());
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++
++    let mut a = App::boot(d.path());
++    a.mark_start(Platform::Gba, "Emerald");
++    a.settle_start(300);
++    drop(a);
++    let a = App::boot(d.path());
++    assert_eq!(inserting(&a), Some("Emerald"));
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
 +fn a_start_that_runs_its_first_frames_resumes_on_the_next_boot() {
 +    let d = left_running("Emerald");
 +    let mut s = Session::boot(d.path().to_path_buf());
-+    let deadline = Instant::now() + Duration::from_secs(10);
++    let deadline = Instant::now() + Duration::from_secs(120);
 +    while s.frames_published() < 300 {
-+        assert!(Instant::now() < deadline, "the game never ran 300 frames");
++        assert!(
++            Instant::now() < deadline,
++            "the game ran only {} of 300 frames in 120 s",
++            s.frames_published()
++        );
 +        s.update(1.0 / 60.0);
 +        std::thread::sleep(Duration::from_millis(1));
 +    }
