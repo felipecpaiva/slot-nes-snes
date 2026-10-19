@@ -20,7 +20,7 @@ Child work, in merge order:
 - [x] 6. 74-ngp-canvas-screen (patch 0055)
 - [x] 7. 75-ngp-flash-saves (patch 0056, ADR 0091)
 - [x] 8. 76-ngp-input (patch 0057, tests only)
-- [ ] 9. 78-ngp-carts (labels done in tools/fetch-labels.py; the pak drawing waits on a sourced Color shell colour)
+- [x] 9. 78-ngp-carts (patch 0059 and tools/fetch-labels.py; one dark grey shell for both, ADR 0090)
 - [ ] 10. 79-ngp-device-gate
 
 ## Tests

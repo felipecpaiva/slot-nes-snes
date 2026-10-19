@@ -1,10 +1,11 @@
 # NeoGeo Pocket and Pocket Color on slot-nes-snes: plan (2026-10-18)
 
 > **Status 2026-10-19:** written on the v1.7.0 tree (patches 0001 to 0052 then); the integration
-> landed on upstream main 1b20432 as patches 0052 to 0058 (ADR 0083 for the base, ADR 0090 for the
+> landed on upstream main 1b20432 as patches 0052 to 0059 (ADR 0083 for the base, ADR 0090 for the
 > core, ADR 0091 for the flash). Where this plan says "the 1.8.0 base", read upstream main 1b20432.
 > Two deltas from the text below: Stretch crops the 4-row bars (`stretch_crops_height` true, so it
-> fills 720x480 as section 4 says), and the pak drawing (issue 78) waits on a sourced Color shell colour.
+> fills 720x480 as section 4 says), and both cart shells are the nelynes dark grey (maintainer's choice,
+> ADR 0090), not a separate Color shell.
 
 "Our tree" means slot v1.7.0 plus patches 0001 to 0052. The integration patches will be written on
 the upstream 1.8.0 base once that port lands, so this plan names seams, not line numbers. "NeoPop"

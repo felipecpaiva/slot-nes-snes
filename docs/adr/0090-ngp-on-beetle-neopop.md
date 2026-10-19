@@ -58,6 +58,12 @@ There are two libretro NGP cores:
 - Credit: the build recipe and the synthetic cart header come from nelynes/slotPlus (a8eae4c),
   credited in the patch commit and in LICENSING.md.
 
+- Cart shells (decided by the maintainer on 2026-10-19, issue 78): mono NGP and Pocket Color carts
+  both take the NGP pak in the dark grey `0x24 0x25 0x29`. The value is cited from nelynes/slotPlus
+  a8eae4c (`NGP_SHELL` in `slot-ui/src/shell.rs`); using it for the Color shell too is the
+  maintainer's choice, since no source for a Color shell colour was found. The header byte 0x23 still
+  picks the ScreenScraper id for the label (25 or 82).
+
 ## Consequences
 
 - About 8 patches (issues 71 to 79). NGP work does not touch GBA, GB or GBC, so the GBA harness

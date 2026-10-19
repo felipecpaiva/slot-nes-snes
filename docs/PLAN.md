@@ -442,7 +442,7 @@ resume (issue 67, upstream-first).
 
 Tracking issue 70, children 71 to 79, ADR 0090, plan in docs/research/ngp-plan.md. One core, Beetle
 NeoPop (`mednafen_ngp`) pinned at `a50d5ac`, one shelf `Games/NGP` for Pocket and Pocket Color, no
-BIOS, no core picker. Patches 0052 to 0058 on upstream main 1b20432; flash durability in ADR 0091.
+BIOS, no core picker. Patches 0052 to 0059 on upstream main 1b20432; flash durability in ADR 0091.
 
 | Step | Issue | Content |
 |---|---|---|
@@ -454,7 +454,7 @@ BIOS, no core picker. Patches 0052 to 0058 on upstream main 1b20432; flash durab
 | 6 | 74, done (0055) | 240x160 canvas at 3x, NGP Screen section with Shader and Picture rows (no PAL Speed) |
 | 7 | 75, done (0056, ADR 0091) | Flash durability: staging save dir `Saves/NGP/.core`, check before load, atomic publish, flush by reload |
 | 8 | 76, done (0057) | A, B and Option |
-| 9 | 78, labels done; carts open | Mono and Color carts (placeholder shape until the Color shell colour is decided), labels for ScreenScraper ids 25 and 82 |
+| 9 | 78, done (0059) | NGP pak for mono and Color carts in the nelynes dark grey (maintainer's choice, ADR 0090), labels for ScreenScraper ids 25 and 82 |
 | 10 | 79 | Device gate, including a lid-close and battery-pull flash test |
 
 ### Phase 6+: deferred (non-blocking)

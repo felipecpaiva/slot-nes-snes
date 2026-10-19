@@ -43,7 +43,7 @@ NeoGeo Pocket and Pocket Color are in the patch set and wait for their device ga
 BIOS, the 160x152 screen at 3x, and its own Screen section. The game keeps its saves in the cart's
 flash, which the core writes itself; slot checks that file before the core reads it and publishes it
 atomically at every lid close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`. The carts
-still show a placeholder shape (issue 78). The NGP work credits nelynes/slotPlus (a8eae4c, 1ef7226).
+are drawn as an NGP pak in dark grey, with label art from the label fetcher (issue 78). The NGP work credits nelynes/slotPlus (a8eae4c, 1ef7226).
 
 The goal is that a NES or SNES cart feels like a GBA cart in slot: same insert, same saves and
 save states, same rewind and fast-forward, same menus. GBA, GB and GBC behaviour stays

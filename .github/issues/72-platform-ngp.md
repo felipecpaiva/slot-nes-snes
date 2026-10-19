@@ -15,7 +15,7 @@ Step 4. The shelf and the policy answers, built on the 1.8.0 base (ADR 0090).
 - [ ] Scan `.ngp`, `.ngc`, `.ngpc` (not `.npc`, in no No-Intro dat); `._` files skipped; title from the stem.
 - [ ] Header reader in our own `slot_store::ngp` module: colour flag at 0x23 (0x10 Color, 0x00 mono), title at 0x24 (12 bytes), the `COPYRIGHT BY SNK CORPORATION` or ` LICENSED BY SNK CORPORATION` signature. A short or unsigned file still lists, as mono.
 - [ ] Every policy method answers explicitly, like PS1 (patch 0034): `owns_shoulders` true, `passes_xy_through` false (X and Y turbo), `select_x_toggles_picture` true, `picker_cores` None, `stretch_crops_height` false, `overscan` (0, 0), `follows_frame_width` false, `has_gb_palettes` false, `rewinds` true, `Core::canvas(MednafenNgp, Ngp) = (240, 160)`.
-- [ ] Placeholder cart until issue 78.
+- [x] Placeholder cart until issue 78 (replaced by the pak in patch 0059).
 - [ ] Named test sites (b) and (e) take `Platform::Ngp` and `Core::MednafenNgp` (ADR 0055).
 - [ ] Release: move `cores/mednafen_ngp/mednafen_ngp-GPL-2.0.txt` to `licenses/`; add the core to `scripts/dist-device.sh` and every list in `scripts/zip-check.sh` (cores, `req`, `ok`, the licence and srcmeta checks, the strings pair), and `NGP` to its `games` list. README row "planned, not shipped".
 - [ ] Credit nelynes/slotPlus a8eae4c for the shelf shape in the patch commit.
