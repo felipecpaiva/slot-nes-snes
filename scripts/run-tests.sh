@@ -34,6 +34,12 @@ fi
 # own afterwards as information only. Locally they still gate. Our pal_pacing_clock.rs (issue 66) counts frames an
 # undriven 50 fps worker runs in two seconds of wall clock, so it joins them.
 ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock"
+# Upstream's render_in_game_menu.rs steps its menu by wall-clock frame time (Frontend::advance). On the
+# macOS runner the unpatched tree fails it either way: both tests in runs 39151890455 and 39235648529,
+# one in run 39239204575, where the patched tree failed both, so a both-trees compare there only
+# measures which way the runner fell. On CI it is information only, like the tests above; locally it
+# stays in the both-trees list below, where both trees pass it.
+[ "${CI:-}" = true ] && ci_timing="$ci_timing slot:render_in_game_menu"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do
@@ -55,6 +61,7 @@ fi
 # macOS runner only (run 39151890455: one extra menu step, the footer brighter than the game) and
 # passes in both trees here, so it runs in both trees too: CI shows whether upstream fails it the same way.
 both_trees="slot-gfx:layout slot:render_in_game_menu"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout"
 up="$(dirname "$1")/slot-upstream"
 [ -d "$up/crates" ] || {
 	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2
