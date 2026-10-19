@@ -13,6 +13,10 @@ vars:
     sh: . ./SLOT_PIN && echo "$genesis_plus_gx_commit"
   PCSX_REARMED_COMMIT:
     sh: . ./SLOT_PIN && echo "$pcsx_rearmed_commit"
+  STELLA2014_COMMIT:
+    sh: . ./SLOT_PIN && echo "$stella2014_commit"
+  PROSYSTEM_COMMIT:
+    sh: . ./SLOT_PIN && echo "$prosystem_commit"
 
 tasks:
   default:
@@ -152,9 +156,47 @@ tasks:
     cmds:
       - sh cores/pcsx_rearmed/build.sh build {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz build/pcsx_rearmed-host vendor/pcsx_rearmed_libretro.dylib
 
+  core:stella2014:src:
+    desc: Fetch the pinned Stella 2014 (stella2014-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/stella2014-src.tar.gz
+      - test "$(cat vendor/stella2014-src.sha 2>/dev/null)" = "{{.STELLA2014_COMMIT}}"
+    cmds:
+      - rm -f vendor/stella2014-src.tar.gz vendor/stella2014-src.sha
+      - sh cores/stella2014/build.sh fetch {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz
+      - echo "{{.STELLA2014_COMMIT}}" > vendor/stella2014-src.sha
+
+  core:stella2014:host:
+    desc: Build the Stella 2014 host dylib into vendor/ (core:host builds it too)
+    deps: [core:stella2014:src]
+    status:
+      - test -f vendor/stella2014_libretro.dylib
+      - test "$(cat vendor/stella2014_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} host)"
+    cmds:
+      - sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz build/stella2014-host vendor/stella2014_libretro.dylib
+
+  core:prosystem:src:
+    desc: Fetch the pinned ProSystem (prosystem-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/prosystem-src.tar.gz
+      - test "$(cat vendor/prosystem-src.sha 2>/dev/null)" = "{{.PROSYSTEM_COMMIT}}"
+    cmds:
+      - rm -f vendor/prosystem-src.tar.gz vendor/prosystem-src.sha
+      - sh cores/prosystem/build.sh fetch {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz
+      - echo "{{.PROSYSTEM_COMMIT}}" > vendor/prosystem-src.sha
+
+  core:prosystem:host:
+    desc: Build the ProSystem host dylib into vendor/ (core:host builds it too)
+    deps: [core:prosystem:src]
+    status:
+      - test -f vendor/prosystem_libretro.dylib
+      - test "$(cat vendor/prosystem_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} host)"
+    cmds:
+      - sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
+
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX and pcsx_rearmed from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Stella 2014 and ProSystem from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:stella2014:src, core:prosystem:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -183,9 +225,17 @@ tasks:
         test -f vendor/pcsx_rearmed_libretro.dylib &&
           test "$(cat vendor/pcsx_rearmed_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/pcsx_rearmed/build.sh stamp {{.PCSX_REARMED_COMMIT}} host)" ||
           sh cores/pcsx_rearmed/build.sh build {{.PCSX_REARMED_COMMIT}} vendor/pcsx_rearmed-src.tar.gz build/pcsx_rearmed-host vendor/pcsx_rearmed_libretro.dylib
+      - |
+        test -f vendor/stella2014_libretro.dylib &&
+          test "$(cat vendor/stella2014_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} host)" ||
+          sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz build/stella2014-host vendor/stella2014_libretro.dylib
+      - |
+        test -f vendor/prosystem_libretro.dylib &&
+          test "$(cat vendor/prosystem_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} host)" ||
+          sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX and pcsx_rearmed cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Stella 2014 and ProSystem cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -193,6 +243,8 @@ tasks:
       - task: core:device:snes9x2005_plus
       - task: core:device:genesis_plus_gx
       - task: core:device:pcsx_rearmed
+      - task: core:device:stella2014
+      - task: core:device:prosystem
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -285,6 +337,36 @@ tasks:
       - sh -c '. scripts/lib.sh; is_ari64 vendor/pcsx_rearmed_libretro.so && needs_old_glibc_only vendor/pcsx_rearmed_libretro.so'
       - 'echo "built vendor/pcsx_rearmed_libretro.so from vendor/pcsx_rearmed-src.tar.gz @ {{.PCSX_REARMED_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/pcsx_rearmed_libretro.so")"'
 
+  core:device:stella2014:
+    desc: Build the aarch64 linux Stella 2014 core into vendor/stella2014_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older (the C++ runtime is linked in)
+    deps: [core:stella2014:src]
+    status:
+      - test -f vendor/stella2014_libretro.so
+      - test "$(cat vendor/stella2014-src.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh srcmeta {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz)"
+      - test "$(cat vendor/stella2014_libretro.so.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/stella2014/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz
+        build/stella2014-device vendor/stella2014_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/stella2014_libretro.so && needs_old_glibc_only vendor/stella2014_libretro.so'
+      - 'echo "built vendor/stella2014_libretro.so from vendor/stella2014-src.tar.gz @ {{.STELLA2014_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/stella2014_libretro.so")"'
+
+  core:device:prosystem:
+    desc: Build the aarch64 linux ProSystem core into vendor/prosystem_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older
+    deps: [core:prosystem:src]
+    status:
+      - test -f vendor/prosystem_libretro.so
+      - test "$(cat vendor/prosystem-src.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh srcmeta {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz)"
+      - test "$(cat vendor/prosystem_libretro.so.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/prosystem/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz
+        build/prosystem-device vendor/prosystem_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/prosystem_libretro.so && needs_old_glibc_only vendor/prosystem_libretro.so'
+      - 'echo "built vendor/prosystem_libretro.so from vendor/prosystem-src.tar.gz @ {{.PROSYSTEM_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/prosystem_libretro.so")"'
+
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     deps: [upstream:build]
@@ -307,6 +389,8 @@ tasks:
       - test -f vendor/snes9x2005_plus_libretro.dylib
       - test -f vendor/genesis_plus_gx_libretro.dylib
       - test -f vendor/pcsx_rearmed_libretro.dylib
+      - test -f vendor/stella2014_libretro.dylib
+      - test -f vendor/prosystem_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {

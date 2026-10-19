@@ -73,3 +73,23 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [67](67-crash-guard.md) | Do not auto-resume a game whose start crashed | 8 | platform | fix | M | 56-ps1-tracking |
 | [68](68-deferred-ps1-disc-shelf.md) | DEFERRED: Offer a 3D disc or disc stack as an alternative PS1 shelf style | 6 | ui-art | chore | L | 32-phase-6-deferred, 64-ps1-cases |
 | [69](69-sms-region.md) | Master System region override: a Region row in the Master System Screen section | 8 | video | feature | M | 66-pal-pacing |
+| [123](123-atari-tracking.md) | Atari 2600 and Atari 7800 on Stella 2014 and ProSystem, built the NES and SNES way | 14 | device | tracking | L | 56-ps1-tracking |
+| [124](124-a2600-core-build.md) | Build Stella 2014 from a pinned commit for host and device and record its licence | 14 | cores | feature | S | 123-atari-tracking |
+| [125](125-a7800-core-build.md) | Build ProSystem from a pinned commit for host and device and record its licence | 14 | cores | feature | S | 123-atari-tracking |
+| [126](126-platform-a2600.md) | Add Platform::A2600 with its own shelf, scan and explicit policy | 14 | platform | feature | M | 124-a2600-core-build |
+| [127](127-a2600-options.md) | Set the Stella 2014 core options slot relies on | 14 | cores | feature | S | 126-platform-a2600 |
+| [128](128-a2600-canvas-screen.md) | Give the 2600 the 360x240 canvas with doubled columns, a crop rule for tall frames, and its own Screen section | 14 | video | feature | M | 127-a2600-options |
+| [129](129-a2600-input-switches.md) | Map the 2600 joystick and console switches | 14 | input | feature | M | 126-platform-a2600 |
+| [130](130-a2600-pal-pacing.md) | Pace PAL 2600 games at 49.92 Hz with a PAL Speed row | 14 | video | feature | S | 128-a2600-canvas-screen, 66-pal-pacing |
+| [131](131-a2600-carts.md) | Draw 2600 carts and fetch their labels | 14 | ui-art | feature | M | 126-platform-a2600 |
+| [132](132-a2600-device-gate.md) | Atari 2600 device gate on the RG34XXSP | 14 | device | chore | S | 128-a2600-canvas-screen, 129-a2600-input-switches, 130-a2600-pal-pacing |
+| [133](133-platform-a7800.md) | Add Platform::A7800 with its own shelf, scan, header handling and explicit policy | 14 | platform | feature | M | 125-a7800-core-build |
+| [134](134-a7800-options.md) | Set the ProSystem core options and say there is no high score cart | 14 | cores | feature | S | 133-platform-a7800 |
+| [135](135-a7800-bios.md) | 7800 BIOS row: Off by default, On with a checked file | 14 | platform | feature | S | 133-platform-a7800 |
+| [136](136-a7800-canvas-screen.md) | Give the 7800 the 360x240 canvas with a crop rule for PAL and its own Screen section | 14 | video | feature | S | 134-a7800-options |
+| [137](137-a7800-input-switches.md) | Map the 7800 joystick, buttons and console switches | 14 | input | feature | M | 133-platform-a7800 |
+| [138](138-a7800-pal-pacing.md) | Pace PAL 7800 games at 50 Hz with a PAL Speed row | 14 | video | feature | S | 136-a7800-canvas-screen, 66-pal-pacing |
+| [139](139-a7800-carts.md) | Draw 7800 carts and fetch their labels | 14 | ui-art | feature | M | 133-platform-a7800 |
+| [140](140-a7800-device-gate.md) | Atari 7800 device gate on the RG34XXSP | 14 | device | chore | S | 135-a7800-bios, 136-a7800-canvas-screen, 137-a7800-input-switches, 138-a7800-pal-pacing |
+| [141](141-atari-tests.md) | Test both Atari cores with generated carts | 14 | tests | test | S | 124-a2600-core-build, 125-a7800-core-build |
+| [142](142-deferred-atari-controllers.md) | DEFERRED: Atari paddles, keypads and the other special controllers | 6 | input | chore | L | 129-a2600-input-switches |

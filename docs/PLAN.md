@@ -57,7 +57,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7) and PlayStation (Phase 8, ADR 0063) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063) and Atari 2600 and 7800 (Phase 14, ADR 0095) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -437,6 +437,27 @@ at `c8816799`, one shelf `Games/PS1`, no core picker. Patches start at 0034.
 
 Also queued after step 2, not blocking PS1: PAL pacing at 50 Hz (issue 66, patch 0043, ADR 0071) and a crash guard on
 resume (issue 67, upstream-first).
+
+### Phase 14: Atari 2600 and 7800 (planned, not shipped)
+
+Tracking issue 123, children 124 to 141 (142 deferred), ADR 0095, plan in docs/research/atari-plan.md.
+Stella 2014 (`stella2014`) pinned at `7d1361e` and ProSystem (`prosystem`) pinned at `8a88014`, one
+core each, shelves `Games/A2600` and `Games/A7800`, no core picker, no BIOS needed. Atari ST is not
+planned.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0095 and the issues |
+| 2 | 124, 125, done | Core builds, pins and licences |
+| 3 | 141, core half done | Generated-cart tests: picture size, rate, sound, states, switches, BIOS (patch 0060) |
+| 4 | 126, 133 | `Platform::A2600` and `Platform::A7800`, shelves, scan, headers; join dist and zip-check |
+| 5 | 127, 134 | Core options; no 7800 high score cart |
+| 6 | 128, 136 | 360x240 canvas at 2x: 2600 columns doubled, rows over 240 cropped; own Screen sections |
+| 7 | 129, 137 | Joystick, buttons, console switch rows |
+| 8 | 135 | 7800 BIOS row, Off by default |
+| 9 | 130, 138 | PAL pacing (ADR 0071) |
+| 10 | 131, 139 | Carts and labels (ScreenScraper 26 and 41) |
+| 11 | 132, 140 | Device gates |
 
 ### Phase 6+: deferred (non-blocking)
 
