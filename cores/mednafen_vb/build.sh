@@ -11,5 +11,7 @@ make_args="HAVE_VR=0"
 # The V810 is C++: link the C++ runtime in, and let --as-needed drop what is not used, so NEEDED stays
 # inside the glibc set the stock OS has.
 device_ldflags="-static-libstdc++ -static-libgcc -Wl,--as-needed"
+# vip.c calls pow, which glibc 2.29 re-versioned: bind the GLIBC_2.17 symbol (see the header).
+device_include=cores/mednafen_vb/glibc-2.17.h
 . "$(dirname "$0")/../lib.sh"
 core_main "$@"
