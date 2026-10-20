@@ -133,5 +133,5 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [159](159-arcade-saves.md) | Arcade saves: the board's NVRAM in Saves/fbneo, progress in states | 16 | platform | chore | S | 155-platform-arcade |
 | [160](160-arcade-input.md) | Arcade input: FBNeo's Classic map, L1 and R1 to the game | 16 | input | feature | S | 155-platform-arcade |
 | [161](161-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 16 | tests | test | S | 154-arcade-core-build |
-| [162](162-arcade-carts.md) | Draw the Neo Geo MVS cart and the CPS shelf objects and fetch arcade labels | 16 | ui-art | feature | M | 155-platform-arcade |
+| [162](162-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 16 | ui-art | feature | M | 155-platform-arcade |
 | [163](163-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 16 | device | chore | S | 157-arcade-screen, 160-arcade-input |

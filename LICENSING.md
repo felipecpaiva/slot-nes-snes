@@ -551,9 +551,12 @@ PicoDrive. Its terms, quoted from `src/license.txt`:
 - "You may not distribute FB Neo with ROM images unless you have the legal right to distribute them;"
   No ROM, BIOS or romset is shipped or fetched. Tests use zero-filled zips with the dat's member names.
 - "You may not ask for donations to support your work on any project that uses the FB Neo source code."
-  **This project asks for no donations, anywhere, ever**: no donation, sponsor, Patreon, Ko-fi or
-  PayPal link in the repository, the README, the release notes or the zip, and no `.github/FUNDING.yml`.
-  This is a standing rule (ADR 0097), not only for releases that carry FBNeo.
+  **This project asks for no donations, anywhere, ever**: no link asking for a donation or a sponsor for
+  this project or its maintainer (donation, sponsor, Patreon, Ko-fi, PayPal) in the repository, the
+  README, the release notes or the zip, and no `.github/FUNDING.yml`. This is a standing rule (ADR 0097),
+  not only for releases that carry FBNeo. `tools/hacks.json` names where third-party ROM hacks are
+  published, and one author publishes his on a Ko-fi shop: that is the download source of his patch, not
+  a request for this project; the file is a tool input that reaches the zip only inside the source tarball.
 
 The MAME licence adds: "Redistributions may not be sold, nor may they be used in a commercial product or
 activity", the complete source for a modified build, and the copyright notice reproduced.

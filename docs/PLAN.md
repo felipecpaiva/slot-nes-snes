@@ -557,7 +557,7 @@ Patches 0098 to 0104 on upstream main 1b20432.
 | 6 | 157, done (0101) | Screen sections; vertical games upright (slot's quarter turn) or turned (pad turned) |
 | 7 | 158, done (0102) | `BIOS/neogeo.zip` checked by CRC before a Neo Geo set starts |
 | 8 | 159, 160, 161, done (0103) | Real-session seats, NVRAM at session end, resume per board |
-| 9 | 162 (0104) | Neo Geo MVS cart, CPS objects, arcade labels by set name |
+| 9 | 162, done (0104) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
 | 10 | 163 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)

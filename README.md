@@ -102,7 +102,9 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   and the kicks on B, A, R1 (FinalBurn Neo's own Street Fighter layout), so L1 and R1 belong to the game
   and the picture toggle is SELECT+X. Vertical games (1941, Varth, 19XX...) stand upright in the
   middle of the screen; the CPS Vertical Games row turns them sideways at full size, with the D-pad
-  turned for a handheld held with its right edge up. The board's own settings and high scores
+  turned for a handheld held with its right edge up. On the shelf a Neo Geo game is a black AES cart, a
+  CPS2 game its B-board case in its region's colour (Japan green, USA and Europe blue, Asia grey), and a
+  CPS1 game the grey CPS Changer case, each with the game's art from the label fetcher. The board's own settings and high scores
   (`Saves/fbneo/`) are written when the game closes; progress mid-game is in save states. CPS3 is not
   included.
 

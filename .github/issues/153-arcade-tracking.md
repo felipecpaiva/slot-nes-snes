@@ -20,7 +20,7 @@ Child work, in merge order:
 - [x] 6. 157-arcade-screen (patch 0101)
 - [x] 7. 158-neogeo-bios (patch 0102)
 - [x] 8. 159-arcade-saves and 160-arcade-input (patch 0103, tests)
-- [ ] 9. 162-arcade-carts (patch 0104, tools/fetch-labels.py)
+- [x] 9. 162-arcade-carts (patch 0104, tools/fetch-labels.py)
 - [ ] 10. 163-arcade-device-gate
 
 ## Tests

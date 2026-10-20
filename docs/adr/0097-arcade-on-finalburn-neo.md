@@ -102,6 +102,16 @@ FBNeo at the pin, read in its source:
   is the retro list in `Config/neogeo_shader.txt`, `cps1_shader.txt`, `cps2_shader.txt`. No PAL Speed (no
   PAL boards) and no speed rows: on the host the sample rate and interpolation move the cost by less than
   the run-to-run spread (below); the device gate decides whether a row is needed.
+- **Shelf objects.** Arcade has no cart, so each board gets the object its games came in that carries a
+  game's art face-on, at the same fidelity as the other shells (outline, relief, lit neutral, label well,
+  shadow), sourced in [docs/cart-art/ARCADE.md](../cart-art/ARCADE.md): Neo Geo the black AES cart (the
+  MVS cart names its game only on a 165 x 20 mm top-edge strip), CPS2 the B-board top cover standing, in
+  its region's colour read from the set's title (Japan green, Asia grey, Hispanic and Brazil orange,
+  rental yellow, else blue), CPS1 the grey CPS Changer and CPS 1.5 case. Art is shown whole inside the
+  well (a flyer is portrait). Every other neutral regenerates byte for byte.
+- **Labels.** `tools/fetch-labels.py` asks ScreenScraper for a set by its file name under 142, 6 or 7 and
+  takes the cart label scan, else the flyer, else the box front; a name search and the logo fallback go by
+  the set's full title.
 - **Licence.** Handled exactly like snes9x and PicoDrive: LICENSING.md names it and quotes its terms,
   `licenses/fbneo-LICENSE.txt` (FBNeo's `src/license.txt` verbatim), the MAME licence it names
   (`licenses/fbneo-MAME-license.txt`, at the MAME commit it cites), the µGUI and Source Han Sans OFL text
@@ -109,9 +119,11 @@ FBNeo at the pin, read in its source:
   (`licenses/fbneo-notices.txt`) and the list of sources with no licence text all ship in
   `System/licenses/`; the pinned source ships with every release; the plugin boundary stance applies; the
   zip is never sold. **Standing rule: this project never asks for donations, anywhere** (FBNeo: "You may
-  not ask for donations to support your work on any project that uses the FB Neo source code"). No
-  donation, sponsor, Patreon, Ko-fi or PayPal link in the repository, the README, the release notes or
-  the zip, and no `FUNDING.yml`.
+  not ask for donations to support your work on any project that uses the FB Neo source code"). No link
+  asking for a donation or sponsor for this project in the repository, the README, the release notes or
+  the zip, and no `FUNDING.yml`. `tools/hacks.json` keeps one third-party author's Ko-fi shop as the
+  download source of his hack; it is not a request for this project (it reaches the zip only inside the
+  source tarball).
 - **CPS3 is left out.** It is the same core but a separate SH-2 driver set; nothing in this repository can
   show it holds full speed on the H700 (the device is not part of this change, and the only evidence is
   an unopened forum claim about a Pi 3B+), and none of its six games is in the maintainer's genres. It can
