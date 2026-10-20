@@ -128,6 +128,13 @@ SYSTEMS = {
     # platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "sega32x,19,21,33"). .32x and .bin, as slot scans
     # (patch 0091); libretro-thumbnails has no Sega - 32X Named_Logos (checked 2026-10-20, 404).
     "32X": ("sega32x", {".32x", ".bin"}, [SEGA + "32X"], 19),
+    # Atari 2600 and 7800: libretro-database metadat/no-intro "Atari - 2600" and "Atari - 7800"; ScreenScraper
+    # ids 26 and 41 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper c253bfe, rows "atari2600,26,28,22"
+    # and "atari7800,41,34,27"). The shelf folders are A2600 and A7800, with the extensions slot scans (patch
+    # 0100). The 7800 dat lists headered .a78 and headerless .bin CRCs; a headered dump is also tried without
+    # its 128-byte header. libretro-thumbnails has 2600 Named_Logos and no 7800 ones (checked 2026-10-20, 404).
+    "A2600": ("atari2600", {".a26", ".bin"}, ["Atari - 2600"], 26),
+    "A7800": ("atari7800", {".a78"}, ["Atari - 7800"], 41),
 }
 WS_COLOR_ID = 46
 NGP_COLOR_ID = 82
@@ -535,9 +542,11 @@ class Rom:
         SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a HuCard likewise
         (size % 8192 == 512), a Mega Drive SMD dump (as Genesis Plus GX detects one) de-interleaved, since
         No-Intro hashes the raw ROM. A .lnx without its 64-byte LYNX header first, the way No-Intro and
-        Beetle Lynx hash it."""
+        Beetle Lynx hash it. A headered .a78 without its 128-byte header too."""
         if system == "Lynx" and self.size > 64 and self.read()[:4] == b"LYNX":
             yield zlib.crc32(self.read()[64:])
+        if system == "A7800" and self.size > 128 and self.read()[1:10] == b"ATARI7800":
+            yield zlib.crc32(self.read()[128:])
         if system == "SNES" and self.size % 1024 == 512:
             yield zlib.crc32(self.read()[512:])
         if system == "TG16" and self.size % 8192 == 512:
@@ -1611,7 +1620,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

@@ -1,0 +1,504 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:15:00 +0400
+Subject: [PATCH] atari-core-tests
+
+Stella 2014 (Atari 2600) and ProSystem (Atari 7800) run on the generic
+libretro host before any Atari platform code exists, with no BIOS.
+
+2600: a generated 4 KB VSYNC kernel cart draws 160x210 at 59.92 fps with
+31400 Hz sound (524 samples a frame) and a tone; a 312-line one is PAL,
+160x250 at 49.92 fps. States round-trip, there is no save RAM. The
+difficulty switches latch (L and R set A, L2 and R2 set B), so do Colour
+and Black/White (L3, R3); SELECT and START (Reset) count only while held;
+fire is RetroPad B.
+
+7800: a generated 16 KB cart draws its background at 320x223 and 60 fps
+(31440 Hz, 524 samples), or 320x272 at 50 fps when its header says PAL;
+a headerless dump the core's database does not know runs as NTSC. States
+round-trip, there is no save RAM, and every console switch, difficulty
+included, counts only while held. With SLOT_7800_BIOS pointing at the
+NTSC BIOS the same unsigned cart never draws; without the variable that
+test prints a BIOS skip.
+
+The 2600 cart has the shape of the ROM in stella2014's own
+test/determinism_harness.c; the code and the checks are new.
+---
+ crates/slot/tests/atari_core.rs | 468 ++++++++++++++++++++++++++++++++
+ 1 file changed, 468 insertions(+)
+ create mode 100644 crates/slot/tests/atari_core.rs
+
+diff --git a/crates/slot/tests/atari_core.rs b/crates/slot/tests/atari_core.rs
+new file mode 100644
+index 0000000..6a0513d
+--- /dev/null
++++ b/crates/slot/tests/atari_core.rs
+@@ -0,0 +1,468 @@
++// Stella 2014 (Atari 2600) and ProSystem (Atari 7800) on the generic libretro host, before any Atari
++// platform code exists (issues 154, 155 and 171, ADR 0095).
++//
++// The carts are generated here, a few bytes of 6502 code each:
++// - 2600: a 4 KB cart with a VSYNC kernel that sets the background (COLUBK) and never sets VBLANK, so
++//   every line the core shows is one colour. It has the shape of the ROM in stella2014's own
++//   test/determinism_harness.c (a VSYNC kernel writing COLUBK); the code is new.
++// - 7800: a 16 KB cart that turns Maria's DMA on with a display list list of empty zones, so every
++//   line is the background colour (BACKGRND). Register addresses are ProSystem's core/Equates.h.
++//
++// The core is opened the way slot opens every core (BIOS/ as the system dir, Saves/ as the save dir)
++// and given a 720x480 measuring canvas, so every frame lands unscaled in its middle and its size can
++// be counted. The 240x160 default buffer would cut a 210-row 2600 frame, and the 360x240 SNES-path
++// canvas would halve a 250 or 272-row PAL one; the canvases the platforms use are issues 158 and 166.
++//
++// No test needs a BIOS except one: the 7800 test that boots through the real BIOS reads it from
++// `SLOT_7800_BIOS` (a path to "7800 BIOS (U).rom", 4096 bytes, md5 0763f1ffb006ddbe32e52d497ee848ae).
++// No BIOS is in the repo or on CI, so there it prints a skip naming the BIOS, which run-tests.sh lists
++// as a ROM skip and does not count as a missing core.
++mod common;
++mod core_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use core_common::require_core;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++const CANVAS: (usize, usize) = (720, 480);
++
++fn open(core: &str, root: &Path, bios: Option<(&str, &[u8])>) -> Option<LibretroCore> {
++    let dylib = require_core(core)?;
++    let bios_dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&bios_dir).unwrap();
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    if let Some((name, bytes)) = bios {
++        std::fs::write(bios_dir.join(name), bytes).unwrap();
++    }
++    let mut c = LibretroCore::open_with(&dylib, &bios_dir, &slot::root::saves_dir(root))
++        .unwrap_or_else(|e| panic!("open {core}: {e}"));
++    c.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    Some(c)
++}
++
++/// Runs `frames` frames holding `pad` and returns the stereo sample frames the last one produced.
++fn play(core: &mut LibretroCore, frames: usize, pad: u16) -> usize {
++    let mut last = 0;
++    for _ in 0..frames {
++        core.run_frame(ButtonMask(pad));
++        last = core.take_audio().len() / 2;
++    }
++    last
++}
++
++/// The lit area of the canvas: (columns, rows, colour of the first lit pixel), with every lit pixel
++/// checked to be that one colour and to sit inside one centred rectangle.
++fn lit(core: &LibretroCore) -> (usize, usize, [u8; 3]) {
++    let video = core.video_xrgb8888();
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    let px = |x: usize, y: usize| -> [u8; 3] {
++        let at = (y * CANVAS.0 + x) * 4;
++        [video[at], video[at + 1], video[at + 2]]
++    };
++    let rows: Vec<usize> = (0..CANVAS.1)
++        .filter(|&y| (0..CANVAS.0).any(|x| px(x, y) != [0, 0, 0]))
++        .collect();
++    let cols: Vec<usize> = (0..CANVAS.0)
++        .filter(|&x| (0..CANVAS.1).any(|y| px(x, y) != [0, 0, 0]))
++        .collect();
++    if rows.is_empty() {
++        return (0, 0, [0, 0, 0]);
++    }
++    let colour = px(cols[0], rows[0]);
++    for &y in &rows {
++        for &x in &cols {
++            assert_eq!(px(x, y), colour, "({x}, {y})");
++        }
++    }
++    let (w, h) = (cols.len(), rows.len());
++    assert_eq!(cols[0], (CANVAS.0 - w) / 2, "not centred across");
++    assert_eq!(rows[0], (CANVAS.1 - h) / 2, "not centred down");
++    (w, h, colour)
++}
++
++// ---- Atari 2600 -------------------------------------------------------------------------------
++
++/// What a 2600 kernel writes to the background each frame.
++#[derive(Clone, Copy)]
++enum Bg {
++    /// One fixed colour.
++    Colour(u8),
++    /// SWCHB (the console switches) shifted left once, so bit 0 (Reset) lands in COLUBK's bit 1.
++    Switches,
++    /// SWCHB shifted right once, so bit 7 (the right difficulty switch) lands in bit 6.
++    SwitchesHigh,
++    /// INPT4 (player 0 fire, bit 7 low while pressed).
++    Fire,
++}
++
++/// A 4 KB cart at $F000: tone on channel 0, then per frame a 3-line VSYNC, the background colour
++/// and `lines - 3` WSYNC lines with VBLANK never set, so every line the core shows is that colour.
++/// 262 lines is an NTSC frame, 312 a PAL one.
++fn a26(dir: &Path, stem: &str, bg: Bg, lines: u16) -> PathBuf {
++    let rest = lines - 3;
++    let (a, b) = ((rest / 2) as u8, (rest - rest / 2) as u8);
++    let mut code = vec![
++        0x78, 0xd8, 0xa2, 0xff, 0x9a, // sei, cld, ldx #$ff, txs
++        0xa9, 0x04, 0x85, 0x15, // lda #4, sta AUDC0
++        0xa9, 0x10, 0x85, 0x17, // lda #$10, sta AUDF0
++        0xa9, 0x0f, 0x85, 0x19, // lda #15, sta AUDV0
++    ];
++    let frame = 0xf000 + code.len() as u16;
++    code.extend([
++        0xa9, 0x02, 0x85, 0x00, // lda #2, sta VSYNC
++        0x85, 0x02, 0x85, 0x02, 0x85, 0x02, // sta WSYNC x3
++        0xa9, 0x00, 0x85, 0x00, // lda #0, sta VSYNC
++    ]);
++    code.extend(match bg {
++        Bg::Colour(c) => [0xa9, c, 0xea, 0xea],   // lda #c, nop, nop
++        Bg::Switches => [0xad, 0x82, 0x02, 0x0a], // lda SWCHB, asl a
++        Bg::SwitchesHigh => [0xad, 0x82, 0x02, 0x4a], // lda SWCHB, lsr a
++        Bg::Fire => [0xad, 0x0c, 0x00, 0xea],     // lda INPT4, nop
++    });
++    code.extend([0x85, 0x09]); // sta COLUBK
++    code.extend([0xa2, a, 0x85, 0x02, 0xca, 0xd0, 0xfb]); // ldx #a; l: sta WSYNC; dex; bne l
++    code.extend([0xa2, b, 0x85, 0x02, 0xca, 0xd0, 0xfb]); // ldx #b; l: sta WSYNC; dex; bne l
++    code.extend([0x4c, frame as u8, (frame >> 8) as u8]); // jmp frame
++    let mut rom = vec![0xffu8; 4096];
++    rom[..code.len()].copy_from_slice(&code);
++    rom[0xffc..].copy_from_slice(&[0x00, 0xf0, 0x00, 0xf0]); // RESET and IRQ at $F000
++    let path = dir.join(format!("{stem}.a26"));
++    std::fs::write(&path, rom).unwrap();
++    path
++}
++
++fn stella(root: &Path) -> Option<LibretroCore> {
++    open("stella2014", root, None)
++}
++
++/// Holds `pad` for three frames, then lets go for three: the background seen while held and after.
++fn press(core: &mut LibretroCore, pad: u16) -> ([u8; 3], [u8; 3]) {
++    play(core, 3, pad);
++    let held = lit(core).2;
++    play(core, 3, 0);
++    (held, lit(core).2)
++}
++
++#[test]
++fn a_2600_cart_runs_with_no_bios_and_draws_160_by_210_at_59_92_hz_with_31400_hz_sound() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Ntsc", Bg::Colour(0x0e), 262))
++        .expect("Stella refused the cart");
++    play(&mut core, 60, 0);
++    core.run_frame(ButtonMask::default());
++    let sound = core.take_audio();
++    let av = core.av_info();
++    assert!((av.fps - 59.92).abs() < 0.01, "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 31400.0);
++    // 31400 / 59.92 is 524 stereo frames.
++    assert!(
++        (520..=528).contains(&(sound.len() / 2)),
++        "{} a frame",
++        sound.len() / 2
++    );
++    assert!(sound.iter().any(|&s| s != 0), "the tone is silent");
++    assert_eq!(core.frame_width(), 160);
++    let (w, h, colour) = lit(&core);
++    assert_eq!((w, h), (160, 210));
++    assert_ne!(colour, [0, 0, 0]);
++}
++
++#[test]
++fn a_312_line_2600_cart_is_pal_and_draws_160_by_250_at_49_92_hz() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Pal", Bg::Colour(0x0e), 312))
++        .unwrap();
++    let per_frame = play(&mut core, 60, 0);
++    let av = core.av_info();
++    assert!((av.fps - 49.92).abs() < 0.01, "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 31400.0);
++    assert!((625..=633).contains(&per_frame), "{per_frame} a frame");
++    // 250 rows: more than the 240 of the SNES-path canvas, which would halve them.
++    let (w, h, _) = lit(&core);
++    assert_eq!((w, h), (160, 250));
++}
++
++#[test]
++fn a_2600_state_round_trips_and_there_is_no_save_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Ntsc", Bg::Colour(0x0e), 262))
++        .unwrap();
++    play(&mut core, 5, 0);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10, 0);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++    assert_eq!(core.save_ram(), None);
++}
++
++#[test]
++fn the_2600_difficulty_and_colour_switches_latch_on_one_press_and_select_and_reset_do_not() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Switches", Bg::Switches, 262))
++        .unwrap();
++    play(&mut core, 30, 0);
++    let idle = lit(&core).2;
++    // L puts the left difficulty switch at A and it stays there; L2 puts it back at B.
++    let (held, after) = press(&mut core, ButtonMask::L);
++    assert_ne!(held, idle);
++    assert_eq!(after, held);
++    assert_eq!(press(&mut core, ButtonMask::L2).1, idle);
++    // R3 is Black/White and L3 Colour, the same way.
++    let (held, after) = press(&mut core, 1 << 15);
++    assert_ne!(held, idle);
++    assert_eq!(after, held);
++    assert_eq!(press(&mut core, 1 << 14).1, idle);
++    // SELECT and START (the Reset switch) count only while held.
++    for b in [ButtonMask::SELECT, ButtonMask::START] {
++        let (held, after) = press(&mut core, b);
++        assert_ne!(held, idle);
++        assert_eq!(after, idle);
++    }
++}
++
++#[test]
++fn the_2600_right_difficulty_switch_latches_on_r_and_r2() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Right", Bg::SwitchesHigh, 262))
++        .unwrap();
++    play(&mut core, 30, 0);
++    let idle = lit(&core).2;
++    let (held, after) = press(&mut core, ButtonMask::R);
++    assert_ne!(held, idle);
++    assert_eq!(after, held);
++    assert_eq!(press(&mut core, ButtonMask::R2).1, idle);
++}
++
++#[test]
++fn the_2600_fire_button_is_retropad_b() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = stella(d.path()) else {
++        return;
++    };
++    core.load(&a26(d.path(), "Fire", Bg::Fire, 262)).unwrap();
++    play(&mut core, 30, 0);
++    let idle = lit(&core).2;
++    let (held, after) = press(&mut core, ButtonMask::B);
++    assert_ne!(held, idle);
++    assert_eq!(after, idle);
++    assert_eq!(press(&mut core, ButtonMask::A).0, idle);
++}
++
++// ---- Atari 7800 -------------------------------------------------------------------------------
++
++/// A 16 KB headered .a78 at $C000: Maria on (DMA, 160A), a display list list of 20 zones of 16
++/// lines each pointing at one empty display list, so every line Maria draws is the background.
++/// With `echo` the background is SWCHB (the console switches), rewritten in a loop.
++fn a78(dir: &Path, stem: &str, colour: Option<u8>, pal: bool, header: bool) -> PathBuf {
++    let mut code = vec![0x78, 0xd8]; // sei, cld
++    let top = 0xc000 + code.len() as u16;
++    code.extend(match colour {
++        Some(c) => [0xa9, c, 0xea], // lda #c, nop
++        None => [0xad, 0x82, 0x02], // lda SWCHB
++    });
++    code.extend([
++        0x85,
++        0x20, // sta BACKGRND
++        0xa9,
++        0xd0,
++        0x85,
++        0x2c, // lda #>DLL, sta DPPH
++        0xa9,
++        0x00,
++        0x85,
++        0x30, // lda #<DLL, sta DPPL
++        0xa9,
++        0x40,
++        0x85,
++        0x3c, // lda #$40, sta CTRL (DMA on, 160A)
++        0x4c,
++        top as u8,
++        (top >> 8) as u8, // jmp top
++    ]);
++    let mut rom = vec![0u8; 16 * 1024];
++    rom[..code.len()].copy_from_slice(&code);
++    for z in 0..20 {
++        rom[0x1000 + z * 3..0x1000 + z * 3 + 3].copy_from_slice(&[0x0f, 0xd1, 0x00]);
++    }
++    // $D100: an empty display list (mode byte 0 ends it).
++    rom[0x3ffa..].copy_from_slice(&[0x00, 0xc0, 0x00, 0xc0, 0x00, 0xc0]);
++    let mut file = Vec::new();
++    if header {
++        let mut h = vec![0u8; 128];
++        h[0] = 1;
++        h[1..10].copy_from_slice(b"ATARI7800");
++        h[17..17 + 10].copy_from_slice(b"SLOT A7800");
++        h[49..53].copy_from_slice(&(rom.len() as u32).to_be_bytes());
++        h[55] = 1; // joystick
++        h[56] = 1;
++        h[57] = u8::from(pal);
++        file.extend(h);
++    }
++    file.extend(rom);
++    let path = dir.join(format!("{stem}.a78"));
++    std::fs::write(&path, file).unwrap();
++    path
++}
++
++fn prosystem(root: &Path, bios: Option<&[u8]>) -> Option<LibretroCore> {
++    open("prosystem", root, bios.map(|b| ("7800 BIOS (U).rom", b)))
++}
++
++/// The maintainer's own NTSC BIOS from `SLOT_7800_BIOS`, checked by size only (slot's BIOS
++/// check, issue 165, adds the md5).
++fn bios_7800() -> Option<Vec<u8>> {
++    let Some(path) = std::env::var_os("SLOT_7800_BIOS") else {
++        eprintln!("skipping: no 7800 BIOS, set SLOT_7800_BIOS to a 7800 BIOS (U).rom (4096 bytes)");
++        return None;
++    };
++    let bytes = std::fs::read(&path).unwrap_or_default();
++    if bytes.len() != 4096 {
++        eprintln!(
++            "skipping: SLOT_7800_BIOS {} is not the 7800 BIOS ({} bytes)",
++            Path::new(&path).display(),
++            bytes.len()
++        );
++        return None;
++    }
++    Some(bytes)
++}
++
++#[test]
++fn a_headered_7800_cart_runs_with_no_bios_and_draws_320_by_223_at_60_hz() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = prosystem(d.path(), None) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Ntsc", Some(0x1f), false, true))
++        .expect("ProSystem refused the cart");
++    let per_frame = play(&mut core, 60, 0);
++    let av = core.av_info();
++    assert_eq!(av.fps, 60.0);
++    // Two samples a scanline: 60 x 262 x 2.
++    assert_eq!(av.sample_rate, 31440.0);
++    assert_eq!(per_frame, 524);
++    assert_eq!(core.frame_width(), 320);
++    let (w, h, colour) = lit(&core);
++    assert_eq!((w, h), (320, 223));
++    assert_ne!(colour, [0, 0, 0]);
++}
++
++#[test]
++fn a_7800_cart_whose_header_says_pal_draws_320_by_272_at_50_hz() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = prosystem(d.path(), None) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Pal", Some(0x1f), true, true))
++        .unwrap();
++    let per_frame = play(&mut core, 60, 0);
++    let av = core.av_info();
++    assert_eq!(av.fps, 50.0);
++    assert_eq!(av.sample_rate, 31200.0);
++    assert_eq!(per_frame, 624);
++    let (w, h, _) = lit(&core);
++    assert_eq!((w, h), (320, 272));
++}
++
++#[test]
++fn a_headerless_7800_dump_the_database_does_not_know_runs_as_ntsc() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = prosystem(d.path(), None) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Bare", Some(0x1f), false, false))
++        .unwrap();
++    play(&mut core, 60, 0);
++    assert_eq!(core.av_info().fps, 60.0);
++    let (w, h, _) = lit(&core);
++    assert_eq!((w, h), (320, 223));
++}
++
++#[test]
++fn a_7800_state_round_trips_and_there_is_no_save_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = prosystem(d.path(), None) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Ntsc", Some(0x1f), false, true))
++        .unwrap();
++    play(&mut core, 5, 0);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10, 0);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++    assert_eq!(core.save_ram(), None);
++}
++
++#[test]
++fn every_7800_console_switch_counts_only_while_held_difficulty_included() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = prosystem(d.path(), None) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Switches", None, false, true))
++        .unwrap();
++    play(&mut core, 30, 0);
++    let idle = lit(&core).2;
++    // L and R are the difficulty switches, X Reset, SELECT Select, START Pause.
++    for b in [
++        ButtonMask::L,
++        ButtonMask::R,
++        ButtonMask::X,
++        ButtonMask::SELECT,
++        ButtonMask::START,
++    ] {
++        let (held, after) = press(&mut core, b);
++        assert_ne!(held, idle, "button {b:#x}");
++        assert_eq!(after, idle, "button {b:#x}");
++    }
++}
++
++#[test]
++fn with_the_ntsc_bios_an_unsigned_7800_cart_never_draws() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(bios) = bios_7800() else {
++        return;
++    };
++    let Some(mut core) = prosystem(d.path(), Some(&bios)) else {
++        return;
++    };
++    core.load(&a78(d.path(), "Unsigned", Some(0x1f), false, true))
++        .expect("the core loads it, the BIOS refuses it");
++    // The same cart draws on its first frames with no BIOS (above); the BIOS checks the cart's
++    // signature, finds none, and the picture stays black.
++    play(&mut core, 600, 0);
++    assert_eq!(lit(&core), (0, 0, [0, 0, 0]));
++    assert_eq!(core.av_info().fps, 60.0);
++}

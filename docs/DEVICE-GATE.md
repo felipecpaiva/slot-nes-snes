@@ -324,6 +324,33 @@ everything over adb (`mise exec -- adb shell ...`).
 | Step | Result | Date | Zip version | Notes |
 |---|---|---|---|---|
 | 1 to 11 | | | | |
+## Atari 2600 and 7800 (issues 162 and 170, ADR 0095)
+
+Pending. No BIOS for the 2600; the 7800 BIOS is optional and Off by default.
+
+1. Boot: each cart seats on its own shelf (A2600 Stella 2014, A7800 ProSystem), no black screen.
+2. Picture: 4:3 by default, Stretch and Actual walk; a PAL dump (2600 Europe) runs at 50 Hz with
+   PAL Speed Native, and the cropped rows in 4:3 hide nothing the game needs.
+3. Controls, 2600: d-pad moves, A and B fire, SELECT is Select, START Reset (starts most games);
+   Right Difficulty A makes a game harder where it reads it (Space Invaders: wider shots on B);
+   TV Type B&W turns Pitfall! grey or pauses games that read it; a paddle game (Kaboom!,
+   Breakout) turns with the left stick and fires on A.
+4. Controls, 7800: B and A are buttons 1 and 2, X Reset, START Pause, SELECT Select; a game that
+   reads the difficulty switches follows the rows.
+5. BIOS, 7800: copy the backup's `[BIOS] Atari 7800 (USA)` dump to the card as exactly
+   `BIOS/7800 BIOS (U).rom` (4096 bytes, md5 `0763f1ffb006ddbe32e52d497ee848ae`); BIOS On then shows the logo before Asteroids; Off boots
+   straight in.
+6. Speed and audio: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0.
+7. States and rewind: save and load a state; rewind works; eject and power cycle resume.
+
+| Title | System | Picture | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|
+| Pitfall! | 2600 | | | | | |
+| River Raid | 2600 | | | | | |
+| Kaboom! | 2600 | | | | | paddle on the left stick |
+| Asteroids | 7800 | | | | | BIOS Off and On |
+| Ms. Pac-Man | 7800 | | | | | |
+| Ninja Golf | 7800 | | | | | |
 
 ## Core bench on the device (test carts)
 
