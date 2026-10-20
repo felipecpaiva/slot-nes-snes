@@ -166,10 +166,11 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   p99 frame time 17 ms, no empty frames.
 - **CPU row.** General gains a CPU row: Performance (the default, every measurement here) or
   Balanced (the `schedutil` governor, saves battery, heavy games may miss frames).
-- **Shelf order.** `Config/shelf_order.txt` with `order = release-year` puts the system shelves
-  after Recents and Favorites in the order the platforms first came out, from Atari 2600 (1977) to
-  Game Boy Advance (2001). No file, or `order = classic`, keeps the usual order. Read at start, so
-  restart slot after changing it (ADR 0100).
+- **Shelf order.** General gains a Shelf Order row: Classic (the default, the usual order) or
+  Release Year, which puts the system shelves after Recents and Favorites in the order the
+  platforms first came out, from Atari 2600 (1977) to Game Boy Advance (2001), and lists the
+  systems on the Screen page in the same order. It applies at once and is saved as
+  `order = release-year` in `Config/shelf_order.txt` (ADR 0100).
 - **PAL games at 50 Hz.** A core more than 2 fps from 60 runs at its own speed and pitch. PAL Speed:
   Panel brings back the old 60 Hz.
 - **No audio stall at game start.** The audio device stays open while a game feeds it.

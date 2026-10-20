@@ -16,7 +16,7 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   eight, and the guard checks each one exactly:
+   nine, and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
    - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`, `| Platform::Gg`, `| Platform::Sms`, `| Platform::Md`, `| Platform::Ps1`, `| Platform::Tg16`, `| Platform::Ws`, `| Platform::Lynx`, `| Platform::Ngp`, `| Platform::S32x`, `| Platform::A2600`, `| Platform::A7800`, `| Platform::Vb`, `| Platform::NeoGeo`, `| Platform::Cps1` and `| Platform::Cps2`, in that order (the Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy and arcade tokens by the standing rule below, ADR 0055, ADR 0065, ADR 0091, ADR 0092, ADR 0093, ADR 0090, ADR 0096, ADR 0095, ADR 0097 and ADR 0099). The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
@@ -35,6 +35,17 @@ code as possible, and prove GBA did not change.**
      Date & Time directly after Lid Power Off, so the line stays right after `"Game Titles",`. The guard removes exactly that
      line before comparing and also accepts the file without it. Together with (g) and (h), any other
      line of that file changing still fails.
+   - (k) approved by the maintainer on 2026-10-20 (ADR 0100): the same General labels gain the single
+     line `            "Shelf Order",` between `            "Game Titles",` and `            "CPU",`,
+     because `QuickRow::GENERAL` gains the Shelf Order row. It cannot sit between Recents and Game
+     Titles (upstream `show_titles_sits_under_recents_on_the_general_page` in that file pins Game
+     Titles right after Recents) or between Lid Power Off and Date & Time (site (j) above). The
+     other upstream tests that walk General pin only rows above Recents by number (Recents at
+     position 3) or find their row with `position` (`slot/tests/recents.rs`, `show_titles.rs`,
+     `clock.rs`, `render_quick_menu.rs`, `quick_menu.rs`), so a row below Game Titles moves none. The guard removes exactly that line, then the CPU line, before comparing, and
+     accepts the file without either.
+     The Screen page following the shelf order (ADR 0100) needs no site: `QuickRow::SCREEN`, which
+     site (g) pins, keeps the classic order, and the page reads `slot_ui::screen_page()`.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must
