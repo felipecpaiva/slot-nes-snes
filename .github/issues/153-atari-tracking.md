@@ -14,10 +14,10 @@ The maintainer owns 578 Atari 2600 and 73 Atari 7800 dumps. Both are joystick sy
 - [x] 1. Decision record: ADR 0095 and these issues.
 - [x] 2. 154-a2600-core-build and 155-a7800-core-build (groundwork)
 - [x] 3. 171-atari-tests, core half: patch 0098 (groundwork; the platform half grows with each step below)
-- [ ] 4. 156-platform-a2600, 157, 158, 159, 160, 161 (2600 on the integration base)
-- [ ] 5. 163-platform-a7800, 164, 165, 166, 167, 168, 169 (7800)
+- [x] 4. 156-platform-a2600, 157, 158, 159, 160, 161 (patches 0099 and 0100)
+- [x] 5. 163-platform-a7800, 164, 165, 166, 167, 168, 169 (patches 0099 and 0100)
 - [ ] 6. 162-a2600-device-gate and 170-a7800-device-gate
-- [ ] 7. 172 stays deferred
+- [x] 7. 172: paddles came in with 0099 (left stick); keypad, driving and Mindlink stay deferred
 
 ## Tests
 | ID | File | Asserts |

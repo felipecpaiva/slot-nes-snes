@@ -538,25 +538,25 @@ on their own branches.)
 | 9 | 150, done (0096) | A Mega Drive game after a 32X game equals a Mega Drive only run |
 | 10 | 151, done (0097) | One black 32X cart, labels for ScreenScraper id 19 |
 | 11 | 152 | Device gate: dynarec active, Virtua Racing Deluxe, Star Wars Arcade, Knuckles' Chaotix |
-### Phase 14: Atari 2600 and 7800 (planned, not shipped)
+### Phase 14: Atari 2600 and 7800 (device gate pending)
 
 Tracking issue 153, children 154 to 171 (172 deferred), ADR 0095, plan in docs/research/atari-plan.md.
 Stella 2014 (`stella2014`) pinned at `7d1361e` and ProSystem (`prosystem`) pinned at `8a88014`, one
 core each, shelves `Games/A2600` and `Games/A7800`, no core picker, no BIOS needed. Atari ST is not
-planned.
+planned. Patches 0098 to 0100 on main 1b20432; the device gates are the step left.
 
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0095 and the issues |
 | 2 | 154, 155, done | Core builds, pins and licences |
-| 3 | 171, core half done | Generated-cart tests: picture size, rate, sound, states, switches, BIOS (patch 0098) |
-| 4 | 156, 163 | `Platform::A2600` and `Platform::A7800`, shelves, scan, headers; join dist and zip-check |
-| 5 | 157, 164 | Core options; no 7800 high score cart |
-| 6 | 158, 166 | 360x240 canvas at 2x: 2600 columns doubled, rows over 240 cropped; own Screen sections |
-| 7 | 159, 167 | Joystick, buttons, console switch rows |
-| 8 | 165 | 7800 BIOS row, Off by default |
-| 9 | 160, 168 | PAL pacing (ADR 0071) |
-| 10 | 161, 169 | Carts and labels (ScreenScraper 26 and 41) |
+| 3 | 171, done | Generated-cart tests (patch 0098); platform, seat, switch, Screen and cart tests (0099, 0100) |
+| 4 | 156, 163, done (0099) | `Platform::A2600` and `Platform::A7800`, shelves, scan; join dist and zip-check |
+| 5 | 157, 164, done (0099) | Core options; no 7800 high score cart |
+| 6 | 158, 166, done (0099) | Own canvases (360x256, 360x272), 4:3 by default; own Screen sections |
+| 7 | 159, 167, done (0099) | Joystick, buttons, console switch rows held every frame, paddles on the left stick |
+| 8 | 165, done (0099) | 7800 BIOS row, Off by default |
+| 9 | 160, 168, done (0099) | PAL pacing (ADR 0071), PAL Speed rows |
+| 10 | 161, 169, done (0100) | Carts and labels (ScreenScraper 26 and 41) |
 | 11 | 162, 170 | Device gates |
 
 ### Phase 6+: deferred (non-blocking)

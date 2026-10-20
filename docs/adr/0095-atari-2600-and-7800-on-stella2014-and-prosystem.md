@@ -1,6 +1,6 @@
 # 0095. Bring Atari 2600 and Atari 7800 into scope on pinned Stella 2014 and ProSystem, built the NES and SNES way
 
-- Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
+- Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems; integration decisions added 2026-10-20
 - Date: 2026-10-19
 - Deciders: maintainer (Felipe Paiva)
 - Related: [Atari plan](../research/atari-plan.md), [ADR 0050](0050-canvas-per-core-and-platform.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [issue 153](../../.github/issues/153-atari-tracking.md), [issue 154](../../.github/issues/154-a2600-core-build.md), [issue 155](../../.github/issues/155-a7800-core-build.md), patch `patches/0098-atari-core-tests.patch`. Atari ST is out of scope and not planned.
@@ -74,6 +74,48 @@ The libretro choices:
   per-platform vertical rule (issues 158 and 166).
 - **Pacing.** Stella reports 59.92 fps NTSC (inside ADR 0071's window, the upstream path) and 49.92
   PAL; ProSystem reports exactly 60 or 50. PAL titles get ADR 0071's paced path and a PAL Speed row.
+
+## Integration decisions (2026-10-20, patches 0099 and 0100)
+
+The groundwork was rebased onto main after the 32X (ADR 0096): the ADR keeps 0095 (main never used
+it), the issues moved to 153 to 172 and the core test patch to 0098. Two patches follow:
+`0099-platform-atari` (both shelves, policy, options, canvases, Screen sections, switches, BIOS row)
+and `0100-atari-carts` (the two shells).
+
+- **Canvases, not a new copy path.** Stella draws into a 360x256 canvas and ProSystem into 360x272,
+  so `copy_centred` never halves a PAL frame (250 or 272 rows) and the shared RGB565 path is not
+  touched. The 2600's 160 columns are not doubled by slot: the 4:3 and Stretch rects scale the
+  160x210 picture to the panel, which keeps the 2600's wide pixels.
+- **Picture.** 4:3 is the factory choice on both shelves (the 2600 and 7800 drew on a 4:3 TV and
+  their pixels are not square), then Stretch and Actual. 4:3 and Stretch use the NTSC height (210,
+  223); a PAL frame is shown by its middle rows there, and whole in Actual.
+- **Switches are held, every frame.** Both cores read the console switches from the RetroPad (Stella
+  latches L/L2, R/R2, L3/R3; ProSystem reads L and R only while held). slot keeps L1, R1, L2 and R2,
+  so the pad never carries them; `atari_switches::remap` clears those bits and adds the chosen
+  switch every frame, which survives state loads, rewind and resume with no extra code. The rows
+  live in `Config/atari.txt`. 2600 factory choice: Auto (no button, Stella keeps the game's own
+  default from its database); 7800 factory choice: left B, right A, ProSystem's own default
+  (`retro_load_game`, "fixes Tower Toppler"). The pad code rides on the WonderSwan pad channel
+  (`set_ws_pad`), re-sent each update, so a row changed in the in-game menu applies at once.
+- **Buttons.** 2600: A and B both fire, and also press RetroPad Y, Stella's paddle button. X and Y
+  pass through (Stella ignores X). 7800: B is button 1, A button 2, X Reset (passed through, so no
+  menu row is needed), SELECT Select, START Pause. No turbo on either shelf.
+- **Paddles.** In scope through the left stick: slot answers analog queries for Stella
+  (`analog_pad` returns the plain RetroPad, so the port stays a joypad) and Stella reads the left
+  stick X for every game its database marks as paddles. Not device-verified yet (issue 162).
+  Keypad, driving, Mindlink and Kid Vid games stay out (issue 172).
+- **7800 BIOS row.** Off by default: ProSystem is opened with `Saves/A7800/.system` (empty) as its
+  system dir, so a BIOS in `BIOS/` is never loaded. On uses `BIOS/`. No md5 check: a wrong file
+  only means ProSystem shows nothing for an unsigned cart, which the row's Off fixes.
+- **Core options.** Stella: 24-bit colour, standard palette, no frame mixing, no low-pass filter.
+  ProSystem: 24-bit colour, no low-pass filter, the dual-stick hack off. Both draw XRGB8888.
+- **Licences.** No non-commercial term in either core (checked by grep over both trees), so neither
+  needs the snes9x treatment. ProSystem's TIA and POKEY sound carry Ron Fries' LGPL-2 notice, which
+  converts to GPL-2.0-or-later (LICENSING.md). The licence texts moved to `licenses/`.
+- **Carts.** One shell per system, both 82 by 98 mm (Atari Corp. reused the 2600 shell size for the
+  7800): the 2600 Atari Inc. shell with a ribbed grip over the label, the 7800 Atari Corp. shell
+  with a raised cap and side grips, in two blacks. Labels: ScreenScraper 26 and 41, dats
+  `Atari - 2600` and `Atari - 7800`; libretro Named_Logos exist for the 2600 only.
 
 ## Consequences
 

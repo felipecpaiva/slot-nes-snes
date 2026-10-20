@@ -523,10 +523,10 @@ zip is never sold and never carries a donation or sponsor link.
 
 Checked at commit `7d1361e407e63f29e52892655069e5fb4096e691` of libretro/stella2014-libretro, the
 commit `SLOT_PIN` pins as `stella2014_commit` (tarball sha256 `stella2014_tarball_sha256`). It is
-built by `cores/stella2014/build.sh` for the Atari 2600 (ADR 0095) and is not in a release yet: it
-joins `dist:device` and `zip-check.sh` with the 2600 platform patch (issue 156). Until then its
-licence texts stay in `cores/stella2014/` and move to `licenses/` when the core ships (the Genesis
-Plus GX precedent: `dist-device.sh` copies every file in `licenses/` into the release):
+built by `cores/stella2014/build.sh` for the Atari 2600 (ADR 0095). It joined `dist:device` and
+`zip-check.sh` with the platform patch (`0099-platform-atari`, issue 156), and its licence texts moved
+from `cores/stella2014/` to `licenses/`, which `dist-device.sh` copies whole into the release, beside
+the pinned source tarball:
 
 - `stella2014-GPL-2.0.txt`, the tree's `stella/license.txt` verbatim and whole (the GPL-2.0 text);
 - `stella2014-Copyright-3.9.3.txt`, Stella's own `Copyright.txt` at tag `release-3.9.3`
@@ -571,9 +571,9 @@ not on any file in the tree; if that reading were ever disputed, current libretr
 
 Checked at commit `8a88014287c7a01cd568067e5a557d0a2b2a051f` of libretro/prosystem-libretro, the
 commit `SLOT_PIN` pins as `prosystem_commit` (tarball sha256 `prosystem_tarball_sha256`). It is built
-by `cores/prosystem/build.sh` for the Atari 7800 (ADR 0095) and is not in a release yet: it joins
-`dist:device` and `zip-check.sh` with the 7800 platform patch (issue 163). Until then its licence
-texts stay in `cores/prosystem/`:
+by `cores/prosystem/build.sh` for the Atari 7800 (ADR 0095) and joined `dist:device` and
+`zip-check.sh` with the platform patch (`0099-platform-atari`, issue 163); its licence texts are in
+`licenses/` and ship with the core and its pinned source:
 
 - `prosystem-GPL-2.0.txt`, the root `License.txt` verbatim and whole;
 - `prosystem-CoreTone-zlib.txt`, `bupboop/License.txt` verbatim: the zlib licence of CoreTone
@@ -589,6 +589,13 @@ texts stay in `cores/prosystem/`:
     the zlib text, 7 point to it ("see copyright notice in coretone.c") and `types.h` points to a
     `bupboop.h` the tree lacks; `bupboop/License.txt` is the same zlib text.
   - `core/boolean.h` is the RetroArch team's MIT text.
+  - `core/Tia.*` and `core/Pokey.*` also carry Ron Fries' TiaSound and PokeySound notice (1997):
+    version 2 of the GNU Library General Public License, whose section 3 lets a copy be put under the
+    ordinary GPL version 2 or any later version, so it combines with GPL-3.0-or-later. Its legend
+    ("Any permitted reproduction of these routines ... must bear this legend") stays in the shipped
+    source tarball.
+  - No file in either core carries a non-commercial term: `grep -ril 'commercial'` over both trees
+    finds only the GPL texts themselves and the zlib text ("including commercial applications").
   - No file says version 2 only. `License.txt`'s "any later version" lines are the GPL's own
     how-to-apply appendix, not a grant; the grant is the file headers.
   - Command, run in the unpacked source root: `find core bupboop -type f \( -name '*.c' -o -name

@@ -11,7 +11,7 @@ depends_on: [159-a2600-input-switches]
 Matched against Stella's database, 35 of his 559 recognised 2600 dumps need paddles (Kaboom!, Breakout, Super Breakout, Warlords, Circus Atari, Night Driver, Street Racer, Video Olympics, Canyon Bomber, Demons to Diamonds, Casino, Party Mix, Steeplechase, ...), 15 a keypad or kids controller (Star Raiders, BASIC Programming, Codebreaker, Brain Games, Hunt & Score, Alpha Beam with Ernie, Big Bird's Egg Catch, Cookie Monster Munch, Oscar's Trash Race, ...), Indy 500 the driving controller, 3 the Mindlink and Smurfs Save the Day the Kid Vid. Out of scope for the first release.
 
 ## Scope
-- [ ] Paddles first: the left stick through ADR 0068 v2 and Stella's `stella2014_paddle_analog_*` options, chosen per game from Stella's `Controller.Left` property.
+- [x] Paddles: done in patch 0099. slot answers Stella's analog queries with the left stick (the port stays a RetroPad) and A or B press the paddle button; Stella picks paddles per game from its `Controller.Left` property. Device check in issue 162.
 - [ ] Keypad: an on-screen 12-key overlay, only if asked for.
 - [ ] 7800 High Score Cartridge: only if a core gains it (issue 164).
 
