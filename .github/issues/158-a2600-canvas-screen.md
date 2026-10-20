@@ -4,7 +4,7 @@ phase: 14
 area: video
 type: feature
 size: M
-depends_on: [127-a2600-options]
+depends_on: [157-a2600-options]
 ---
 
 ## Why
@@ -13,7 +13,7 @@ Stella hands 160 columns and the game's own rows: 210 by default, 250 PAL, 220 t
 ## Scope
 - [ ] Canvas 360x240 at 2x (ADR 0050). A 2600-only copy rule doubles each column (160 to 320), so 160x210 shows as 640x420 centred.
 - [ ] Rows over 240: Actual crops to the middle 240, never halves. Stretch scales the frame to the canvas.
-- [ ] A2600 Screen section: Shader (retro list), Picture (Actual, Stretch), PAL Speed (issue 130), Left and Right difficulty, TV type (issue 129).
+- [ ] A2600 Screen section: Shader (retro list), Picture (Actual, Stretch), PAL Speed (issue 160), Left and Right difficulty, TV type (issue 159).
 
 ## Tests
 | ID | File | Asserts |
@@ -30,7 +30,7 @@ Stella hands 160 columns and the game's own rows: 210 by default, 250 PAL, 220 t
 - [ ] `task check` green; GBA harness 0 diffs.
 
 ## Device check (RG34XXSP)
-Part of issue 132: crop rows on a PAL dump.
+Part of issue 162: crop rows on a PAL dump.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

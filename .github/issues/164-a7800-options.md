@@ -4,7 +4,7 @@ phase: 14
 area: cores
 type: feature
 size: S
-depends_on: [133-platform-a7800]
+depends_on: [163-platform-a7800]
 ---
 
 ## Why

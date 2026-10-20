@@ -10,8 +10,8 @@ seams follow the NGP, Lynx and PS1 plans. Atari ST is out of scope and not plann
 - **Verdict: go, both systems, one phase (14), two shelves.** Both cores are cheap, need no BIOS,
   and fit the 360x240 canvas at 2x with one per-platform rule each.
 - **Done now (groundwork, this branch):** both cores pinned and built for host and device (issues
-  124 and 125), the licence record, and host tests with generated carts
-  (`patches/0060-atari-core-tests.patch`, issue 141, 12 tests).
+  154 and 155), the licence record, and host tests with generated carts
+  (`patches/0098-atari-core-tests.patch`, issue 171, 12 tests).
 - **Facts the tests pin, which shape the integration:**
   1. The console switches are RetroPad buttons, not core options. Stella **latches** difficulty and
      Colour/B&W; ProSystem counts **every** switch only **while held**, difficulty included.
@@ -24,7 +24,7 @@ seams follow the NGP, Lynx and PS1 plans. Atari ST is out of scope and not plann
   of #147 is the way in.
 - Expected size: about 16 patches. Effort M each. Value medium (2600: a big owned library).
 
-## 1. Core choice and licences (issues 124 and 125)
+## 1. Core choice and licences (issues 154 and 155)
 
 | | 2600 | 7800 |
 |---|---|---|
@@ -74,7 +74,7 @@ force-included `cores/prosystem/glibc-2.17.h` fixes it the TurboGrafx-16 way.
   unsigned cart never draws (tested with `SLOT_7800_BIOS`).
 - **Saves:** none at this pin: no `SAVE_RAM`, no High Score Cartridge. State 49221 bytes.
 
-## 3. Shelves, scan and headers (issues 126 and 133)
+## 3. Shelves, scan and headers (issues 156 and 163)
 
 - `Games/A2600`: `.a26` and `.bin`. The scan is keyed per shelf folder, so `.bin` here never meets
   Mega Drive's `.bin` in `Games/MD`. Title from the file stem (No-Intro names). Skip nothing; 2600
@@ -86,7 +86,7 @@ force-included `cores/prosystem/glibc-2.17.h` fixes it the TurboGrafx-16 way.
 - Zips: unzip with the #147 path; nothing in slot opens a zip.
 - Platform policy answered explicitly for both (rewind on, fast-forward on, link off, no discs).
 
-## 4. Options and switches (issues 127, 129, 134, 135 and 137)
+## 4. Options and switches (issues 157, 159, 164, 165 and 167)
 
 **2600 core options slot sets:** `stella2014_palette=standard`, `stella2014_mix_frames=disabled`
 (the default; flicker blending can be a later Screen row), colour depth 24bit. Nothing else.
@@ -100,7 +100,7 @@ force-included `cores/prosystem/glibc-2.17.h` fixes it the TurboGrafx-16 way.
 **7800 options:** colour depth 24bit, low-pass off. **BIOS** row **Off / On**, default Off (no boot
 delay, and homebrew works). On opens ProSystem with `BIOS/` as the system dir; Off opens it with an
 empty system dir (`Saves/A7800/system`, created on demand) so the core cannot find the file
-(issue 135). On with a missing or wrong file (4096 bytes, md5 above; 16384 for `(E)`) shows a toast
+(issue 165). On with a missing or wrong file (4096 bytes, md5 above; 16384 for `(E)`) shows a toast
 and boots Off. **High score cart: not offered** (no support in the core); said in the README.
 
 **7800 switches** (ProSystem counts them only while held):
@@ -110,7 +110,7 @@ and boots Off. **High score cart: not offered** (no support in the core); said i
   are turbo on the NES-like shelves, so Reset becomes an in-game menu row ("Reset console") that
   holds X for a few frames. Buttons 1 and 2 stay on B and A.
 
-## 5. Canvas and the Screen sections (issues 128 and 136)
+## 5. Canvas and the Screen sections (issues 158 and 166)
 
 The panel is 720x480. Both systems use the SNES-path 360x240 canvas at 2x (ADR 0050), each with its
 own rule and its own Screen section (Shader from the retro list, Picture Actual / Stretch, PAL Speed,
@@ -125,7 +125,7 @@ plus the switch rows above).
   272 to 240. Whether a PAL game draws anything in the 16 cropped rows at each edge is unverified;
   the device gate looks.
 
-## 6. Pacing (issues 130 and 138)
+## 6. Pacing (issues 160 and 168)
 
 - 2600 NTSC at 59.92 and 7800 NTSC at 60 sit inside ADR 0071's 2 fps window: the upstream path,
   nothing to do.
@@ -135,7 +135,7 @@ plus the switch rows above).
 - The 31400 Hz (Stella) and 31440 / 31200 Hz (ProSystem) sample rates go through the existing
   resampler; nothing new.
 
-## 7. Controls (issues 129 and 137)
+## 7. Controls (issues 159 and 167)
 
 | Device | 2600 (Stella) | 7800 (ProSystem) |
 |---|---|---|
@@ -149,7 +149,7 @@ plus the switch rows above).
 | L2, R2 | not used | not used |
 | Menu rows | difficulty A/B, Colour/B&W | difficulty A/B, Reset console, BIOS |
 
-**Out of scope at first** (issue 142), from Stella's database matched against his 559 recognised
+**Out of scope at first** (issue 172), from Stella's database matched against his 559 recognised
 dumps: 35 paddle games (Kaboom!, Breakout, Super Breakout, Warlords, Circus Atari, Night Driver,
 Street Racer, Video Olympics, Canyon Bomber, Demons to Diamonds, Casino, Party Mix, Steeplechase,
 ...), 15 keypad or kids-controller games (Star Raiders, BASIC Programming, Codebreaker, Brain Games,
@@ -158,7 +158,7 @@ Hunt & Score, Alpha Beam with Ernie, Big Bird's Egg Catch, Cookie Monster Munch,
 (Booster Grip) plays on the joystick. Paddles are the obvious next step: the left stick through ADR
 0068 v2 and Stella's `paddle_analog_*` options. 7800 two-button games already work (B and A).
 
-## 8. Cart art (issues 131 and 139)
+## 8. Cart art (issues 161 and 169)
 
 - ScreenScraper ids from Skyscraper's `platforms_idmap.csv` at
   [c253bfe](https://github.com/Gemba/skyscraper/blob/c253bfe0ea359aa4272f47694bd601bd53205d2b/platforms_idmap.csv):
@@ -169,9 +169,9 @@ Hunt & Score, Alpha Beam with Ernie, Big Bird's Egg Catch, Cookie Monster Munch,
 - Cards: 2600 carts in the silver-label / picture-label / Activision shapes as a retro bitmap card;
   7800 the taller ProSystem-era shell. Label scans first, box art as the fallback, like SMS.
 
-## 9. Tests and CI (issue 141)
+## 9. Tests and CI (issue 171)
 
-`atari_core.rs` (patch 0060), 12 tests, all with generated carts and no ROM:
+`atari_core.rs` (patch 0098), 12 tests, all with generated carts and no ROM:
 
 | System | Test |
 |---|---|
@@ -191,7 +191,7 @@ Hunt & Score, Alpha Beam with Ernie, Big Bird's Egg Catch, Cookie Monster Munch,
 The platform half (scan, canvas rules, switch rows, `atari_then_gba.rs` after the PS1 and NGP
 pattern) grows with each step.
 
-## 10. Device gate (issues 132 and 140)
+## 10. Device gate (issues 162 and 170)
 
 2600: Pitfall!, River Raid, Space Invaders, Yars' Revenge, Solaris, one PAL dump, 10 minutes each;
 7800: Asteroids, Ms. Pac-Man, Food Fight, Ninja Golf, one PAL dump, BIOS Off and On. Full speed,
@@ -201,32 +201,32 @@ zero underruns, ms a frame for the PERFORMANCE.md rows, the crop rows on PAL, ej
 
 | Issue | Title | Size | Needs integration |
 |---|---|---|---|
-| 123 | Tracking | L | n/a |
-| 124 | Build Stella 2014, licence | S | No, done |
-| 125 | Build ProSystem, licence | S | No, done |
-| 126 | `Platform::A2600`, shelf, scan | M | Yes |
-| 127 | 2600 core options | S | Yes |
-| 128 | 2600 canvas and Screen section | M | Yes |
-| 129 | 2600 controls and switch rows | M | Yes |
-| 130 | 2600 PAL pacing | S | Yes, after issue 66 |
-| 131 | 2600 carts and labels | M | Yes |
-| 132 | 2600 device gate | S | Yes |
-| 133 | `Platform::A7800`, shelf, scan, header | M | Yes |
-| 134 | 7800 core options, no high score cart | S | Yes |
-| 135 | 7800 BIOS row and check | S | Yes |
-| 136 | 7800 canvas and Screen section | S | Yes |
-| 137 | 7800 controls and switch rows | M | Yes |
-| 138 | 7800 PAL pacing | S | Yes, after issue 66 |
-| 139 | 7800 carts and labels | M | Yes |
-| 140 | 7800 device gate | S | Yes |
-| 141 | Tests | S | Partly: core tests done |
-| 142 | DEFERRED: paddles, keypads and other controllers | L | Later |
+| 153 | Tracking | L | n/a |
+| 154 | Build Stella 2014, licence | S | No, done |
+| 155 | Build ProSystem, licence | S | No, done |
+| 156 | `Platform::A2600`, shelf, scan | M | Yes |
+| 157 | 2600 core options | S | Yes |
+| 158 | 2600 canvas and Screen section | M | Yes |
+| 159 | 2600 controls and switch rows | M | Yes |
+| 160 | 2600 PAL pacing | S | Yes, after issue 66 |
+| 161 | 2600 carts and labels | M | Yes |
+| 162 | 2600 device gate | S | Yes |
+| 163 | `Platform::A7800`, shelf, scan, header | M | Yes |
+| 164 | 7800 core options, no high score cart | S | Yes |
+| 165 | 7800 BIOS row and check | S | Yes |
+| 166 | 7800 canvas and Screen section | S | Yes |
+| 167 | 7800 controls and switch rows | M | Yes |
+| 168 | 7800 PAL pacing | S | Yes, after issue 66 |
+| 169 | 7800 carts and labels | M | Yes |
+| 170 | 7800 device gate | S | Yes |
+| 171 | Tests | S | Partly: core tests done |
+| 172 | DEFERRED: paddles, keypads and other controllers | L | Later |
 
 ## 12. What remains for integration
 
-Issues 126 to 140 and the platform half of 141. When a platform patch lands: that core's licence
+Issues 156 to 170 and the platform half of 171. When a platform patch lands: that core's licence
 files move from `cores/<core>/` to `licenses/`; the core joins `scripts/dist-device.sh` and
 `scripts/zip-check.sh`; the shelf joins the `games` list. Issue, ADR, phase and patch numbers
-(123 to 142, 0095, Phase 14, 0060) were picked past every in-flight branch and may be renumbered at
+(153 to 172, 0095, Phase 14, 0098) were renumbered past main on the rebase onto it and may move again at
 merge. `cores/lib.sh`'s `device_include` hook is the TurboGrafx-16 branch's hunk, byte for byte, so
 the two merge cleanly.

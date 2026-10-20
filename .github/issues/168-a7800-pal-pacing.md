@@ -4,7 +4,7 @@ phase: 14
 area: video
 type: feature
 size: S
-depends_on: [136-a7800-canvas-screen, 66-pal-pacing]
+depends_on: [166-a7800-canvas-screen, 66-pal-pacing]
 ---
 
 ## Why
@@ -27,7 +27,7 @@ ProSystem reports exactly 50 fps when the header or its database says PAL (teste
 - [ ] `task check` green.
 
 ## Device check (RG34XXSP)
-Part of issue 140.
+Part of issue 170.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

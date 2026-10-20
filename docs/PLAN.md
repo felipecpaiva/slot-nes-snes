@@ -540,7 +540,7 @@ on their own branches.)
 | 11 | 152 | Device gate: dynarec active, Virtua Racing Deluxe, Star Wars Arcade, Knuckles' Chaotix |
 ### Phase 14: Atari 2600 and 7800 (planned, not shipped)
 
-Tracking issue 123, children 124 to 141 (142 deferred), ADR 0095, plan in docs/research/atari-plan.md.
+Tracking issue 153, children 154 to 171 (172 deferred), ADR 0095, plan in docs/research/atari-plan.md.
 Stella 2014 (`stella2014`) pinned at `7d1361e` and ProSystem (`prosystem`) pinned at `8a88014`, one
 core each, shelves `Games/A2600` and `Games/A7800`, no core picker, no BIOS needed. Atari ST is not
 planned.
@@ -548,16 +548,16 @@ planned.
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0095 and the issues |
-| 2 | 124, 125, done | Core builds, pins and licences |
-| 3 | 141, core half done | Generated-cart tests: picture size, rate, sound, states, switches, BIOS (patch 0060) |
-| 4 | 126, 133 | `Platform::A2600` and `Platform::A7800`, shelves, scan, headers; join dist and zip-check |
-| 5 | 127, 134 | Core options; no 7800 high score cart |
-| 6 | 128, 136 | 360x240 canvas at 2x: 2600 columns doubled, rows over 240 cropped; own Screen sections |
-| 7 | 129, 137 | Joystick, buttons, console switch rows |
-| 8 | 135 | 7800 BIOS row, Off by default |
-| 9 | 130, 138 | PAL pacing (ADR 0071) |
-| 10 | 131, 139 | Carts and labels (ScreenScraper 26 and 41) |
-| 11 | 132, 140 | Device gates |
+| 2 | 154, 155, done | Core builds, pins and licences |
+| 3 | 171, core half done | Generated-cart tests: picture size, rate, sound, states, switches, BIOS (patch 0098) |
+| 4 | 156, 163 | `Platform::A2600` and `Platform::A7800`, shelves, scan, headers; join dist and zip-check |
+| 5 | 157, 164 | Core options; no 7800 high score cart |
+| 6 | 158, 166 | 360x240 canvas at 2x: 2600 columns doubled, rows over 240 cropped; own Screen sections |
+| 7 | 159, 167 | Joystick, buttons, console switch rows |
+| 8 | 165 | 7800 BIOS row, Off by default |
+| 9 | 160, 168 | PAL pacing (ADR 0071) |
+| 10 | 161, 169 | Carts and labels (ScreenScraper 26 and 41) |
+| 11 | 162, 170 | Device gates |
 
 ### Phase 6+: deferred (non-blocking)
 

@@ -4,7 +4,7 @@ phase: 14
 area: platform
 type: feature
 size: M
-depends_on: [125-a7800-core-build]
+depends_on: [155-a7800-core-build]
 ---
 
 ## Why
@@ -32,7 +32,7 @@ The 7800 shelf. All 73 of the maintainer's dumps are headerless (No-Intro); ProS
 - [ ] `task check` green; GBA harness 0 diffs.
 
 ## Device check (RG34XXSP)
-Part of issue 140.
+Part of issue 170.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

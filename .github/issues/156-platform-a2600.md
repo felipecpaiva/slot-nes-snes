@@ -4,7 +4,7 @@ phase: 14
 area: platform
 type: feature
 size: M
-depends_on: [124-a2600-core-build]
+depends_on: [154-a2600-core-build]
 ---
 
 ## Why
@@ -32,7 +32,7 @@ The 2600 shelf. Platform and core are appended (`SHELVES`, `EVERY`), never added
 - [ ] `task check` green; GBA harness 0 diffs.
 
 ## Device check (RG34XXSP)
-Part of issue 132.
+Part of issue 162.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

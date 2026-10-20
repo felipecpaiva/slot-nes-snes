@@ -3,7 +3,7 @@
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-19
 - Deciders: maintainer (Felipe Paiva)
-- Related: [Atari plan](../research/atari-plan.md), [ADR 0050](0050-canvas-per-core-and-platform.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [issue 123](../../.github/issues/123-atari-tracking.md), [issue 124](../../.github/issues/124-a2600-core-build.md), [issue 125](../../.github/issues/125-a7800-core-build.md), patch `patches/0060-atari-core-tests.patch`. Atari ST is out of scope and not planned.
+- Related: [Atari plan](../research/atari-plan.md), [ADR 0050](0050-canvas-per-core-and-platform.md), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [issue 153](../../.github/issues/153-atari-tracking.md), [issue 154](../../.github/issues/154-a2600-core-build.md), [issue 155](../../.github/issues/155-a7800-core-build.md), patch `patches/0098-atari-core-tests.patch`. Atari ST is out of scope and not planned.
 
 ## Context
 
@@ -60,24 +60,24 @@ The libretro choices:
   and a logo: a signed game shows the logo for about two seconds and then plays; an unsigned cart
   (homebrew, our test cart) never draws (pinned by a test). There is no core option for it. slot
   defaults to **BIOS Off** and hides the file from the core by opening ProSystem with a system dir
-  that does not hold it (issue 135).
+  that does not hold it (issue 165).
 - **No 7800 high score cart.** ProSystem at this pin has no High Score Cartridge code at all (no
   HSC symbol, no option). It is not offered. 7800 saves are save states only, like the 2600.
 - **Console switches are input, not options.** Neither core exposes TV type or difficulty as a core
   option. Stella reads them from the RetroPad (L/L2 left difficulty A/B, R/R2 right, L3 Colour, R3
   Black/White, SELECT Select, START Reset) and latches the difficulty and TV switches. ProSystem
   reads L and R (difficulty), X (Reset), SELECT and START (Pause) only while held. slot keeps L1 and
-  R1 for itself, so the latched switches become Screen rows that slot applies itself (issues 129 and
-  137).
+  R1 for itself, so the latched switches become Screen rows that slot applies itself (issues 159 and
+  167).
 - **Picture.** Stella hands 160 columns and the game's own rows (210 by default, up to 256; 250 on
   PAL); ProSystem hands 320x223 NTSC and 320x272 PAL. Both go through the 360x240 canvas with a
-  per-platform vertical rule (issues 128 and 136).
+  per-platform vertical rule (issues 158 and 166).
 - **Pacing.** Stella reports 59.92 fps NTSC (inside ADR 0071's window, the upstream path) and 49.92
   PAL; ProSystem reports exactly 60 or 50. PAL titles get ADR 0071's paced path and a PAL Speed row.
 
 ## Consequences
 
-- About 16 patches (issues 126 to 140), two shelves that share nothing with GBA, GB or GBC, so the
+- About 16 patches (issues 156 to 170), two shelves that share nothing with GBA, GB or GBC, so the
   GBA harness compare stays at 0 diffs.
 - Both cores are in `task core:host`, `task core:device`, `task check` and `SLOT_REQUIRE_CORES`
   from now on. They join `dist:device` and `zip-check.sh` only with their platform patches, so no
@@ -85,6 +85,6 @@ The libretro choices:
 - The maintainer's library is zipped and slot reads no zip (the non-goal stands). The same
   unzipped-library-copy path `tools/hacks.py` uses (#147) is the way in; no zip support is planned.
 - Paddle (35 of his 559 recognised 2600 dumps), keypad (15) and the other special controllers are
-  out of scope at first (issue 142).
+  out of scope at first (issue 172).
 - On a rebase, check that both pins still build and that `atari_core.rs` still passes; the switch
-  and BIOS tests are the contract issues 129, 135 and 137 build on.
+  and BIOS tests are the contract issues 159, 165 and 167 build on.

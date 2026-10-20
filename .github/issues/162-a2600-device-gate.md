@@ -4,7 +4,7 @@ phase: 14
 area: device
 type: chore
 size: S
-depends_on: [128-a2600-canvas-screen, 129-a2600-input-switches, 130-a2600-pal-pacing]
+depends_on: [158-a2600-canvas-screen, 159-a2600-input-switches, 160-a2600-pal-pacing]
 ---
 
 ## Why

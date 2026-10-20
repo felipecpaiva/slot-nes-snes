@@ -12,12 +12,12 @@ The maintainer owns 578 Atari 2600 and 73 Atari 7800 dumps. Both are joystick sy
 
 ## Scope
 - [x] 1. Decision record: ADR 0095 and these issues.
-- [x] 2. 124-a2600-core-build and 125-a7800-core-build (groundwork)
-- [x] 3. 141-atari-tests, core half: patch 0060 (groundwork; the platform half grows with each step below)
-- [ ] 4. 126-platform-a2600, 127, 128, 129, 130, 131 (2600 on the integration base)
-- [ ] 5. 133-platform-a7800, 134, 135, 136, 137, 138, 139 (7800)
-- [ ] 6. 132-a2600-device-gate and 140-a7800-device-gate
-- [ ] 7. 142 stays deferred
+- [x] 2. 154-a2600-core-build and 155-a7800-core-build (groundwork)
+- [x] 3. 171-atari-tests, core half: patch 0098 (groundwork; the platform half grows with each step below)
+- [ ] 4. 156-platform-a2600, 157, 158, 159, 160, 161 (2600 on the integration base)
+- [ ] 5. 163-platform-a7800, 164, 165, 166, 167, 168, 169 (7800)
+- [ ] 6. 162-a2600-device-gate and 170-a7800-device-gate
+- [ ] 7. 172 stays deferred
 
 ## Tests
 | ID | File | Asserts |
@@ -35,11 +35,11 @@ The maintainer owns 578 Atari 2600 and 73 Atari 7800 dumps. Both are joystick sy
 - [ ] README, docs/PLAN.md and LICENSING.md say both shipped.
 
 ## Device check (RG34XXSP)
-Issues 132 and 140.
+Issues 162 and 170.
 
 ## Review notes
 - Phase 14 is new: `scripts/setup-github-project.py` lists "Phase 14: Atari 2600 and 7800", which the board's Phase field gets on the next sync.
-- Written while NGP, TurboGrafx-16, WonderSwan, Lynx and Sega CD groundwork is in flight. Issue numbers 123 to 142, ADR 0095, Phase 14 and patch 0060 may be renumbered at merge.
+- Written while NGP, TurboGrafx-16, WonderSwan, Lynx and Sega CD groundwork is in flight. Issue numbers 153 to 172, ADR 0095, Phase 14 and patch 0098 may be renumbered at merge.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

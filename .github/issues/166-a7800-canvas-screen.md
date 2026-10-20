@@ -4,7 +4,7 @@ phase: 14
 area: video
 type: feature
 size: S
-depends_on: [134-a7800-options]
+depends_on: [164-a7800-options]
 ---
 
 ## Why
@@ -13,7 +13,7 @@ ProSystem hands 320x223 NTSC (fits 360x240, 640x446 on the panel) and 320x272 PA
 ## Scope
 - [ ] Canvas 360x240 at 2x.
 - [ ] PAL 272 rows: Actual crops to the middle 240, Stretch scales to 240.
-- [ ] A7800 Screen section: Shader, Picture, PAL Speed (issue 138), BIOS (issue 135), Left and Right difficulty (issue 137).
+- [ ] A7800 Screen section: Shader, Picture, PAL Speed (issue 168), BIOS (issue 165), Left and Right difficulty (issue 167).
 
 ## Tests
 | ID | File | Asserts |
@@ -29,7 +29,7 @@ ProSystem hands 320x223 NTSC (fits 360x240, 640x446 on the panel) and 320x272 PA
 - [ ] `task check` green.
 
 ## Device check (RG34XXSP)
-Part of issue 140.
+Part of issue 170.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

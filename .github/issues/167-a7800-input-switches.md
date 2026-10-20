@@ -4,7 +4,7 @@ phase: 14
 area: input
 type: feature
 size: M
-depends_on: [133-platform-a7800]
+depends_on: [163-platform-a7800]
 ---
 
 ## Why
@@ -19,7 +19,7 @@ ProSystem reads button 1 on RetroPad B and 2 on A, and counts every switch only 
 ## Tests
 | ID | File | Asserts |
 |---|---|---|
-| (done) | `atari_core.rs` | every switch momentary (patch 0060) |
+| (done) | `atari_core.rs` | every switch momentary (patch 0098) |
 | (new) | `a7800_input.rs` | difficulty B holds the bit every frame; Reset row pulses X; turbo still works |
 
 ## Edge cases
@@ -31,7 +31,7 @@ ProSystem reads button 1 on RetroPad B and 2 on A, and counts every switch only 
 - [ ] `task check` green.
 
 ## Device check (RG34XXSP)
-Part of issue 140.
+Part of issue 170.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

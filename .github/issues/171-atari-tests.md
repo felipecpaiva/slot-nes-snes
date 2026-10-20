@@ -4,14 +4,14 @@ phase: 14
 area: tests
 type: test
 size: S
-depends_on: [124-a2600-core-build, 125-a7800-core-build]
+depends_on: [154-a2600-core-build, 155-a7800-core-build]
 ---
 
 ## Why
 The core facts the integration builds on, pinned with no ROM: picture size, rate, sound, states, switches and the BIOS behaviour.
 
 ## Scope
-- [x] Patch 0060 `atari_core.rs`, 12 tests (atari-plan section 9). Generated 2600 VSYNC kernel carts and a 7800 Maria cart; the 7800 BIOS test reads `SLOT_7800_BIOS`, else prints a BIOS skip (a ROM skip for run-tests.sh).
+- [x] Patch 0098 `atari_core.rs`, 12 tests (atari-plan section 9). Generated 2600 VSYNC kernel carts and a 7800 Maria cart; the 7800 BIOS test reads `SLOT_7800_BIOS`, else prints a BIOS skip (a ROM skip for run-tests.sh).
 - [ ] Platform half: scan, canvas rules, switch rows, `atari_then_gba.rs`.
 
 ## Tests

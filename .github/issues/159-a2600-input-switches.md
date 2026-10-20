@@ -4,7 +4,7 @@ phase: 14
 area: input
 type: feature
 size: M
-depends_on: [126-platform-a2600]
+depends_on: [156-platform-a2600]
 ---
 
 ## Why
@@ -19,20 +19,20 @@ Stella reads fire on RetroPad B only, latches the difficulty (L/L2, R/R2) and TV
 ## Tests
 | ID | File | Asserts |
 |---|---|---|
-| (done) | `atari_core.rs` | latch and momentary semantics, fire on B (patch 0060) |
+| (done) | `atari_core.rs` | latch and momentary semantics, fire on B (patch 0098) |
 | (new) | `a2600_input.rs` | device A and B both fire; a row change reaches SWCHB in the next frame; the value survives eject and reseat |
 
 ## Edge cases
 | Case | Expected handling |
 |---|---|
 | A save state taken with difficulty A, loaded with the row on B | The row wins: slot re-sends the switch after the state load |
-| Paddle or keypad game | Plays with the joystick map; listed in issue 142 |
+| Paddle or keypad game | Plays with the joystick map; listed in issue 172 |
 
 ## Acceptance
 - [ ] `task check` green.
 
 ## Device check (RG34XXSP)
-Part of issue 132.
+Part of issue 162.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

@@ -4,14 +4,14 @@ phase: 14
 area: cores
 type: feature
 size: S
-depends_on: [126-platform-a2600]
+depends_on: [156-platform-a2600]
 ---
 
 ## Why
 Stella has no TV type, difficulty or region option (atari-plan section 2): those are input. The options it has must be answered so a user's RetroArch habit or a core default change cannot move the picture.
 
 ## Scope
-- [ ] `stella2014_palette=standard`, `stella2014_mix_frames=disabled`, `stella2014_color_depth=24bit`, low-pass off. Paddle options untouched (issue 142).
+- [ ] `stella2014_palette=standard`, `stella2014_mix_frames=disabled`, `stella2014_color_depth=24bit`, low-pass off. Paddle options untouched (issue 172).
 - [ ] Every declared option answered (core_option_keys test pattern).
 
 ## Tests

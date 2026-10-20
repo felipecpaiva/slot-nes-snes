@@ -4,7 +4,7 @@ phase: 14
 area: video
 type: feature
 size: S
-depends_on: [128-a2600-canvas-screen, 66-pal-pacing]
+depends_on: [158-a2600-canvas-screen, 66-pal-pacing]
 ---
 
 ## Why
@@ -27,7 +27,7 @@ Stella reports 49.92 fps for a 312-line game (tested); 30 of his dumps are Europ
 - [ ] `task check` green.
 
 ## Device check (RG34XXSP)
-Part of issue 132: a PAL dump runs at the right speed and pitch.
+Part of issue 162: a PAL dump runs at the right speed and pitch.
 
 ## References
 - ADR 0095; docs/research/atari-plan.md

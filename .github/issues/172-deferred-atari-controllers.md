@@ -4,7 +4,7 @@ phase: 6
 area: input
 type: chore
 size: L
-depends_on: [129-a2600-input-switches]
+depends_on: [159-a2600-input-switches]
 ---
 
 ## Why
@@ -13,7 +13,7 @@ Matched against Stella's database, 35 of his 559 recognised 2600 dumps need padd
 ## Scope
 - [ ] Paddles first: the left stick through ADR 0068 v2 and Stella's `stella2014_paddle_analog_*` options, chosen per game from Stella's `Controller.Left` property.
 - [ ] Keypad: an on-screen 12-key overlay, only if asked for.
-- [ ] 7800 High Score Cartridge: only if a core gains it (issue 134).
+- [ ] 7800 High Score Cartridge: only if a core gains it (issue 164).
 
 ## Tests
 | ID | File | Asserts |

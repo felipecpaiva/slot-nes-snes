@@ -4,7 +4,7 @@ phase: 14
 area: device
 type: chore
 size: S
-depends_on: [135-a7800-bios, 136-a7800-canvas-screen, 137-a7800-input-switches, 138-a7800-pal-pacing]
+depends_on: [165-a7800-bios, 166-a7800-canvas-screen, 167-a7800-input-switches, 168-a7800-pal-pacing]
 ---
 
 ## Why
