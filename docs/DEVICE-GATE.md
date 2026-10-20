@@ -286,6 +286,36 @@ interpreter number; the device is the first place the dynarec runs.
 | Star Wars Arcade | | | | | | | heavy, polygons |
 | Knuckles' Chaotix | | | | | | | 2D platformer |
 
+## Virtual Boy (issue 182, ADR 0097)
+
+Pending. No BIOS. Copy the games into `Games/VB` and fetch their labels
+(`task labels:fetch -- --device --library <library> --only VB --by-name --logo-fallback`).
+
+1. Speed: `task bench:device CORE=mednafen_vb ROM_ON_DEVICE=/mnt/sdcard/Games/VB/<game>` with
+   `ARGS="--frames 3000 --warmup 600 --repeats 3"`, then again with `--option vb_cpu_emulation=accurate`.
+   Record both medians; the budget at 50.27 fps is 19.9 ms.
+2. Boot: each cart seats, the Nintendo warning and the title draw in red on black, one image, no ghost
+   of the other eye.
+3. Picture: Actual is 720x420 with a band above and below; Stretch fills the panel; SELECT+X flips
+   between them. Palette walks the eight colours and the next game starts in the chosen one.
+4. Controls, Stick mode (the default): D-pad is the left D-pad; the right stick is the right D-pad in all
+   four directions, the right way round (if a direction is backwards, fix the axis in
+   `Config/sticks.txt`, ADR 0068, and note it); A, B, L, R, START, SELECT; L2 rewinds and R2
+   fast-forwards; X and Y do nothing.
+5. Controls, ABXY mode: set Right Pad to ABXY, start the game again; X, A, B, Y are right up, right,
+   down, left; R2 is A and L2 is B; SELECT+R2 toggles fast-forward.
+6. Speed in play: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0, no missed frames
+   past the first window, audio without crackle at the 50.27 Hz Native pacing.
+7. States and rewind: save and load a state; rewind works (Stick mode); eject and power cycle resume.
+8. Saves: Wario Land writes `Saves/VB/<stem>.sav` (64 KB) on eject and finds it on the next start.
+
+| Title | CPU | bench:device ms/frame (fast / accurate) | Right Pad | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|
+| Virtual Boy Wario Land | | | Stick | | | | platformer, depth layers, saves |
+| Jack Bros. | | | Stick | | | | top-down action |
+| Red Alarm | | | Stick and ABXY | | | | wireframe 3D, right pad flies the ship |
+| Teleroboxer | | | Stick and ABXY | | | | one D-pad per fist |
+
 ## Expansion Card (ADR 0098)
 
 Pending. Needs the RG34XXSP with the Base System card in TF1 and an Expansion Card prepared by

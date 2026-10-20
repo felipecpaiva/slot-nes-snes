@@ -1,0 +1,698 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:10:22 +0400
+Subject: [PATCH] vb-input
+
+The Virtual Boy pad. The device D-pad is the left D-pad and A, B, L, R,
+Start and Select are themselves. Beetle VB is plugged as a plain pad
+(PLAIN_PAD, the libretro joypad id) so it is answered RETRO_DEVICE_ANALOG
+like pcsx, and with vb_right_analog_to_digital enabled it reads the right
+analog stick itself as the right D-pad. X and Y never reach the core:
+the core reads X as the low battery switch. L2 and R2 stay slot's rewind
+and fast forward.
+
+The Right Pad row's ABXY choice is for games that use the right D-pad
+as buttons: X, A, B and Y are right up, right, down and left (the
+libretro ids L2, R3, L3 and R2 the core maps to them, so ButtonMask gains
+L3 and R3), and the console's A and B move to R2 and L2. Then L2 and R2
+go to the game the PS1 way, latched at the start of the game, so the
+choice applies from the next game, with fast forward on Select+R2 and no
+rewind button. A generated cart reads the pad through SCR and SDLR/SDHR
+and proves every button and the stick reach the game.
+---
+ crates/slot-retro/src/analog.rs        |   1 +
+ crates/slot-retro/src/core.rs          |   2 +
+ crates/slot-retro/src/lib.rs           |   2 +-
+ crates/slot/src/app.rs                 |  13 ++
+ crates/slot/src/app/atari_pad.rs       |   6 +-
+ crates/slot/src/core_options_policy.rs |   4 +-
+ crates/slot/src/input/raw_buttons.rs   |  15 +-
+ crates/slot/src/lib.rs                 |   1 +
+ crates/slot/src/session.rs             |  14 +-
+ crates/slot/src/vb_input.rs            |  46 +++++
+ crates/slot/src/ws_input.rs            |   9 +-
+ crates/slot/tests/ps1_analog.rs        |   3 +-
+ crates/slot/tests/vb_common/mod.rs     |  51 +++++-
+ crates/slot/tests/vb_input.rs          | 237 +++++++++++++++++++++++++
+ crates/slot/tests/wswan_input.rs       |  13 +-
+ 15 files changed, 384 insertions(+), 33 deletions(-)
+ create mode 100644 crates/slot/src/vb_input.rs
+ create mode 100644 crates/slot/tests/vb_input.rs
+
+diff --git a/crates/slot-retro/src/analog.rs b/crates/slot-retro/src/analog.rs
+index 17cb8d5..4dbe688 100644
+--- a/crates/slot-retro/src/analog.rs
++++ b/crates/slot-retro/src/analog.rs
+@@ -5,6 +5,7 @@ use crate::canvas::with_extra;
+ 
+ pub const DEVICE_ANALOG: c_uint = 5;
+ pub const DUALSHOCK: c_uint = (2 << 8) | DEVICE_ANALOG;
++pub const PLAIN_PAD: c_uint = crate::ffi::DEVICE_JOYPAD;
+ 
+ static STICKS: AtomicU64 = AtomicU64::new(0);
+ 
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index a0aaf5c..ccb1274 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -26,6 +26,8 @@ impl ButtonMask {
+     pub const R: u16 = 1 << 11;
+     pub const L2: u16 = 1 << 12;
+     pub const R2: u16 = 1 << 13;
++    pub const L3: u16 = 1 << 14;
++    pub const R3: u16 = 1 << 15;
+ 
+     pub fn without_turbo(self) -> ButtonMask {
+         ButtonMask(self.0 & !(Self::X | Self::Y))
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 84bf25f..decbad3 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -8,7 +8,7 @@ mod mock;
+ mod rumble;
+ mod turbo_mode;
+ 
+-pub use analog::{publish_sticks, published_sticks, DUALSHOCK};
++pub use analog::{publish_sticks, published_sticks, DUALSHOCK, PLAIN_PAD};
+ pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ pub use ffi::{
+     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 3a87b1a..a07acc9 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -464,6 +464,7 @@ pub struct App {
+     s32x_speed: crate::s32x_speed::S32xSpeed,
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
++    vb_buttons_seated: bool,
+     rested: Option<(usize, usize)>,
+     start_marked: bool,
+     fast_trail: bool,
+@@ -656,6 +657,7 @@ impl App {
+             s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
++            vb_buttons_seated: false,
+             rested: None,
+             start_marked: false,
+             fast_trail: false,
+@@ -2287,6 +2289,17 @@ impl App {
+         self.seated_cart().map_or(self.platform, |c| c.platform)
+     }
+ 
++    pub fn latch_vb_pad(&mut self, platform: Platform) -> bool {
++        self.vb_buttons_seated = platform == Platform::Vb
++            && self.vb_screen.right_pad == crate::vb_screen::RightPad::Buttons;
++        self.vb_buttons_seated
++    }
++
++    pub fn triggers_to_game(&self) -> bool {
++        let platform = self.playing_platform();
++        !platform.owns_triggers() || (platform == Platform::Vb && self.vb_buttons_seated)
++    }
++
+     pub fn lynx_flips_right(&self) -> bool {
+         self.lynx_flip
+     }
+diff --git a/crates/slot/src/app/atari_pad.rs b/crates/slot/src/app/atari_pad.rs
+index c74f7e5..8c79b49 100644
+--- a/crates/slot/src/app/atari_pad.rs
++++ b/crates/slot/src/app/atari_pad.rs
+@@ -4,9 +4,9 @@ use super::App;
+ 
+ impl App {
+     pub fn pad_code(&self, platform: Platform) -> u8 {
+-        self.atari
+-            .pad_code(platform)
+-            .unwrap_or_else(|| crate::ws_input::pad_code(platform, self.vertical()))
++        self.atari.pad_code(platform).unwrap_or_else(|| {
++            crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated)
++        })
+     }
+ 
+     pub fn atari_pad_code(&self) -> Option<u8> {
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 2ed04f5..629c124 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -198,6 +198,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+     match which {
+         Core::PcsxRearmed => Some(slot_retro::DUALSHOCK),
+         Core::Stella2014 => Some(RETROPAD),
++        Core::MednafenVb => Some(slot_retro::PLAIN_PAD),
+         Core::Mgba
+         | Core::Gpsp
+         | Core::Fceumm
+@@ -210,7 +211,6 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::MednafenLynx
+         | Core::MednafenNgp
+         | Core::Picodrive
+-        | Core::Prosystem
+-        | Core::MednafenVb => None,
++        | Core::Prosystem => None,
+     }
+ }
+diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
+index 9f190c7..23e5ede 100644
+--- a/crates/slot/src/input/raw_buttons.rs
++++ b/crates/slot/src/input/raw_buttons.rs
+@@ -5,12 +5,12 @@ use slot_store::{Controls, GameButton, Platform};
+ use super::bind::btn_device;
+ use super::mask::Pad;
+ 
+-fn raw_buttons(platform: Platform) -> Vec<(Btn, u16)> {
++fn raw_buttons(platform: Platform, triggers: bool) -> Vec<(Btn, u16)> {
+     let mut raw = Vec::new();
+     if platform.passes_xy_through() || platform.turbo_on_xy() {
+         raw.extend([(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)]);
+     }
+-    if !platform.owns_triggers() {
++    if triggers {
+         raw.extend([(Btn::L2, ButtonMask::L2), (Btn::R2, ButtonMask::R2)]);
+     }
+     raw
+@@ -26,7 +26,16 @@ fn bound_to_game(controls: &Controls, b: Btn) -> bool {
+ 
+ impl Pad {
+     pub fn mask_for(&self, controls: &Controls, platform: Platform) -> ButtonMask {
+-        let raw = raw_buttons(platform)
++        self.mask_with_triggers(controls, platform, !platform.owns_triggers())
++    }
++
++    pub fn mask_with_triggers(
++        &self,
++        controls: &Controls,
++        platform: Platform,
++        triggers: bool,
++    ) -> ButtonMask {
++        let raw = raw_buttons(platform, triggers)
+             .into_iter()
+             .filter(|(b, _)| self.holds(*b) && !bound_to_game(controls, *b))
+             .fold(0, |bits, (_, bit)| bits | bit);
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 038ba40..aee633a 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -60,6 +60,7 @@ pub mod snes_input;
+ pub mod state_writer;
+ pub mod thumb;
+ pub mod thumb_sized;
++pub mod vb_input;
+ pub mod vb_screen;
+ pub mod video_mode;
+ pub mod wallpaper;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index bc7baa5..dacd700 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -218,10 +218,11 @@ impl Session {
+             self.pad.apply(Action::GbaUp(btn));
+         }
+         if let Some(emu) = &self.emu {
+-            emu.set_input(
+-                self.pad
+-                    .mask_for(&self.app.controls(), self.app.playing_platform()),
+-            );
++            emu.set_input(self.pad.mask_with_triggers(
++                &self.app.controls(),
++                self.app.playing_platform(),
++                self.app.triggers_to_game(),
++            ));
+         }
+     }
+ 
+@@ -246,7 +247,7 @@ impl Session {
+             Action::FfStart if !menu_open => self.fast = true,
+             Action::FfStop => self.fast = false,
+             Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
+-            Action::Eject if !self.app.playing_platform().owns_triggers() => {
++            Action::Eject if self.app.triggers_to_game() => {
+                 for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
+                     self.pad.apply(Action::GbaUp(b));
+                 }
+@@ -611,12 +612,13 @@ impl Session {
+         emu.set_native_pal(self.app.native_pal(loaded.platform));
+         emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
+         emu.set_pass_through(loaded.platform.passes_xy_through());
++        let vb_buttons = self.app.latch_vb_pad(loaded.platform);
+         emu.set_ws_pad(self.app.pad_code(loaded.platform));
+         self.gestures
+             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
+         self.gestures.set_disc_chord(loaded.platform.swaps_discs());
+         self.gestures
+-            .set_triggers_to_game(!loaded.platform.owns_triggers());
++            .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
+         self.app.set_snapshot(Box::new(emu.snapshot()));
+         self.emu = Some(emu);
+         true
+diff --git a/crates/slot/src/vb_input.rs b/crates/slot/src/vb_input.rs
+new file mode 100644
+index 0000000..bac0ada
+--- /dev/null
++++ b/crates/slot/src/vb_input.rs
+@@ -0,0 +1,46 @@
++use slot_retro::ButtonMask as M;
++
++pub const STICK: u8 = 3;
++pub const BUTTONS: u8 = 4;
++
++const KEPT: u16 =
++    M::UP | M::DOWN | M::LEFT | M::RIGHT | M::A | M::B | M::L | M::R | M::START | M::SELECT;
++const RIGHT_UP: u16 = M::L2;
++const RIGHT_LEFT: u16 = M::R2;
++const RIGHT_DOWN: u16 = M::L3;
++const RIGHT_RIGHT: u16 = M::R3;
++
++pub fn owns(code: u8) -> bool {
++    code == STICK || code == BUTTONS
++}
++
++pub fn code(buttons: bool) -> u8 {
++    if buttons {
++        BUTTONS
++    } else {
++        STICK
++    }
++}
++
++fn given(mask: u16, button: u16, gives: u16) -> u16 {
++    if mask & button != 0 {
++        gives
++    } else {
++        0
++    }
++}
++
++pub fn remap(code: u8, mask: M) -> M {
++    let m = mask.0;
++    if code != BUTTONS {
++        return M(m & KEPT);
++    }
++    let kept = m & (KEPT & !(M::A | M::B));
++    M(kept
++        | given(m, M::X, RIGHT_UP)
++        | given(m, M::A, RIGHT_RIGHT)
++        | given(m, M::B, RIGHT_DOWN)
++        | given(m, M::Y, RIGHT_LEFT)
++        | given(m, M::L2, M::B)
++        | given(m, M::R2, M::A))
++}
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index 4bb29aa..d6d6f7a 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -12,10 +12,11 @@ pub const OFF: u8 = 0;
+ pub const HORIZONTAL: u8 = 1;
+ pub const VERTICAL: u8 = 2;
+ 
+-pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
++pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+     match (platform, vertical) {
+         (Platform::Ws, true) => VERTICAL,
+         (Platform::Ws, false) => HORIZONTAL,
++        (Platform::Vb, _) => crate::vb_input::code(vb_buttons),
+         (
+             Platform::Gba
+             | Platform::Gb
+@@ -31,8 +32,7 @@ pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
+             | Platform::Ngp
+             | Platform::S32x
+             | Platform::A2600
+-            | Platform::A7800
+-            | Platform::Vb,
++            | Platform::A7800,
+             _,
+         ) => OFF,
+     }
+@@ -138,6 +138,9 @@ impl WsPad {
+         if code == OFF {
+             return mask;
+         }
++        if crate::vb_input::owns(code) {
++            return crate::vb_input::remap(code, mask);
++        }
+         let select = mask.0 & M::SELECT != 0;
+         let others = mask.0 & !M::SELECT != 0;
+         match (self.select, select) {
+diff --git a/crates/slot/tests/ps1_analog.rs b/crates/slot/tests/ps1_analog.rs
+index 571aca2..7d84ad5 100644
+--- a/crates/slot/tests/ps1_analog.rs
++++ b/crates/slot/tests/ps1_analog.rs
+@@ -39,11 +39,12 @@ fn pcsx_on_a_disc(dylib: &Path, slot_options: bool) -> LibretroCore {
+ }
+ 
+ #[test]
+-fn only_pcsx_gets_the_dualshock_and_only_stella_a_retropad_with_sticks() {
++fn only_pcsx_gets_the_dualshock_and_only_stella_and_beetle_vb_a_plain_pad_with_sticks() {
+     for which in Core::EVERY {
+         let want = match which {
+             Core::PcsxRearmed => Some(DUALSHOCK),
+             Core::Stella2014 => Some(1),
++            Core::MednafenVb => Some(slot_retro::PLAIN_PAD),
+             _ => None,
+         };
+         assert_eq!(analog_pad(which), want, "{which:?}");
+diff --git a/crates/slot/tests/vb_common/mod.rs b/crates/slot/tests/vb_common/mod.rs
+index bde80ac..3ad0be9 100644
+--- a/crates/slot/tests/vb_common/mod.rs
++++ b/crates/slot/tests/vb_common/mod.rs
+@@ -39,6 +39,8 @@ const ADD_IMM: u16 = 0x11;
+ const CMP: u16 = 0x03;
+ const MOVEA: u16 = 0x28;
+ const MOVHI: u16 = 0x2f;
++const ANDI: u16 = 0x2d;
++const LD_B: u16 = 0x30;
+ const ST_B: u16 = 0x34;
+ const ST_H: u16 = 0x35;
+ const ST_W: u16 = 0x37;
+@@ -104,15 +106,7 @@ impl Cart {
+             );
+         }
+         code.push(BR_SELF);
+-        let mut rom = vec![0xffu8; 0x10000];
+-        for (at, half) in code.iter().enumerate() {
+-            rom[at * 2..at * 2 + 2].copy_from_slice(&half.to_le_bytes());
+-        }
+-        let back = -(0x10000 - 16i32);
+-        let jr = [(JR << 10) | ((back >> 16) as u16 & 0x3ff), back as u16];
+-        rom[0xfff0..0xfff2].copy_from_slice(&jr[0].to_le_bytes());
+-        rom[0xfff2..0xfff4].copy_from_slice(&jr[1].to_le_bytes());
+-        rom
++        rom_of(&code)
+     }
+ 
+     pub fn write(&self, dir: &Path, file: &str) -> PathBuf {
+@@ -122,6 +116,45 @@ impl Cart {
+     }
+ }
+ 
++fn rom_of(code: &[u16]) -> Vec<u8> {
++    let mut rom = vec![0xffu8; 0x10000];
++    for (at, half) in code.iter().enumerate() {
++        rom[at * 2..at * 2 + 2].copy_from_slice(&half.to_le_bytes());
++    }
++    let back = -(0x10000 - 16i32);
++    let jr = [(JR << 10) | ((back >> 16) as u16 & 0x3ff), back as u16];
++    rom[0xfff0..0xfff2].copy_from_slice(&jr[0].to_le_bytes());
++    rom[0xfff2..0xfff4].copy_from_slice(&jr[1].to_le_bytes());
++    rom
++}
++
++/// A cart that reads the game pad the way games do and copies SDLR (0x02000010) and SDHR (0x02000014)
++/// into the first two bytes of cart RAM, over and over, so a test reads what the game sees through
++/// save_ram(). Each read writes HW_SI and K_INT_INH (0x84) to SCR (0x02000028) and waits for SI_STAT
++/// (0x02) to clear. The pad word is the libretro buttons shifted up two bits, bit 1 set and bit 0 the
++/// low battery flag (mednafen/vb/input.c VBINPUT_Write and VBINPUT_Frame at d5ae54c).
++pub fn keypad_cart(dir: &Path, stem: &str) -> PathBuf {
++    let mut code = f5(MOVHI, 13, 0, 0x0200);
++    code.extend(f5(MOVHI, 15, 0, 0x0600));
++    code.extend(f5(MOVEA, 17, 0, 0x84));
++    let top = code.len();
++    code.extend(f5(ST_B, 17, 13, 0x28));
++    let wait = code.len();
++    code.extend(f5(LD_B, 16, 13, 0x28));
++    code.extend(f5(ANDI, 16, 16, 0x02));
++    let back = -(((code.len() - wait) * 2) as i32);
++    code.push(BNE | (back as u16 & 0x1ff));
++    code.extend(f5(LD_B, 16, 13, 0x10));
++    code.extend(f5(ST_B, 16, 15, 0));
++    code.extend(f5(LD_B, 16, 13, 0x14));
++    code.extend(f5(ST_B, 16, 15, 1));
++    let back = -(((code.len() - top) * 2) as i32);
++    code.push(BR_SELF | (back as u16 & 0x1ff));
++    let path = dir.join(format!("{stem}.vb"));
++    std::fs::write(&path, rom_of(&code)).unwrap();
++    path
++}
++
+ pub fn cart(dir: &Path, stem: &str) -> PathBuf {
+     Cart::GAME.write(dir, &format!("{stem}.vb"))
+ }
+diff --git a/crates/slot/tests/vb_input.rs b/crates/slot/tests/vb_input.rs
+new file mode 100644
+index 0000000..bfc0965
+--- /dev/null
++++ b/crates/slot/tests/vb_input.rs
+@@ -0,0 +1,237 @@
++// The Virtual Boy pad (ADR 0097, issue 159): the device D-pad is the left D-pad, the right analog stick
++// is the right D-pad (Beetle VB reads it itself with vb_right_analog_to_digital enabled), and the Right
++// Pad row's ABXY choice puts the right D-pad on the face buttons with A and B on R2 and L2.
++mod common;
++mod core_common;
++mod real_seat;
++mod vb_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use slot::core::apply_core_options;
++use slot::core_options_policy::analog_pad;
++use slot::session::Session;
++use slot::vb_input::{remap, BUTTONS, STICK};
++use slot::vb_screen::VB_FILE;
++use slot::ws_input::{pad_code, WsPad};
++use slot_input::{Btn, RawEvent};
++use slot_retro::{publish_sticks, ButtonMask as M, LibretroCore, MockCore, RetroCore, PLAIN_PAD};
++use slot_store::{Core, Platform};
++use vb_common::{beetle_vb, keypad_cart};
++
++const PAD_A: u16 = 1 << 2;
++const PAD_B: u16 = 1 << 3;
++const PAD_R: u16 = 1 << 4;
++const PAD_L: u16 = 1 << 5;
++const PAD_RIGHT_UP: u16 = 1 << 6;
++const PAD_RIGHT_RIGHT: u16 = 1 << 7;
++const PAD_LEFT_RIGHT: u16 = 1 << 8;
++const PAD_LEFT_LEFT: u16 = 1 << 9;
++const PAD_LEFT_DOWN: u16 = 1 << 10;
++const PAD_LEFT_UP: u16 = 1 << 11;
++const PAD_START: u16 = 1 << 12;
++const PAD_SELECT: u16 = 1 << 13;
++const PAD_RIGHT_LEFT: u16 = 1 << 14;
++const PAD_RIGHT_DOWN: u16 = 1 << 15;
++const PAD_ALWAYS: u16 = 1 << 1;
++const LOW_BATTERY: u16 = 1;
++
++fn answered(dylib: &Path, root: &Path) -> LibretroCore {
++    let mut core = LibretroCore::open_with(dylib, root, root).expect("open Beetle VB");
++    apply_core_options(
++        &mut core,
++        Core::MednafenVb,
++        Platform::Vb,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core
++}
++
++fn pad_word(core: &mut LibretroCore, mask: u16) -> u16 {
++    for _ in 0..3 {
++        core.run_frame(M(mask));
++    }
++    let ram = core.save_ram().expect("no cart RAM");
++    u16::from_le_bytes([ram[0], ram[1]])
++}
++
++#[test]
++fn the_stick_mode_sends_the_virtual_boy_buttons_as_they_are_and_never_x_or_y() {
++    for (device, sent) in [
++        (M::A, M::A),
++        (M::B, M::B),
++        (M::L, M::L),
++        (M::R, M::R),
++        (M::START, M::START),
++        (M::SELECT, M::SELECT),
++        (M::UP, M::UP),
++        (M::DOWN, M::DOWN),
++        (M::LEFT, M::LEFT),
++        (M::RIGHT, M::RIGHT),
++        (M::X, 0),
++        (M::Y, 0),
++        (M::L2, 0),
++        (M::R2, 0),
++    ] {
++        assert_eq!(remap(STICK, M(device)).0, sent, "{device:#x}");
++    }
++}
++
++#[test]
++fn the_abxy_mode_puts_the_right_d_pad_on_the_face_buttons_and_a_and_b_on_the_triggers() {
++    for (device, sent) in [
++        (M::X, M::L2),
++        (M::A, M::R3),
++        (M::B, M::L3),
++        (M::Y, M::R2),
++        (M::R2, M::A),
++        (M::L2, M::B),
++        (M::L, M::L),
++        (M::R, M::R),
++        (M::START, M::START),
++        (M::SELECT, M::SELECT),
++        (M::UP, M::UP),
++        (M::LEFT, M::LEFT),
++    ] {
++        assert_eq!(remap(BUTTONS, M(device)).0, sent, "{device:#x}");
++    }
++    assert_eq!(remap(BUTTONS, M(M::X | M::R2)).0, M::L2 | M::A);
++}
++
++#[test]
++fn the_virtual_boy_pad_code_follows_the_right_pad_row_and_the_emu_remaps_with_it() {
++    assert_eq!(pad_code(Platform::Vb, false, false), STICK);
++    assert_eq!(pad_code(Platform::Vb, true, true), BUTTONS);
++    let mut pad = WsPad::default();
++    let mut core = MockCore::default();
++    assert_eq!(pad.remap(&mut core, STICK, M(M::X | M::A)), M(M::A));
++    assert_eq!(
++        pad.remap(&mut core, BUTTONS, M(M::X | M::A)),
++        M(M::L2 | M::R3)
++    );
++}
++
++#[test]
++fn beetle_vb_is_plugged_as_a_plain_pad_so_it_sees_the_sticks() {
++    assert_eq!(analog_pad(Core::MednafenVb), Some(PLAIN_PAD));
++    assert_eq!(PLAIN_PAD, 1);
++}
++
++#[test]
++fn every_virtual_boy_button_reaches_the_game_through_beetle_vb() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let d = tempfile::tempdir().unwrap();
++    let mut core = answered(&dylib, d.path());
++    core.load(&keypad_cart(d.path(), "Keys")).unwrap();
++    assert_eq!(pad_word(&mut core, 0), PAD_ALWAYS);
++    for (sent, seen) in [
++        (M::A, PAD_A),
++        (M::B, PAD_B),
++        (M::L, PAD_L),
++        (M::R, PAD_R),
++        (M::START, PAD_START),
++        (M::SELECT, PAD_SELECT),
++        (M::UP, PAD_LEFT_UP),
++        (M::DOWN, PAD_LEFT_DOWN),
++        (M::LEFT, PAD_LEFT_LEFT),
++        (M::RIGHT, PAD_LEFT_RIGHT),
++        (M::L2, PAD_RIGHT_UP),
++        (M::R3, PAD_RIGHT_RIGHT),
++        (M::L3, PAD_RIGHT_DOWN),
++        (M::R2, PAD_RIGHT_LEFT),
++    ] {
++        assert_eq!(pad_word(&mut core, sent), PAD_ALWAYS | seen, "{sent:#x}");
++    }
++}
++
++#[test]
++fn the_right_stick_is_the_right_d_pad() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let d = tempfile::tempdir().unwrap();
++    let mut core = answered(&dylib, d.path());
++    core.load(&keypad_cart(d.path(), "Keys")).unwrap();
++    for (axes, seen) in [
++        ([0, 0, 0, -32767], PAD_RIGHT_UP),
++        ([0, 0, 32767, 0], PAD_RIGHT_RIGHT),
++        ([0, 0, 0, 32767], PAD_RIGHT_DOWN),
++        ([0, 0, -32767, 0], PAD_RIGHT_LEFT),
++        ([32767, -32767, 0, 0], 0),
++    ] {
++        publish_sticks(axes);
++        let word = pad_word(&mut core, 0);
++        publish_sticks([0; 4]);
++        assert_eq!(word, PAD_ALWAYS | seen, "{axes:?}");
++    }
++    assert!(core.asked_for_analog());
++}
++
++#[test]
++fn x_would_flip_the_low_battery_flag_which_is_why_no_mode_sends_it() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let d = tempfile::tempdir().unwrap();
++    let mut core = answered(&dylib, d.path());
++    core.load(&keypad_cart(d.path(), "Keys")).unwrap();
++    assert_eq!(pad_word(&mut core, M::X) & LOW_BATTERY, LOW_BATTERY);
++    for code in [STICK, BUTTONS] {
++        assert_eq!(remap(code, M(M::X | M::Y)).0 & (M::X | M::Y), 0);
++    }
++}
++
++fn playing(root_words: &str) -> Option<(tempfile::TempDir, Session)> {
++    let dylib = beetle_vb()?;
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = keypad_cart(roms.path(), "Keys");
++    let root = real_seat::rooted(Platform::Vb, "Keys", &rom, &dylib);
++    std::fs::write(root.path().join(VB_FILE), root_words).expect("write vb.txt");
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn input_of(session: &Session) -> u16 {
++    session.emu().expect("no core in the slot").input().0
++}
++
++#[test]
++fn in_stick_mode_l2_and_r2_stay_slots_rewind_and_fast_forward() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing("right_pad = stick\n") else {
++        return;
++    };
++    assert!(!session.app().triggers_to_game());
++    for btn in [Btn::L2, Btn::R2] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session) & (M::L2 | M::R2), 0, "{btn:?}");
++        session.feed([RawEvent::Up(btn)], 5100);
++    }
++    session.feed([RawEvent::Down(Btn::X)], 6000);
++    assert_eq!(input_of(&session), M::X);
++    session.feed([RawEvent::Up(Btn::X)], 6100);
++}
++
++#[test]
++fn in_abxy_mode_l2_and_r2_go_to_the_game_from_the_next_start() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing("right_pad = abxy\n") else {
++        return;
++    };
++    assert!(session.app().triggers_to_game());
++    for (btn, bit) in [(Btn::L2, M::L2), (Btn::R2, M::R2)] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
+diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
+index 8a7fc17..de423f3 100644
+--- a/crates/slot/tests/wswan_input.rs
++++ b/crates/slot/tests/wswan_input.rs
+@@ -121,11 +121,14 @@ fn an_upright_vertical_game_reads_the_turned_d_pad_as_the_y_pad_and_l_r_as_a_b()
+ }
+ 
+ #[test]
+-fn only_wonderswan_gets_a_pad_code() {
+-    assert_eq!(pad_code(Platform::Ws, false), HORIZONTAL);
+-    assert_eq!(pad_code(Platform::Ws, true), VERTICAL);
+-    for platform in Platform::SHELVES.into_iter().filter(|p| *p != Platform::Ws) {
+-        assert_eq!(pad_code(platform, true), OFF, "{platform:?}");
++fn only_wonderswan_and_the_virtual_boy_get_a_pad_code() {
++    assert_eq!(pad_code(Platform::Ws, false, false), HORIZONTAL);
++    assert_eq!(pad_code(Platform::Ws, true, true), VERTICAL);
++    for platform in Platform::SHELVES
++        .into_iter()
++        .filter(|p| !matches!(p, Platform::Ws | Platform::Vb))
++    {
++        assert_eq!(pad_code(platform, true, true), OFF, "{platform:?}");
+     }
+ }
+ 

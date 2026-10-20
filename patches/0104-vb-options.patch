@@ -1,0 +1,131 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 10:32:07 +0400
+Subject: [PATCH] vb-options
+
+Beetle VB gets its options explicitly: vb_3dmode anaglyph with
+vb_anaglyph_preset disabled, which is the left eye alone in the palette
+colour (the core gives the right eye black, vb-core-tests proves it),
+vb_right_analog_to_digital enabled so the right stick is the second
+D-pad, opposite directions refused and the fast V810. The 3D mode needs
+a restart in the core, so it is answered before the game loads and
+never changed. The core declares no frameskip option. Every key and
+value is one the pinned core declares.
+---
+ crates/slot/src/core_options_policy.rs | 10 +++-
+ crates/slot/tests/vb_options.rs        | 78 ++++++++++++++++++++++++++
+ 2 files changed, 87 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/tests/vb_options.rs
+
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 15b94cc..2ed04f5 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -93,6 +93,14 @@ pub const PROSYSTEM: [(&str, &str); 3] = [
+     ("prosystem_gamepad_dual_stick_hack", "disabled"),
+ ];
+ 
++pub const BEETLE_VB: [(&str, &str); 5] = [
++    ("vb_3dmode", "anaglyph"),
++    ("vb_anaglyph_preset", "disabled"),
++    ("vb_right_analog_to_digital", "enabled"),
++    ("vb_opposite_directions", "disabled"),
++    ("vb_cpu_emulation", "fast"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -176,7 +184,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         Core::Picodrive => &PICODRIVE,
+         Core::Stella2014 => &STELLA2014,
+         Core::Prosystem => &PROSYSTEM,
+-        Core::MednafenVb => &[],
++        Core::MednafenVb => &BEETLE_VB,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/tests/vb_options.rs b/crates/slot/tests/vb_options.rs
+new file mode 100644
+index 0000000..2125af8
+--- /dev/null
++++ b/crates/slot/tests/vb_options.rs
+@@ -0,0 +1,78 @@
++mod common;
++mod core_common;
++mod vb_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use slot::core::apply_core_options;
++use slot::core_options_policy::{answers_declared_defaults, BEETLE_VB};
++use slot_retro::LibretroCore;
++use slot_store::{Core, Platform};
++use vb_common::beetle_vb;
++
++fn answered(dylib: &Path) -> LibretroCore {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut core = LibretroCore::open_with(dylib, d.path(), d.path()).expect("open Beetle VB");
++    apply_core_options(
++        &mut core,
++        Core::MednafenVb,
++        Platform::Vb,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core
++}
++
++#[test]
++fn every_explicit_virtual_boy_option_is_answered_with_its_own_value() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in BEETLE_VB {
++        assert_eq!(core.option(key).as_deref(), Some(value), "{key}");
++    }
++}
++
++#[test]
++fn every_explicit_virtual_boy_key_and_value_is_one_the_pinned_core_declares() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in BEETLE_VB {
++        let values = core
++            .declared_options()
++            .get(key)
++            .unwrap_or_else(|| panic!("the pin no longer declares {key}"));
++        assert!(
++            values.iter().any(|v| v == value),
++            "{key}={value} {values:?}"
++        );
++    }
++}
++
++#[test]
++fn the_flat_picture_is_pinned_and_the_side_by_side_gap_stays_unanswered() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let core = answered(&dylib);
++    assert_eq!(core.option("vb_3dmode").as_deref(), Some("anaglyph"));
++    assert_eq!(
++        core.option("vb_anaglyph_preset").as_deref(),
++        Some("disabled")
++    );
++    assert!(core.option("vb_sidebyside_separation").is_none());
++}
++
++#[test]
++fn beetle_vb_answers_only_its_explicit_options() {
++    assert!(!answers_declared_defaults(Core::MednafenVb));
++}

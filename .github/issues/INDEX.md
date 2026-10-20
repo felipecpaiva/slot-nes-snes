@@ -144,3 +144,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [170](170-a7800-device-gate.md) | Atari 7800 device gate on the RG34XXSP | 14 | device | chore | S | 165-a7800-bios, 166-a7800-canvas-screen, 167-a7800-input-switches, 168-a7800-pal-pacing |
 | [171](171-atari-tests.md) | Test both Atari cores with generated carts | 14 | tests | test | S | 154-a2600-core-build, 155-a7800-core-build |
 | [172](172-deferred-atari-controllers.md) | DEFERRED: Atari paddles, keypads and the other special controllers | 6 | input | chore | L | 159-a2600-input-switches |
+| [173](173-vb-tracking.md) | Virtual Boy: Beetle VB, one eye on the flat panel, a shelf of its own | 16 | device | tracking | L | 143-s32x-tracking |
+| [174](174-vb-core-build.md) | Build Beetle VB from a pinned commit for host and device with the VR view off and record its licence | 16 | cores | feature | S | 173-vb-tracking |
+| [175](175-platform-vb.md) | Add Platform::Vb with its own shelf and explicit policy | 16 | platform | feature | M | 174-vb-core-build |
+| [176](176-vb-options.md) | Set the Beetle VB options: anaglyph with the preset off, the right stick as the right D-pad | 16 | cores | feature | S | 175-platform-vb |
+| [177](177-vb-screen.md) | Give the Virtual Boy its own Screen section with Shader, Picture, VB Speed, Palette and Right Pad | 16 | video | feature | M | 176-vb-options |
+| [178](178-vb-saves.md) | Virtual Boy saves: the ordinary .sav for the 64 KB cart RAM | 16 | platform | chore | S | 175-platform-vb |
+| [179](179-vb-input.md) | Map the Virtual Boy pad: the right stick as the right D-pad, an ABXY fallback | 16 | input | feature | M | 175-platform-vb |
+| [180](180-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 174-vb-core-build |
+| [181](181-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 175-platform-vb |
+| [182](182-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 177-vb-screen, 179-vb-input |

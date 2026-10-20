@@ -24,6 +24,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `picodrive-src.tar.gz`, `picodrive-emu2413-src.tar.gz`, `picodrive-dr_libs-src.tar.gz`,
   `picodrive-libpicofe-src.tar.gz` and `picodrive-src.meta`: PicoDrive and the three submodules its
   build compiles, each the archive `SLOT_PIN` pins (below).
+- `mednafen_vb-src.tar.gz` and `mednafen_vb-src.meta`: the same for Beetle VB.
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
@@ -611,6 +612,43 @@ by `cores/prosystem/build.sh` for the Atari 7800 (ADR 0095) and joined `dist:dev
 - **No BIOS is shipped, fetched or needed to build.** The core uses the player's own
   `7800 BIOS (U).rom` or `(E)` from `BIOS/` only when the BIOS row is On (issue 165). The tests read
   one only from `SLOT_7800_BIOS`.
+
+## Beetle VB (Virtual Boy)
+
+Checked at commit `d5ae54c8e23b573a3b34e888b2d48a588027e92c` of libretro/beetle-vb-libretro, the
+commit `SLOT_PIN` pins as `mednafen_vb_commit` (tarball sha256 `mednafen_vb_tarball_sha256`). It is
+built by `cores/mednafen_vb/build.sh` for the Virtual Boy (ADR 0097) with `HAVE_VR=0`, and ships from
+the Virtual Boy platform patch on: `dist:device` copies it and `zip-check.sh` checks it. Its licence,
+the root `COPYING` of that source copied verbatim and whole, is `licenses/mednafen_vb-GPL-2.0.txt`.
+The exact source ships with the core as `mednafen_vb-src.tar.gz`, with `mednafen_vb-src.meta`
+recording its sha256.
+
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+
+- `COPYING` is the GNU GPL version 2 text. The Mednafen files say "either version 2 of the License,
+  or (at your option) any later version" (`mednafen/vb/vip.c`, `vsu.c`, `timer.c`, `input.c`, the
+  V810 core `mednafen/hw_cpu/v810/v810_cpu.cpp`, and `libretro.cpp`).
+- Scope of the counts: the 33 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.cpp`,
+  `libretro_vr.cpp`, `libretro_vr.h`, `vb_games.cpp`, `vb_games.h` and the two
+  `libretro_core_options` headers at the root, 40 files.
+  - `mednafen/msvc_compat.h`, included by `mednafen/mempatcher.cpp`, is GPL-3.0-or-later ("either
+    version 3 of the License, or (at your option) any later version"). It is why the combined core
+    is GPL-3.0-or-later, as it is for slot.
+  - `mednafen/sound/Blip_Buffer.c` is LGPL-2.1-or-later (Shay Green).
+  - The V810 FPU is John R. Hauser's SoftFloat Release 2b (`mednafen/hw_cpu/v810/fpu-new/`): its
+    notice permits derivative works, commercial ones included, as long as the source says it is
+    derived and keeps the notice, which the shipped source tarball does.
+  - No file says version 2 only.
+- **Headerless files, a judgement.** 28 of the 40 have no licence text in their first 60 lines (the
+  four SoftFloat files among them, see above). They are listed in
+  `licenses/mednafen_vb-headerless-files.txt` with the command that produced the list. We treat the
+  others as covered by `COPYING`. That is a judgement, not a quote.
+- `libretro-common/`: the build links only `compat/compat_strl` and `compat/compat_snprintf`, both
+  under the RetroArch team's MIT text.
+- `libretro_vr.cpp` is compiled with `HAVE_VR=0`, which leaves only its stubs: no OpenGL is linked.
+- The V810 core is C++. The device build links the C++ runtime statically and needs only
+  `libc.so.6` and `libm.so.6` at GLIBC_2.17 or older, which `task core:device:mednafen_vb` checks.
+- No BIOS is shipped or needed. The Virtual Boy has none.
 
 ## NES and SNES screen shaders
 

@@ -19,6 +19,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
 | 8 | Spec (Who it's NOT for), Phase 11 | WonderSwan and Color in the patch set (patches 0064 to 0069, ADR 0092), device gate (issue 99) pending |
 | 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
+| 10 | Spec (Who it's NOT for), Phase 16 | Virtual Boy in the patch set on Beetle VB (patches 0102 to 0109, ADR 0097), device gate (issue 182) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -59,7 +60,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096) and Atari 2600 and 7800 (Phase 14, ADR 0095) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) and Virtual Boy (Phase 16, ADR 0097) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -558,6 +559,26 @@ planned. Patches 0099 to 0101 on main 1b20432; the device gates are the step lef
 | 9 | 160, 168, done (0100) | PAL pacing (ADR 0071), PAL Speed rows |
 | 10 | 161, 169, done (0101) | Carts and labels (ScreenScraper 26 and 41) |
 | 11 | 162, 170 | Device gates |
+
+### Phase 16: Virtual Boy (in the patch set, device gate pending)
+
+Tracking issue 173, children 174 to 182, ADR 0097. One core, Beetle VB (`mednafen_vb`) pinned at
+`d5ae54c` with the VR view off, one shelf `Games/VB` for `.vb` and `.vboy`, no BIOS, no core picker.
+Anaglyph 3D with the preset off: the left eye alone in the palette colour. Patches 0102 to 0109.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0097 and the issues |
+| 2 | 174, done | Core build with `HAVE_VR=0`, the C++ runtime linked in, `pow` at GLIBC_2.17, licence |
+| 3 | 180, core half done | Generated two-eye cart: the left eye alone, both eyes with a real preset, states, cart RAM (patch 0102) |
+| 4 | 175, done (0103) | `Platform::Vb`, 384x256 canvas, explicit policy; joins dist and zip-check |
+| 5 | 176, done (0104) | Core options: anaglyph with the preset off, right stick to digital, fast V810 |
+| 6 | 177, done (0105) | Screen section: Shader, Picture, VB Speed, Palette, Right Pad |
+| 7 | 179, done (0106) | Pad: the right stick as the right D-pad, the ABXY fallback with L2 and R2 to the game |
+| 8 | 178, done (0107) | Saves: the 64 KB cart RAM as the ordinary `.sav`, tests only |
+| 9 | 180, done (0108) | A GBA game after a Virtual Boy game equals a GBA only run; resume |
+| 10 | 181, done (0109) | One grey Virtual Boy cart with its dust cap, labels for ScreenScraper id 11 |
+| 11 | 182 | Device gate: Virtual Boy Wario Land, Jack Bros., Red Alarm, Teleroboxer |
 
 ### Phase 6+: deferred (non-blocking)
 
