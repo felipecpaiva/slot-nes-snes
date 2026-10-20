@@ -242,7 +242,7 @@ real argument).
   Samba (GPL-3.0) with no source. Our pinned-source, source-tarball model (ADR 0002, SUPPLY-CHAIN.md)
   is the one that complies.
 - snes9x, fmsx, mame2003_plus and picodrive are non-commercial, as ours is (ADR 0002).
-- FinalBurn Neo's licence made unslot drop its Ko-fi link. That does not apply to us (no FBNeo).
+- FinalBurn Neo's licence made unslot drop its Ko-fi link. It applies to us since ADR 0099 (FBNeo for Neo Geo, CPS1 and CPS2): this project asks for no donations anywhere.
 - Assets:
   - menu sounds are CC0 Freesound recordings (`licenses/sounds.txt`);
   - wallpapers are listed in `licenses/wallpapers.txt`;

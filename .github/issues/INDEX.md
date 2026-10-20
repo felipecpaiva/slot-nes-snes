@@ -154,3 +154,14 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [180](180-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 174-vb-core-build |
 | [181](181-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 175-platform-vb |
 | [182](182-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 177-vb-screen, 179-vb-input |
+| [183](183-arcade-tracking.md) | Arcade: Neo Geo, CPS1 and CPS2 on FinalBurn Neo, a shelf per board | 17 | device | tracking | L | 143-s32x-tracking |
+| [184](184-arcade-core-build.md) | Build FinalBurn Neo with only the Neo Geo and CPS drivers from a pinned commit for host and device, and record its licence | 17 | cores | feature | M | 183-arcade-tracking |
+| [185](185-platform-arcade.md) | Add Platform::NeoGeo, Cps1 and Cps2 with a set table, full titles and explicit policy | 17 | platform | feature | M | 184-arcade-core-build |
+| [186](186-arcade-options.md) | Set the FBNeo options: Auto frameskip, no held-Start service menu | 17 | cores | feature | S | 185-platform-arcade |
+| [187](187-arcade-screen.md) | Give each arcade board its own Screen section, and stand vertical games upright | 17 | video | feature | M | 186-arcade-options |
+| [188](188-neogeo-bios.md) | Check BIOS/neogeo.zip before a Neo Geo set starts | 17 | platform | feature | S | 185-platform-arcade |
+| [189](189-arcade-saves.md) | Arcade saves: the board's NVRAM in Saves/fbneo, progress in states | 17 | platform | chore | S | 185-platform-arcade |
+| [190](190-arcade-input.md) | Arcade input: FBNeo's Classic map, L1 and R1 to the game | 17 | input | feature | S | 185-platform-arcade |
+| [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
+| [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
+| [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |

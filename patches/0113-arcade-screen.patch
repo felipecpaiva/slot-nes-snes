@@ -1,0 +1,1480 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:41:57 +0400
+Subject: [PATCH] arcade-screen
+
+Neo Geo, CPS1 and CPS2 each get their own Screen section, listed after
+the 32X and shown only when the card holds sets for that board. Neo Geo
+has Shader and Picture; CPS1 and CPS2 add Vertical Games. Shader walks
+Off and the retro list into the board's own file; the in-game Shader row
+and the shader shortcut walk the same list. Picture is the Mega Drive's,
+Stretch by default, then Actual and 4:3, stored as neogeo, cps1 and cps2
+in Config/picture.txt.
+
+Vertical Games (Config/arcade.txt, cps1 and cps2) is Upright by default:
+FBNeo asks for a quarter turn, slot answers it for the arcade boards only
+and turns the frame itself, counter-clockwise, into a 3:4 picture in the
+middle of a 3:2 canvas as tall as the board's long side (576x384 for
+CPS), shown whole on the panel at 360x480. Turned leaves the frame as the
+board draws it, sideways and filling the panel (FBNeo's vertical mode
+"enabled"), and turns the D-pad with it for a handheld held with its
+right edge up (Right is Up, Up is Left); every button stays where it is.
+The choice applies from the next game and sets nothing for horizontal
+games. Every other core is still refused quarter turns.
+---
+ crates/slot-retro/src/canvas.rs        |  98 +++++++++
+ crates/slot-retro/src/libretro.rs      |   8 +
+ crates/slot-store/tests/core_pairs.rs  |   4 +-
+ crates/slot-store/tests/vb_platform.rs |   8 +-
+ crates/slot-ui/src/quick_menu.rs       |  70 ++++++-
+ crates/slot-ui/src/quick_retro.rs      |  13 ++
+ crates/slot-ui/tests/quick_menu.rs     |   4 +-
+ crates/slot-ui/tests/retro_faces.rs    |   8 +-
+ crates/slot/src/app.rs                 |  58 +++++-
+ crates/slot/src/app/atari_pad.rs       |  14 +-
+ crates/slot/src/arcade_turn.rs         | 184 +++++++++++++++++
+ crates/slot/src/core.rs                |   3 +
+ crates/slot/src/lib.rs                 |   1 +
+ crates/slot/src/platform_video.rs      |   7 +-
+ crates/slot/src/retro_quick.rs         |  18 +-
+ crates/slot/src/session.rs             |   4 +-
+ crates/slot/src/ws_input.rs            |  20 +-
+ crates/slot/tests/arcade_screen.rs     | 267 +++++++++++++++++++++++++
+ crates/slot/tests/sega_quick_shader.rs |  10 +-
+ crates/slot/tests/vb_screen.rs         |   4 +-
+ crates/slot/tests/wswan_input.rs       |  10 +-
+ 21 files changed, 771 insertions(+), 42 deletions(-)
+ create mode 100644 crates/slot/src/arcade_turn.rs
+ create mode 100644 crates/slot/tests/arcade_screen.rs
+
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index a8dc2a9..2ec4ccd 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -29,6 +29,8 @@ pub struct HostExtra {
+     pub asked_for_analog: bool,
+     pub turned: bool,
+     pub answers_rotation: bool,
++    pub answers_quarter: bool,
++    pub quarter: bool,
+ }
+ 
+ impl Default for HostExtra {
+@@ -48,6 +50,8 @@ impl Default for HostExtra {
+             asked_for_analog: false,
+             turned: false,
+             answers_rotation: false,
++            answers_quarter: false,
++            quarter: false,
+         }
+     }
+ }
+@@ -114,6 +118,10 @@ pub unsafe fn rotation_set(data: *const c_uint) -> bool {
+     let Some(&quarters) = data.as_ref() else {
+         return false;
+     };
++    let quarter = with_extra(|e| e.answers_quarter).unwrap_or(false);
++    if quarter && (quarters == 0 || quarters == 1) {
++        return with_extra(|e| e.quarter = quarters == 1).is_some();
++    }
+     let half = match quarters {
+         0 => false,
+         2 => true,
+@@ -183,6 +191,11 @@ pub unsafe fn copy_frame(
+     let p = EXTRA.with(|e| e.get());
+     // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
+     let turned = match unsafe { p.as_mut() } {
++        Some(extra) if extra.quarter => {
++            extra.frame = size;
++            turn_quarter_upright(video, canvas, src, size, pitch, rgb565);
++            false
++        }
+         Some(extra) if extra.fills => {
+             fill(extra, video, canvas, src, size, pitch, rgb565);
+             extra.turned
+@@ -202,6 +215,44 @@ pub unsafe fn copy_frame(
+     }
+ }
+ 
++pub unsafe fn turn_quarter_upright(
++    video: &mut [u8],
++    (canvas_w, canvas_h): (u32, u32),
++    src: *const u8,
++    (width, height): (u32, u32),
++    pitch: usize,
++    rgb565: bool,
++) {
++    let (cw, ch) = (canvas_w as usize, canvas_h as usize);
++    let (w, h) = (width as usize, height as usize);
++    if video.len() != cw * ch * 4 || w == 0 || h == 0 {
++        eprintln!(
++            "slot: canvas: cannot turn a {w}x{h} frame into a {cw}x{ch} canvas, frame dropped"
++        );
++        return;
++    }
++    let out_w = (ch * 3 / 4).min(cw);
++    let ox = (cw - out_w) / 2;
++    video.fill(0);
++    for y in 0..ch {
++        let from_x = w - 1 - (y * w / ch).min(w - 1);
++        let row = (y * cw + ox) * 4;
++        let Some(out) = video.get_mut(row..row + out_w * 4) else {
++            return;
++        };
++        for (x, px) in out.chunks_exact_mut(4).enumerate() {
++            let from_y = (x * h / out_w).min(h - 1);
++            let at = src.add(from_y * pitch);
++            if rgb565 {
++                let p = ptr::read_unaligned((at as *const u16).add(from_x));
++                px.copy_from_slice(&bgrx_from_rgb565(p));
++            } else {
++                px.copy_from_slice(&ptr::read_unaligned((at as *const [u8; 4]).add(from_x)));
++            }
++        }
++    }
++}
++
+ pub unsafe fn fill(
+     extra: &mut HostExtra,
+     video: &mut [u8],
+@@ -403,6 +454,53 @@ mod tests {
+         assert_eq!(lit, [(29 + 101) * 240 + 40 + 159]);
+     }
+ 
++    #[test]
++    fn a_quarter_turn_is_answered_only_when_asked_for_and_only_counter_clockwise() {
++        let mut extra = HostExtra {
++            answers_quarter: true,
++            ..HostExtra::default()
++        };
++        let _g = ExtraGuard::bind(&mut extra);
++        for (quarters, answered, quarter) in [(1, true, true), (3, false, true), (0, true, false)] {
++            // SAFETY: the pointer is to a live c_uint on this stack frame.
++            assert_eq!(unsafe { rotation_set(&quarters) }, answered, "{quarters}");
++            assert_eq!(with_extra(|e| e.quarter), Some(quarter), "{quarters}");
++        }
++    }
++
++    #[test]
++    fn a_sideways_frame_turns_upright_at_three_by_four_in_the_middle_of_the_canvas() {
++        let mut extra = HostExtra {
++            answers_quarter: true,
++            ..HostExtra::default()
++        };
++        let _g = ExtraGuard::bind(&mut extra);
++        // SAFETY: the pointer is to a live c_uint on this stack frame.
++        assert!(unsafe { rotation_set(&1) });
++        let (w, h) = (384usize, 224usize);
++        let frame: Vec<u8> = (0..w * h)
++            .flat_map(|i| if i == w - 1 { [0xff; 4] } else { [0x10; 4] })
++            .collect();
++        let mut video = vec![0u8; 576 * 384 * 4];
++        // SAFETY: frame holds 224 rows of 1536 bytes, 384 XRGB8888 pixels each.
++        unsafe {
++            copy_frame(
++                &mut video,
++                (576, 384),
++                frame.as_ptr(),
++                (384, 224),
++                w * 4,
++                false,
++            )
++        };
++        let px = |x: usize, y: usize| video[(y * 576 + x) * 4];
++        assert_eq!(px(144, 0), 0xff, "the source's top right lands top left");
++        assert_eq!(px(143, 0), 0, "left bar");
++        assert_eq!(px(431, 383), 0x10);
++        assert_eq!(px(432, 383), 0, "right bar");
++        assert_eq!(with_extra(|e| e.frame), Some((384, 224)));
++    }
++
+     fn white(w: usize, h: usize) -> Vec<u8> {
+         vec![0xff; w * h * 4]
+     }
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index 1f67b74..d7c3ea2 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -462,6 +462,14 @@ impl LibretroCore {
+         self.extra.answers_rotation = true;
+     }
+ 
++    pub fn answer_quarter_turn(&mut self) {
++        self.extra.answers_quarter = true;
++    }
++
++    pub fn quarter_turned(&self) -> bool {
++        self.extra.quarter
++    }
++
+     pub fn plug_analog(&mut self, device: c_uint) {
+         self.extra.port_device = device;
+         self.extra.sticks = Some([0; 4]);
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index e103fb4..d3e64de 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_sixteen() {
++fn the_pinned_core_list_stays_two_while_every_lists_seventeen() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 16);
++    assert_eq!(Core::EVERY.len(), 17);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/vb_platform.rs b/crates/slot-store/tests/vb_platform.rs
+index 3e5ef26..10437d4 100644
+--- a/crates/slot-store/tests/vb_platform.rs
++++ b/crates/slot-store/tests/vb_platform.rs
+@@ -25,9 +25,9 @@ fn vb(root: &Path) -> Vec<Cart> {
+ }
+ 
+ #[test]
+-fn the_virtual_boy_is_the_last_shelf_and_upstreams_list_stays_three() {
+-    assert_eq!(Platform::SHELVES.last(), Some(&Platform::Vb));
+-    assert_eq!(Platform::SHELVES.len(), 17);
++fn the_virtual_boy_follows_the_atari_7800_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES[16], Platform::Vb);
++    assert_eq!(Platform::SHELVES[15], Platform::A7800);
+     assert_eq!(Platform::ALL.len(), 3);
+     assert_eq!(Platform::Vb.dir_name(), "VB");
+     assert_eq!(Platform::Vb.name(), "Nintendo Virtual Boy");
+@@ -82,7 +82,7 @@ fn the_virtual_boy_plays_like_the_snes_with_the_picture_toggle_and_answers_every
+ #[test]
+ fn the_virtual_boy_runs_on_beetle_vb_alone_on_a_three_by_two_canvas_one_frame_wide() {
+     assert_eq!(Core::default_for(Platform::Vb), Core::MednafenVb);
+-    assert_eq!(Core::EVERY.last(), Some(&Core::MednafenVb));
++    assert_eq!(Core::EVERY[15], Core::MednafenVb);
+     assert_eq!(Core::MednafenVb.as_str(), "mednafen_vb");
+     assert_eq!(Core::MednafenVb.option_prefix(), "vb");
+     assert_eq!(Core::parse("mednafen_vb"), Some(Core::MednafenVb));
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index f7f1073..a525fcf 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -148,10 +148,21 @@ pub enum QuickRow {
+     VbSpeed,
+     VbPalette,
+     VbRightPad,
++    NeoGeoShader,
++    ScreenNeoGeo,
++    NeoGeoPicture,
++    Cps1Shader,
++    ScreenCps1,
++    Cps1Picture,
++    Cps1Rotation,
++    Cps2Shader,
++    ScreenCps2,
++    Cps2Picture,
++    Cps2Rotation,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 138] = [
++    pub const ALL: [QuickRow; 149] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -290,6 +301,17 @@ impl QuickRow {
+         QuickRow::VbSpeed,
+         QuickRow::VbPalette,
+         QuickRow::VbRightPad,
++        QuickRow::NeoGeoShader,
++        QuickRow::ScreenNeoGeo,
++        QuickRow::NeoGeoPicture,
++        QuickRow::Cps1Shader,
++        QuickRow::ScreenCps1,
++        QuickRow::Cps1Picture,
++        QuickRow::Cps1Rotation,
++        QuickRow::Cps2Shader,
++        QuickRow::ScreenCps2,
++        QuickRow::Cps2Picture,
++        QuickRow::Cps2Rotation,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -352,7 +374,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 17] = [
++    pub const SCREEN: [QuickRow; 20] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -370,6 +392,9 @@ impl QuickRow {
+         QuickRow::ScreenA2600,
+         QuickRow::ScreenA7800,
+         QuickRow::ScreenVb,
++        QuickRow::ScreenNeoGeo,
++        QuickRow::ScreenCps1,
++        QuickRow::ScreenCps2,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -443,7 +468,10 @@ impl QuickRow {
+             | QuickRow::ScreenS32x
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+-            | QuickRow::ScreenVb => &QuickRow::SCREEN,
++            | QuickRow::ScreenVb
++            | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenCps1
++            | QuickRow::ScreenCps2 => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -528,6 +556,13 @@ impl QuickRow {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
++            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
++            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
++                &QuickRow::SCREEN_CPS1
++            }
++            QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
++                &QuickRow::SCREEN_CPS2
++            }
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -594,6 +629,13 @@ impl QuickRow {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
++            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
++            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
++                Some(QuickRow::ScreenCps1)
++            }
++            QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
++                Some(QuickRow::ScreenCps2)
++            }
+             _ => None,
+         }
+     }
+@@ -647,6 +689,9 @@ impl QuickRow {
+             QuickRow::ScreenA2600 => Some(QuickRow::SCREEN_A2600[0]),
+             QuickRow::ScreenA7800 => Some(QuickRow::SCREEN_A7800[0]),
+             QuickRow::ScreenVb => Some(QuickRow::SCREEN_VB[0]),
++            QuickRow::ScreenNeoGeo => Some(QuickRow::SCREEN_NEOGEO[0]),
++            QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
++            QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
+             _ => None,
+         }
+     }
+@@ -754,6 +799,7 @@ impl QuickRow {
+             QuickRow::S32xShader => "Shader",
+             QuickRow::A2600Shader | QuickRow::A7800Shader => "Shader",
+             QuickRow::VbShader => "Shader",
++            QuickRow::NeoGeoShader | QuickRow::Cps1Shader | QuickRow::Cps2Shader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -766,6 +812,9 @@ impl QuickRow {
+             QuickRow::ScreenA2600 => "Atari 2600",
+             QuickRow::ScreenA7800 => "Atari 7800",
+             QuickRow::ScreenVb => "Virtual Boy",
++            QuickRow::ScreenNeoGeo => "Neo Geo",
++            QuickRow::ScreenCps1 => "CPS1",
++            QuickRow::ScreenCps2 => "CPS2",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -779,7 +828,10 @@ impl QuickRow {
+             | QuickRow::S32xPicture
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+-            | QuickRow::VbPicture => "Picture",
++            | QuickRow::VbPicture
++            | QuickRow::NeoGeoPicture
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps2Picture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -802,6 +854,7 @@ impl QuickRow {
+             QuickRow::VbSpeed => "VB Speed",
+             QuickRow::VbPalette => "Palette",
+             QuickRow::VbRightPad => "Right Pad",
++            QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => "Vertical Games",
+         }
+     }
+ 
+@@ -841,6 +894,9 @@ impl QuickRow {
+                 | QuickRow::ScreenA2600
+                 | QuickRow::ScreenA7800
+                 | QuickRow::ScreenVb
++                | QuickRow::ScreenNeoGeo
++                | QuickRow::ScreenCps1
++                | QuickRow::ScreenCps2
+         )
+     }
+ 
+@@ -963,6 +1019,8 @@ pub enum QuickValue {
+     Yellow,
+     Stick,
+     Buttons,
++    Upright,
++    Turned,
+ }
+ 
+ impl QuickValue {
+@@ -1036,6 +1094,8 @@ impl QuickValue {
+             QuickValue::Yellow => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 29,
+             QuickValue::Stick => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 30,
+             QuickValue::Buttons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 31,
++            QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 32,
++            QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -1098,6 +1158,8 @@ impl QuickValue {
+             QuickValue::Yellow => "Yellow",
+             QuickValue::Stick => "Stick",
+             QuickValue::Buttons => "ABXY",
++            QuickValue::Upright => "Upright",
++            QuickValue::Turned => "Turned",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 574a652..d5ab459 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -70,6 +70,17 @@ impl QuickRow {
+         QuickRow::VbPalette,
+         QuickRow::VbRightPad,
+     ];
++    pub const SCREEN_NEOGEO: [QuickRow; 2] = [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture];
++    pub const SCREEN_CPS1: [QuickRow; 3] = [
++        QuickRow::Cps1Shader,
++        QuickRow::Cps1Picture,
++        QuickRow::Cps1Rotation,
++    ];
++    pub const SCREEN_CPS2: [QuickRow; 3] = [
++        QuickRow::Cps2Shader,
++        QuickRow::Cps2Picture,
++        QuickRow::Cps2Rotation,
++    ];
+ }
+ 
+ impl QuickValue {
+@@ -110,6 +121,8 @@ impl QuickValue {
+                 QuickValue::Yellow,
+                 QuickValue::Stick,
+                 QuickValue::Buttons,
++                QuickValue::Upright,
++                QuickValue::Turned,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index da90e10..d442be4 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2
+         ]
+     );
+     for page in [
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index 89f50fd..4062ab6 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -45,6 +45,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Yellow,
+             QuickValue::Stick,
+             QuickValue::Buttons,
++            QuickValue::Upright,
++            QuickValue::Turned,
+         ]
+     );
+     assert_eq!(
+@@ -81,6 +83,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Yellow.text(),
+             QuickValue::Stick.text(),
+             QuickValue::Buttons.text(),
++            QuickValue::Upright.text(),
++            QuickValue::Turned.text(),
+         ],
+         [
+             "Stretch",
+@@ -114,7 +118,9 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "Magenta",
+             "Yellow",
+             "Stick",
+-            "ABXY"
++            "ABXY",
++            "Upright",
++            "Turned"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 197d4d7..34cfe7e 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -465,6 +465,7 @@ pub struct App {
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
+     vb_buttons_seated: bool,
++    arcade_turns: crate::arcade_turn::ArcadeTurns,
+     rested: Option<(usize, usize)>,
+     start_marked: bool,
+     fast_trail: bool,
+@@ -658,6 +659,7 @@ impl App {
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
+             vb_buttons_seated: false,
++            arcade_turns: crate::arcade_turn::ArcadeTurns::default(),
+             rested: None,
+             start_marked: false,
+             fast_trail: false,
+@@ -685,6 +687,7 @@ impl App {
+         app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
+         app.atari = crate::atari_switches::AtariSwitches::read(root);
+         app.vb_screen = crate::vb_screen::VbScreen::read(root);
++        app.arcade_turns = crate::arcade_turn::ArcadeTurns::read(root);
+         app.lynx_flip = crate::lynx_turn::flips_right(root);
+         app.restock_recents();
+         app.restock_favorites();
+@@ -1054,6 +1057,9 @@ impl App {
+             (QuickRow::Shader, Platform::A2600) => QuickRow::A2600Shader,
+             (QuickRow::Shader, Platform::A7800) => QuickRow::A7800Shader,
+             (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
++            (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
++            (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
++            (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -1115,6 +1121,9 @@ impl App {
+             QuickRow::A2600Shader => Some(shader_value(self.sega_shaders.a2600)),
+             QuickRow::A7800Shader => Some(shader_value(self.sega_shaders.a7800)),
+             QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
++            QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
++            QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
++            QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -1128,7 +1137,10 @@ impl App {
+             | QuickRow::S32xPicture
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+-            | QuickRow::VbPicture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::VbPicture
++            | QuickRow::NeoGeoPicture
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -1150,6 +1162,7 @@ impl App {
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios => self.atari.quick_value(row),
+             QuickRow::VbPalette | QuickRow::VbRightPad => self.vb_screen.quick_value(row),
++            QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => self.arcade_turns.quick_value(row),
+             QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
+@@ -1209,6 +1222,9 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenCps1
++            | QuickRow::ScreenCps2
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -1791,6 +1807,9 @@ impl App {
+     }
+ 
+     pub fn source_rect(&self) -> [f32; 4] {
++        if let Some([source, _]) = crate::arcade_turn::upright_rects(self.platform, self.vertical) {
++            return source;
++        }
+         video_mode::source_rect(
+             self.platform,
+             crate::platform_video::shown(self.platform, self.frame_w, self.video_mode),
+@@ -2106,6 +2125,10 @@ impl App {
+     }
+ 
+     pub fn picture_rect(&self) -> [f32; 4] {
++        if let Some([_, picture]) = crate::arcade_turn::upright_rects(self.platform, self.vertical)
++        {
++            return picture;
++        }
+         let (w, h) = crate::platform_video::picture(self.platform, self.frame_w);
+         let (sw, sh) = self.core.canvas_f32(self.platform, self.vertical);
+         let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
+@@ -2813,7 +2836,10 @@ impl App {
+             | QuickRow::ScreenS32x
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+-            | QuickRow::ScreenVb => {
++            | QuickRow::ScreenVb
++            | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenCps1
++            | QuickRow::ScreenCps2 => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(&self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2930,7 +2956,15 @@ impl App {
+             | QuickRow::VbPicture
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+-            | QuickRow::VbRightPad => {}
++            | QuickRow::VbRightPad
++            | QuickRow::NeoGeoShader
++            | QuickRow::NeoGeoPicture
++            | QuickRow::Cps1Shader
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps1Rotation
++            | QuickRow::Cps2Shader
++            | QuickRow::Cps2Picture
++            | QuickRow::Cps2Rotation => {}
+         }
+     }
+ 
+@@ -2955,6 +2989,9 @@ impl App {
+         if self
+             .s32x_speed
+             .change(row, right, self.root.as_deref(), &self.card_writes)
++            || self
++                .arcade_turns
++                .change(row, self.root.as_deref(), &self.card_writes)
+         {
+             return;
+         }
+@@ -3111,7 +3148,10 @@ impl App {
+             | QuickRow::LynxShader
+             | QuickRow::NgpShader
+             | QuickRow::S32xShader
+-            | QuickRow::VbShader => return,
++            | QuickRow::VbShader
++            | QuickRow::NeoGeoShader
++            | QuickRow::Cps1Shader
++            | QuickRow::Cps2Shader => return,
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -3147,7 +3187,12 @@ impl App {
+             | QuickRow::A7800PalSpeed
+             | QuickRow::A7800LeftDifficulty
+             | QuickRow::A7800RightDifficulty
+-            | QuickRow::A7800Bios => return,
++            | QuickRow::A7800Bios
++            | QuickRow::NeoGeoPicture
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps1Rotation
++            | QuickRow::Cps2Picture
++            | QuickRow::Cps2Rotation => return,
+             QuickRow::VbPicture
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+@@ -3186,6 +3231,9 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenCps1
++            | QuickRow::ScreenCps2
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+diff --git a/crates/slot/src/app/atari_pad.rs b/crates/slot/src/app/atari_pad.rs
+index 8c79b49..e686647 100644
+--- a/crates/slot/src/app/atari_pad.rs
++++ b/crates/slot/src/app/atari_pad.rs
+@@ -4,9 +4,17 @@ use super::App;
+ 
+ impl App {
+     pub fn pad_code(&self, platform: Platform) -> u8 {
+-        self.atari.pad_code(platform).unwrap_or_else(|| {
+-            crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated)
+-        })
++        self.atari
++            .pad_code(platform)
++            .unwrap_or_else(|| match self.root.as_deref() {
++                Some(root) if platform.is_arcade() => crate::arcade_turn::pad_code(
++                    root,
++                    self.seated_cart(),
++                    platform,
++                    self.vertical(),
++                ),
++                _ => crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated),
++            })
+     }
+ 
+     pub fn atari_pad_code(&self) -> Option<u8> {
+diff --git a/crates/slot/src/arcade_turn.rs b/crates/slot/src/arcade_turn.rs
+new file mode 100644
+index 0000000..b07fb9c
+--- /dev/null
++++ b/crates/slot/src/arcade_turn.rs
+@@ -0,0 +1,184 @@
++use std::path::Path;
++
++use slot_retro::RetroCore;
++use slot_store::{ini, Cart, Core, Platform};
++use slot_ui::{QuickRow, QuickValue};
++
++use crate::card_log::CardWrites;
++
++pub const ARCADE_FILE: &str = "Config/arcade.txt";
++
++const VERTICAL_MODE: &str = "fbneo-vertical-mode";
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum Turn {
++    #[default]
++    Upright,
++    Turned,
++}
++
++impl Turn {
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Turn::Upright => "upright",
++            Turn::Turned => "turned",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            Turn::Upright => QuickValue::Upright,
++            Turn::Turned => QuickValue::Turned,
++        }
++    }
++
++    pub fn vertical_mode(self) -> &'static str {
++        match self {
++            Turn::Upright => "disabled",
++            Turn::Turned => "enabled",
++        }
++    }
++
++    fn flipped(self) -> Turn {
++        match self {
++            Turn::Upright => Turn::Turned,
++            Turn::Turned => Turn::Upright,
++        }
++    }
++
++    fn parse(s: &str) -> Option<Turn> {
++        [Turn::Upright, Turn::Turned]
++            .into_iter()
++            .find(|t| t.as_str() == s)
++    }
++}
++
++fn key(platform: Platform) -> Option<&'static str> {
++    match platform {
++        Platform::Cps1 => Some("cps1"),
++        Platform::Cps2 => Some("cps2"),
++        Platform::Gba
++        | Platform::Gb
++        | Platform::Gbc
++        | Platform::Nes
++        | Platform::Snes
++        | Platform::Gg
++        | Platform::Sms
++        | Platform::Md
++        | Platform::Ps1
++        | Platform::Tg16
++        | Platform::Ws
++        | Platform::Lynx
++        | Platform::Ngp
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::A2600
++        | Platform::A7800
++        | Platform::Vb => None,
++    }
++}
++
++fn row_platform(row: QuickRow) -> Option<Platform> {
++    match row {
++        QuickRow::Cps1Rotation => Some(Platform::Cps1),
++        QuickRow::Cps2Rotation => Some(Platform::Cps2),
++        _ => None,
++    }
++}
++
++pub fn read(root: &Path, platform: Platform) -> Turn {
++    let Some(key) = key(platform) else {
++        return Turn::Upright;
++    };
++    let Some(line) = ini::value(root, ARCADE_FILE, key) else {
++        return Turn::Upright;
++    };
++    Turn::parse(&line).unwrap_or_else(|| {
++        eprintln!("slot: arcade.txt: ignoring {key}={line}");
++        Turn::Upright
++    })
++}
++
++pub fn vertical_game(platform: Platform, stem: &str) -> bool {
++    platform.is_arcade() && slot_store::arcade::vertical(platform, stem)
++}
++
++pub fn upright(root: &Path, platform: Platform, stem: &str) -> bool {
++    vertical_game(platform, stem) && read(root, platform) == Turn::Upright
++}
++
++pub fn turned(root: &Path, platform: Platform, stem: &str) -> bool {
++    vertical_game(platform, stem) && read(root, platform) == Turn::Turned
++}
++
++pub fn prepare(core: &mut dyn RetroCore, root: &Path, platform: Platform, stem: &str) {
++    if !platform.is_arcade() {
++        return;
++    }
++    let upright = upright(root, platform, stem);
++    let (w, h) = Core::Fbneo.game_canvas(platform, upright);
++    core.set_canvas(w, h);
++    let turn = match turned(root, platform, stem) {
++        true => Turn::Turned,
++        false => Turn::Upright,
++    };
++    core.set_option(VERTICAL_MODE, turn.vertical_mode());
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub struct ArcadeTurns {
++    pub cps1: Turn,
++    pub cps2: Turn,
++}
++
++impl ArcadeTurns {
++    pub fn read(root: &Path) -> ArcadeTurns {
++        ArcadeTurns {
++            cps1: read(root, Platform::Cps1),
++            cps2: read(root, Platform::Cps2),
++        }
++    }
++
++    fn get_mut(&mut self, row: QuickRow) -> Option<&mut Turn> {
++        match row {
++            QuickRow::Cps1Rotation => Some(&mut self.cps1),
++            QuickRow::Cps2Rotation => Some(&mut self.cps2),
++            _ => None,
++        }
++    }
++
++    pub fn quick_value(&self, row: QuickRow) -> Option<QuickValue> {
++        match row {
++            QuickRow::Cps1Rotation => Some(self.cps1.quick_value()),
++            QuickRow::Cps2Rotation => Some(self.cps2.quick_value()),
++            _ => None,
++        }
++    }
++
++    pub fn change(&mut self, row: QuickRow, root: Option<&Path>, writes: &CardWrites) -> bool {
++        let (Some(platform), Some(turn)) = (row_platform(row), self.get_mut(row)) else {
++            return false;
++        };
++        *turn = turn.flipped();
++        if let (Some(root), Some(key)) = (root, key(platform)) {
++            let written = ini::write(root, ARCADE_FILE, key, turn.as_str());
++            if let Err(e) = &written {
++                eprintln!("slot: arcade: could not write arcade.txt: {e}");
++            }
++            writes.wrote("arcade.txt", &written);
++        }
++        true
++    }
++}
++
++pub fn pad_code(root: &Path, seated: Option<&Cart>, platform: Platform, vertical: bool) -> u8 {
++    if !platform.is_arcade() {
++        return crate::ws_input::pad_code(platform, vertical, false);
++    }
++    let turned = seated.is_some_and(|c| c.platform == platform && turned(root, platform, &c.stem));
++    crate::ws_input::pad_code(platform, turned, false)
++}
++
++pub fn upright_rects(platform: Platform, vertical: bool) -> Option<[[f32; 4]; 2]> {
++    (platform.is_arcade() && vertical).then_some([slot_gfx::WHOLE_TEXTURE, [0.25, 0.0, 0.75, 1.0]])
++}
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 0b788db..7bf4095 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -118,6 +118,9 @@ fn open_named(
+                 if platform == Platform::Lynx {
+                     opened.answer_rotation();
+                 }
++                if platform.is_arcade() {
++                    opened.answer_quarter_turn();
++                }
+                 apply_core_options(
+                     &mut opened,
+                     core,
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index aee633a..98c1c57 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -1,4 +1,5 @@
+ pub mod app;
++pub mod arcade_turn;
+ pub mod atari_switches;
+ pub mod audio;
+ pub mod av_rate;
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 1356b8b..8d715d7 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 14] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -24,6 +24,9 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 14] = [
+     (QuickRow::A2600Picture, Platform::A2600),
+     (QuickRow::A7800Picture, Platform::A7800),
+     (QuickRow::VbPicture, Platform::Vb),
++    (QuickRow::NeoGeoPicture, Platform::NeoGeo),
++    (QuickRow::Cps1Picture, Platform::Cps1),
++    (QuickRow::Cps2Picture, Platform::Cps2),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+@@ -194,7 +197,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 14]);
++pub struct SystemPictures([VideoMode; 17]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index d933955..90833de 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -24,6 +24,9 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::A2600Shader => (&mut shaders.a2600, Platform::A2600),
+         QuickRow::A7800Shader => (&mut shaders.a7800, Platform::A7800),
+         QuickRow::VbShader => (&mut shaders.vb, Platform::Vb),
++        QuickRow::NeoGeoShader => (&mut shaders.neogeo, Platform::NeoGeo),
++        QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
++        QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
+         _ => return false,
+     };
+     *shader = shader.step(platform.shader_choices(), right);
+@@ -59,8 +62,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 13] {
+-    let mut seen = [false; 13];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
++    let mut seen = [false; 16];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -77,14 +80,16 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 13] {
+             Platform::A2600 => 10,
+             Platform::A7800 => 11,
+             Platform::Vb => 12,
+-            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => continue,
++            Platform::NeoGeo => 13,
++            Platform::Cps1 => 14,
++            Platform::Cps2 => 15,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 13] = [
++const SYSTEM_ROWS: [&[QuickRow]; 16] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -98,9 +103,12 @@ const SYSTEM_ROWS: [&[QuickRow]; 13] = [
+     &[QuickRow::ScreenA2600],
+     &[QuickRow::ScreenA7800],
+     &[QuickRow::ScreenVb],
++    &[QuickRow::ScreenNeoGeo],
++    &[QuickRow::ScreenCps1],
++    &[QuickRow::ScreenCps2],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 13]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 16]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index dacd700..472696f 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -527,7 +527,8 @@ impl Session {
+         self.app.mark_start(platform, stem);
+         self.app.set_core(core);
+         self.app.set_platform(platform);
+-        let vertical = crate::ws_load::vertical(platform, &rom);
++        let vertical = crate::ws_load::vertical(platform, &rom)
++            || crate::arcade_turn::upright(&self.root, platform, stem);
+         self.app.set_vertical(vertical);
+         let native = self.app.ws_native();
+         self.app
+@@ -553,6 +554,7 @@ impl Session {
+                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
+                 let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
+                 crate::ws_load::prepare(opened.core.as_mut(), platform, vertical, native);
++                crate::arcade_turn::prepare(opened.core.as_mut(), &root, platform, &stem);
+                 crate::ps1_load::offer_remembered_disc(
+                     opened.core.as_mut(),
+                     &root,
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index bc85e3e..93ed5c2 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -7,16 +7,20 @@ const X_PAD: [u16; 4] = [M::UP, M::RIGHT, M::DOWN, M::LEFT];
+ const Y_PAD: [u16; 4] = [M::R2, M::R, M::L2, M::L];
+ const UPRIGHT_DPAD: [u16; 4] = [M::R, M::L2, M::L, M::R2];
+ const UPRIGHT_FACE: [u16; 4] = [M::RIGHT, M::DOWN, M::LEFT, M::UP];
++const SIDEWAYS_DPAD: [u16; 4] = [M::LEFT, M::UP, M::RIGHT, M::DOWN];
+ 
+ pub const OFF: u8 = 0;
+ pub const HORIZONTAL: u8 = 1;
+ pub const VERTICAL: u8 = 2;
++pub const SIDEWAYS: u8 = 3;
+ 
+ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+     match (platform, vertical) {
+         (Platform::Ws, true) => VERTICAL,
+         (Platform::Ws, false) => HORIZONTAL,
+         (Platform::Vb, _) => crate::vb_input::code(vb_buttons),
++        (Platform::NeoGeo | Platform::Cps1 | Platform::Cps2, true) => SIDEWAYS,
++        (Platform::NeoGeo | Platform::Cps1 | Platform::Cps2, false) => OFF,
+         (
+             Platform::Gba
+             | Platform::Gb
+@@ -32,10 +36,7 @@ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+             | Platform::Ngp
+             | Platform::S32x
+             | Platform::A2600
+-            | Platform::A7800
+-            | Platform::NeoGeo
+-            | Platform::Cps1
+-            | Platform::Cps2,
++            | Platform::A7800,
+             _,
+         ) => OFF,
+     }
+@@ -46,6 +47,7 @@ pub enum Layout {
+     Horizontal,
+     Upright,
+     Turned,
++    Sideways,
+ }
+ 
+ fn moved(mask: u16, from: [u16; 4], to: [u16; 4]) -> u16 {
+@@ -78,6 +80,9 @@ impl Layout {
+                 };
+                 dpad | face
+             }
++            Layout::Sideways => {
++                moved(m, DPAD, SIDEWAYS_DPAD) | (m & !(M::UP | M::RIGHT | M::DOWN | M::LEFT))
++            }
+             Layout::Upright => {
+                 moved(m, DPAD, UPRIGHT_DPAD)
+                     | moved(m, FACE, UPRIGHT_FACE)
+@@ -91,7 +96,7 @@ impl Layout {
+     pub fn rotation(self) -> &'static str {
+         match self {
+             Layout::Upright => "portrait",
+-            Layout::Horizontal | Layout::Turned => "landscape",
++            Layout::Horizontal | Layout::Turned | Layout::Sideways => "landscape",
+         }
+     }
+ }
+@@ -144,6 +149,9 @@ impl WsPad {
+         if crate::vb_input::owns(code) {
+             return crate::vb_input::remap(code, mask);
+         }
++        if code == SIDEWAYS {
++            return Layout::Sideways.remap(mask);
++        }
+         let select = mask.0 & M::SELECT != 0;
+         let others = mask.0 & !M::SELECT != 0;
+         match (self.select, select) {
+@@ -152,7 +160,7 @@ impl WsPad {
+             (true, false) if self.alone && code == VERTICAL => {
+                 self.layout = match self.layout {
+                     Layout::Upright => Layout::Turned,
+-                    Layout::Horizontal | Layout::Turned => Layout::Upright,
++                    Layout::Horizontal | Layout::Turned | Layout::Sideways => Layout::Upright,
+                 };
+                 core.set_option("wswan_rotate_display", self.layout.rotation());
+                 eprintln!("slot: ws: {}", self.layout.rotation());
+diff --git a/crates/slot/tests/arcade_screen.rs b/crates/slot/tests/arcade_screen.rs
+new file mode 100644
+index 0000000..c746472
+--- /dev/null
++++ b/crates/slot/tests/arcade_screen.rs
+@@ -0,0 +1,267 @@
++// The Neo Geo, CPS1 and CPS2 Screen sections and the Vertical Games row (ADR 0099).
++mod arcade_common;
++mod common;
++mod core_common;
++
++use std::path::Path;
++
++use arcade_common::{install, NINETEEN_FORTY_ONE, QAD};
++use common::core_lock;
++use slot::arcade_turn::{pad_code, prepare, turned, upright, upright_rects, ArcadeTurns, Turn};
++use slot::card_log::CardWrites;
++use slot::ws_input::{Layout, SIDEWAYS};
++use slot_retro::{ButtonMask as M, LibretroCore, RetroCore};
++use slot_store::Platform;
++use slot_ui::{QuickRow, QuickValue};
++
++#[test]
++fn each_arcade_board_has_its_own_screen_section_after_the_virtual_boy() {
++    let screen = QuickRow::SCREEN;
++    assert_eq!(
++        screen[screen.len() - 4..],
++        [
++            QuickRow::ScreenVb,
++            QuickRow::ScreenNeoGeo,
++            QuickRow::ScreenCps1,
++            QuickRow::ScreenCps2
++        ]
++    );
++    assert_eq!(QuickRow::ScreenNeoGeo.label(), "Neo Geo");
++    assert_eq!(QuickRow::ScreenCps1.label(), "CPS1");
++    assert_eq!(QuickRow::ScreenCps2.label(), "CPS2");
++    assert_eq!(
++        QuickRow::SCREEN_NEOGEO,
++        [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture]
++    );
++    assert_eq!(
++        QuickRow::SCREEN_CPS1,
++        [
++            QuickRow::Cps1Shader,
++            QuickRow::Cps1Picture,
++            QuickRow::Cps1Rotation
++        ]
++    );
++    assert_eq!(QuickRow::Cps2Rotation.label(), "Vertical Games");
++    assert_eq!(QuickRow::Cps1Picture.parent(), Some(QuickRow::ScreenCps1));
++}
++
++#[test]
++fn vertical_games_stand_upright_until_the_user_turns_them_and_the_choice_is_kept_per_board() {
++    let d = tempfile::tempdir().unwrap();
++    let writes = CardWrites::default();
++    let mut turns = ArcadeTurns::read(d.path());
++    assert_eq!(turns, ArcadeTurns::default());
++    assert_eq!(
++        turns.quick_value(QuickRow::Cps1Rotation),
++        Some(QuickValue::Upright)
++    );
++    assert!(turns.change(QuickRow::Cps1Rotation, Some(d.path()), &writes));
++    assert!(!turns.change(QuickRow::NeoGeoPicture, Some(d.path()), &writes));
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config/arcade.txt")).unwrap(),
++        "cps1 = turned\n"
++    );
++    let again = ArcadeTurns::read(d.path());
++    assert_eq!(again.cps1, Turn::Turned);
++    assert_eq!(again.cps2, Turn::Upright);
++    assert!(turned(d.path(), Platform::Cps1, "1941"));
++    assert!(!turned(d.path(), Platform::Cps1, "ffight"), "not vertical");
++    assert!(upright(d.path(), Platform::Cps2, "19xx"));
++}
++
++#[test]
++fn an_unknown_line_in_arcade_txt_reads_as_upright() {
++    let d = tempfile::tempdir().unwrap();
++    std::fs::create_dir_all(d.path().join("Config")).unwrap();
++    std::fs::write(d.path().join("Config/arcade.txt"), "cps2=sideways\n").unwrap();
++    assert_eq!(ArcadeTurns::read(d.path()).cps2, Turn::Upright);
++}
++
++#[test]
++fn an_upright_game_fills_the_whole_canvas_and_draws_its_picture_in_the_middle_half() {
++    assert_eq!(
++        upright_rects(Platform::Cps1, true),
++        Some([slot_gfx::WHOLE_TEXTURE, [0.25, 0.0, 0.75, 1.0]])
++    );
++    assert_eq!(upright_rects(Platform::Cps1, false), None);
++    assert_eq!(upright_rects(Platform::Ws, true), None);
++}
++
++fn opened(root: &Path) -> Option<LibretroCore> {
++    let dylib = arcade_common::fbneo()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open FBNeo");
++    core.answer_quarter_turn();
++    Some(core)
++}
++
++#[test]
++fn an_upright_vertical_set_is_turned_by_slot_onto_a_576_by_384_canvas() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    prepare(&mut core, d.path(), Platform::Cps1, "1941");
++    core.load(&install(d.path(), &NINETEEN_FORTY_ONE)).unwrap();
++    core.run_frame(M::default());
++    core.run_frame(M::default());
++    assert!(core.quarter_turned());
++    assert_eq!(core.video_xrgb8888().len(), 576 * 384 * 4);
++}
++
++#[test]
++fn a_turned_vertical_set_is_drawn_sideways_as_the_board_draws_it() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    std::fs::create_dir_all(d.path().join("Config")).unwrap();
++    std::fs::write(d.path().join("Config/arcade.txt"), "cps1=turned\n").unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    prepare(&mut core, d.path(), Platform::Cps1, "1941");
++    assert_eq!(
++        core.option("fbneo-vertical-mode").as_deref(),
++        Some("enabled")
++    );
++    core.load(&install(d.path(), &NINETEEN_FORTY_ONE)).unwrap();
++    core.run_frame(M::default());
++    core.run_frame(M::default());
++    assert!(!core.quarter_turned());
++    assert_eq!(core.video_xrgb8888().len(), 432 * 288 * 4);
++    assert_eq!(core.frame_width(), 384);
++}
++
++#[test]
++fn a_horizontal_set_is_never_turned() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    prepare(&mut core, d.path(), Platform::Cps1, "qad");
++    core.load(&install(d.path(), &QAD)).unwrap();
++    core.run_frame(M::default());
++    core.run_frame(M::default());
++    assert!(!core.quarter_turned());
++    assert_eq!(core.video_xrgb8888().len(), 432 * 288 * 4);
++}
++
++#[test]
++fn a_turned_game_turns_the_pad_with_it_and_leaves_every_button_alone() {
++    let d = tempfile::tempdir().unwrap();
++    std::fs::create_dir_all(d.path().join("Config")).unwrap();
++    std::fs::write(d.path().join("Config/arcade.txt"), "cps2=turned\n").unwrap();
++    let cart = slot_store::Cart {
++        platform: Platform::Cps2,
++        stem: "19xx".into(),
++        rom: d.path().join("Games/CPS2/19xx.zip"),
++        label: None,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    };
++    assert_eq!(
++        pad_code(d.path(), Some(&cart), Platform::Cps2, false),
++        SIDEWAYS
++    );
++    assert_eq!(
++        pad_code(d.path(), None, Platform::Cps2, false),
++        slot::ws_input::OFF
++    );
++    for (pressed, game) in [
++        (M::RIGHT, M::UP),
++        (M::UP, M::LEFT),
++        (M::LEFT, M::DOWN),
++        (M::DOWN, M::RIGHT),
++    ] {
++        assert_eq!(Layout::Sideways.remap(M(pressed)).0, game);
++    }
++    let buttons = M::A | M::B | M::X | M::Y | M::L | M::R | M::START | M::SELECT;
++    assert_eq!(Layout::Sideways.remap(M(buttons)).0, buttons);
++}
++
++fn card(sets: &[(&str, &str)]) -> (tempfile::TempDir, slot::app::App) {
++    let root = common::tmp_root_with_real_carts(&["Emerald"]);
++    for (shelf, set) in sets {
++        let dir = root.path().join("Games").join(shelf);
++        std::fs::create_dir_all(&dir).unwrap();
++        std::fs::write(dir.join(format!("{set}.zip")), b"PK\x05\x06").unwrap();
++    }
++    let app = common::boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut slot::app::App, btn: slot_input::Btn) {
++    app.apply(slot_input::Action::GbaDown(btn));
++    app.apply(slot_input::Action::GbaUp(btn));
++}
++
++fn open_section(app: &mut slot::app::App, section: QuickRow) {
++    use slot_input::{Action, Btn};
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..section.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(section));
++    press(app, Btn::A);
++}
++
++#[test]
++fn each_arcade_section_shows_only_on_a_card_with_sets_for_that_board() {
++    let (_root, app) = card(&[("CPS1", "ffight")]);
++    let hidden = app.hidden_rows();
++    assert!(!hidden.contains(&QuickRow::ScreenCps1));
++    assert!(hidden.contains(&QuickRow::ScreenCps2));
++    assert!(hidden.contains(&QuickRow::ScreenNeoGeo));
++}
++
++#[test]
++fn the_cps1_section_walks_its_shader_picture_and_vertical_games_rows_into_their_own_files() {
++    use slot_input::Btn;
++    let (root, mut app) = card(&[("CPS1", "1941")]);
++    open_section(&mut app, QuickRow::ScreenCps1);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Cps1Shader));
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_ne!(
++        slot_store::read_sega_shaders(root.path()).cps1,
++        slot_store::Shader::Off
++    );
++    assert_eq!(
++        slot_store::read_sega_shaders(root.path()).cps2,
++        slot_store::Shader::Off
++    );
++    press(&mut app, Btn::Down);
++    assert_eq!(
++        app.quick_value(QuickRow::Cps1Picture),
++        Some(QuickValue::Stretch)
++    );
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        slot::platform_video::system_picture(root.path(), Platform::Cps1),
++        slot::video_mode::VideoMode::Actual
++    );
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Cps1Rotation));
++    assert_eq!(
++        app.quick_value(QuickRow::Cps1Rotation),
++        Some(QuickValue::Upright)
++    );
++    press(&mut app, Btn::Right);
++    assert_eq!(
++        app.quick_value(QuickRow::Cps1Rotation),
++        Some(QuickValue::Turned)
++    );
++    assert!(turned(root.path(), Platform::Cps1, "1941"));
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index bd4d3c5..ef0dfb1 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,9 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 13]).is_empty());
+-    for key in 0..8191u16 {
+-        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(|i| key & 1 << i != 0);
++    assert!(hidden_on_shelf([true; 16]).is_empty());
++    for key in 0..65535u16 {
++        let systems =
++            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -110,6 +111,9 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenA2600), !systems[10]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenA7800), !systems[11]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenVb), !systems[12]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenNeoGeo), !systems[13]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[14]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[15]);
+     }
+ }
+ 
+diff --git a/crates/slot/tests/vb_screen.rs b/crates/slot/tests/vb_screen.rs
+index 30d253c..7b164d7 100644
+--- a/crates/slot/tests/vb_screen.rs
++++ b/crates/slot/tests/vb_screen.rs
+@@ -47,8 +47,8 @@ fn down_to(app: &mut App, row: QuickRow) {
+ }
+ 
+ #[test]
+-fn the_virtual_boy_closes_the_screen_list_with_its_own_five_row_section() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenVb));
++fn the_virtual_boy_follows_the_atari_7800_with_its_own_five_row_section() {
++    assert_eq!(QuickRow::SCREEN[16], QuickRow::ScreenVb);
+     assert_eq!(QuickRow::ScreenVb.label(), "Virtual Boy");
+     assert!(QuickRow::ScreenVb.opens());
+     assert_eq!(QuickRow::ScreenVb.child(), Some(QuickRow::VbShader));
+diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
+index de423f3..6b64400 100644
+--- a/crates/slot/tests/wswan_input.rs
++++ b/crates/slot/tests/wswan_input.rs
+@@ -121,14 +121,20 @@ fn an_upright_vertical_game_reads_the_turned_d_pad_as_the_y_pad_and_l_r_as_a_b()
+ }
+ 
+ #[test]
+-fn only_wonderswan_and_the_virtual_boy_get_a_pad_code() {
++fn only_wonderswan_the_virtual_boy_and_turned_arcade_games_get_a_pad_code() {
+     assert_eq!(pad_code(Platform::Ws, false, false), HORIZONTAL);
+     assert_eq!(pad_code(Platform::Ws, true, true), VERTICAL);
+     for platform in Platform::SHELVES
+         .into_iter()
+         .filter(|p| !matches!(p, Platform::Ws | Platform::Vb))
+     {
+-        assert_eq!(pad_code(platform, true, true), OFF, "{platform:?}");
++        let want = if platform.is_arcade() {
++            slot::ws_input::SIDEWAYS
++        } else {
++            OFF
++        };
++        assert_eq!(pad_code(platform, true, true), want, "{platform:?}");
++        assert_eq!(pad_code(platform, false, true), OFF, "{platform:?}");
+     }
+ }
+ 

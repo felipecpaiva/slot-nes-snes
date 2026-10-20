@@ -1,0 +1,403 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 10:39:59 +0400
+Subject: [PATCH] arcade-core-tests
+
+FBNeo, pinned at 2dbbac7 and built as one Neo Geo and CPS1/CPS2 core, on the
+generic libretro host before any arcade platform code exists. The sets are
+zero-filled zips with the pinned dat's member names and sizes, which FBNeo
+reads from BIOS/fbneo/patched/ without the CRC check, so no commercial ROM
+is needed: CPS1 qad and 1941, CPS2 spf2t, Neo Geo vliner and the four BIOS
+files the default MVS Asia/Europe ver. 6 BIOS uses. The tests pin the frame
+sizes (384x224, Neo Geo 304x224), the rates (59.63 and 59.18 Hz), FBNeo's
+error page when the Neo Geo BIOS is missing, the quarter turn a vertical set
+asks for, a state round trip and the NVRAM file written at unload.
+---
+ crates/slot/tests/arcade_common/mod.rs | 222 +++++++++++++++++++++++++
+ crates/slot/tests/arcade_core.rs       | 148 +++++++++++++++++
+ 2 files changed, 370 insertions(+)
+ create mode 100644 crates/slot/tests/arcade_common/mod.rs
+ create mode 100644 crates/slot/tests/arcade_core.rs
+
+diff --git a/crates/slot/tests/arcade_common/mod.rs b/crates/slot/tests/arcade_common/mod.rs
+new file mode 100644
+index 0000000..2e2e5c6
+--- /dev/null
++++ b/crates/slot/tests/arcade_common/mod.rs
+@@ -0,0 +1,222 @@
++#![allow(dead_code)]
++// Arcade sets for FBNeo without a commercial ROM (ADR 0099). FBNeo reads a set from
++// BIOS/fbneo/patched/<set>.zip first and takes its members by name and size there, without the CRC
++// check (locate_archive, bPatchedRomsetsEnabled, libretro.cpp at 2dbbac7). So a zip whose members carry
++// the set's file names and sizes and hold zero bytes loads as that set: the board runs, draws its frame
++// size, keeps its frame rate and asks for its rotation, though nothing it draws is a game. The names
++// and sizes are the pinned dats' (FinalBurn Neo 1.0.0.03, dats/ at 2dbbac7), BIOS roms left out.
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub struct Set {
++    pub name: &'static str,
++    pub shelf: &'static str,
++    pub roms: &'static [(&'static str, usize)],
++}
++
++pub const QAD: Set = Set {
++    name: "qad",
++    shelf: "CPS1",
++    roms: &[
++        ("qdu_36a.12f", 131072),
++        ("qdu_42a.12h", 131072),
++        ("qdu_37a.13f", 131072),
++        ("qdu_43a.13h", 131072),
++        ("qd_09.4b", 131072),
++        ("qd_01.4a", 131072),
++        ("qd_13.9b", 131072),
++        ("qd_05.9a", 131072),
++        ("qd_24.5e", 131072),
++        ("qd_17.5c", 131072),
++        ("qd_38.8h", 131072),
++        ("qd_32.8f", 131072),
++        ("qd_23.13b", 65536),
++        ("qdu_30.12c", 131072),
++        ("qdu_31.13c", 131072),
++        ("buf1", 279),
++        ("ioa1", 279),
++        ("prg1", 279),
++        ("rom1", 279),
++        ("sou1", 279),
++        ("qd22b.1a", 279),
++        ("iob1.12e", 279),
++        ("ioc1.ic1", 260),
++    ],
++};
++
++pub const NINETEEN_FORTY_ONE: Set = Set {
++    name: "1941",
++    shelf: "CPS1",
++    roms: &[
++        ("41em_30.11f", 131072),
++        ("41em_35.11h", 131072),
++        ("41em_31.12f", 131072),
++        ("41em_36.12h", 131072),
++        ("41-32m.8h", 524288),
++        ("41-5m.7a", 524288),
++        ("41-7m.9a", 524288),
++        ("41-1m.3a", 524288),
++        ("41-3m.5a", 524288),
++        ("41_9.12b", 65536),
++        ("41_18.11c", 131072),
++        ("41_19.12c", 131072),
++        ("buf1", 279),
++        ("ioa1", 279),
++        ("prg1", 279),
++        ("rom1", 279),
++        ("sou1", 279),
++        ("yi24b.1a", 279),
++        ("iob1.11e", 279),
++    ],
++};
++
++pub const SPF2T: Set = Set {
++    name: "spf2t",
++    shelf: "CPS2",
++    roms: &[
++        ("pzfe.03", 524288),
++        ("pzf.04", 524288),
++        ("pzf.14m", 1048576),
++        ("pzf.16m", 1048576),
++        ("pzf.18m", 1048576),
++        ("pzf.20m", 1048576),
++        ("pzf.01", 131072),
++        ("pzf.02", 131072),
++        ("pzf.11m", 2097152),
++        ("pzf.12m", 2097152),
++        ("spf2t.key", 20),
++    ],
++};
++
++pub const VLINER: Set = Set {
++    name: "vliner",
++    shelf: "NEOGEO",
++    roms: &[
++        ("epr_7a.p1", 524288),
++        ("s-1.s1", 131072),
++        ("c-1.c1", 524288),
++        ("c-2.c2", 524288),
++        ("m-1.m1", 65536),
++    ],
++};
++
++/// The MVS Asia/Europe ver. 6 BIOS FBNeo boots by default and the three files every Neo Geo set
++/// shares, with the CRCs of the pinned dat's neogeo entry.
++pub const NEOGEO_BIOS: [(&str, usize, u32); 4] = [
++    ("sp-s3.sp1", 131072, 0x91b6_4be3),
++    ("sm1.sm1", 131072, 0x9441_6d67),
++    ("sfix.sfix", 131072, 0xc2ea_0cfd),
++    ("000-lo.lo", 131072, 0x5a86_cff2),
++];
++
++pub const CPS_FRAME: (u32, u32) = (384, 224);
++pub const NEOGEO_FRAME: (u32, u32) = (304, 224);
++
++pub fn fbneo() -> Option<PathBuf> {
++    require_core("fbneo")
++}
++
++fn crc32(data: &[u8]) -> u32 {
++    let table: Vec<u32> = (0..256u32)
++        .map(|n| (0..8).fold(n, |c, _| (c >> 1) ^ (0xedb8_8320 & (c & 1).wrapping_neg())))
++        .collect();
++    !data.iter().fold(!0u32, |crc, &b| {
++        (crc >> 8) ^ table[((crc ^ u32::from(b)) & 0xff) as usize]
++    })
++}
++
++/// A stored (uncompressed) zip. Each member is (name, bytes, the CRC32 the directory states).
++pub fn zip(path: &Path, members: &[(&str, Vec<u8>, u32)]) {
++    let mut out = Vec::new();
++    let mut central = Vec::new();
++    for (name, data, crc) in members {
++        let at = out.len() as u32;
++        let header = |sig: u32, central: bool| {
++            let mut h = sig.to_le_bytes().to_vec();
++            if central {
++                h.extend(20u16.to_le_bytes());
++            }
++            h.extend(20u16.to_le_bytes());
++            h.extend([0u8; 2]);
++            h.extend([0u8; 2]);
++            h.extend([0u8; 4]);
++            h.extend(crc.to_le_bytes());
++            h.extend((data.len() as u32).to_le_bytes());
++            h.extend((data.len() as u32).to_le_bytes());
++            h.extend((name.len() as u16).to_le_bytes());
++            h.extend([0u8; 2]);
++            if central {
++                h.extend([0u8; 6]);
++                h.extend([0u8; 4]);
++                h.extend(at.to_le_bytes());
++            }
++            h.extend(name.as_bytes());
++            h
++        };
++        out.extend(header(0x0403_4b50, false));
++        out.extend(data);
++        central.extend(header(0x0201_4b50, true));
++    }
++    let dir_at = out.len() as u32;
++    let n = members.len() as u16;
++    out.extend(&central);
++    out.extend(0x0605_4b50u32.to_le_bytes());
++    out.extend([0u8; 4]);
++    out.extend(n.to_le_bytes());
++    out.extend(n.to_le_bytes());
++    out.extend((central.len() as u32).to_le_bytes());
++    out.extend(dir_at.to_le_bytes());
++    out.extend([0u8; 2]);
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    std::fs::write(path, out).unwrap();
++}
++
++fn zeros(roms: &[(&str, usize)]) -> Vec<(String, Vec<u8>, u32)> {
++    roms.iter()
++        .map(|(name, size)| {
++            let data = vec![0u8; *size];
++            let crc = crc32(&data);
++            (name.to_string(), data, crc)
++        })
++        .collect()
++}
++
++fn write_zip(path: &Path, members: &[(String, Vec<u8>, u32)]) {
++    let borrowed: Vec<(&str, Vec<u8>, u32)> = members
++        .iter()
++        .map(|(n, d, c)| (n.as_str(), d.clone(), *c))
++        .collect();
++    zip(path, &borrowed);
++}
++
++/// The set on its shelf, Games/<shelf>/<set>.zip, and its zero-filled copy in
++/// BIOS/fbneo/patched/, which is what FBNeo reads. Returns the shelf path.
++pub fn install(root: &Path, set: &Set) -> PathBuf {
++    let members = zeros(set.roms);
++    let shelf = root
++        .join("Games")
++        .join(set.shelf)
++        .join(format!("{}.zip", set.name));
++    write_zip(&shelf, &members);
++    write_zip(
++        &root
++            .join("BIOS/fbneo/patched")
++            .join(format!("{}.zip", set.name)),
++        &members,
++    );
++    shelf
++}
++
++/// The Neo Geo BIOS FBNeo reads (zero-filled, in BIOS/fbneo/patched/) and the BIOS/neogeo.zip slot
++/// checks, whose directory states the dat's CRCs.
++pub fn install_neogeo_bios(root: &Path) {
++    let roms: Vec<(&str, usize)> = NEOGEO_BIOS.iter().map(|(n, s, _)| (*n, *s)).collect();
++    write_zip(&root.join("BIOS/fbneo/patched/neogeo.zip"), &zeros(&roms));
++    let stated: Vec<(String, Vec<u8>, u32)> = NEOGEO_BIOS
++        .iter()
++        .map(|(n, s, c)| (n.to_string(), vec![0u8; *s], *c))
++        .collect();
++    write_zip(&root.join("BIOS/neogeo.zip"), &stated);
++}
+diff --git a/crates/slot/tests/arcade_core.rs b/crates/slot/tests/arcade_core.rs
+new file mode 100644
+index 0000000..610c6d4
+--- /dev/null
++++ b/crates/slot/tests/arcade_core.rs
+@@ -0,0 +1,148 @@
++// FBNeo (Neo Geo, CPS1, CPS2) on the generic libretro host, before any arcade platform code exists
++// (ADR 0099). The zero-filled sets live in arcade_common.
++mod arcade_common;
++mod common;
++mod core_common;
++
++use std::path::Path;
++
++use arcade_common::{
++    install, install_neogeo_bios, CPS_FRAME, NEOGEO_FRAME, NINETEEN_FORTY_ONE, QAD, SPF2T, VLINER,
++};
++use common::core_lock;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++fn fbneo(root: &Path, canvas: (u32, u32)) -> Option<LibretroCore> {
++    let dylib = arcade_common::fbneo()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open FBNeo");
++    core.set_canvas(canvas.0, canvas.1);
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn a_cps1_set_loads_by_path_and_runs_its_384_by_224_board_at_59_63_hz() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (432, 288)) else {
++        return;
++    };
++    assert!(core.needs_full_path(), "FBNeo loads by path");
++    core.load(&install(d.path(), &QAD))
++        .expect("FBNeo refused qad");
++    play(&mut core, 30);
++    let av = core.av_info();
++    assert!((59.62..59.64).contains(&av.fps), "{} fps", av.fps);
++    assert!(
++        (47990.0..48010.0).contains(&av.sample_rate),
++        "{}",
++        av.sample_rate
++    );
++    assert_eq!(core.frame_width(), CPS_FRAME.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++}
++
++#[test]
++fn a_cps2_set_needs_no_bios_and_runs_the_same_board_size() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (432, 288)) else {
++        return;
++    };
++    core.load(&install(d.path(), &SPF2T))
++        .expect("FBNeo refused spf2t");
++    play(&mut core, 30);
++    assert!((59.62..59.64).contains(&core.av_info().fps));
++    assert_eq!(core.frame_width(), CPS_FRAME.0);
++}
++
++#[test]
++fn a_neo_geo_set_with_the_bios_runs_304_wide_at_59_18_hz() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (360, 240)) else {
++        return;
++    };
++    install_neogeo_bios(d.path());
++    core.load(&install(d.path(), &VLINER))
++        .expect("FBNeo refused vliner");
++    play(&mut core, 30);
++    assert!((59.17..59.19).contains(&core.av_info().fps));
++    assert_eq!(core.frame_width(), NEOGEO_FRAME.0);
++}
++
++#[test]
++fn a_neo_geo_set_without_the_bios_still_loads_and_draws_fbneos_640_by_480_error_page() {
++    // This is why slot checks BIOS/neogeo.zip before it inserts a Neo Geo cart: FBNeo accepts the
++    // load and shows its missing-ROM message instead of the game (ADR 0099).
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (640, 480)) else {
++        return;
++    };
++    core.load(&install(d.path(), &VLINER))
++        .expect("FBNeo refused vliner");
++    play(&mut core, 2);
++    assert_eq!(core.frame_width(), 640);
++}
++
++#[test]
++fn a_vertical_set_asks_for_a_quarter_turn_and_draws_sideways_when_refused() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (432, 288)) else {
++        return;
++    };
++    core.answer_rotation();
++    core.load(&install(d.path(), &NINETEEN_FORTY_ONE))
++        .expect("FBNeo refused 1941");
++    play(&mut core, 2);
++    assert!(!core.turned(), "slot refuses quarter turns");
++    assert_eq!(core.frame_width(), CPS_FRAME.0);
++}
++
++#[test]
++fn a_cps1_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (432, 288)) else {
++        return;
++    };
++    core.load(&install(d.path(), &QAD)).unwrap();
++    play(&mut core, 30);
++    let state = core.serialize().expect("no state");
++    assert!(state.len() > 200_000, "{} bytes", state.len());
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap().len(), state.len());
++}
++
++#[test]
++fn fbneo_exposes_no_save_ram_and_writes_its_nvram_under_saves_fbneo_at_unload() {
++    // CPS2 boards keep their settings and high scores in an EEPROM; FBNeo writes it to
++    // <save dir>/fbneo/<set>.nv in retro_unload_game, never through SAVE_RAM.
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fbneo(d.path(), (432, 288)) else {
++        return;
++    };
++    core.load(&install(d.path(), &SPF2T)).unwrap();
++    play(&mut core, 10);
++    assert_eq!(core.save_ram().map(|s| s.len()).unwrap_or(0), 0);
++    drop(core);
++    assert!(slot::root::saves_dir(d.path())
++        .join("fbneo/spf2t.nv")
++        .is_file());
++}

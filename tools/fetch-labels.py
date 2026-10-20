@@ -139,7 +139,25 @@ SYSTEMS = {
     # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "virtualboy,11,38,4918"). .vb and .vboy, as
     # slot scans (ADR 0097); libretro-thumbnails has Nintendo - Virtual Boy Named_Logos (22, checked 2026-10-20).
     "VB": ("virtualboy", {".vb", ".vboy"}, [NO_INTRO + "Virtual Boy"], 11),
+    # Arcade (ADR 0099): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
+    # dat; ScreenScraper finds an arcade set by its file name (romnom). Ids per Skyscraper's
+    # platforms_idmap.csv (Gemba/skyscraper c253bfe) row
+    # "neogeo,142,36,24" for Neo Geo; CPS1 and CPS2 have no row there, and ScreenScraper's own system pages
+    # name 6 "Capcom Play System" and 7 "Capcom Play System 2" (systemeinfos.php, checked 2026-10-20)
+    "NEOGEO": ("neogeo", {".zip"}, [], 142),
+    "CPS1": ("cps1", {".zip"}, [], 6),
+    "CPS2": ("cps2", {".zip"}, [], 7),
 }
+ARCADE = {"NEOGEO", "CPS1", "CPS2"}
+# ScreenScraper media for an arcade set, in order: the cart label scan when it has one (a Neo Geo cart), else
+# the flyer, which is what Skyscraper takes as an arcade game's cover (getCover), else the box front. Media
+# type names from the API documentation (webapi2.php); which a given set has is not verified per game.
+ARCADE_MEDIA = ("support-texture", "flyer", "box-2D")
+# libretro-thumbnails folder for the arcade sets, keyed by the set's full title. It has no Named_Logos
+# (checked 2026-10-20), so --logo-fallback takes the ScreenScraper wheel for an arcade set
+ARCADE_THUMBS = "FBNeo - Arcade Games"
+ARCADE_SETS = [os.path.join(REPO, d, "crates", "slot-store", "src", "arcade_sets.tsv")
+               for d in (os.path.join("build", "slot"), os.path.join("work", "slot"))]
 WS_COLOR_ID = 46
 NGP_COLOR_ID = 82
 ART_SYSTEMS = {"GBA", "GB", "GBC"}
@@ -362,6 +380,37 @@ class ScreenScraper:
                 spit(none, b"")
                 return None
             return self.download(media, png)
+        except Stop as e:
+            self.stop = str(e)
+            return None
+
+    def arcade_label(self, system, rom):
+        """The first of ARCADE_MEDIA ScreenScraper has for an arcade set, asked by its file name (romnom, how
+        ScreenScraper identifies arcade sets), with the zip's CRC32 and size the API asks for. Cached by set
+        name. None when there is none."""
+        d = os.path.join(self.ctx.cache, "ss", system, "arcade")
+        png, none = os.path.join(d, rom.stem.lower() + ".png"), os.path.join(d, rom.stem.lower() + ".none")
+        if os.path.isfile(png):
+            return slurp(png)
+        if os.path.isfile(none) or not self.ready or self.stop:
+            return None
+        if self.ctx.dry:
+            return b""
+        try:
+            self.spend()
+            params = dict(systemeid=SYSTEMS[system][3], romtype="rom", romnom=rom.stem + ".zip",
+                          romtaille=rom.size or "")
+            if rom.read:
+                params["crc"] = f"{rom.whole() & 0xffffffff:08X}"
+            data = self.call("jeuInfos.php", **params)
+            medias = ((data or {}).get("response", {}).get("jeu") or {}).get("medias") or []
+            os.makedirs(d, exist_ok=True)
+            for kind in ARCADE_MEDIA:
+                media = self.pick(medias, "", kind, None, ("wor", "us", "eu", "jp", "ss"))
+                if media:
+                    return self.download(media, png)
+            spit(none, b"")
+            return None
         except Stop as e:
             self.stop = str(e)
             return None
@@ -789,7 +838,7 @@ def scan_library(lib, system):
         p = os.path.join(d, n)
         if n.startswith("._") or not os.path.isfile(p):
             continue
-        if os.path.splitext(n)[1].lower() in exts:
+        if os.path.splitext(n)[1].lower() in exts:  # an arcade .zip is the romset itself
             rom = loose_rom(p)
             out.setdefault(nfc(rom.stem), rom)
         elif n.lower().endswith(".zip"):
@@ -881,10 +930,38 @@ def merge_shell(text, new, force):
 
 # ---- labels by name (--by-name) --------------------------------------------------------------------
 
+def arcade_titles():
+    """{(board, set): full title} from slot's own set table (arcade_sets.tsv in the patched tree), {} when
+    neither build/slot nor work/slot is there."""
+    global _ARCADE_TITLES
+    if _ARCADE_TITLES is None:
+        _ARCADE_TITLES = {}
+        for path in ARCADE_SETS:
+            if os.path.isfile(path):
+                for line in slurp(path, "r").splitlines():
+                    cols = line.split("\t")
+                    if len(cols) == 5:
+                        _ARCADE_TITLES[(cols[0], cols[1].lower())] = cols[4]
+                break
+    return _ARCADE_TITLES
+
+
+_ARCADE_TITLES = None
+
+
+def shown_name(stem, system=None):
+    """The name a search or a logo is matched on: an arcade set's full title (mslug is Metal Slug - Super
+    Vehicle-001), every other ROM's own stem."""
+    if system in ARCADE:
+        return arcade_titles().get((system, stem.lower()), stem)
+    return stem
+
+
 def bare_title(stem, system=None):
     """The title words of a GoodTools or No-Intro name: no [..] or (..) groups, _ read as a space, and for GBA
-    no leading GoodGBA release number (0468 - ...). Other systems keep it: 1943 - The Battle of Midway is a title."""
-    t = nfc(stem).replace("_", " ")
+    no leading GoodGBA release number (0468 - ...). Other systems keep it: 1943 - The Battle of Midway is a title.
+    An arcade set is read as its full title (shown_name)."""
+    t = nfc(shown_name(stem, system)).replace("_", " ")
     t = re.sub(r"^\d{4}\s+-\s+", "", t) if system == "GBA" else t
     return " ".join(re.sub(r"\[[^\]]*\]?|\([^)]*\)?", " ", t).split())
 
@@ -985,7 +1062,7 @@ def is_hack(stem):
 def logo_index(ctx, system):
     """{title_key: [names]} of libretro-thumbnails Named_Logos for system, {} when it has none. libretro writes
     & (and : / ? and the like) as _, so a name with _ is also keyed with & read back."""
-    dat = (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
     text = cached_text(ctx, f"logos/{dat}.html", LOGOS + urllib.parse.quote(dat) + "/Named_Logos/", 30 * DAY,
                        optional=True)
     index = {}
@@ -1014,7 +1091,7 @@ def logo_png(ctx, system, name):
         return slurp(p)
     if ctx.dry:
         return b""
-    dat = (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
     status, body = fetch(ctx, LOGOS + urllib.parse.quote(f"{dat}/Named_Logos/{name}.png"))
     if status != 200 or not body.startswith(PNG):
         return None
@@ -1424,6 +1501,47 @@ def process(ctx, system, roms, have, out, dat, args):
     return left
 
 
+def process_arcade(ctx, system, roms, have, out, args):
+    """Labels for arcade sets by set name (ADR 0099). Returns the (stem, subs, None) left without one, for the
+    --by-name pass, which searches by the set's full title."""
+    stats, tried, left = ctx.stats, 0, []
+    for rom in roms:
+        stem, tag = rom.stem, f"{system}/{rom.stem}"
+        if args.only_stem and nfc(stem) != nfc(args.only_stem):
+            continue
+        if f"{stem}.png".lower() in have and not args.force:
+            stats["skipped"] += 1
+            continue
+        if (system, stem.lower()) not in arcade_titles() and arcade_titles():
+            stats["unknown"] += 1
+            print(f"  unknown set  {tag} (not a {system} set of the pinned FinalBurn Neo)")
+            continue
+        if args.limit and tried >= args.limit:
+            break
+        tried += 1
+        stats["matched"] += 1
+        try:
+            body = ctx.ss.arcade_label(system, rom)
+        except Fail as e:
+            stats["errors"] += 1
+            print(f"  error  {tag}: {e}")
+            continue
+        if body is None:
+            stats["missing"] += 1
+            why = f", ScreenScraper stopped: {ctx.ss.stop}" if ctx.ss.stop else ""
+            print(f"  missing  {tag} ({shown_name(stem, system)}{why})")
+            left.append((stem, [""], None))
+            continue
+        stats["written"] += 1
+        note_label(ctx, system, "", stem)
+        if ctx.dry:
+            continue
+        dest = os.path.join(out, "Labels", system, stem + ".png")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        spit(dest, body)
+    return left
+
+
 def process_ps1(ctx, roms, have, have_disc, out, args):
     """Cover and disc for each PlayStation game. A game is skipped when both are on the card (unless --force)."""
     stats, tried, left = ctx.stats, 0, []
@@ -1549,8 +1667,8 @@ def run(args, ctx):
                     elif k in lib:
                         src = lib[k]
                         roms.append(Rom(group[0], src.size, src.read, src.zip_crc, src.path))
-                    elif args.by_name:
-                        roms.append(Rom(group[0], 0, None))  # no CRC, but the sibling and name passes need none
+                    elif args.by_name or system in ARCADE:
+                        roms.append(Rom(group[0], 0, None))  # no CRC: an arcade set is asked by name, and the sibling and name passes need none
                     else:
                         ctx.stats["unknown"] += 1
                         print(f"  unknown CRC  {system}/{group[0]} (not in the library)")
@@ -1574,6 +1692,8 @@ def run(args, ctx):
                     ctx.sib.setdefault(title_key(n[:-4], system), []).append(n)
             if system == "PS1":
                 left = process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
+            elif system in ARCADE:
+                left = process_arcade(ctx, system, roms, have, root, args)
             else:
                 left = process(ctx, system, roms, have, root, dat, args)
             if args.by_name:
@@ -1624,7 +1744,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
