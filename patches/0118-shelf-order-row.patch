@@ -1,0 +1,476 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 21:02:37 +0400
+Subject: [PATCH] shelf-order-row
+
+General gains a Shelf Order row (Classic, Release Year) between Game
+Titles and CPU, saved as `order = release-year` in Config/shelf_order.txt
+the way the CPU row saves cpu.txt (ADR 0100). The new order applies at
+once: the shelves are sorted again and the shelf that was selected stays
+selected, its faces with it. Upstream slot-ui/tests/quick_menu.rs gains
+the "Shelf Order" label line in the General labels, named site (k),
+approved by the maintainer on 2026-10-20.
+---
+ crates/slot-ui/src/quick_menu.rs     |  17 +++-
+ crates/slot-ui/src/quick_retro.rs    |   2 +
+ crates/slot-ui/tests/quick_menu.rs   |   1 +
+ crates/slot-ui/tests/retro_faces.rs  |   8 +-
+ crates/slot/src/app.rs               |  11 ++-
+ crates/slot/src/app/shelf_order.rs   |  36 +++++--
+ crates/slot/src/shelf_order.rs       |  25 +++++
+ crates/slot/tests/shelf_order_row.rs | 141 +++++++++++++++++++++++++++
+ 8 files changed, 229 insertions(+), 12 deletions(-)
+ create mode 100644 crates/slot/tests/shelf_order_row.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index a525fcf..56424b6 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -159,10 +159,11 @@ pub enum QuickRow {
+     ScreenCps2,
+     Cps2Picture,
+     Cps2Rotation,
++    ShelfOrder,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 149] = [
++    pub const ALL: [QuickRow; 150] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -312,6 +313,7 @@ impl QuickRow {
+         QuickRow::ScreenCps2,
+         QuickRow::Cps2Picture,
+         QuickRow::Cps2Rotation,
++        QuickRow::ShelfOrder,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -322,12 +324,13 @@ impl QuickRow {
+         QuickRow::About,
+     ];
+ 
+-    pub const GENERAL: [QuickRow; 8] = [
++    pub const GENERAL: [QuickRow; 9] = [
+         QuickRow::Theme,
+         QuickRow::Wallpaper,
+         QuickRow::WallpaperTint,
+         QuickRow::Recents,
+         QuickRow::ShowTitles,
++        QuickRow::ShelfOrder,
+         QuickRow::Cpu,
+         QuickRow::LidOff,
+         QuickRow::DateTime,
+@@ -496,7 +499,8 @@ impl QuickRow {
+             | QuickRow::Recents
+             | QuickRow::ShowTitles
+             | QuickRow::LidOff
+-            | QuickRow::Cpu => &QuickRow::GENERAL,
++            | QuickRow::Cpu
++            | QuickRow::ShelfOrder => &QuickRow::GENERAL,
+             QuickRow::ControlsShelf | QuickRow::Shortcuts | QuickRow::ControlsInGame => {
+                 &QuickRow::CONTROL_PAGES
+             }
+@@ -842,6 +846,7 @@ impl QuickRow {
+             | QuickRow::A7800PalSpeed => "PAL Speed",
+             QuickRow::SmsRegion => "Region",
+             QuickRow::Cpu => "CPU",
++            QuickRow::ShelfOrder => "Shelf Order",
+             QuickRow::WsRefresh => "Refresh",
+             QuickRow::LynxSpeed => "Lynx Speed",
+             QuickRow::LynxFlip => "Flip Right Carts",
+@@ -1021,6 +1026,8 @@ pub enum QuickValue {
+     Buttons,
+     Upright,
+     Turned,
++    Classic,
++    ReleaseYear,
+ }
+ 
+ impl QuickValue {
+@@ -1096,6 +1103,8 @@ impl QuickValue {
+             QuickValue::Buttons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 31,
+             QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 32,
+             QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
++            QuickValue::Classic => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 34,
++            QuickValue::ReleaseYear => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 35,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -1160,6 +1169,8 @@ impl QuickValue {
+             QuickValue::Buttons => "ABXY",
+             QuickValue::Upright => "Upright",
+             QuickValue::Turned => "Turned",
++            QuickValue::Classic => "Classic",
++            QuickValue::ReleaseYear => "Release Year",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 08e471b..b85aa21 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -123,6 +123,8 @@ impl QuickValue {
+                 QuickValue::Buttons,
+                 QuickValue::Upright,
+                 QuickValue::Turned,
++                QuickValue::Classic,
++                QuickValue::ReleaseYear,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index d442be4..d47895c 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -89,6 +89,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             "Wallpaper Tint",
+             "Recents",
+             "Game Titles",
++            "Shelf Order",
+             "CPU",
+             "Lid Power Off",
+             "Date & Time"
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index 4062ab6..a85dfb6 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -47,6 +47,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Buttons,
+             QuickValue::Upright,
+             QuickValue::Turned,
++            QuickValue::Classic,
++            QuickValue::ReleaseYear,
+         ]
+     );
+     assert_eq!(
+@@ -85,6 +87,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Buttons.text(),
+             QuickValue::Upright.text(),
+             QuickValue::Turned.text(),
++            QuickValue::Classic.text(),
++            QuickValue::ReleaseYear.text(),
+         ],
+         [
+             "Stretch",
+@@ -120,7 +124,9 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "Stick",
+             "ABXY",
+             "Upright",
+-            "Turned"
++            "Turned",
++            "Classic",
++            "Release Year"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index d8460ce..4381119 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -463,6 +463,7 @@ pub struct App {
+     ws_native: bool,
+     sms_region: crate::sms_region::Region,
+     cpu_mode: crate::cpu_governor::CpuMode,
++    shelf_order: crate::shelf_order::ShelfOrder,
+     s32x_speed: crate::s32x_speed::S32xSpeed,
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
+@@ -657,6 +658,7 @@ impl App {
+             ws_native: false,
+             sms_region: crate::sms_region::Region::Auto,
+             cpu_mode: crate::cpu_governor::CpuMode::Performance,
++            shelf_order: crate::shelf_order::ShelfOrder::Classic,
+             s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
+@@ -674,7 +676,7 @@ impl App {
+         let carts = scan(root).unwrap_or_default();
+         crate::boot_time::mark("scan");
+         let mut app = App::new(carts);
+-        app.arrange_shelves(crate::shelf_order::ShelfOrder::read(root));
++        app.read_shelf_order(root);
+         app.root = Some(root.to_path_buf());
+         app.state = read_slot_state(root);
+         app.carousel = read_carousel(root);
+@@ -1157,6 +1159,7 @@ impl App {
+             QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
++            QuickRow::ShelfOrder => Some(self.shelf_order.quick_value()),
+             QuickRow::S32xRenderer | QuickRow::S32xSoundRate => self.s32x_speed.quick_value(row),
+             QuickRow::A2600LeftDifficulty
+             | QuickRow::A2600RightDifficulty
+@@ -2929,6 +2932,7 @@ impl App {
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
++            | QuickRow::ShelfOrder
+             | QuickRow::Tg16Shader
+             | QuickRow::Tg16Picture
+             | QuickRow::WsRefresh
+@@ -3031,6 +3035,10 @@ impl App {
+             }
+             return;
+         }
++        if row == QuickRow::ShelfOrder {
++            self.flip_shelf_order();
++            return;
++        }
+         if row == QuickRow::Cpu {
+             self.cpu_mode = self.cpu_mode.flipped();
+             if let Some(root) = &self.root {
+@@ -3172,6 +3180,7 @@ impl App {
+             | QuickRow::LynxFlip
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
++            | QuickRow::ShelfOrder
+             | QuickRow::WsRefresh
+             | QuickRow::Tg16Picture
+             | QuickRow::NgpPicture
+diff --git a/crates/slot/src/app/shelf_order.rs b/crates/slot/src/app/shelf_order.rs
+index 7d86fb0..4c92460 100644
+--- a/crates/slot/src/app/shelf_order.rs
++++ b/crates/slot/src/app/shelf_order.rs
+@@ -1,10 +1,37 @@
++use std::path::Path;
++
+ use crate::shelf_order::ShelfOrder;
+ 
+ use super::{App, Rack};
+ 
+ impl App {
+-    pub(super) fn arrange_shelves(&mut self, order: ShelfOrder) {
+-        let platforms = order.platforms();
++    pub(super) fn read_shelf_order(&mut self, root: &Path) {
++        self.shelf_order = ShelfOrder::read(root);
++        self.arrange_shelves();
++        self.shelf_at = self
++            .shelves
++            .iter()
++            .position(|(_, s)| !s.carts.is_empty())
++            .unwrap_or(0);
++    }
++
++    pub(super) fn flip_shelf_order(&mut self) {
++        self.shelf_order = self.shelf_order.flipped();
++        if let Some(root) = &self.root {
++            self.shelf_order.save(root, &self.card_writes);
++        }
++        let here = self.shelves.get(self.shelf_at).map(|(r, _)| *r);
++        self.arrange_shelves();
++        self.shelf_at = self
++            .shelves
++            .iter()
++            .position(|(r, _)| Some(*r) == here)
++            .unwrap_or(0);
++        self.rested = None;
++    }
++
++    fn arrange_shelves(&mut self) {
++        let platforms = self.shelf_order.platforms();
+         self.shelves.sort_by_key(|(rack, _)| match rack {
+             Rack::Recents => 0,
+             Rack::Favorites => 1,
+@@ -15,10 +42,5 @@ impl App {
+                     .unwrap_or(platforms.len())
+             }
+         });
+-        self.shelf_at = self
+-            .shelves
+-            .iter()
+-            .position(|(_, s)| !s.carts.is_empty())
+-            .unwrap_or(0);
+     }
+ }
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index 850f95c..144d0c8 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -1,6 +1,9 @@
+ use std::path::Path;
+ 
+ use slot_store::{ini, Platform};
++use slot_ui::QuickValue;
++
++use crate::card_log::CardWrites;
+ 
+ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
+ 
+@@ -46,6 +49,28 @@ impl ShelfOrder {
+         }
+     }
+ 
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            ShelfOrder::Classic => QuickValue::Classic,
++            ShelfOrder::ReleaseYear => QuickValue::ReleaseYear,
++        }
++    }
++
++    pub fn flipped(self) -> ShelfOrder {
++        match self {
++            ShelfOrder::Classic => ShelfOrder::ReleaseYear,
++            ShelfOrder::ReleaseYear => ShelfOrder::Classic,
++        }
++    }
++
++    pub fn save(self, root: &Path, writes: &CardWrites) {
++        let written = ini::write(root, SHELF_ORDER_FILE, KEY, self.as_str());
++        if let Err(e) = &written {
++            eprintln!("slot: shelf order: could not write shelf_order.txt: {e}");
++        }
++        writes.wrote("shelf_order.txt", &written);
++    }
++
+     pub fn read(root: &Path) -> ShelfOrder {
+         let Some(line) = ini::value(root, SHELF_ORDER_FILE, KEY) else {
+             return ShelfOrder::Classic;
+diff --git a/crates/slot/tests/shelf_order_row.rs b/crates/slot/tests/shelf_order_row.rs
+new file mode 100644
+index 0000000..24dcbfb
+--- /dev/null
++++ b/crates/slot/tests/shelf_order_row.rs
+@@ -0,0 +1,141 @@
++mod common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use slot::app::App;
++use slot::shelf_order::{ShelfOrder, SHELF_ORDER_FILE};
++use slot_input::{Action, Btn};
++use slot_store::{write_slot_state, Platform, SlotState};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card() -> TempDir {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    for platform in [Platform::Gg, Platform::Snes, Platform::Ps1, Platform::S32x] {
++        let cart = d
++            .path()
++            .join("Games")
++            .join(platform.dir_name())
++            .join(format!("Cart.{}", platform.extensions()[0]));
++        std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++    }
++    d
++}
++
++fn boot(root: &Path) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn press(a: &mut App, btn: Btn) {
++    a.apply(Action::GbaDown(btn));
++    a.apply(Action::GbaUp(btn));
++    for _ in 0..120 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn go_to(a: &mut App, platform: Platform) {
++    for _ in 0..8 {
++        if a.shelf_platform_name() == Some(platform.name()) {
++            return;
++        }
++        press(a, Btn::R1);
++    }
++    panic!("never reached the {platform:?} shelf");
++}
++
++fn flip_shelf_order(a: &mut App) {
++    a.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::General.position(&a.hidden_rows()) {
++        press(a, Btn::Down);
++    }
++    press(a, Btn::A);
++    for _ in 0..QuickRow::ShelfOrder.position(&a.hidden_rows()) {
++        press(a, Btn::Down);
++    }
++    assert_eq!(a.quick_menu(), Some(QuickRow::ShelfOrder));
++    press(a, Btn::Right);
++    while a.quick_menu().is_some() {
++        press(a, Btn::B);
++    }
++}
++
++#[test]
++fn the_shelf_order_row_sits_on_the_general_page_between_game_titles_and_cpu() {
++    let at = |r: QuickRow| QuickRow::GENERAL.iter().position(|g| *g == r);
++    assert_eq!(
++        at(QuickRow::ShowTitles).map(|i| i + 1),
++        at(QuickRow::ShelfOrder)
++    );
++    assert_eq!(at(QuickRow::ShelfOrder).map(|i| i + 1), at(QuickRow::Cpu));
++    assert_eq!(QuickRow::ShelfOrder.parent(), Some(QuickRow::General));
++    assert_eq!(QuickRow::ShelfOrder.label(), "Shelf Order");
++}
++
++#[test]
++fn a_fresh_card_shows_classic() {
++    let d = card();
++    let a = boot(d.path());
++    assert_eq!(
++        a.quick_value(QuickRow::ShelfOrder),
++        Some(QuickValue::Classic)
++    );
++}
++
++#[test]
++fn right_on_the_row_saves_release_year_and_a_reboot_keeps_it() {
++    let d = card();
++    let mut a = boot(d.path());
++    flip_shelf_order(&mut a);
++    assert_eq!(
++        a.quick_value(QuickRow::ShelfOrder),
++        Some(QuickValue::ReleaseYear)
++    );
++    assert_eq!(ShelfOrder::read(d.path()), ShelfOrder::ReleaseYear);
++    let text = std::fs::read_to_string(d.path().join(SHELF_ORDER_FILE)).expect("shelf_order.txt");
++    assert_eq!(text, "order = release-year\n");
++    let a = boot(d.path());
++    assert_eq!(
++        a.quick_value(QuickRow::ShelfOrder),
++        Some(QuickValue::ReleaseYear)
++    );
++}
++
++#[test]
++fn the_new_order_applies_at_once_and_the_shelf_stays_selected() {
++    let d = card();
++    let mut a = boot(d.path());
++    go_to(&mut a, Platform::Snes);
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Gg.name()));
++    press(&mut a, Btn::L1);
++    flip_shelf_order(&mut a);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Snes.name()));
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::S32x.name()));
++    press(&mut a, Btn::L1);
++    press(&mut a, Btn::L1);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Gg.name()));
++}
++
++#[test]
++fn flipping_back_to_classic_puts_the_old_order_back_at_once() {
++    let d = card();
++    let mut a = boot(d.path());
++    go_to(&mut a, Platform::Snes);
++    flip_shelf_order(&mut a);
++    flip_shelf_order(&mut a);
++    assert_eq!(ShelfOrder::read(d.path()), ShelfOrder::Classic);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Snes.name()));
++    press(&mut a, Btn::R1);
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Gg.name()));
++}

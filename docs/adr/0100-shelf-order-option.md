@@ -1,9 +1,9 @@
 # 0100. Offer a Shelf order option: Classic by default, or the systems by first release date
 
-- Status: Accepted
+- Status: Accepted. Settings row added 2026-10-20 (site (k), patch 0118)
 - Date: 2026-10-20
 - Deciders: maintainer (Felipe Paiva)
-- Related: patch `patches/0117-shelf-order.patch`, [ADR 0025](0025-shelf-memory.md), [ADR 0049](0049-per-shelf-cart-memory.md), [ADR 0085](0085-cpu-governor-user-option.md), [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md)
+- Related: patches `patches/0117-shelf-order.patch` and `patches/0118-shelf-order-row.patch`, [ADR 0025](0025-shelf-memory.md), [ADR 0049](0049-per-shelf-cart-memory.md), [ADR 0085](0085-cpu-governor-user-option.md), [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md)
 
 ## Context
 
@@ -36,16 +36,25 @@ name, and the first shelf with carts on a boot with nothing remembered. The reme
 cart (ADR 0025, ADR 0049) are stored by shelf key (`vb`, `snes`), not by position, so they come back
 in either order.
 
-### No settings row (yet)
+### The Settings row (added 2026-10-20)
 
-There is no row in Settings. A row in General changes the label list in upstream
-`slot-ui/tests/quick_menu.rs` `the_rows_run_in_the_order_the_user_chose`, which is not a token on
-an existing match arm, so CONTRIBUTING section 1 needs the maintainer's approval for a new named
-site, as the CPU row needed site (j). Control > Shelf is pinned the same way (`SHELF_KEYS`). Until
-that approval, the option is the file, read the same way `Config/cpu.txt` and `Config/refresh.txt`
-are. With the approval, the row saves the file the way `CpuMode::save` does; its place in General
-(after CPU is the first candidate) must be checked then against the upstream tests that walk
-that page with Down presses.
+First shipped as the file alone, because a row in General changes the label list in upstream
+`slot-ui/tests/quick_menu.rs` `the_rows_run_in_the_order_the_user_chose`, which needs a named
+test site. The maintainer approved site (k) on 2026-10-20 (CONTRIBUTING section 1).
+
+Settings > General > Shelf Order (Classic, Release Year) sits between Game Titles and CPU. Left or
+Right flips it and saves `Config/shelf_order.txt` the way `CpuMode::save` writes `cpu.txt`, with a
+card-write log entry. The place was checked against every upstream test that walks General:
+`show_titles_sits_under_recents_on_the_general_page` pins Game Titles right after Recents,
+`the_arrows_stand_only_around_the_selected_rows_value` (`slot/tests/quick_menu.rs`) presses Down
+once from Lid Power Off and expects Date & Time, the slot-ui wrap tests pin Recents at position 3,
+and the rest find their row with `position`. Between Game Titles and CPU moves none of them.
+
+The new order applies at once, with no restart: `App::flip_shelf_order` sorts `App::shelves` again
+and selects the same shelf it was on. That is safe because every shelf moves with its carts,
+selection and faces; a cart face still being built for an old position is dropped by
+`shelf_restock::face_fits` (ADR 0073) and asked for again; and the remembered shelf is keyed by
+name. The rest-write cache (`rested`) is cleared so the next rest writes the seat again.
 
 ### The Screen platform list stays fixed
 
@@ -86,10 +95,15 @@ The order matches the one the maintainer gave.
 ## Consequences
 
 - Classic is byte for byte the old order, so no upstream test and no existing test of ours moves.
-- A player sets the option by writing the file; there is no in-menu way until the row is approved.
+- A player sets the option in Settings > General > Shelf Order, or by writing the file.
+- `crates/slot/tests/shelf_order_row.rs`: the row's place, Classic on a fresh card, Right saving
+  `order = release-year` and a reboot keeping it, the order applying at once with the same shelf
+  selected, and flipping back to Classic.
 - `crates/slot/tests/shelf_order.rs`: both orders through R1 from Recents and back, L1 backwards,
   a remembered Virtual Boy shelf coming back in Release year with Game Boy Color after it, an
   unknown word read as Classic, and one release row per shelf platform.
 - Upstream touch points: one `mod shelf_order;` line and one call in `App::boot` in `app.rs`, one
-  `pub mod` line in `lib.rs`. Check on each rebase that `App::boot` still builds the shelves in
+  `pub mod` line in `lib.rs`; the row adds the `shelf_order` field, its quick value, one flip branch
+  and two `| QuickRow::ShelfOrder` tokens in `app.rs`, and the row and its two values in
+  `slot-ui/src/quick_menu.rs`. Check on each rebase that `App::boot` still builds the shelves in
   `App::new` before reading the card.

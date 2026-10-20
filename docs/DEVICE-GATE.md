@@ -416,8 +416,12 @@ The maintainer's device runs Release year; every other card stays Classic.
 
 1. `task deploy:device`. With no `Config/shelf_order.txt`, R1 from Recents walks GBA, GB, GBC, NES,
    SNES and on in the old order.
-2. Set Release year: `adb shell 'printf "order = release-year\n" > /mnt/sdcard/Config/shelf_order.txt'`
-   (or put that line in `Config/shelf_order.txt` with the card in a computer), then restart slot
+2. Set Release year: on the SNES shelf, open Settings > General > Shelf Order and press Right. The
+   row reads Release Year (the whole value fits the row), `adb shell cat
+   /mnt/sdcard/Config/shelf_order.txt` says `order = release-year`, and after closing the menu
+   slot is still on the SNES shelf with CPS2 or the next newer shelf to its right, no restart.
+   Without the menu: `adb shell 'printf "order = release-year\n" > /mnt/sdcard/Config/shelf_order.txt'`
+   (or that line in `Config/shelf_order.txt` with the card in a computer), then restart slot
    (`adb shell 'killall slot'`, or power off and on).
 3. R1 from Recents: Atari 2600, NES, Master System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
    Game Boy, Lynx, Neo Geo, Game Gear, SNES, CPS2, 32X, PlayStation, Virtual Boy, Game Boy Color,
@@ -427,8 +431,9 @@ The maintainer's device runs Release year; every other card stays Classic.
 4. Stop on a cart on the Virtual Boy shelf, close the lid or power off, start again: slot comes back
    on that shelf and cart, and R1 goes to Game Boy Color.
 5. `grep -i "shelf.order" /mnt/sdcard/Logs/slot-session.log` prints nothing.
-6. Back to Classic: `adb shell 'rm /mnt/sdcard/Config/shelf_order.txt'` and restart (not on the
-   maintainer's device, which keeps Release year).
+6. Back to Classic: the row to Classic (applies at once), or `adb shell 'rm
+   /mnt/sdcard/Config/shelf_order.txt'` and restart. Not on the maintainer's device, which keeps
+   Release year.
 
 | Step | Result | Date | Zip version | Notes |
 |---|---|---|---|---|

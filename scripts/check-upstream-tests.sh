@@ -117,12 +117,13 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenA2600)?(, QuickRow::ScreenA7800)?(, QuickRow::ScreenVb)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
 			[ "$(grep -cE '^            "CPU",$' "$ours/$f")" -le 1 ] &&
+			[ "$(grep -cE '^            "Shelf Order",$' "$ours/$f")" -le 1 ] &&
 			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "TurboGrafx-16")?(, "WonderSwan")?(, "Lynx")?(, "Neo Geo Pocket")?(, "32X")?(, "Atari 2600")?(, "Atari 7800")?(, "Virtual Boy")?(, "Neo Geo")?(, "CPS1")?(, "CPS2")?)?)?(\])$/$1$15/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenA2600)?(, QuickRow::ScreenA7800)?(, QuickRow::ScreenVb)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$/$1/' "$ours/$f" |
-			perl -0pe 's/(\n            "Game Titles",\n)            "CPU",\n(            "Lid Power Off",\n)/$1$2/' >"$tmp/x" &&
+			perl -0pe 's/(\n            "Game Titles",\n)(?:            "Shelf Order",\n)?(?:            "CPU",\n)?(            "Lid Power Off",\n)/$1$2/' >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy and the arcade boards after Game Boy in the Screen labels and the rows that open pages, CPU before Lid Power Off in the General labels)"
+			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy and the arcade boards after Game Boy in the Screen labels and the rows that open pages, Shelf Order and CPU before Lid Power Off in the General labels)"
 		else
-			fail "$f differs beyond the NES, SNES, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy and the arcade boards tokens in the Screen labels and the rows that open pages, and the CPU line in the General labels"
+			fail "$f differs beyond the NES, SNES, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy and the arcade boards tokens in the Screen labels and the rows that open pages, and the Shelf Order and CPU lines in the General labels"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;
