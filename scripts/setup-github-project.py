@@ -36,6 +36,7 @@ PHASES = {
     "12": "Phase 12: Atari Lynx",
     "9": "Phase 9: NeoGeo Pocket",
     "15": "Phase 15: Sega 32X",
+    "14": "Phase 14: Atari 2600 and 7800",
     "16": "Phase 16: Arcade, Neo Geo, CPS1 and CPS2",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}

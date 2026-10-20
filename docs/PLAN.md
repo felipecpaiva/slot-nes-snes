@@ -60,7 +60,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096) and Neo Geo, CPS1 and CPS2 (Phase 16, ADR 0097, the only shelves where the zip is the romset) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) and Neo Geo, CPS1 and CPS2 (Phase 16, ADR 0097, the only shelves where the zip is the romset) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -539,6 +539,26 @@ on their own branches.)
 | 9 | 150, done (0096) | A Mega Drive game after a 32X game equals a Mega Drive only run |
 | 10 | 151, done (0097) | One black 32X cart, labels for ScreenScraper id 19 |
 | 11 | 152 | Device gate: dynarec active, Virtua Racing Deluxe, Star Wars Arcade, Knuckles' Chaotix |
+### Phase 14: Atari 2600 and 7800 (device gate pending)
+
+Tracking issue 153, children 154 to 171 (172 deferred), ADR 0095, plan in docs/research/atari-plan.md.
+Stella 2014 (`stella2014`) pinned at `7d1361e` and ProSystem (`prosystem`) pinned at `8a88014`, one
+core each, shelves `Games/A2600` and `Games/A7800`, no core picker, no BIOS needed. Atari ST is not
+planned. Patches 0099 to 0101 on main 1b20432; the device gates are the step left.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0095 and the issues |
+| 2 | 154, 155, done | Core builds, pins and licences |
+| 3 | 171, done | Generated-cart tests (patch 0099); platform, seat, switch, Screen and cart tests (0100, 0101) |
+| 4 | 156, 163, done (0100) | `Platform::A2600` and `Platform::A7800`, shelves, scan; join dist and zip-check |
+| 5 | 157, 164, done (0100) | Core options; no 7800 high score cart |
+| 6 | 158, 166, done (0100) | Own canvases (360x256, 360x272), 4:3 by default; own Screen sections |
+| 7 | 159, 167, done (0100) | Joystick, buttons, console switch rows held every frame, paddles on the left stick |
+| 8 | 165, done (0100) | 7800 BIOS row, Off by default |
+| 9 | 160, 168, done (0100) | PAL pacing (ADR 0071), PAL Speed rows |
+| 10 | 161, 169, done (0101) | Carts and labels (ScreenScraper 26 and 41) |
+| 11 | 162, 170 | Device gates |
 
 ### Phase 16: Neo Geo, CPS1 and CPS2 (in the patch set, device gate pending)
 

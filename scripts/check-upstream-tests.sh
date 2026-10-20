@@ -103,9 +103,9 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot/tests/gpsp.rs)
-		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)?( \| Core::GenesisPlusGx)?( \| Core::PcsxRearmed)?( \| Core::MednafenPceFast)?( \| Core::MednafenWswan)?( \| Core::MednafenLynx)?( \| Core::MednafenNgp)?( \| Core::Picodrive)?( \| Core::Fbneo)? => "gpsp_color_correction",$'
+		mgba='^[ \t]*Core::Mgba( \| Core::Fceumm)?( \| Core::Nestopia)?( \| Core::Snes9x)?( \| Core::Snes9x2005Plus)?( \| Core::GenesisPlusGx)?( \| Core::PcsxRearmed)?( \| Core::MednafenPceFast)?( \| Core::MednafenWswan)?( \| Core::MednafenLynx)?( \| Core::MednafenNgp)?( \| Core::Picodrive)?( \| Core::Stella2014)?( \| Core::Prosystem)?( \| Core::Fbneo)? => "gpsp_color_correction",$'
 		if [ "$(grep -cE "$mgba" "$ours/$f")" = 1 ] &&
-			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)?( \\| Core::GenesisPlusGx)?( \\| Core::PcsxRearmed)?( \\| Core::MednafenPceFast)?( \\| Core::MednafenWswan)?( \\| Core::MednafenLynx)?( \\| Core::MednafenNgp)?( \\| Core::Picodrive)?( \\| Core::Fbneo)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
+			perl -pe "s/^([ \\t]*Core::Mgba)( \\| Core::Fceumm)?( \\| Core::Nestopia)?( \\| Core::Snes9x)?( \\| Core::Snes9x2005Plus)?( \\| Core::GenesisPlusGx)?( \\| Core::PcsxRearmed)?( \\| Core::MednafenPceFast)?( \\| Core::MednafenWswan)?( \\| Core::MednafenLynx)?( \\| Core::MednafenNgp)?( \\| Core::Picodrive)?( \\| Core::Stella2014)?( \\| Core::Prosystem)?( \\| Core::Fbneo)? => \"gpsp_color_correction\",\$/\$1 => \"gpsp_color_correction\",/" "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
 			echo "upstream test code: $f uses the named exception (new cores on the Core::Mgba colour-correction arm)"
 		else
@@ -113,32 +113,32 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 		fi
 		continue ;;
 	crates/slot-ui/tests/quick_menu.rs)
-		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "TurboGrafx-16")?(, "WonderSwan")?(, "Lynx")?(, "Neo Geo Pocket")?(, "32X")?(, "Neo Geo")?(, "CPS1")?(, "CPS2")?)?)?\]$'
-		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$'
+		labels='^        \["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "TurboGrafx-16")?(, "WonderSwan")?(, "Lynx")?(, "Neo Geo Pocket")?(, "32X")?(, "Atari 2600")?(, "Atari 7800")?(, "Neo Geo")?(, "CPS1")?(, "CPS2")?)?)?\]$'
+		opens='^            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenA2600)?(, QuickRow::ScreenA7800)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$'
 		if [ "$(grep -cE "$labels" "$ours/$f")" = 1 ] && [ "$(grep -cE "$opens" "$ours/$f")" = 1 ] &&
 			[ "$(grep -cE '^            "CPU",$' "$ours/$f")" -le 1 ] &&
-			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "TurboGrafx-16")?(, "WonderSwan")?(, "Lynx")?(, "Neo Geo Pocket")?(, "32X")?(, "Neo Geo")?(, "CPS1")?(, "CPS2")?)?)?(\])$/$1$12/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$/$1/' "$ours/$f" |
+			perl -pe 's/^(        \["Game Boy Advance", "Game Boy Color", "Game Boy"), "NES", "SNES"(, "Game Gear", "Master System", "Mega Drive"(, "PlayStation"(, "TurboGrafx-16")?(, "WonderSwan")?(, "Lynx")?(, "Neo Geo Pocket")?(, "32X")?(, "Atari 2600")?(, "Atari 7800")?(, "Neo Geo")?(, "CPS1")?(, "CPS2")?)?)?(\])$/$1$14/; s/^(            QuickRow::ControlsInGame), QuickRow::ScreenNes, QuickRow::ScreenSnes(, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd(, QuickRow::ScreenPs1(, QuickRow::ScreenTg16)?(, QuickRow::ScreenWs)?(, QuickRow::ScreenLynx)?(, QuickRow::ScreenNgp)?(, QuickRow::ScreenS32x)?(, QuickRow::ScreenA2600)?(, QuickRow::ScreenA7800)?(, QuickRow::ScreenNeoGeo)?(, QuickRow::ScreenCps1)?(, QuickRow::ScreenCps2)?)?)?$/$1/' "$ours/$f" |
 			perl -0pe 's/(\n            "Game Titles",\n)            "CPU",\n(            "Lid Power Off",\n)/$1$2/' >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Neo Geo, CPS1 and CPS2 after Game Boy in the Screen labels and the rows that open pages, CPU before Lid Power Off in the General labels)"
+			echo "upstream test code: $f uses the named exceptions (NES, SNES, the Sega systems, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X and Atari after Game Boy in the Screen labels and the rows that open pages, CPU before Lid Power Off in the General labels)"
 		else
-			fail "$f differs beyond the NES, SNES, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Neo Geo, CPS1 and CPS2 tokens in the Screen labels and the rows that open pages, and the CPU line in the General labels"
+			fail "$f differs beyond the NES, SNES, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X and Atari tokens in the Screen labels and the rows that open pages, and the CPU line in the General labels"
 		fi
 		continue ;;
 	*) fail "$f differs"; continue ;;
 	esac
 	# Exact rule: exactly one Game Boy arm line may carry | $prefix::Nes, then optionally
-	# | $prefix::Snes, | $prefix::Gg, | $prefix::Sms, | $prefix::Md, | $prefix::Ps1, | $prefix::Tg16, | $prefix::Ws, | $prefix::Lynx, | $prefix::Ngp, | $prefix::S32x, | $prefix::NeoGeo, | $prefix::Cps1 and | $prefix::Cps2 in that order; everything
+	# | $prefix::Snes, | $prefix::Gg, | $prefix::Sms, | $prefix::Md, | $prefix::Ps1, | $prefix::Tg16, | $prefix::Ws, | $prefix::Lynx, | $prefix::Ngp, | $prefix::S32x, | $prefix::A2600 and | $prefix::A7800 in that order; everything
 	# else, whitespace and final newline included, must be byte-identical. A reflowed arm fails
 	# here on purpose: that is a decision for a human.
-	tail="( \\| $prefix::Snes( \\| $prefix::Gg( \\| $prefix::Sms( \\| $prefix::Md( \\| $prefix::Ps1( \\| $prefix::Tg16)?( \\| $prefix::Ws)?( \\| $prefix::Lynx)?( \\| $prefix::Ngp)?( \\| $prefix::S32x)?( \\| $prefix::NeoGeo)?( \\| $prefix::Cps1)?( \\| $prefix::Cps2)?)?)?)?)?)?"
+	tail="( \\| $prefix::Snes( \\| $prefix::Gg( \\| $prefix::Sms( \\| $prefix::Md( \\| $prefix::Ps1( \\| $prefix::Tg16)?( \\| $prefix::Ws)?( \\| $prefix::Lynx)?( \\| $prefix::Ngp)?( \\| $prefix::S32x)?( \\| $prefix::A2600)?( \\| $prefix::A7800)?( \\| $prefix::NeoGeo)?( \\| $prefix::Cps1)?( \\| $prefix::Cps2)?)?)?)?)?)?"
 	arm="^[[:space:]]*$prefix::Gb \\| $prefix::Gbc \\| $prefix::Nes$tail =>"
 	if [ "$(grep -cE "$arm" "$ours/$f")" = 1 ] &&
 		perl -pe "s/^([ \\t]*$prefix::Gb \\| $prefix::Gbc) \\| $prefix::Nes$tail =>/\$1 =>/" "$ours/$f" >"$tmp/x" &&
 		cmp -s "$up/$f" "$tmp/x"; then
-		echo "upstream test code: $f uses the named exception (| $prefix::Nes, | $prefix::Snes, the Sega platforms, | $prefix::Ps1, | $prefix::Tg16, | $prefix::Ws, | $prefix::Lynx, | $prefix::Ngp, | $prefix::S32x, | $prefix::NeoGeo, | $prefix::Cps1 and | $prefix::Cps2 in the Game Boy arm)"
+		echo "upstream test code: $f uses the named exception (| $prefix::Nes, | $prefix::Snes, the Sega platforms, | $prefix::Ps1, | $prefix::Tg16, | $prefix::Ws, | $prefix::Lynx, | $prefix::Ngp, | $prefix::S32x, | $prefix::A2600 and | $prefix::A7800 in the Game Boy arm)"
 	else
-		fail "$f differs beyond the Game Boy arm's | $prefix::Nes, | $prefix::Snes, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Neo Geo, CPS1 and CPS2 platform tokens"
+		fail "$f differs beyond the Game Boy arm's | $prefix::Nes, | $prefix::Snes, Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X and Atari platform tokens"
 	fi
 done
 

@@ -2,8 +2,8 @@
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, and the Neo Geo, CPS1
-and CPS2 arcade boards, beside slot's own
+WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and
+the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -35,6 +35,8 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | WonderSwan, WonderSwan Color | `Games/WS` | `.ws`, `.wsc` | Beetle Cygne | none | device gate pending |
 | Atari Lynx | `Games/Lynx` | `.lnx`, `.lyx` | Beetle Lynx | **required**, your own `lynxboot.img` | device gate pending |
 | NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device gate pending |
+| Atari 2600 | `Games/A2600` | `.a26`, `.bin` | Stella 2014 | none | device gate pending |
+| Atari 7800 | `Games/A7800` | `.a78` (headered or not) | ProSystem | optional, your own `7800 BIOS (U).rom`, off by default | device gate pending |
 | Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
 | Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
@@ -52,6 +54,9 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
 - **Atari Lynx:** required. `BIOS/lynxboot.img`, 512 bytes. Without it the cart stays on the shelf
   and slot says "Lynx needs BIOS/lynxboot.img" (a 0-byte placeholder counts as missing). A 512-byte
   file that is not the known dump still launches, with a one-time toast.
+- **Atari 7800:** optional and off by default. With the BIOS row On (7800 Screen section), ProSystem
+  loads `BIOS/7800 BIOS (U).rom` (`(E)` for a PAL cart) and shows the Atari logo before a signed game;
+  an unsigned cart (homebrew) does not boot with it. Off hides the file from the core.
 - **Neo Geo:** required. `BIOS/neogeo.zip`, the FinalBurn Neo BIOS set. slot checks that it holds the
   MVS Asia/Europe ver. 6 BIOS and the three shared files (`sp-s3.sp1` or `asia-s3.rom`, `sm1.sm1`,
   `sfix.sfix`, `000-lo.lo`, matched by CRC); without them a Neo Geo set stays on the shelf and slot says
@@ -94,6 +99,15 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **NeoGeo Pocket and Pocket Color.** One shelf, the 160x152 screen at 3x. The game's saves live in
   the cart's flash, which slot checks before the core reads it and writes atomically at every lid
   close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`.
+- **Atari 2600.** Joystick on the d-pad, fire on A or B (the left stick turns paddles in paddle
+  games, which also fire on A or B), SELECT is Select and START is Reset. L1 and R1 stay slot's. The
+  console switches are rows in the 2600 Screen section: Left and Right Difficulty (Auto, A, B) and TV
+  Type (Auto, Colour, B&W). Auto sends nothing, so a game starts with Stella's default for it, and a
+  switch set to A or B stays there in Stella until the game is started again. 4:3 by default, 2600
+  pixels kept wide. Keypad, driving and Mindlink games are not supported. Saves are save states only.
+- **Atari 7800.** B is button 1, A button 2, X is Reset, SELECT is Select and START is Pause. Left and
+  Right Difficulty rows (B and A by default, ProSystem's own choice), and a BIOS row. No High Score
+  Cartridge (ProSystem has none), so saves are save states only.
 - **Neo Geo, CPS1 and CPS2** run on FinalBurn Neo, one shelf per board. The zip is the romset, named
   as the set (`mslug.zip`, `ffight.zip`, `ssf2t.zip`), for the pinned FinalBurn Neo (dat 1.0.0.03):
   a zip that is not a set of that board is left off the shelf, and an older MAME set may lack a file
@@ -115,12 +129,14 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2) |
-| PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
+| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, Atari 2600 and 7800, where it is the default) |
+| PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
 | Refresh | WonderSwan | 60 Hz, 75 Hz |
 | Speed | Lynx | Native, Panel |
+| Left, Right Difficulty; TV Type | Atari 2600 | Auto, A, B; Auto, Colour, B&W |
+| Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
 | Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
@@ -165,6 +181,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few
   carts that save to an EEPROM keep progress only through the resume state and save states.
+- Atari 2600 and 7800: a PAL game is shown at the NTSC picture height in 4:3 and Stretch (the middle
+  210 or 223 rows); Actual shows the whole PAL frame. Keypad, driving and Mindlink 2600 games are not
+  supported. The device gates (issues 162 and 170) are still open.
 - At Native PAL speed, a 50 fps game on the 59.6 Hz panel repeats about one frame in six.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.
@@ -193,6 +212,58 @@ Download `slot-nes-snes-<release>-h700.zip` from the
 It is safe. Stock slot does not scan the new folders, so a new-system cart left in the slot boots to
 an empty slot. No file is deleted. `sh scripts/check-downgrade.sh` runs this case against the
 upstream tree.
+
+### Expansion Card
+
+A device with two TF slots (the RG34XXSP has them) can keep whole systems on a second card. The card
+in TF1 (the **Base System card**, the one BaseOS runs from) stays the main card: carts, `Saves/`,
+`States/`, `Config/`, `Labels/`, `BIOS/` and `System/` all stay on it. The card in TF2 (the
+**Expansion Card**) holds only the game folders of the systems you move there, for example
+`Games/PS1/`. At launch `System/expansion.sh` mounts it at `/mnt/expansion` and binds each listed
+folder onto `Games/<SYS>` of the main card, so slot sees one `Games/` tree (ADR 0098).
+
+Prepare the card on a Mac (or on Linux with `--disk /dev/sdX`). BaseOS mounts the first partition of
+TF2 as the main card whenever anything there mounts, so the tool makes that partition 16 MiB of
+zeros and puts the games on a second, exFAT partition named `EXPANSION`. It erases the whole disk, so
+it refuses unless the identifier, the exact size in bytes and a current volume name all match, and
+without `--yes` it only prints its plan:
+
+```sh
+diskutil info disk4 | grep "Disk Size"            # the size in bytes
+python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --systems PS1
+sudo python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --systems PS1 --yes
+```
+
+On macOS the tool runs one `diskutil partitionDisk -noEFI` for the table and the exFAT partition,
+zeroes p1 and reads it back. It prints `ok:` for each step it ran; if one fails it says whether the
+card was touched yet. A card left half done is not for the device: run the tool again with the label
+it now shows (`diskutil list`). Take the card out and put it back first after a failed run, so macOS
+reads its table again.
+
+Then copy the games into `Games/PS1/` on `EXPANSION` (run `dot_clean -m /Volumes/EXPANSION` after a
+Finder copy) and list the moved systems in `Config/expansion.txt` on the main card, one folder name
+per line. `#` starts a comment:
+
+```
+# Systems on the Expansion Card
+PS1
+```
+
+- **Without the Expansion Card** the base card's own folders show, as before. A listed system's shelf
+  is whatever the base card holds (usually nothing), and a seated game from it is not resumed. The
+  launch waits at most one second for a late card and writes every step to `Logs/slot-session.log`.
+- **Files under a moved folder on the base card are hidden** while the Expansion Card is in, and
+  still take space there. The session log says so when it finds any. Once the games play from the
+  Expansion Card, delete the old copies from the base card (with the Expansion Card out, or from a
+  computer) to get the space back.
+- **Saves, states and labels of moved systems stay on the main card**, so a game keeps its saves when
+  the Expansion Card is swapped.
+- **USB storage mode** (hold MENU at power on) exports TF2 when a card is in it, so you get the
+  Expansion Card. Take it out to reach the main card over USB.
+- **Card repair** checks the main card only. It unmounts the Expansion Card folders first.
+- **The tools** see the same paths over adb (`--device`). With the main card mounted on a Mac, pass
+  the Expansion Card too: `--card /Volumes/SLOT --expansion /Volumes/EXPANSION`. Without it they stop
+  (or skip that system) and say why. They never read the empty folder as no games.
 
 ### Building from source
 

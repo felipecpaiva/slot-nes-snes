@@ -286,6 +286,71 @@ interpreter number; the device is the first place the dynarec runs.
 | Star Wars Arcade | | | | | | | heavy, polygons |
 | Knuckles' Chaotix | | | | | | | 2D platformer |
 
+## Expansion Card (ADR 0098)
+
+Pending. Needs the RG34XXSP with the Base System card in TF1 and an Expansion Card prepared by
+`tools/expansion-card.py` in TF2, `Games/PS1/` filled on it and `PS1` in `Config/expansion.txt`. Read
+everything over adb (`mise exec -- adb shell ...`).
+
+1. Main card: after boot, `grep -E 'mmcblk|expansion' /proc/mounts` shows `/dev/mmcblk0p7` at
+   `/mnt/sdcard`, `/dev/mmcblk1p2` at `/mnt/expansion` and again at `/mnt/sdcard/Games/PS1`, and no
+   `mmcblk1p1` anywhere. `grep mmcblk1p1 /mnt/sdcard/baseos-boot.log /mnt/sdcard/Logs/*.log` finds
+   nothing mounted from it.
+2. p1 stays empty: `dd if=/dev/mmcblk1p1 bs=1M count=16 2>/dev/null | od -An -tx1 | sort -u` prints a
+   single line of zeros, also after a reboot (the boot-time `fsck.fat -a` must not have written it).
+3. Session log: `grep expansion: /mnt/sdcard/Logs/slot-session.log` shows the exFAT mount and
+   `Games/PS1 now comes from the expansion card` before the `exec` line.
+4. Shelf: the PlayStation shelf lists the Expansion Card's games; a disc boots, a multi-disc game
+   swaps discs, the jewel case and disc label show (labels on the main card).
+5. Saves and states: a memory card save and a save state land in `Saves/PS1` and `States/PS1` on the
+   main card (`ls -l /mnt/sdcard/Saves/PS1`), not on the Expansion Card.
+6. Respawn: `killall slot`; after the frontend restarts, `/proc/mounts` has each line from step 1
+   once (no second bind) and the log says `Games/PS1 is already on the expansion card`.
+7. Card out: power off, remove TF2, boot. The shelves show the base card only, the session log says
+   `no card at /dev/mmcblk1p2`, boot takes about one second longer, nothing crashes. A PS1 game
+   seated at power off is not resumed. Put the card back and power on: the shelf returns.
+8. Power off with the card in, from the menu and by closing the lid past its timeout. On the next
+   boot `dmesg | grep -i -E 'exfat|fat-fs'` shows no dirty or not-unmounted warning for
+   `mmcblk1p2` or `mmcblk0p7`.
+9. Card repair (Repair in the power menu, "Repair the SD card?") with the card in: it ends `REPAIR COMPLETE`,
+   `/data/slot-repair.log` names only `/dev/mmcblk0p7`, and there is no `could not unmount` line.
+10. USB storage (hold MENU at power on): the Mac sees the Expansion Card (`EXPANSION` plus an
+    unformatted 16 MiB partition, which macOS must not offer to initialise silently; dismiss it).
+    Eject, remove TF2, repeat: the Mac sees the main card.
+11. Tools over adb: `python3 tools/hacks.py --check --device` and
+    `python3 tools/fetch-labels.py --device --library ~/ROMS --only PS1 --dry-run` list the
+    Expansion Card's PS1 games.
+
+| Step | Result | Date | Zip version | Notes |
+|---|---|---|---|---|
+| 1 to 11 | | | | |
+## Atari 2600 and 7800 (issues 162 and 170, ADR 0095)
+
+Pending. No BIOS for the 2600; the 7800 BIOS is optional and Off by default.
+
+1. Boot: each cart seats on its own shelf (A2600 Stella 2014, A7800 ProSystem), no black screen.
+2. Picture: 4:3 by default, Stretch and Actual walk; a PAL dump (2600 Europe) runs at 50 Hz with
+   PAL Speed Native, and the cropped rows in 4:3 hide nothing the game needs.
+3. Controls, 2600: d-pad moves, A and B fire, SELECT is Select, START Reset (starts most games);
+   Right Difficulty A makes a game harder where it reads it (Space Invaders: wider shots on B);
+   TV Type B&W turns Pitfall! grey or pauses games that read it; a paddle game (Kaboom!,
+   Breakout) turns with the left stick and fires on A.
+4. Controls, 7800: B and A are buttons 1 and 2, X Reset, START Pause, SELECT Select; a game that
+   reads the difficulty switches follows the rows.
+5. BIOS, 7800: copy the backup's `[BIOS] Atari 7800 (USA)` dump to the card as exactly
+   `BIOS/7800 BIOS (U).rom` (4096 bytes, md5 `0763f1ffb006ddbe32e52d497ee848ae`); BIOS On then shows the logo before Asteroids; Off boots
+   straight in.
+6. Speed and audio: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0.
+7. States and rewind: save and load a state; rewind works; eject and power cycle resume.
+
+| Title | System | Picture | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|
+| Pitfall! | 2600 | | | | | |
+| River Raid | 2600 | | | | | |
+| Kaboom! | 2600 | | | | | paddle on the left stick |
+| Asteroids | 7800 | | | | | BIOS Off and On |
+| Ms. Pac-Man | 7800 | | | | | |
+| Ninja Golf | 7800 | | | | | |
 ## Neo Geo, CPS1 and CPS2 (issue 163, ADR 0097)
 
 Pending. Put `neogeo.zip` in `BIOS/` and the sets in their shelves (`docs/rom-library/best-copy/arcade-adds.tsv`
