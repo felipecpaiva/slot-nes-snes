@@ -46,10 +46,12 @@ check_cores() {
 		vendor/picodrive_libretro.so vendor/picodrive_libretro.so.meta vendor/picodrive-src.tar.gz \
 		vendor/picodrive-emu2413-src.tar.gz vendor/picodrive-dr_libs-src.tar.gz vendor/picodrive-libpicofe-src.tar.gz \
 		vendor/picodrive-src.meta licenses/picodrive-LICENSE.txt licenses/picodrive-tremor-BSD.txt \
-		licenses/picodrive-emu2413-MIT.txt licenses/picodrive-headerless-files.txt; do
+		licenses/picodrive-emu2413-MIT.txt licenses/picodrive-headerless-files.txt \
+		vendor/mednafen_vb_libretro.so vendor/mednafen_vb_libretro.so.meta vendor/mednafen_vb-src.tar.gz \
+		vendor/mednafen_vb-src.meta licenses/mednafen_vb-GPL-2.0.txt licenses/mednafen_vb-headerless-files.txt; do
 		[ -f "$root/$f" ] || missing "$f"
 	done
-	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive; do
+	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive mednafen_vb; do
 		is_aarch64 "$root/vendor/${c}_libretro.so" || {
 			echo "slot-nes-snes: vendor/${c}_libretro.so is not an aarch64 ELF" >&2
 			exit 1
@@ -96,7 +98,8 @@ build() {
 		"$root/vendor/mednafen_wswan_libretro.so" \
 		"$root/vendor/mednafen_lynx_libretro.so" \
 		"$root/vendor/mednafen_ngp_libretro.so" \
-		"$root/vendor/picodrive_libretro.so" "$sys/"
+		"$root/vendor/picodrive_libretro.so" \
+		"$root/vendor/mednafen_vb_libretro.so" "$sys/"
 	cp "$root/vendor/fceumm_libretro.so.meta" "$root/vendor/fceumm-src.tar.gz" \
 		"$root/vendor/fceumm-src.meta" "$root/vendor/snes9x_libretro.so.meta" \
 		"$root/vendor/snes9x-src.tar.gz" "$root/vendor/snes9x-src.meta" \
@@ -111,7 +114,8 @@ build() {
 		"$root/vendor/mednafen_lynx-src.tar.gz" "$root/vendor/mednafen_lynx-src.meta" "$root/vendor/mednafen_ngp_libretro.so.meta" \
 		"$root/vendor/mednafen_ngp-src.tar.gz" "$root/vendor/mednafen_ngp-src.meta" "$root/vendor/picodrive_libretro.so.meta" \
 		"$root/vendor/picodrive-src.tar.gz" "$root/vendor/picodrive-emu2413-src.tar.gz" "$root/vendor/picodrive-dr_libs-src.tar.gz" \
-		"$root/vendor/picodrive-libpicofe-src.tar.gz" "$root/vendor/picodrive-src.meta" "$sys/licenses/"
+		"$root/vendor/picodrive-libpicofe-src.tar.gz" "$root/vendor/picodrive-src.meta" "$root/vendor/mednafen_vb_libretro.so.meta" \
+		"$root/vendor/mednafen_vb-src.tar.gz" "$root/vendor/mednafen_vb-src.meta" "$sys/licenses/"
 	for f in "$root"/licenses/*; do
 		[ -f "$f" ] && [ ! -L "$f" ] && cp "$f" "$sys/licenses/"
 	done
@@ -120,7 +124,7 @@ build() {
 	done
 	(cd "$sys" && $(command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256) mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
 		nestopia_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so \
-		pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so >licenses/cores.sha256)
+		pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so mednafen_vb_libretro.so >licenses/cores.sha256)
 	echo "device tree ready at $dist"
 }
 

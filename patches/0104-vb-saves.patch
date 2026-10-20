@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:11:05 +0400
+Subject: [PATCH] vb-saves
+
+Beetle VB gives every cart 64 KB of cart RAM, so a Virtual Boy game's
+save is the ordinary .sav in Saves/VB, written on eject and on the lid
+like any battery, and a RetroArch .srm loads when there is no .sav. A
+cart that never saves still leaves a 64 KB .sav of zeros, as a HuCard
+leaves its formatted backup RAM. Tests only.
+---
+ crates/slot/tests/vb_saves.rs | 119 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 119 insertions(+)
+ create mode 100644 crates/slot/tests/vb_saves.rs
+
+diff --git a/crates/slot/tests/vb_saves.rs b/crates/slot/tests/vb_saves.rs
+new file mode 100644
+index 0000000..c0b7f64
+--- /dev/null
++++ b/crates/slot/tests/vb_saves.rs
+@@ -0,0 +1,119 @@
++// Virtual Boy saves (ADR 0097, issue 158): Beetle VB gives every cart 64 KB of cart RAM, so the
++// ordinary .sav in Saves/VB holds it. A cart that never saves still leaves a 64 KB .sav of zeros,
++// as a HuCard leaves its formatted backup RAM (ADR 0091).
++mod common;
++mod core_common;
++mod real_seat;
++mod vb_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use slot::app::Phase;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++use vb_common::{beetle_vb, cart, Cart, SAVE_MARK};
++
++const STEM: &str = "Wario";
++const CART_RAM: usize = 64 * 1024;
++
++fn seated(dylib: &Path, game: &Cart) -> tempfile::TempDir {
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = game.write(roms.path(), &format!("{STEM}.vb"));
++    let root = real_seat::rooted(Platform::Vb, STEM, &rom, dylib);
++    cart(&root.path().join("Games/VB"), "Zzz");
++    root
++}
++
++fn sav(root: &Path) -> PathBuf {
++    root.join("Saves/VB").join(format!("{STEM}.sav"))
++}
++
++fn cart_ram(session: &Session) -> Option<Vec<u8>> {
++    session
++        .emu()
++        .expect("no core in the slot")
++        .snapshot()
++        .save_ram()
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++fn marked() -> Vec<u8> {
++    let mut ram = vec![0u8; CART_RAM];
++    ram[0x40..0x44].copy_from_slice(b"SAVE");
++    ram
++}
++
++#[test]
++fn a_game_that_writes_cart_ram_leaves_it_as_its_sav_on_eject() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let saving = Cart {
++        saves: true,
++        ..Cart::GAME
++    };
++    let root = seated(&dylib, &saving);
++    let mut session = real_seat::play(root.path(), true);
++    eject(&mut session);
++    let ram = std::fs::read(sav(root.path())).expect("no sav after eject");
++    assert_eq!(ram.len(), CART_RAM);
++    assert_eq!(ram[0], SAVE_MARK);
++}
++
++#[test]
++fn a_saved_cart_ram_survives_an_eject_and_a_reinsert_through_saves_vb() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let root = seated(&dylib, &Cart::GAME);
++    std::fs::write(sav(root.path()), marked()).expect("write sav");
++    let mut first = real_seat::play(root.path(), true);
++    assert!(cart_ram(&first) == Some(marked()), "first insert");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(sav(root.path())).expect("read sav") == marked());
++    let second = real_seat::play(root.path(), true);
++    assert!(cart_ram(&second) == Some(marked()), "after reinsert");
++}
++
++#[test]
++fn a_cart_that_never_saves_still_leaves_a_64_kb_sav_of_zeros() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let root = seated(&dylib, &Cart::GAME);
++    let mut session = real_seat::play(root.path(), true);
++    eject(&mut session);
++    assert!(std::fs::read(sav(root.path())).expect("no sav") == vec![0u8; CART_RAM]);
++}
++
++#[test]
++fn a_retroarch_srm_loads_into_the_cart_ram_when_there_is_no_sav() {
++    let _g = core_lock();
++    let Some(dylib) = beetle_vb() else {
++        return;
++    };
++    let root = seated(&dylib, &Cart::GAME);
++    std::fs::write(
++        root.path().join("Saves/VB").join(format!("{STEM}.srm")),
++        marked(),
++    )
++    .expect("write srm");
++    let session = real_seat::play(root.path(), true);
++    assert!(cart_ram(&session) == Some(marked()));
++}
