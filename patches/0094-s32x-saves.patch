@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 00:34:00 +0400
+Subject: [PATCH] s32x-saves
+
+32X saves are the ordinary Mega Drive kind and need no 32X-only rule.
+PicoDrive gives every cart 16 KB of save RAM, reported before the first
+frame, when slot loads Saves/32X/<stem>.sav into it, and afterwards only
+once the game has written a byte. So a marked .sav survives an eject and
+a reinsert, a game that writes its SRAM leaves a 16 KB .sav on eject and
+when the lid closes, and a game that never saves leaves no .sav at all.
+---
+ crates/slot/tests/s32x_saves.rs | 126 ++++++++++++++++++++++++++++++++
+ 1 file changed, 126 insertions(+)
+ create mode 100644 crates/slot/tests/s32x_saves.rs
+
+diff --git a/crates/slot/tests/s32x_saves.rs b/crates/slot/tests/s32x_saves.rs
+new file mode 100644
+index 0000000..4664ba7
+--- /dev/null
++++ b/crates/slot/tests/s32x_saves.rs
+@@ -0,0 +1,126 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod s32x_common;
++
++use std::path::{Path, PathBuf};
++
++use common::core_lock;
++use s32x_common::{picodrive, Cart, SRAM_MARK};
++use slot::app::Phase;
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++
++const STEM: &str = "Chaotix";
++const SRAM_BYTES: usize = 16 * 1024;
++
++fn seated(dylib: &Path, cart: &Cart) -> tempfile::TempDir {
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart.write(roms.path(), &format!("{STEM}.32x"));
++    let root = real_seat::rooted(Platform::S32x, STEM, &rom, dylib);
++    Cart::GAME.write(&root.path().join("Games/32X"), "Zzz.32x");
++    root
++}
++
++fn sav(root: &Path) -> PathBuf {
++    root.join("Saves/32X").join(format!("{STEM}.sav"))
++}
++
++fn marked() -> Vec<u8> {
++    let mut sram = vec![0u8; SRAM_BYTES];
++    sram[0x100..0x104].copy_from_slice(b"SAVE");
++    sram
++}
++
++fn sram_in_the_core(session: &Session) -> Option<Vec<u8>> {
++    session
++        .emu()
++        .expect("no core in the slot")
++        .snapshot()
++        .save_ram()
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++#[test]
++fn a_marked_sav_survives_an_eject_and_a_reinsert_through_saves_32x() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let root = seated(&dylib, &Cart::GAME);
++    std::fs::write(sav(root.path()), marked()).expect("write sav");
++    let mut first = real_seat::play(root.path(), true);
++    assert!(sram_in_the_core(&first) == Some(marked()), "first insert");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(sav(root.path())).expect("read sav") == marked());
++    let second = real_seat::play(root.path(), true);
++    assert!(
++        sram_in_the_core(&second) == Some(marked()),
++        "after reinsert"
++    );
++}
++
++#[test]
++fn a_game_that_writes_its_sram_leaves_a_16_kb_sav_on_eject() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let saving = Cart {
++        sram: true,
++        ..Cart::GAME
++    };
++    let root = seated(&dylib, &saving);
++    let mut session = real_seat::play(root.path(), true);
++    eject(&mut session);
++    let sram = std::fs::read(sav(root.path())).expect("no sav after eject");
++    assert_eq!(sram.len(), SRAM_BYTES);
++    assert_eq!(sram[1], SRAM_MARK);
++}
++
++#[test]
++fn closing_the_lid_writes_the_sram_as_the_games_sav() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let saving = Cart {
++        sram: true,
++        ..Cart::GAME
++    };
++    let root = seated(&dylib, &saving);
++    let mut session = real_seat::play(root.path(), true);
++    assert!(!sav(root.path()).exists());
++    session.feed([RawEvent::Down(Btn::Lid)], 100);
++    session.app_mut().settle_saves();
++    let sram = std::fs::read(sav(root.path())).expect("no sav after the lid closed");
++    assert_eq!(sram.len(), SRAM_BYTES);
++    assert_eq!(sram[1], SRAM_MARK);
++}
++
++#[test]
++fn a_game_that_never_saves_leaves_no_sav_on_eject() {
++    // PicoDrive reports no save RAM once a game has run without writing it (s32x_core), so slot has
++    // nothing to write and no zero-filled .sav appears.
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let root = seated(&dylib, &Cart::GAME);
++    let mut session = real_seat::play(root.path(), true);
++    eject(&mut session);
++    drop(session);
++    assert!(!sav(root.path()).exists());
++}

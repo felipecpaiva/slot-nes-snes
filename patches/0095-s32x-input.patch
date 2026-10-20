@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 00:34:31 +0400
+Subject: [PATCH] s32x-input
+
+The 32X pad is the Mega Drive's and needs no 32X-only input code: every
+button sends the 32X game what it sends a Mega Drive game, and X, Y, L1
+and R1 reach PicoDrive as the six-button pad. PicoDrive's libretro map
+is the one Genesis Plus GX uses (Y to A, B to B, A to C, L to X, X to Y,
+R to Z, Select to Mode). slot keeps no face or shoulder button on the
+32X. Select+X flips the picture, as on Mega Drive.
+---
+ crates/slot/tests/s32x_input.rs | 89 +++++++++++++++++++++++++++++++++
+ 1 file changed, 89 insertions(+)
+ create mode 100644 crates/slot/tests/s32x_input.rs
+
+diff --git a/crates/slot/tests/s32x_input.rs b/crates/slot/tests/s32x_input.rs
+new file mode 100644
+index 0000000..0d4a8ac
+--- /dev/null
++++ b/crates/slot/tests/s32x_input.rs
+@@ -0,0 +1,89 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod s32x_common;
++
++use common::core_lock;
++use s32x_common::{cart, picodrive, Cart};
++use slot::input::Pad;
++use slot::session::Session;
++use slot_input::{Action, Btn, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Controls, Platform};
++
++const STEM: &str = "Chaotix";
++
++fn playing() -> Option<(tempfile::TempDir, Session)> {
++    let dylib = picodrive()?;
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = cart(roms.path(), STEM);
++    let root = real_seat::rooted(Platform::S32x, STEM, &rom, &dylib);
++    Cart::GAME.write(&root.path().join("Games/32X"), "Zzz.32x");
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn input_of(session: &Session) -> u16 {
++    session.emu().expect("no core in the slot").input().0
++}
++
++fn held(btn: Btn, platform: Platform) -> u16 {
++    let mut p = Pad::default();
++    p.apply(Action::GbaDown(btn));
++    p.mask_for(&Controls::default(), platform).0
++}
++
++#[test]
++fn every_button_sends_the_32x_game_what_it_sends_a_mega_drive_game() {
++    for btn in [
++        Btn::A,
++        Btn::B,
++        Btn::X,
++        Btn::Y,
++        Btn::L1,
++        Btn::R1,
++        Btn::Start,
++        Btn::Select,
++        Btn::Up,
++        Btn::Down,
++        Btn::Left,
++        Btn::Right,
++    ] {
++        assert_eq!(
++            held(btn, Platform::S32x),
++            held(btn, Platform::Md),
++            "{btn:?}"
++        );
++    }
++    assert_eq!(held(Btn::B, Platform::S32x), ButtonMask::B);
++    assert_eq!(held(Btn::A, Platform::S32x), ButtonMask::A);
++    assert_eq!(held(Btn::Y, Platform::S32x), ButtonMask::Y);
++}
++
++#[test]
++fn x_y_l1_and_r1_held_on_the_device_reach_the_32x_emulator_for_the_six_button_pad() {
++    let _g = core_lock();
++    let Some((_root, mut session)) = playing() else {
++        return;
++    };
++    for (btn, bit) in [
++        (Btn::X, ButtonMask::X),
++        (Btn::Y, ButtonMask::Y),
++        (Btn::L1, ButtonMask::L),
++        (Btn::R1, ButtonMask::R),
++    ] {
++        session.feed([RawEvent::Down(btn)], 5000);
++        assert_eq!(input_of(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], 5100);
++        assert_eq!(input_of(&session), 0, "{btn:?} let go");
++    }
++}
++
++#[test]
++fn slot_keeps_no_face_or_shoulder_button_on_the_32x() {
++    let _g = core_lock();
++    let Some((_root, session)) = playing() else {
++        return;
++    };
++    assert!(session.app().taken_buttons().is_empty());
++}

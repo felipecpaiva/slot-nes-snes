@@ -18,6 +18,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 6 | Spec (Out of scope), Phase 6+ | PAL 50 Hz pacing leaves the out-of-scope and deferred lists: issue 66, patch 0043, ADR 0071 |
 | 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
 | 8 | Spec (Who it's NOT for), Phase 11 | WonderSwan and Color in the patch set (patches 0064 to 0069, ADR 0092), device gate (issue 99) pending |
+| 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -58,7 +59,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093) and NeoGeo Pocket (Phase 9, ADR 0090) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090) and Sega 32X (Phase 15, ADR 0096) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -515,6 +516,28 @@ BIOS, no core picker. Patches 0080 to 0087 on upstream main 1b20432; flash durab
 | 8 | 76, done (0085) | A, B and Option |
 | 9 | 78, done (0087) | NGP pak for mono and Color carts in the nelynes dark grey (maintainer's choice, ADR 0090), labels for ScreenScraper ids 25 and 82 |
 | 10 | 79 | Device gate, including a lid-close and battery-pull flash test |
+
+### Phase 15: Sega 32X (in the patch set, device gate pending)
+
+Tracking issue 143, children 144 to 152, ADR 0096. One core, PicoDrive (`picodrive`) pinned at
+`1890c29` with its emu2413, dr_libs and libpicofe submodules as their own pinned tarballs, one shelf
+`Games/32X` for `.32x` and `.bin` with a 32X header, no BIOS, no core picker. Mega Drive is untouched.
+Patches 0090 to 0097 on upstream main 1b20432. (Phases 13 and 14 are the Sega CD and Atari groundwork
+on their own branches.)
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0096 and the issues |
+| 2 | 144, done | Core build with the three submodules, the dynarec on the device, `log` and `pow` at GLIBC_2.17, licence |
+| 3 | 150, core half done | Generated-cart tests: the SH-2s answer M_OK, 320x224 picture, states, save RAM (patch 0090) |
+| 4 | 145, done (0091) | `Platform::S32x`, shelf with the header check, explicit policy the same as Mega Drive; joins dist and zip-check |
+| 5 | 146, done (0092) | Core options: six-button pad, region Auto, dynarec on |
+| 6 | 147, done (0093) | 32X Screen section: Shader, Picture, PAL Speed, Renderer, Sound Rate |
+| 7 | 148, done (0094) | Saves: the ordinary `.sav`, written only for games that save |
+| 8 | 149, done (0095) | The Mega Drive pad, tests only |
+| 9 | 150, done (0096) | A Mega Drive game after a 32X game equals a Mega Drive only run |
+| 10 | 151, done (0097) | One black 32X cart, labels for ScreenScraper id 19 |
+| 11 | 152 | Device gate: dynarec active, Virtua Racing Deluxe, Star Wars Arcade, Knuckles' Chaotix |
 
 ### Phase 6+: deferred (non-blocking)
 

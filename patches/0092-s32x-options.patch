@@ -1,0 +1,162 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 00:21:44 +0400
+Subject: [PATCH] s32x-options
+
+PicoDrive gets its own list of answered options, and nothing else is
+answered for it (answers_declared_defaults stays false): the six-button
+pad on port 1 (the pad Genesis Plus GX gives the Mega Drive, with the
+same button order), region Auto, the SH2 dynarec on, the Accurate
+renderer, 44100 Hz sound, the audio filter, the sprite limit removal and
+the 68k overclock off. picodrive_drc is declared only where the dynarec
+is built, the aarch64 device; slot answers it everywhere and the Mac
+build simply never asks. The frameskip is auto like every core that
+declares one, so frames are skipped only in fast-forward. The Sega CD
+and Master System keys stay unanswered: no 32X cart reaches them.
+---
+ crates/slot/src/core_options_policy.rs |  13 +++-
+ crates/slot/tests/s32x_options.rs      | 104 +++++++++++++++++++++++++
+ 2 files changed, 116 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot/tests/s32x_options.rs
+
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index a418c50..38a5c34 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -67,6 +67,17 @@ pub const BEETLE_LYNX: [(&str, &str); 3] = [
+ 
+ const MEDNAFEN_NGP: [(&str, &str); 1] = [("ngp_language", "english")];
+ 
++pub const PICODRIVE: [(&str, &str); 8] = [
++    ("picodrive_input1", "6 button pad"),
++    ("picodrive_region", "Auto"),
++    ("picodrive_drc", "enabled"),
++    ("picodrive_renderer", "accurate"),
++    ("picodrive_sound_rate", "44100"),
++    ("picodrive_audio_filter", "disabled"),
++    ("picodrive_sprlim", "disabled"),
++    ("picodrive_overclk68k", "disabled"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -141,7 +152,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         Core::MednafenWswan => &MEDNAFEN_WSWAN,
+         Core::MednafenLynx => &BEETLE_LYNX,
+         Core::MednafenNgp => &MEDNAFEN_NGP,
+-        Core::Picodrive => &[],
++        Core::Picodrive => &PICODRIVE,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+diff --git a/crates/slot/tests/s32x_options.rs b/crates/slot/tests/s32x_options.rs
+new file mode 100644
+index 0000000..bed143f
+--- /dev/null
++++ b/crates/slot/tests/s32x_options.rs
+@@ -0,0 +1,104 @@
++mod common;
++mod core_common;
++mod s32x_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use s32x_common::picodrive;
++use slot::core::apply_core_options;
++use slot::core_options_policy::{answers_declared_defaults, PICODRIVE};
++use slot_retro::LibretroCore;
++use slot_store::{Core, Platform};
++
++const CD_AND_SMS_KEYS: [&str; 6] = [
++    "picodrive_ramcart",
++    "picodrive_smstype",
++    "picodrive_smsmapper",
++    "picodrive_smstms",
++    "picodrive_smsfm",
++    "picodrive_ggghost",
++];
++
++fn answered(dylib: &Path) -> LibretroCore {
++    let d = common::tmp_root_with_real_carts(&[]);
++    let mut core = LibretroCore::open_with(dylib, d.path(), d.path()).expect("open PicoDrive");
++    apply_core_options(
++        &mut core,
++        Core::Picodrive,
++        Platform::S32x,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core
++}
++
++fn built_with_the_dynarec() -> bool {
++    cfg!(target_os = "linux") && cfg!(target_arch = "aarch64")
++}
++
++#[test]
++fn every_explicit_32x_option_is_answered_with_its_own_value() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in PICODRIVE {
++        assert_eq!(core.option(key).as_deref(), Some(value), "{key}");
++    }
++}
++
++#[test]
++fn every_explicit_32x_key_and_value_is_one_the_pinned_core_declares() {
++    // picodrive_drc is declared only where the SH2 dynarec is built (the aarch64 device); slot answers
++    // it everywhere, and on the Mac the core simply never asks.
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for (key, value) in PICODRIVE {
++        let Some(values) = core.declared_options().get(key) else {
++            assert!(
++                key == "picodrive_drc" && !built_with_the_dynarec(),
++                "the pin no longer declares {key}"
++            );
++            continue;
++        };
++        assert!(
++            values.iter().any(|v| v == value),
++            "{key}={value} {values:?}"
++        );
++    }
++}
++
++#[test]
++fn the_sega_cd_and_master_system_keys_stay_unanswered_because_no_32x_cart_reaches_them() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let core = answered(&dylib);
++    for key in CD_AND_SMS_KEYS {
++        assert!(core.declared_options().contains_key(key), "{key}");
++        assert_eq!(core.option(key), None, "{key}");
++    }
++}
++
++#[test]
++fn the_32x_frameskip_is_auto_like_every_core_that_declares_one() {
++    let _g = core_lock();
++    let Some(dylib) = picodrive() else {
++        return;
++    };
++    let core = answered(&dylib);
++    assert_eq!(core.option("picodrive_frameskip").as_deref(), Some("auto"));
++}
++
++#[test]
++fn picodrive_gets_only_its_list_not_every_declared_default() {
++    assert!(!answers_declared_defaults(Core::Picodrive));
++}

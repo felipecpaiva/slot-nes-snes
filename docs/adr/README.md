@@ -111,3 +111,4 @@ the patch set looks the way it does.
 | [0092](0092-wonderswan-on-beetle-cygne.md) | Bring WonderSwan and WonderSwan Color into scope on pinned Beetle Cygne, at 60 Hz mode by default | Accepted. Amends 0002 | 2026-10-18 |
 | [0093](0093-lynx-on-beetle-lynx.md) | Bring Atari Lynx into scope on pinned Beetle Lynx, with a BIOS check, our own rotation and pacing from the game's real frame rate | Accepted (Beetle Lynx; Handy rejected for now). Amends 0002 | 2026-10-18 |
 | [0094](0094-ngp-flash-staged-checked-published.md) | Keep NGP cart flash safe: a staging save dir, a check before load, an atomic publish and a flush by reload | Accepted | 2026-10-19 |
+| [0096](0096-sega-32x-on-picodrive.md) | Bring Sega 32X into scope on pinned PicoDrive, a shelf of its own beside an unchanged Mega Drive | Accepted. Amends 0002 | 2026-10-20 |

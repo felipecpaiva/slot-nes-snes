@@ -261,6 +261,31 @@ and a `slot: emu: pacing at` line in `slot.log` say what the device ran.
 | Title | Turn | Measured fps (host) | Device pacing line | Starved / dropped | Date | Zip version | Notes |
 |---|---|---|---|---|---|---|---|
 
+## Sega 32X (issue 152, ADR 0096)
+
+Pending. No BIOS. Move the three games into `Games/32X` first (the Mega Drive shelf stays on Genesis
+Plus GX, where 32X games do not run). The Mac build has no SH-2 dynarec, so every host number is an
+interpreter number; the device is the first place the dynarec runs.
+
+1. Dynarec: `task bench:device CORE=picodrive ROM_ON_DEVICE=/mnt/sdcard/Games/32X/<game>` twice, with
+   `ARGS="--frames 3000 --warmup 300 --repeats 3 --option picodrive_drc=enabled"` and with
+   `picodrive_drc=disabled`. The enabled run must be clearly faster; record both medians.
+2. Boot: each cart seats, no black screen, the 32X layer draws (title screens, 3D in Virtua Racing).
+3. Picture: Stretch fills the panel at the frame width, SELECT+X walks Actual and 4:3.
+4. Controls: the six-button pad: A, B, C on Y, B, A; X, Y, Z on L1, X, R1; START; SELECT is MODE.
+5. Speed: 10 minutes each under `SLOT_TRACE`, Renderer Accurate and Sound Rate 44 kHz first; a title
+   that misses frames is played again on Fast and on 22 kHz, and the row it took is recorded.
+6. Audio: no crackle; `starved` and `dropped` stay 0.
+7. States and rewind: save and load a state; rewind works; eject and power cycle resume.
+8. Saves: a game that saves (World Series Baseball '95, NBA Jam TE) writes `Saves/32X/<stem>.sav` on
+   eject and finds it on the next start.
+
+| Title | Renderer | Sound Rate | bench:device ms/frame (drc on / off) | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|
+| Virtua Racing Deluxe | | | | | | | heavy, polygons |
+| Star Wars Arcade | | | | | | | heavy, polygons |
+| Knuckles' Chaotix | | | | | | | 2D platformer |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

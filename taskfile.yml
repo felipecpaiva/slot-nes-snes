@@ -21,6 +21,8 @@ vars:
     sh: . ./SLOT_PIN && echo "$mednafen_lynx_commit"
   MEDNAFEN_NGP_COMMIT:
     sh: . ./SLOT_PIN && echo "$mednafen_ngp_commit"
+  PICODRIVE_COMMIT:
+    sh: . ./SLOT_PIN && echo "$picodrive_commit"
 
 tasks:
   default:
@@ -236,9 +238,31 @@ tasks:
     cmds:
       - sh cores/mednafen_ngp/build.sh build {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz build/mednafen_ngp-host vendor/mednafen_ngp_libretro.dylib
 
+  core:picodrive:src:
+    desc: Fetch the pinned PicoDrive (libretro/picodrive) source tarball and its emu2413, dr_libs and libpicofe submodule tarballs into vendor/ and verify each sha256, they ship as corresponding source
+    status:
+      - test -f vendor/picodrive-src.tar.gz
+      - test -f vendor/picodrive-emu2413-src.tar.gz
+      - test -f vendor/picodrive-dr_libs-src.tar.gz
+      - test -f vendor/picodrive-libpicofe-src.tar.gz
+      - test "$(cat vendor/picodrive-src.sha 2>/dev/null)" = "$(sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} host | grep -e '^commit=' -e '^module_.*_sha256=')"
+    cmds:
+      - rm -f vendor/picodrive-src.tar.gz vendor/picodrive-src.sha vendor/picodrive-*-src.tar.gz
+      - sh cores/picodrive/build.sh fetch {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz
+      - sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} host | grep -e '^commit=' -e '^module_.*_sha256=' > vendor/picodrive-src.sha
+
+  core:picodrive:host:
+    desc: Build the PicoDrive host dylib into vendor/ (core:host builds it too)
+    deps: [core:picodrive:src]
+    status:
+      - test -f vendor/picodrive_libretro.dylib
+      - test "$(cat vendor/picodrive_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} host)"
+    cmds:
+      - sh cores/picodrive/build.sh build {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz build/picodrive-host vendor/picodrive_libretro.dylib
+
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx and Beetle NeoPop from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop and PicoDrive from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -283,9 +307,13 @@ tasks:
         test -f vendor/mednafen_ngp_libretro.dylib &&
           test "$(cat vendor/mednafen_ngp_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_ngp/build.sh stamp {{.MEDNAFEN_NGP_COMMIT}} host)" ||
           sh cores/mednafen_ngp/build.sh build {{.MEDNAFEN_NGP_COMMIT}} vendor/mednafen_ngp-src.tar.gz build/mednafen_ngp-host vendor/mednafen_ngp_libretro.dylib
+      - |
+        test -f vendor/picodrive_libretro.dylib &&
+          test "$(cat vendor/picodrive_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} host)" ||
+          sh cores/picodrive/build.sh build {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz build/picodrive-host vendor/picodrive_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx and Beetle NeoPop cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop and PicoDrive cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -297,6 +325,7 @@ tasks:
       - task: core:device:mednafen_wswan
       - task: core:device:mednafen_lynx
       - task: core:device:mednafen_ngp
+      - task: core:device:picodrive
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -449,6 +478,21 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/mednafen_ngp_libretro.so && needs_old_glibc_only vendor/mednafen_ngp_libretro.so'
       - 'echo "built vendor/mednafen_ngp_libretro.so from vendor/mednafen_ngp-src.tar.gz @ {{.MEDNAFEN_NGP_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/mednafen_ngp_libretro.so")"'
 
+  core:device:picodrive:
+    desc: Build the aarch64 linux PicoDrive core into vendor/picodrive_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, with the SH2 dynarec the makefile picks for aarch64, and fail unless it needs only glibc symbols at GLIBC_2.17 or older
+    deps: [core:picodrive:src]
+    status:
+      - test -f vendor/picodrive_libretro.so
+      - test "$(cat vendor/picodrive-src.meta 2>/dev/null)" = "$(sh cores/picodrive/build.sh srcmeta {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz)"
+      - test "$(cat vendor/picodrive_libretro.so.meta 2>/dev/null)" = "$(sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/picodrive/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/picodrive/build.sh build {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz
+        build/picodrive-device vendor/picodrive_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/picodrive_libretro.so && needs_old_glibc_only vendor/picodrive_libretro.so'
+      - 'echo "built vendor/picodrive_libretro.so from vendor/picodrive-src.tar.gz @ {{.PICODRIVE_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/picodrive_libretro.so")"'
+
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     deps: [upstream:build]
@@ -475,6 +519,7 @@ tasks:
       - test -f vendor/mednafen_wswan_libretro.dylib
       - test -f vendor/mednafen_lynx_libretro.dylib
       - test -f vendor/mednafen_ngp_libretro.dylib
+      - test -f vendor/picodrive_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
