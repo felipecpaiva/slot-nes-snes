@@ -1,0 +1,362 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 19:02:12 +0400
+Subject: [PATCH] shelf-order
+
+Config/shelf_order.txt picks the order of the system shelves after
+Recents and Favorites: "order = classic" (or no file) keeps the order
+they were added in, "order = release-year" sorts them by the first
+release date of the platform anywhere, oldest first (ADR 0100). The
+dates live in one table, RELEASED in shelf_order.rs, and
+shelf_order.rs's every_shelf_platform_has_exactly_one_release_date
+fails for a shelf platform without a row.
+---
+ crates/slot/src/app.rs             |   2 +
+ crates/slot/src/app/shelf_order.rs |  24 ++++
+ crates/slot/src/lib.rs             |   1 +
+ crates/slot/src/shelf_order.rs     |  83 +++++++++++++
+ crates/slot/tests/shelf_order.rs   | 182 +++++++++++++++++++++++++++++
+ 5 files changed, 292 insertions(+)
+ create mode 100644 crates/slot/src/app/shelf_order.rs
+ create mode 100644 crates/slot/src/shelf_order.rs
+ create mode 100644 crates/slot/tests/shelf_order.rs
+
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 60ba6dd..d8460ce 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -4,6 +4,7 @@ mod battery_warn;
+ mod fast_scroll;
+ mod lynx_bios;
+ mod ps1_discs;
++mod shelf_order;
+ mod silent_start;
+ mod start_guard;
+ 
+@@ -673,6 +674,7 @@ impl App {
+         let carts = scan(root).unwrap_or_default();
+         crate::boot_time::mark("scan");
+         let mut app = App::new(carts);
++        app.arrange_shelves(crate::shelf_order::ShelfOrder::read(root));
+         app.root = Some(root.to_path_buf());
+         app.state = read_slot_state(root);
+         app.carousel = read_carousel(root);
+diff --git a/crates/slot/src/app/shelf_order.rs b/crates/slot/src/app/shelf_order.rs
+new file mode 100644
+index 0000000..7d86fb0
+--- /dev/null
++++ b/crates/slot/src/app/shelf_order.rs
+@@ -0,0 +1,24 @@
++use crate::shelf_order::ShelfOrder;
++
++use super::{App, Rack};
++
++impl App {
++    pub(super) fn arrange_shelves(&mut self, order: ShelfOrder) {
++        let platforms = order.platforms();
++        self.shelves.sort_by_key(|(rack, _)| match rack {
++            Rack::Recents => 0,
++            Rack::Favorites => 1,
++            Rack::Of(p) => {
++                2 + platforms
++                    .iter()
++                    .position(|q| q == p)
++                    .unwrap_or(platforms.len())
++            }
++        });
++        self.shelf_at = self
++            .shelves
++            .iter()
++            .position(|(_, s)| !s.carts.is_empty())
++            .unwrap_or(0);
++    }
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 98c1c57..9ca7e8e 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -55,6 +55,7 @@ pub mod rewind;
+ pub mod root;
+ pub mod s32x_speed;
+ pub mod session;
++pub mod shelf_order;
+ pub mod shelf_restock;
+ pub mod sms_region;
+ pub mod snes_input;
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+new file mode 100644
+index 0000000..850f95c
+--- /dev/null
++++ b/crates/slot/src/shelf_order.rs
+@@ -0,0 +1,83 @@
++use std::path::Path;
++
++use slot_store::{ini, Platform};
++
++pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
++
++const KEY: &str = "order";
++
++pub const RELEASED: [(Platform, u16, u8, u8); 20] = [
++    (Platform::A2600, 1977, 9, 0),
++    (Platform::Nes, 1983, 7, 15),
++    (Platform::Sms, 1985, 10, 20),
++    (Platform::A7800, 1986, 5, 0),
++    (Platform::Tg16, 1987, 10, 30),
++    (Platform::Cps1, 1988, 5, 13),
++    (Platform::Md, 1988, 10, 29),
++    (Platform::Gb, 1989, 4, 21),
++    (Platform::Lynx, 1989, 9, 1),
++    (Platform::NeoGeo, 1990, 4, 16),
++    (Platform::Gg, 1990, 10, 6),
++    (Platform::Snes, 1990, 11, 21),
++    (Platform::Cps2, 1993, 9, 10),
++    (Platform::S32x, 1994, 11, 21),
++    (Platform::Ps1, 1994, 12, 3),
++    (Platform::Vb, 1995, 7, 21),
++    (Platform::Gbc, 1998, 10, 21),
++    (Platform::Ngp, 1998, 10, 28),
++    (Platform::Ws, 1999, 3, 4),
++    (Platform::Gba, 2001, 3, 21),
++];
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum ShelfOrder {
++    #[default]
++    Classic,
++    ReleaseYear,
++}
++
++impl ShelfOrder {
++    pub const ALL: [ShelfOrder; 2] = [ShelfOrder::Classic, ShelfOrder::ReleaseYear];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            ShelfOrder::Classic => "classic",
++            ShelfOrder::ReleaseYear => "release-year",
++        }
++    }
++
++    pub fn read(root: &Path) -> ShelfOrder {
++        let Some(line) = ini::value(root, SHELF_ORDER_FILE, KEY) else {
++            return ShelfOrder::Classic;
++        };
++        ShelfOrder::ALL
++            .into_iter()
++            .find(|o| o.as_str() == line)
++            .unwrap_or_else(|| {
++                eprintln!("slot: shelf_order.txt: ignoring {KEY}={line}");
++                ShelfOrder::Classic
++            })
++    }
++
++    pub fn platforms(self) -> Vec<Platform> {
++        let mut out = Platform::SHELVES.to_vec();
++        if self == ShelfOrder::ReleaseYear {
++            out.sort_by_key(|p| released(*p).unwrap_or((u16::MAX, 0, 0)));
++        }
++        out
++    }
++}
++
++pub fn released(platform: Platform) -> Option<(u16, u8, u8)> {
++    let found = RELEASED
++        .iter()
++        .find(|(p, ..)| *p == platform)
++        .map(|(_, y, m, d)| (*y, *m, *d));
++    if found.is_none() {
++        eprintln!(
++            "slot: shelf order: {} has no release date, shelved last",
++            platform.dir_name()
++        );
++    }
++    found
++}
+diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
+new file mode 100644
+index 0000000..4feb3fe
+--- /dev/null
++++ b/crates/slot/tests/shelf_order.rs
+@@ -0,0 +1,182 @@
++mod common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use slot::app::App;
++use slot::shelf_order::{released, ShelfOrder, RELEASED, SHELF_ORDER_FILE};
++use slot_input::{Action, Btn};
++use slot_store::{write_slot_state, Platform, Recent, SlotState};
++use tempfile::TempDir;
++
++const RELEASE_YEAR: [Platform; 20] = [
++    Platform::A2600,
++    Platform::Nes,
++    Platform::Sms,
++    Platform::A7800,
++    Platform::Tg16,
++    Platform::Cps1,
++    Platform::Md,
++    Platform::Gb,
++    Platform::Lynx,
++    Platform::NeoGeo,
++    Platform::Gg,
++    Platform::Snes,
++    Platform::Cps2,
++    Platform::S32x,
++    Platform::Ps1,
++    Platform::Vb,
++    Platform::Gbc,
++    Platform::Ngp,
++    Platform::Ws,
++    Platform::Gba,
++];
++
++fn card(order: Option<&str>) -> TempDir {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    for platform in Platform::SHELVES
++        .into_iter()
++        .filter(|p| *p != Platform::Gba)
++    {
++        let cart = d
++            .path()
++            .join("Games")
++            .join(platform.dir_name())
++            .join(format!("{}.{}", stem(platform), platform.extensions()[0]));
++        std::fs::write(cart, vec![0u8; 0x200]).expect("write cart");
++    }
++    if let Some(order) = order {
++        std::fs::write(
++            d.path().join(SHELF_ORDER_FILE),
++            format!("order = {order}\n"),
++        )
++        .expect("write shelf_order.txt");
++    }
++    d
++}
++
++fn stem(platform: Platform) -> &'static str {
++    [
++        (Platform::NeoGeo, "mslug"),
++        (Platform::Cps1, "ffight"),
++        (Platform::Cps2, "ddtod"),
++    ]
++    .into_iter()
++    .find_map(|(p, set)| (p == platform).then_some(set))
++    .unwrap_or("Cart")
++}
++
++fn recent(platform: Platform, stem: &str) -> Recent {
++    Recent {
++        platform,
++        stem: stem.into(),
++    }
++}
++
++fn boot_with(root: &Path, state: SlotState) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            show_recents: true,
++            recents: vec![recent(Platform::Gba, "Emerald")],
++            ..state
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn press(a: &mut App, btn: Btn) {
++    a.apply(Action::GbaDown(btn));
++    a.apply(Action::GbaUp(btn));
++    for _ in 0..120 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn shelves_after(a: &mut App, btn: Btn, n: usize) -> Vec<&'static str> {
++    (0..n)
++        .map(|_| {
++            press(a, btn);
++            a.shelf_platform_name().expect("a shelf name")
++        })
++        .collect()
++}
++
++fn names(platforms: impl IntoIterator<Item = Platform>) -> Vec<&'static str> {
++    platforms.into_iter().map(Platform::name).collect()
++}
++
++#[test]
++fn every_shelf_platform_has_exactly_one_release_date() {
++    for platform in Platform::SHELVES {
++        assert!(
++            released(platform).is_some(),
++            "{platform:?} has no release date"
++        );
++        assert_eq!(
++            RELEASED.iter().filter(|(p, ..)| *p == platform).count(),
++            1,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn release_year_runs_from_the_atari_2600_to_the_game_boy_advance() {
++    assert_eq!(ShelfOrder::ReleaseYear.platforms(), RELEASE_YEAR);
++    assert_eq!(ShelfOrder::Classic.platforms(), Platform::SHELVES);
++}
++
++#[test]
++fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
++    let d = card(None);
++    let mut a = boot_with(d.path(), SlotState::default());
++    assert_eq!(a.shelf_platform_name(), Some("Recents"));
++    let mut want = names(Platform::SHELVES);
++    want.push("Recents");
++    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++}
++
++#[test]
++fn release_year_puts_the_systems_oldest_first_after_recents() {
++    let d = card(Some("release-year"));
++    let mut a = boot_with(d.path(), SlotState::default());
++    assert_eq!(a.shelf_platform_name(), Some("Recents"));
++    let mut want = names(RELEASE_YEAR);
++    want.push("Recents");
++    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++}
++
++#[test]
++fn l1_walks_the_release_year_order_backwards_from_recents() {
++    let d = card(Some("release-year"));
++    let mut a = boot_with(d.path(), SlotState::default());
++    let mut want = names(RELEASE_YEAR.into_iter().rev());
++    want.push("Recents");
++    assert_eq!(shelves_after(&mut a, Btn::L1, 21), want);
++}
++
++#[test]
++fn a_remembered_shelf_comes_back_in_release_year_with_its_neighbours() {
++    let d = card(Some("release-year"));
++    let mut a = boot_with(
++        d.path(),
++        SlotState {
++            shelf: Some("vb".into()),
++            shelf_cart: Some(recent(Platform::Vb, "Cart")),
++            ..SlotState::default()
++        },
++    );
++    assert_eq!(a.shelf_platform_name(), Some(Platform::Vb.name()));
++    assert_eq!(shelves_after(&mut a, Btn::R1, 1), [Platform::Gbc.name()]);
++}
++
++#[test]
++fn an_unknown_order_word_reads_as_classic() {
++    let d = card(Some("alphabetical"));
++    assert_eq!(ShelfOrder::read(d.path()), ShelfOrder::Classic);
++    let d = card(Some("release-year"));
++    assert_eq!(ShelfOrder::read(d.path()), ShelfOrder::ReleaseYear);
++}
