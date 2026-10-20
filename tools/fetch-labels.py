@@ -349,7 +349,10 @@ class ScreenScraper:
 
     def download(self, media, png):
         """A picked media's PNG, written to png (the cache). Never prints the URL."""
-        status, body = fetch(self.ctx, str(media.get("url", "")), delay=self.pause)
+        url = str(media.get("url", ""))
+        if str(media.get("format", "png")).lower() != "png" and "outputformat=" not in url:
+            url += ("&" if "?" in url else "?") + "outputformat=png"  # arcade flyers come as jpg; the API converts
+        status, body = fetch(self.ctx, url, delay=self.pause)
         if status in (429, 430, 431):
             raise Stop("ScreenScraper quota or rate limit reached")
         if status != 200 or not body.startswith(PNG):
