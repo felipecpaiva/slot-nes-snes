@@ -29,8 +29,11 @@ card, deepest first, before it unmounts the card.
 Why zeros and not a small FAT partition holding nothing: a mountable p1 would become the main card.
 Why bind mounts and not a second content root in slot: no slot code changes, every path (scan,
 prefetch, disc loading, the tools over adb) stays the same, and the shelf degrades to the base card's
-folders when the card is out. Why `diskutil partitionDisk` is not used: with GPT it puts a 200 MiB
-FAT32 EFI partition first (seen on a disk image on 2026-10-20), which would become TF2 p1.
+folders when the card is out. Why `diskutil partitionDisk -noEFI`: without `-noEFI` a GPT gets a 200 MiB
+FAT32 EFI partition first (seen on a disk image on 2026-10-20), which would become TF2 p1; with it,
+a leading `Free Space` gap, p1 as `%<type GUID>% %noformat%` and p2 `ExFAT EXPANSION` give exactly
+the two partitions above. gpt(8) is not an option: on macOS 27 it only runs `show`, every write verb
+fails "operation not permitted", root or not (the first card run stopped there on 2026-10-20).
 
 ## Consequences
 
