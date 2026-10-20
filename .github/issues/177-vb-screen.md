@@ -4,7 +4,7 @@ phase: 16
 area: video
 type: feature
 size: M
-depends_on: [156-vb-options]
+depends_on: [176-vb-options]
 ---
 
 ## Why
@@ -28,7 +28,7 @@ Every system has its own Screen section; the Virtual Boy adds the palette and th
 - [x] S1 passes; upstream sites (g) and (h) take their token.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

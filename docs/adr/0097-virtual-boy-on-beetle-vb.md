@@ -3,7 +3,7 @@
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-20
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0068](0068-ps1-input-digital-then-analog.md) (the sticks and the triggers-to-the-game mode), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [ADR 0091](0091-tg16-on-beetle-pce-fast.md) (the Beetle build precedent), [ADR 0096](0096-sega-32x-on-picodrive.md), [issue 153](../../.github/issues/153-vb-tracking.md), patches `0099-vb-core-tests` to `0106-vb-carts`, [docs/research/next-systems-2026-10-20.md](../research/next-systems-2026-10-20.md) section 6
+- Related: [ADR 0068](0068-ps1-input-digital-then-analog.md) (the sticks and the triggers-to-the-game mode), [ADR 0071](0071-pace-off-panel-cores-at-their-own-fps.md), [ADR 0091](0091-tg16-on-beetle-pce-fast.md) (the Beetle build precedent), [ADR 0096](0096-sega-32x-on-picodrive.md), [issue 173](../../.github/issues/173-vb-tracking.md), patches `0102-vb-core-tests` to `0109-vb-carts`, [docs/research/next-systems-2026-10-20.md](../research/next-systems-2026-10-20.md) section 6
 
 ## Context
 
@@ -153,12 +153,12 @@ median ms a frame over 600 frames, 3 repeats, Apple M-series.
 | Teleroboxer | 0.85 | 0.96 |
 
 That is about the PicoDrive cost on the same host. The research estimated 2 to 4 ms a frame on the A53;
-the budget at 50.27 fps is 19.9 ms. The device gate (issue 162) measures it with `bench:device`
+the budget at 50.27 fps is 19.9 ms. The device gate (issue 182) measures it with `bench:device`
 (`CORE=mednafen_vb`) and real play.
 
 ## Consequences
 
-- Eight patches, 0099 to 0106. No GBA, GB or GBC path changes. The input changes (`analog_pad`, the
+- Eight patches, 0102 to 0109. No GBA, GB or GBC path changes. The input changes (`analog_pad`, the
   triggers latch, `ButtonMask::L3`/`R3`) are only reached for the Virtual Boy; a GBA game after a
   Virtual Boy game in ABXY mode gets the GBA-only input and picture (`vb_then_gba.rs`).
 - Upstream test sites (b), (e), (g) and (h) take one more token each, in order: `| Platform::Vb`,

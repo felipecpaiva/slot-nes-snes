@@ -4,7 +4,7 @@ phase: 16
 area: ui-art
 type: feature
 size: M
-depends_on: [155-platform-vb]
+depends_on: [175-platform-vb]
 ---
 
 ## Why
@@ -29,7 +29,7 @@ The shelf must show a real Virtual Boy cart with its label, at the fidelity of t
 - [x] A1 and A2 pass; shelf renders compared with the 32X shelf.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

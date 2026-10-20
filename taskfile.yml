@@ -23,6 +23,10 @@ vars:
     sh: . ./SLOT_PIN && echo "$mednafen_ngp_commit"
   PICODRIVE_COMMIT:
     sh: . ./SLOT_PIN && echo "$picodrive_commit"
+  STELLA2014_COMMIT:
+    sh: . ./SLOT_PIN && echo "$stella2014_commit"
+  PROSYSTEM_COMMIT:
+    sh: . ./SLOT_PIN && echo "$prosystem_commit"
   MEDNAFEN_VB_COMMIT:
     sh: . ./SLOT_PIN && echo "$mednafen_vb_commit"
 
@@ -262,6 +266,44 @@ tasks:
     cmds:
       - sh cores/picodrive/build.sh build {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz build/picodrive-host vendor/picodrive_libretro.dylib
 
+  core:stella2014:src:
+    desc: Fetch the pinned Stella 2014 (stella2014-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/stella2014-src.tar.gz
+      - test "$(cat vendor/stella2014-src.sha 2>/dev/null)" = "{{.STELLA2014_COMMIT}}"
+    cmds:
+      - rm -f vendor/stella2014-src.tar.gz vendor/stella2014-src.sha
+      - sh cores/stella2014/build.sh fetch {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz
+      - echo "{{.STELLA2014_COMMIT}}" > vendor/stella2014-src.sha
+
+  core:stella2014:host:
+    desc: Build the Stella 2014 host dylib into vendor/ (core:host builds it too)
+    deps: [core:stella2014:src]
+    status:
+      - test -f vendor/stella2014_libretro.dylib
+      - test "$(cat vendor/stella2014_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} host)"
+    cmds:
+      - sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz build/stella2014-host vendor/stella2014_libretro.dylib
+
+  core:prosystem:src:
+    desc: Fetch the pinned ProSystem (prosystem-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/prosystem-src.tar.gz
+      - test "$(cat vendor/prosystem-src.sha 2>/dev/null)" = "{{.PROSYSTEM_COMMIT}}"
+    cmds:
+      - rm -f vendor/prosystem-src.tar.gz vendor/prosystem-src.sha
+      - sh cores/prosystem/build.sh fetch {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz
+      - echo "{{.PROSYSTEM_COMMIT}}" > vendor/prosystem-src.sha
+
+  core:prosystem:host:
+    desc: Build the ProSystem host dylib into vendor/ (core:host builds it too)
+    deps: [core:prosystem:src]
+    status:
+      - test -f vendor/prosystem_libretro.dylib
+      - test "$(cat vendor/prosystem_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} host)"
+    cmds:
+      - sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
+
   core:mednafen_vb:src:
     desc: Fetch the pinned Beetle VB (beetle-vb-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
     status:
@@ -282,8 +324,8 @@ tasks:
       - sh cores/mednafen_vb/build.sh build {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz build/mednafen_vb-host vendor/mednafen_vb_libretro.dylib
 
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive and Beetle VB from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:mednafen_vb:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem and Beetle VB from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:stella2014:src, core:prosystem:src, core:mednafen_vb:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -333,12 +375,20 @@ tasks:
           test "$(cat vendor/picodrive_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/picodrive/build.sh stamp {{.PICODRIVE_COMMIT}} host)" ||
           sh cores/picodrive/build.sh build {{.PICODRIVE_COMMIT}} vendor/picodrive-src.tar.gz build/picodrive-host vendor/picodrive_libretro.dylib
       - |
+        test -f vendor/stella2014_libretro.dylib &&
+          test "$(cat vendor/stella2014_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} host)" ||
+          sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz build/stella2014-host vendor/stella2014_libretro.dylib
+      - |
+        test -f vendor/prosystem_libretro.dylib &&
+          test "$(cat vendor/prosystem_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} host)" ||
+          sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
+      - |
         test -f vendor/mednafen_vb_libretro.dylib &&
           test "$(cat vendor/mednafen_vb_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_vb/build.sh stamp {{.MEDNAFEN_VB_COMMIT}} host)" ||
           sh cores/mednafen_vb/build.sh build {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz build/mednafen_vb-host vendor/mednafen_vb_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive and Beetle VB cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem and Beetle VB cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -351,6 +401,8 @@ tasks:
       - task: core:device:mednafen_lynx
       - task: core:device:mednafen_ngp
       - task: core:device:picodrive
+      - task: core:device:stella2014
+      - task: core:device:prosystem
       - task: core:device:mednafen_vb
 
   core:device:fceumm:
@@ -519,6 +571,36 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/picodrive_libretro.so && needs_old_glibc_only vendor/picodrive_libretro.so'
       - 'echo "built vendor/picodrive_libretro.so from vendor/picodrive-src.tar.gz @ {{.PICODRIVE_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/picodrive_libretro.so")"'
 
+  core:device:stella2014:
+    desc: Build the aarch64 linux Stella 2014 core into vendor/stella2014_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older (the C++ runtime is linked in)
+    deps: [core:stella2014:src]
+    status:
+      - test -f vendor/stella2014_libretro.so
+      - test "$(cat vendor/stella2014-src.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh srcmeta {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz)"
+      - test "$(cat vendor/stella2014_libretro.so.meta 2>/dev/null)" = "$(sh cores/stella2014/build.sh stamp {{.STELLA2014_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/stella2014/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/stella2014/build.sh build {{.STELLA2014_COMMIT}} vendor/stella2014-src.tar.gz
+        build/stella2014-device vendor/stella2014_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/stella2014_libretro.so && needs_old_glibc_only vendor/stella2014_libretro.so'
+      - 'echo "built vendor/stella2014_libretro.so from vendor/stella2014-src.tar.gz @ {{.STELLA2014_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/stella2014_libretro.so")"'
+
+  core:device:prosystem:
+    desc: Build the aarch64 linux ProSystem core into vendor/prosystem_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc, libm, libdl and libpthread at GLIBC_2.17 or older
+    deps: [core:prosystem:src]
+    status:
+      - test -f vendor/prosystem_libretro.so
+      - test "$(cat vendor/prosystem-src.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh srcmeta {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz)"
+      - test "$(cat vendor/prosystem_libretro.so.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/prosystem/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz
+        build/prosystem-device vendor/prosystem_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/prosystem_libretro.so && needs_old_glibc_only vendor/prosystem_libretro.so'
+      - 'echo "built vendor/prosystem_libretro.so from vendor/prosystem-src.tar.gz @ {{.PROSYSTEM_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/prosystem_libretro.so")"'
+
   core:device:mednafen_vb:
     desc: Build the aarch64 linux Beetle VB core into vendor/mednafen_vb_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc and libm at GLIBC_2.17 or older (the C++ runtime is linked in)
     deps: [core:mednafen_vb:src]
@@ -561,6 +643,8 @@ tasks:
       - test -f vendor/mednafen_lynx_libretro.dylib
       - test -f vendor/mednafen_ngp_libretro.dylib
       - test -f vendor/picodrive_libretro.dylib
+      - test -f vendor/stella2014_libretro.dylib
+      - test -f vendor/prosystem_libretro.dylib
       - test -f vendor/mednafen_vb_libretro.dylib
       - task: test
       - |

@@ -85,19 +85,38 @@ class MacPlan(unittest.TestCase):
         self.assertEqual([c[:2] for c in calls], [["diskutil", "info"], ["diskutil", "list"]])
         self.assertIn("dry run: nothing written", out)
 
-    def test_p1_is_sixteen_mib_of_zeros_at_one_mib_and_p2_exfat_follows(self):
-        plan = ec.mac_plan("disk4", 512, ["PS1", "SEGACD"], "/tmp/m")
-        self.assertIn(["gpt", "add", "-b", "2048", "-s", "32768", "-t", ec.P1_TYPE, "disk4"], plan)
-        self.assertIn(["gpt", "add", "-b", "34816", "-t", ec.P2_TYPE, "disk4"], plan)
-        zero = ["dd", "if=/dev/zero", "of=/dev/rdisk4", "bs=1m", "seek=1", "count=18"]
-        self.assertIn(["newfs_exfat", "-R", "-v", "EXPANSION", "/dev/rdisk4s2"], plan)
+    def test_one_diskutil_call_writes_both_partitions_without_an_efi_partition(self):
+        plan = ec.mac_plan("disk4", ["PS1", "SEGACD"], "/tmp/m")
+        layout = ["diskutil", "partitionDisk", "-noEFI", "disk4", "3", "GPT", "Free Space", "gap", "2048S",
+                  f"%{ec.P1_TYPE}%", "%noformat%", "32768S", "ExFAT", "EXPANSION", "R"]
+        zero = ["dd", "if=/dev/zero", "of=/dev/rdisk4s1", "bs=1m", "count=16"]
+        self.assertIn(layout, plan)
+        self.assertLess(plan.index(layout), plan.index(zero))
         self.assertIn(["mkdir", "-p", "/tmp/m/Games/PS1", "/tmp/m/Games/SEGACD"], plan)
-        self.assertLess(plan.index(["gpt", "destroy", "disk4"]), plan.index(zero))
-        self.assertLess(plan.index(zero), plan.index(["gpt", "create", "-f", "disk4"]))
 
-    def test_diskutil_never_partitions_the_card(self):
-        flat = [" ".join(s) for s in ec.mac_plan("disk4", 512, ["PS1"], "/tmp/m")]
-        self.assertFalse([s for s in flat if "partitionDisk" in s or "eraseDisk" in s])
+    def test_gpt_only_reads(self):
+        # macOS 27 gpt(8) refuses every write verb: "operation not permitted", even as root
+        self.assertFalse([s for s in ec.mac_plan("disk4", ["PS1"], "/tmp/m") if s[0] in ("gpt", "newfs_exfat")])
+
+    def test_a_failure_after_the_table_says_the_card_is_not_finished(self):
+        sh, _ = fake_mac()
+
+        def failing(argv, stdin=None):
+            return (1, b"Resource busy") if argv[0] == "dd" else sh(argv, stdin)
+        rc, out, err = main(ARGS + ["--yes"], failing)
+        self.assertEqual(rc, 1)
+        self.assertIn("ok: diskutil partitionDisk", out)
+        self.assertIn("do not put it in the device", err)
+
+    def test_a_failure_before_the_table_says_nothing_was_erased(self):
+        sh, calls = fake_mac()
+
+        def failing(argv, stdin=None):
+            return (1, b"busy") if argv[:2] == ["diskutil", "unmountDisk"] else sh(argv, stdin)
+        rc, _, err = main(ARGS + ["--yes"], failing)
+        self.assertEqual(rc, 1)
+        self.assertIn("nothing was erased yet", err)
+        self.assertFalse([c for c in calls if c[:2] == ["diskutil", "partitionDisk"]])
 
     def test_a_table_with_an_efi_partition_first_fails_the_check(self):
         efi = ("      start       size  index  contents\n"

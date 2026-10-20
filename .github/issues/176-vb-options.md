@@ -4,7 +4,7 @@ phase: 16
 area: cores
 type: feature
 size: S
-depends_on: [155-platform-vb]
+depends_on: [175-platform-vb]
 ---
 
 ## Why
@@ -28,7 +28,7 @@ The flat single picture and the right stick both come from core options, and 3D 
 - [x] O1 and O2 pass.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

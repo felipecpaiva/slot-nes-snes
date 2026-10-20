@@ -421,6 +421,28 @@ class Sega(Base):
         self.assertEqual(f"{rom.whole() & 0xffffffff:08X}", crc(raw))
 
 
+class Atari(NesSnes):
+    def test_the_atari_shelves_name_their_folders_extensions_dats_and_screenscraper_ids(self):
+        self.assertEqual(fl.SYSTEMS["A2600"], ("atari2600", {".a26", ".bin"}, ["Atari - 2600"], 26))
+        self.assertEqual(fl.SYSTEMS["A7800"], ("atari7800", {".a78"}, ["Atari - 7800"], 41))
+
+    def test_a_headered_7800_dump_is_also_hashed_without_its_header(self):
+        body = bytes(range(256)) * 64
+        head = b"\x01ATARI7800" + bytes(118)
+        rom = fl.Rom("Asteroids (USA)", len(head + body), lambda: head + body)
+        self.assertEqual(list(rom.crcs("A7800")), [zlib.crc32(body), zlib.crc32(head + body)])
+        bare = fl.Rom("Asteroids (USA)", len(body), lambda: body)
+        self.assertEqual(list(bare.crcs("A7800")), [zlib.crc32(body)])
+
+    def test_a_2600_cart_matched_by_crc_is_asked_under_26_and_lands_in_labels_a2600(self):
+        rom = bytes(range(256)) * 16
+        self.rom("A2600", "Pitfall! (USA).a26", rom)
+        r = self.dat("A2600", ("Pitfall! - Pitfall Harry's Jungle Adventure (USA)", crc(rom)))
+        stats = self.run_ss("A2600", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "A2600"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("A2600", "Pitfall! (USA)"), PNG)
+
+
 class Sega32X(NesSnes):
     def systemeids(self):
         return [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["systemeid"][0]

@@ -4,15 +4,15 @@ phase: 16
 area: tests
 type: test
 size: S
-depends_on: [154-vb-core-build]
+depends_on: [174-vb-core-build]
 ---
 
 ## Why
 A real cart is never committed; a generated cart proves what each eye shows, and the triggers latch must reset.
 
 ## Scope
-- [x] Core half: `vb_core.rs` and `vb_common` (patch 0099).
-- [x] Platform half: `vb_then_gba.rs` and the resume test (patch 0105).
+- [x] Core half: `vb_core.rs` and `vb_common` (patch 0102).
+- [x] Platform half: `vb_then_gba.rs` and the resume test (patch 0108).
 
 ## Tests
 | ID | File | Asserts |
@@ -29,7 +29,7 @@ A real cart is never committed; a generated cart proves what each eye shows, and
 - [x] T1 and T2 pass.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

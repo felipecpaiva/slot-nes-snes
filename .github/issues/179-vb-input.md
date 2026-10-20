@@ -4,7 +4,7 @@ phase: 16
 area: input
 type: feature
 size: M
-depends_on: [155-platform-vb]
+depends_on: [175-platform-vb]
 ---
 
 ## Why
@@ -24,13 +24,13 @@ The Virtual Boy has two D-pads; the device has a D-pad and two analog sticks (AD
 | Case | Expected handling |
 |---|---|
 | X pressed | never reaches the core in either mode |
-| ABXY then a GBA game | the GBA game gets L2 and R2 as rewind and fast forward (issue 160) |
+| ABXY then a GBA game | the GBA game gets L2 and R2 as rewind and fast forward (issue 180) |
 
 ## Acceptance
 - [x] I1 passes; mGBA and gpSP still see centred sticks.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

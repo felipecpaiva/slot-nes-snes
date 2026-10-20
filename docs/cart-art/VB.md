@@ -1,11 +1,11 @@
-# Virtual Boy cart art (issue 161)
+# Virtual Boy cart art (issue 181)
 
 Same rules as [VARIANTS.md](VARIANTS.md): every value cites its source, or says it is the
 maintainer's choice. Nothing is guessed.
 
 ## The cart
 
-One cart for every Virtual Boy game, `RetroShell::Vb` (patch 0106).
+One cart for every Virtual Boy game, `RetroShell::Vb` (patch 0109).
 
 | Value | Ours | Source |
 |---|---|---|

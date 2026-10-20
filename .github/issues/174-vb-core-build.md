@@ -4,7 +4,7 @@ phase: 16
 area: cores
 type: feature
 size: S
-depends_on: [153-vb-tracking]
+depends_on: [173-vb-tracking]
 ---
 
 ## Why
@@ -30,7 +30,7 @@ No libretro core but Beetle VB runs the Virtual Boy. Its recent VR view needs Op
 - [x] C1 passes with SLOT_REQUIRE_CORES=1; the device core needs only libc and libm.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

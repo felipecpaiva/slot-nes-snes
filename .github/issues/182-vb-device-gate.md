@@ -4,7 +4,7 @@ phase: 16
 area: device
 type: chore
 size: S
-depends_on: [157-vb-screen, 159-vb-input]
+depends_on: [177-vb-screen, 179-vb-input]
 ---
 
 ## Why

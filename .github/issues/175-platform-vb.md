@@ -4,7 +4,7 @@ phase: 16
 area: platform
 type: feature
 size: M
-depends_on: [154-vb-core-build]
+depends_on: [174-vb-core-build]
 ---
 
 ## Why
@@ -29,7 +29,7 @@ The Virtual Boy needs its own shelf, Games/VB, and every policy answered explici
 - [x] P1 and P2 pass; upstream sites (b) and (e) take their token.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

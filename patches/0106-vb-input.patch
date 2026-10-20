@@ -24,17 +24,18 @@ and proves every button and the stick reach the game.
  crates/slot-retro/src/core.rs          |   2 +
  crates/slot-retro/src/lib.rs           |   2 +-
  crates/slot/src/app.rs                 |  13 ++
+ crates/slot/src/app/atari_pad.rs       |   6 +-
  crates/slot/src/core_options_policy.rs |   4 +-
  crates/slot/src/input/raw_buttons.rs   |  15 +-
  crates/slot/src/lib.rs                 |   1 +
- crates/slot/src/session.rs             |  15 +-
+ crates/slot/src/session.rs             |  14 +-
  crates/slot/src/vb_input.rs            |  46 +++++
  crates/slot/src/ws_input.rs            |   9 +-
- crates/slot/tests/ps1_analog.rs        |   8 +-
+ crates/slot/tests/ps1_analog.rs        |   3 +-
  crates/slot/tests/vb_common/mod.rs     |  51 +++++-
  crates/slot/tests/vb_input.rs          | 237 +++++++++++++++++++++++++
  crates/slot/tests/wswan_input.rs       |  13 +-
- 14 files changed, 386 insertions(+), 31 deletions(-)
+ 15 files changed, 384 insertions(+), 33 deletions(-)
  create mode 100644 crates/slot/src/vb_input.rs
  create mode 100644 crates/slot/tests/vb_input.rs
 
@@ -77,26 +78,26 @@ index 84bf25f..decbad3 100644
  pub use ffi::{
      NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 336b336..8cc894c 100644
+index 3a87b1a..a07acc9 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -462,6 +462,7 @@ pub struct App {
-     cpu_mode: crate::cpu_governor::CpuMode,
+@@ -464,6 +464,7 @@ pub struct App {
      s32x_speed: crate::s32x_speed::S32xSpeed,
+     atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
 +    vb_buttons_seated: bool,
      rested: Option<(usize, usize)>,
      start_marked: bool,
      fast_trail: bool,
-@@ -653,6 +654,7 @@ impl App {
-             cpu_mode: crate::cpu_governor::CpuMode::Performance,
+@@ -656,6 +657,7 @@ impl App {
              s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+             atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
 +            vb_buttons_seated: false,
              rested: None,
              start_marked: false,
              fast_trail: false,
-@@ -2257,6 +2259,17 @@ impl App {
+@@ -2287,6 +2289,17 @@ impl App {
          self.seated_cart().map_or(self.platform, |c| c.platform)
      }
  
@@ -114,25 +115,42 @@ index 336b336..8cc894c 100644
      pub fn lynx_flips_right(&self) -> bool {
          self.lynx_flip
      }
+diff --git a/crates/slot/src/app/atari_pad.rs b/crates/slot/src/app/atari_pad.rs
+index c74f7e5..8c79b49 100644
+--- a/crates/slot/src/app/atari_pad.rs
++++ b/crates/slot/src/app/atari_pad.rs
+@@ -4,9 +4,9 @@ use super::App;
+ 
+ impl App {
+     pub fn pad_code(&self, platform: Platform) -> u8 {
+-        self.atari
+-            .pad_code(platform)
+-            .unwrap_or_else(|| crate::ws_input::pad_code(platform, self.vertical()))
++        self.atari.pad_code(platform).unwrap_or_else(|| {
++            crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated)
++        })
+     }
+ 
+     pub fn atari_pad_code(&self) -> Option<u8> {
 diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
-index cbabb49..4ff0bd9 100644
+index 2ed04f5..629c124 100644
 --- a/crates/slot/src/core_options_policy.rs
 +++ b/crates/slot/src/core_options_policy.rs
-@@ -176,6 +176,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
- pub fn analog_pad(which: Core) -> Option<u32> {
+@@ -198,6 +198,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
      match which {
          Core::PcsxRearmed => Some(slot_retro::DUALSHOCK),
+         Core::Stella2014 => Some(RETROPAD),
 +        Core::MednafenVb => Some(slot_retro::PLAIN_PAD),
          Core::Mgba
          | Core::Gpsp
          | Core::Fceumm
-@@ -187,7 +188,6 @@ pub fn analog_pad(which: Core) -> Option<u32> {
-         | Core::MednafenWswan
+@@ -210,7 +211,6 @@ pub fn analog_pad(which: Core) -> Option<u32> {
          | Core::MednafenLynx
          | Core::MednafenNgp
--        | Core::Picodrive
+         | Core::Picodrive
+-        | Core::Prosystem
 -        | Core::MednafenVb => None,
-+        | Core::Picodrive => None,
++        | Core::Prosystem => None,
      }
  }
 diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
@@ -173,10 +191,10 @@ index 9f190c7..23e5ede 100644
              .filter(|(b, _)| self.holds(*b) && !bound_to_game(controls, *b))
              .fold(0, |bits, (_, bit)| bits | bit);
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index f48952a..5869471 100644
+index 038ba40..aee633a 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -59,6 +59,7 @@ pub mod snes_input;
+@@ -60,6 +60,7 @@ pub mod snes_input;
  pub mod state_writer;
  pub mod thumb;
  pub mod thumb_sized;
@@ -185,7 +203,7 @@ index f48952a..5869471 100644
  pub mod video_mode;
  pub mod wallpaper;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index b133df5..0cb1fa8 100644
+index bc7baa5..dacd700 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
 @@ -218,10 +218,11 @@ impl Session {
@@ -213,16 +231,12 @@ index b133df5..0cb1fa8 100644
                  for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
                      self.pad.apply(Action::GbaUp(b));
                  }
-@@ -608,15 +609,17 @@ impl Session {
+@@ -611,12 +612,13 @@ impl Session {
          emu.set_native_pal(self.app.native_pal(loaded.platform));
          emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
          emu.set_pass_through(loaded.platform.passes_xy_through());
 +        let vb_buttons = self.app.latch_vb_pad(loaded.platform);
-         emu.set_ws_pad(crate::ws_input::pad_code(
-             loaded.platform,
-             self.app.vertical(),
-+            vb_buttons,
-         ));
+         emu.set_ws_pad(self.app.pad_code(loaded.platform));
          self.gestures
              .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
          self.gestures.set_disc_chord(loaded.platform.swaps_discs());
@@ -285,7 +299,7 @@ index 0000000..bac0ada
 +        | given(m, M::R2, M::A))
 +}
 diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
-index 7f1342d..8b3f876 100644
+index 4bb29aa..d6d6f7a 100644
 --- a/crates/slot/src/ws_input.rs
 +++ b/crates/slot/src/ws_input.rs
 @@ -12,10 +12,11 @@ pub const OFF: u8 = 0;
@@ -301,17 +315,17 @@ index 7f1342d..8b3f876 100644
          (
              Platform::Gba
              | Platform::Gb
-@@ -29,8 +30,7 @@ pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
-             | Platform::Tg16
-             | Platform::Lynx
+@@ -31,8 +32,7 @@ pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
              | Platform::Ngp
--            | Platform::S32x
+             | Platform::S32x
+             | Platform::A2600
+-            | Platform::A7800
 -            | Platform::Vb,
-+            | Platform::S32x,
++            | Platform::A7800,
              _,
          ) => OFF,
      }
-@@ -132,6 +132,9 @@ impl WsPad {
+@@ -138,6 +138,9 @@ impl WsPad {
          if code == OFF {
              return mask;
          }
@@ -322,25 +336,23 @@ index 7f1342d..8b3f876 100644
          let others = mask.0 & !M::SELECT != 0;
          match (self.select, select) {
 diff --git a/crates/slot/tests/ps1_analog.rs b/crates/slot/tests/ps1_analog.rs
-index 288e969..9788f6b 100644
+index 571aca2..7d84ad5 100644
 --- a/crates/slot/tests/ps1_analog.rs
 +++ b/crates/slot/tests/ps1_analog.rs
-@@ -39,9 +39,13 @@ fn pcsx_on_a_disc(dylib: &Path, slot_options: bool) -> LibretroCore {
+@@ -39,11 +39,12 @@ fn pcsx_on_a_disc(dylib: &Path, slot_options: bool) -> LibretroCore {
  }
  
  #[test]
--fn only_pcsx_gets_an_analog_pad_and_it_is_the_dualshock() {
-+fn only_pcsx_gets_the_dualshock_and_only_beetle_vb_the_plain_pad_beside_it() {
+-fn only_pcsx_gets_the_dualshock_and_only_stella_a_retropad_with_sticks() {
++fn only_pcsx_gets_the_dualshock_and_only_stella_and_beetle_vb_a_plain_pad_with_sticks() {
      for which in Core::EVERY {
--        let want = (which == Core::PcsxRearmed).then_some(DUALSHOCK);
-+        let want = match which {
-+            Core::PcsxRearmed => Some(DUALSHOCK),
+         let want = match which {
+             Core::PcsxRearmed => Some(DUALSHOCK),
+             Core::Stella2014 => Some(1),
 +            Core::MednafenVb => Some(slot_retro::PLAIN_PAD),
-+            _ => None,
-+        };
+             _ => None,
+         };
          assert_eq!(analog_pad(which), want, "{which:?}");
-     }
- }
 diff --git a/crates/slot/tests/vb_common/mod.rs b/crates/slot/tests/vb_common/mod.rs
 index bde80ac..3ad0be9 100644
 --- a/crates/slot/tests/vb_common/mod.rs

@@ -4,7 +4,7 @@ phase: 16
 area: platform
 type: chore
 size: S
-depends_on: [155-platform-vb]
+depends_on: [175-platform-vb]
 ---
 
 ## Why
@@ -27,7 +27,7 @@ Beetle VB gives every cart 64 KB of cart RAM, so the .sav path must hold it.
 - [x] V1 passes.
 
 ## Device check (RG34XXSP)
-Issue 162.
+Issue 182.
 
 ## References
 - ADR 0097; docs/cart-art/VB.md

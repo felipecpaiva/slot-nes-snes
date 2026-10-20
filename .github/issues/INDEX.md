@@ -124,13 +124,33 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [150](150-s32x-tests.md) | Test the 32X with a generated cart whose SH-2s must answer, and Mega Drive after 32X | 15 | tests | test | S | 144-s32x-core-build |
 | [151](151-s32x-carts.md) | Draw the 32X cart and fetch its labels | 15 | ui-art | feature | M | 145-platform-s32x |
 | [152](152-s32x-device-gate.md) | 32X device gate on the RG34XXSP | 15 | device | chore | S | 147-s32x-screen, 149-s32x-input |
-| [153](153-vb-tracking.md) | Virtual Boy: Beetle VB, one eye on the flat panel, a shelf of its own | 16 | device | tracking | L | 143-s32x-tracking |
-| [154](154-vb-core-build.md) | Build Beetle VB from a pinned commit for host and device with the VR view off and record its licence | 16 | cores | feature | S | 153-vb-tracking |
-| [155](155-platform-vb.md) | Add Platform::Vb with its own shelf and explicit policy | 16 | platform | feature | M | 154-vb-core-build |
-| [156](156-vb-options.md) | Set the Beetle VB options: anaglyph with the preset off, the right stick as the right D-pad | 16 | cores | feature | S | 155-platform-vb |
-| [157](157-vb-screen.md) | Give the Virtual Boy its own Screen section with Shader, Picture, VB Speed, Palette and Right Pad | 16 | video | feature | M | 156-vb-options |
-| [158](158-vb-saves.md) | Virtual Boy saves: the ordinary .sav for the 64 KB cart RAM | 16 | platform | chore | S | 155-platform-vb |
-| [159](159-vb-input.md) | Map the Virtual Boy pad: the right stick as the right D-pad, an ABXY fallback | 16 | input | feature | M | 155-platform-vb |
-| [160](160-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 154-vb-core-build |
-| [161](161-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 155-platform-vb |
-| [162](162-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 157-vb-screen, 159-vb-input |
+| [153](153-atari-tracking.md) | Atari 2600 and Atari 7800 on Stella 2014 and ProSystem, built the NES and SNES way | 14 | device | tracking | L | 56-ps1-tracking |
+| [154](154-a2600-core-build.md) | Build Stella 2014 from a pinned commit for host and device and record its licence | 14 | cores | feature | S | 153-atari-tracking |
+| [155](155-a7800-core-build.md) | Build ProSystem from a pinned commit for host and device and record its licence | 14 | cores | feature | S | 153-atari-tracking |
+| [156](156-platform-a2600.md) | Add Platform::A2600 with its own shelf, scan and explicit policy | 14 | platform | feature | M | 154-a2600-core-build |
+| [157](157-a2600-options.md) | Set the Stella 2014 core options slot relies on | 14 | cores | feature | S | 156-platform-a2600 |
+| [158](158-a2600-canvas-screen.md) | Give the 2600 the 360x240 canvas with doubled columns, a crop rule for tall frames, and its own Screen section | 14 | video | feature | M | 157-a2600-options |
+| [159](159-a2600-input-switches.md) | Map the 2600 joystick and console switches | 14 | input | feature | M | 156-platform-a2600 |
+| [160](160-a2600-pal-pacing.md) | Pace PAL 2600 games at 49.92 Hz with a PAL Speed row | 14 | video | feature | S | 158-a2600-canvas-screen, 66-pal-pacing |
+| [161](161-a2600-carts.md) | Draw 2600 carts and fetch their labels | 14 | ui-art | feature | M | 156-platform-a2600 |
+| [162](162-a2600-device-gate.md) | Atari 2600 device gate on the RG34XXSP | 14 | device | chore | S | 158-a2600-canvas-screen, 159-a2600-input-switches, 160-a2600-pal-pacing |
+| [163](163-platform-a7800.md) | Add Platform::A7800 with its own shelf, scan, header handling and explicit policy | 14 | platform | feature | M | 155-a7800-core-build |
+| [164](164-a7800-options.md) | Set the ProSystem core options and say there is no high score cart | 14 | cores | feature | S | 163-platform-a7800 |
+| [165](165-a7800-bios.md) | 7800 BIOS row: Off by default, On with a checked file | 14 | platform | feature | S | 163-platform-a7800 |
+| [166](166-a7800-canvas-screen.md) | Give the 7800 the 360x240 canvas with a crop rule for PAL and its own Screen section | 14 | video | feature | S | 164-a7800-options |
+| [167](167-a7800-input-switches.md) | Map the 7800 joystick, buttons and console switches | 14 | input | feature | M | 163-platform-a7800 |
+| [168](168-a7800-pal-pacing.md) | Pace PAL 7800 games at 50 Hz with a PAL Speed row | 14 | video | feature | S | 166-a7800-canvas-screen, 66-pal-pacing |
+| [169](169-a7800-carts.md) | Draw 7800 carts and fetch their labels | 14 | ui-art | feature | M | 163-platform-a7800 |
+| [170](170-a7800-device-gate.md) | Atari 7800 device gate on the RG34XXSP | 14 | device | chore | S | 165-a7800-bios, 166-a7800-canvas-screen, 167-a7800-input-switches, 168-a7800-pal-pacing |
+| [171](171-atari-tests.md) | Test both Atari cores with generated carts | 14 | tests | test | S | 154-a2600-core-build, 155-a7800-core-build |
+| [172](172-deferred-atari-controllers.md) | DEFERRED: Atari paddles, keypads and the other special controllers | 6 | input | chore | L | 159-a2600-input-switches |
+| [173](173-vb-tracking.md) | Virtual Boy: Beetle VB, one eye on the flat panel, a shelf of its own | 16 | device | tracking | L | 143-s32x-tracking |
+| [174](174-vb-core-build.md) | Build Beetle VB from a pinned commit for host and device with the VR view off and record its licence | 16 | cores | feature | S | 173-vb-tracking |
+| [175](175-platform-vb.md) | Add Platform::Vb with its own shelf and explicit policy | 16 | platform | feature | M | 174-vb-core-build |
+| [176](176-vb-options.md) | Set the Beetle VB options: anaglyph with the preset off, the right stick as the right D-pad | 16 | cores | feature | S | 175-platform-vb |
+| [177](177-vb-screen.md) | Give the Virtual Boy its own Screen section with Shader, Picture, VB Speed, Palette and Right Pad | 16 | video | feature | M | 176-vb-options |
+| [178](178-vb-saves.md) | Virtual Boy saves: the ordinary .sav for the 64 KB cart RAM | 16 | platform | chore | S | 175-platform-vb |
+| [179](179-vb-input.md) | Map the Virtual Boy pad: the right stick as the right D-pad, an ABXY fallback | 16 | input | feature | M | 175-platform-vb |
+| [180](180-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 174-vb-core-build |
+| [181](181-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 175-platform-vb |
+| [182](182-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 177-vb-screen, 179-vb-input |
