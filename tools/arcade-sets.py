@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the Neo Geo, CPS1 and CPS2 set table slot reads, from the pinned FBNeo source (ADR 0097).
+"""Write the Neo Geo, CPS1 and CPS2 set table slot reads, from the pinned FBNeo source (ADR 0099).
 
     python3 tools/arcade-sets.py vendor/fbneo-src.tar.gz > build/arcade-sets.tsv
     python3 tools/arcade-sets.py build/fbneo-host/FBNeo-<commit> --all   # every field, for the romset audit

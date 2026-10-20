@@ -1,10 +1,10 @@
 ---
 title: "Arcade saves: the board's NVRAM in Saves/fbneo, progress in states"
-phase: 16
+phase: 17
 area: platform
 type: chore
 size: S
-depends_on: [155-platform-arcade]
+depends_on: [185-platform-arcade]
 ---
 
 ## Why
@@ -28,7 +28,7 @@ FBNeo exposes no SAVE_RAM; it writes NVRAM and EEPROM itself at unload.
 - [x] V1 and V2 pass.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

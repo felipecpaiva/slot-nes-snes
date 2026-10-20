@@ -1,0 +1,378 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 10:20:32 +0400
+Subject: [PATCH] vb-core-tests
+
+Beetle VB (mednafen_vb) on the generic libretro host, before any
+Virtual Boy platform code exists. A generated cart draws a band in the
+left frame buffer and a different band in the right one, with the VIP
+drawing engine off. With vb_3dmode anaglyph and vb_anaglyph_preset
+disabled the picture is the left eye alone in the vb_color_mode colour
+(the right eye's colour is black); a real preset draws both bands. The
+cart boots with no BIOS at 50.27 fps, 384x224 inside the 384x256
+canvas, its state round trips, and every cart has 64 KB of cart RAM
+that a save loaded before the first frame reaches.
+---
+ crates/slot/tests/vb_common/mod.rs | 157 ++++++++++++++++++++++++
+ crates/slot/tests/vb_core.rs       | 188 +++++++++++++++++++++++++++++
+ 2 files changed, 345 insertions(+)
+ create mode 100644 crates/slot/tests/vb_common/mod.rs
+ create mode 100644 crates/slot/tests/vb_core.rs
+
+diff --git a/crates/slot/tests/vb_common/mod.rs b/crates/slot/tests/vb_common/mod.rs
+new file mode 100644
+index 0000000..bde80ac
+--- /dev/null
++++ b/crates/slot/tests/vb_common/mod.rs
+@@ -0,0 +1,157 @@
++#![allow(dead_code)]
++// The synthetic Virtual Boy cart (ADR 0097). It draws straight into the VIP frame buffers with the
++// drawing engine off, so the left eye and the right eye hold different pictures: a band of columns 40 to
++// 79 in the left frame buffer 0 (0x00000000) and a band of columns 300 to 339 in the right frame buffer
++// 0 (0x00010000). Each column is 64 bytes, four 2-bit pixels a byte; 0xff is shade 3 all the way down.
++// BRTA, BRTB and BRTC (0x0005f824, 0x0005f826, 0x0005f828) are set so shade 3 is lit, and DPCTRL
++// (0x0005f822) gets DISP. The memory map, the register offsets and the frame buffer layout are the ones
++// Beetle VB's VIP uses at d5ae54c (mednafen/vb/vip.c VIP_Write16, WriteRegister,
++// CopyFBColumnToTarget_Anaglyph_BASE); the V810 encodings are its v810_cpu.cpp decoder's. The code is ours.
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub const PICTURE: (usize, usize) = (384, 224);
++pub const CANVAS: (usize, usize) = (384, 256);
++pub const LEFT_BAND: std::ops::Range<usize> = 40..80;
++pub const RIGHT_BAND: std::ops::Range<usize> = 300..340;
++pub const SAVE_MARK: u8 = 0x5a;
++
++pub fn beetle_vb() -> Option<PathBuf> {
++    require_core("mednafen_vb")
++}
++
++fn f1(op: u16, reg2: u16, reg1: u16) -> Vec<u16> {
++    vec![(op << 10) | (reg2 << 5) | reg1]
++}
++
++fn f2(op: u16, reg2: u16, imm5: i16) -> Vec<u16> {
++    vec![(op << 10) | (reg2 << 5) | (imm5 as u16 & 31)]
++}
++
++fn f5(op: u16, reg2: u16, reg1: u16, imm16: u16) -> Vec<u16> {
++    vec![(op << 10) | (reg2 << 5) | reg1, imm16]
++}
++
++const MOV_IMM: u16 = 0x10;
++const ADD_IMM: u16 = 0x11;
++const CMP: u16 = 0x03;
++const MOVEA: u16 = 0x28;
++const MOVHI: u16 = 0x2f;
++const ST_B: u16 = 0x34;
++const ST_H: u16 = 0x35;
++const ST_W: u16 = 0x37;
++const JR: u16 = 0x2a;
++const BNE: u16 = 0x8000 | (10 << 9);
++const BR_SELF: u16 = 0x8000 | (5 << 9);
++
++fn fill(code: &mut Vec<u16>, from: u32, to: u32) {
++    code.extend(f5(MOVHI, 13, 0, (from >> 16) as u16));
++    code.extend(f5(MOVEA, 13, 13, from as u16));
++    code.extend(f5(MOVHI, 14, 0, (to >> 16) as u16));
++    code.extend(f5(MOVEA, 14, 14, to as u16));
++    let top = code.len();
++    code.extend(f5(ST_W, 11, 13, 0));
++    code.extend(f2(ADD_IMM, 13, 4));
++    code.extend(f1(CMP, 13, 14));
++    let back = -(((code.len() - top) * 2) as i32);
++    code.push(BNE | (back as u16 & 0x1ff));
++}
++
++pub struct Cart {
++    pub left: bool,
++    pub right: bool,
++    pub saves: bool,
++}
++
++// `saves`: the game writes SAVE_MARK to the cart RAM at 0x06000000 before it draws.
++
++impl Cart {
++    pub const GAME: Cart = Cart {
++        left: true,
++        right: true,
++        saves: false,
++    };
++
++    pub fn bytes(&self) -> Vec<u8> {
++        let mut code = f5(MOVHI, 10, 0, 0x0006);
++        code.extend(f5(MOVEA, 10, 10, 0xf800));
++        code.extend(f5(MOVEA, 11, 0, 32));
++        for register in [0x24, 0x26, 0x28] {
++            code.extend(f5(ST_H, 11, 10, register));
++        }
++        code.extend(f2(MOV_IMM, 12, 2));
++        code.extend(f5(ST_H, 12, 10, 0x22));
++        if self.saves {
++            code.extend(f5(MOVHI, 13, 0, 0x0600));
++            code.extend(f5(MOVEA, 12, 0, SAVE_MARK as u16));
++            code.extend(f5(ST_B, 12, 13, 0));
++        }
++        code.extend(f2(MOV_IMM, 11, -1));
++        if self.left {
++            fill(
++                &mut code,
++                64 * LEFT_BAND.start as u32,
++                64 * LEFT_BAND.end as u32,
++            );
++        }
++        if self.right {
++            fill(
++                &mut code,
++                0x10000 + 64 * RIGHT_BAND.start as u32,
++                0x10000 + 64 * RIGHT_BAND.end as u32,
++            );
++        }
++        code.push(BR_SELF);
++        let mut rom = vec![0xffu8; 0x10000];
++        for (at, half) in code.iter().enumerate() {
++            rom[at * 2..at * 2 + 2].copy_from_slice(&half.to_le_bytes());
++        }
++        let back = -(0x10000 - 16i32);
++        let jr = [(JR << 10) | ((back >> 16) as u16 & 0x3ff), back as u16];
++        rom[0xfff0..0xfff2].copy_from_slice(&jr[0].to_le_bytes());
++        rom[0xfff2..0xfff4].copy_from_slice(&jr[1].to_le_bytes());
++        rom
++    }
++
++    pub fn write(&self, dir: &Path, file: &str) -> PathBuf {
++        let path = dir.join(file);
++        std::fs::write(&path, self.bytes()).unwrap();
++        path
++    }
++}
++
++pub fn cart(dir: &Path, stem: &str) -> PathBuf {
++    Cart::GAME.write(dir, &format!("{stem}.vb"))
++}
++
++pub fn lit(px: &[u8]) -> bool {
++    px[..3] != [0, 0, 0]
++}
++
++/// The lit canvas pixels, column by column: the picture is 384x224 centred on the 384x256 canvas.
++pub fn lit_columns(video: &[u8]) -> Vec<usize> {
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    let top = (CANVAS.1 - PICTURE.1) / 2;
++    (0..CANVAS.0)
++        .filter(|x| (top..top + PICTURE.1).all(|y| lit(&video[(y * CANVAS.0 + x) * 4..])))
++        .collect()
++}
++
++/// Every canvas pixel is either the given BGRX colour (inside the left band of the picture) or black.
++pub fn assert_left_eye_only(video: &[u8], colour: [u8; 3]) {
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    let top = (CANVAS.1 - PICTURE.1) / 2;
++    for y in 0..CANVAS.1 {
++        for x in 0..CANVAS.0 {
++            let at = (y * CANVAS.0 + x) * 4;
++            let px = &video[at..at + 3];
++            if LEFT_BAND.contains(&x) && (top..top + PICTURE.1).contains(&y) {
++                assert_eq!(px, colour, "({x}, {y})");
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/vb_core.rs b/crates/slot/tests/vb_core.rs
+new file mode 100644
+index 0000000..9e6b1c2
+--- /dev/null
++++ b/crates/slot/tests/vb_core.rs
+@@ -0,0 +1,188 @@
++// Beetle VB (Nintendo Virtual Boy) on the generic libretro host, before any Virtual Boy platform code
++// exists (issues 154 and 160, ADR 0097). The synthetic cart lives in vb_common.
++mod common;
++mod core_common;
++mod vb_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use vb_common::{assert_left_eye_only, cart, lit_columns, Cart, CANVAS, LEFT_BAND, RIGHT_BAND};
++
++const RED: [u8; 3] = [0, 0, 0xdf];
++
++/// The core opened the way slot opens every core (BIOS/ and Saves/, `slot::core::open_named`) on the
++/// 384x256 canvas, with the flat picture ADR 0097 ships: anaglyph 3D with the preset off.
++fn beetle_vb(root: &Path, palette: &str) -> Option<LibretroCore> {
++    let dylib = vb_common::beetle_vb()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open Beetle VB");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    core.set_option("vb_3dmode", "anaglyph");
++    core.set_option("vb_anaglyph_preset", "disabled");
++    core.set_option("vb_color_mode", palette);
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn a_virtual_boy_cart_boots_with_no_bios_at_50_27_fps_and_draws_384_by_224() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    core.load(&cart(d.path(), "Eyes"))
++        .expect("Beetle VB refused the cart");
++    play(&mut core, 10);
++    let av = core.av_info();
++    assert!((50.2..50.3).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    assert_eq!(core.frame_width(), 384);
++}
++
++#[test]
++fn anaglyph_with_the_preset_off_shows_the_left_eye_alone_in_the_palette_colour() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    play(&mut core, 10);
++    assert_left_eye_only(core.video_xrgb8888(), RED);
++}
++
++#[test]
++fn a_real_anaglyph_preset_would_draw_both_eyes_one_over_the_other() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    core.set_option("vb_anaglyph_preset", "red & blue");
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    play(&mut core, 10);
++    let columns = lit_columns(core.video_xrgb8888());
++    let want: Vec<usize> = LEFT_BAND.chain(RIGHT_BAND).collect();
++    assert_eq!(columns, want);
++}
++
++#[test]
++fn the_palette_recolours_the_same_left_eye() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & white") else {
++        return;
++    };
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    play(&mut core, 10);
++    assert_left_eye_only(core.video_xrgb8888(), [0xdf, 0xdf, 0xdf]);
++}
++
++#[test]
++fn a_cart_that_draws_only_its_right_eye_shows_nothing() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    let right_only = Cart {
++        left: false,
++        ..Cart::GAME
++    };
++    core.load(&right_only.write(d.path(), "Right.vb")).unwrap();
++    play(&mut core, 10);
++    assert!(lit_columns(core.video_xrgb8888()).is_empty());
++}
++
++#[test]
++fn a_virtual_boy_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    play(&mut core, 10);
++    let state = core.serialize().expect("no state");
++    assert!(state.len() > 0x10000, "{} bytes", state.len());
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    play(&mut core, 1);
++    assert_left_eye_only(core.video_xrgb8888(), RED);
++}
++
++#[test]
++fn every_cart_gets_64_kb_of_cart_ram_and_a_save_reaches_the_game() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    let saving = Cart {
++        saves: true,
++        ..Cart::GAME
++    };
++    core.load(&saving.write(d.path(), "Battery.vb")).unwrap();
++    play(&mut core, 10);
++    let ram = core.save_ram().expect("no save RAM");
++    assert_eq!(ram.len(), 64 * 1024);
++    assert_eq!(ram[0], vb_common::SAVE_MARK);
++    drop(core);
++
++    let mut core = beetle_vb(d.path(), "black & red").unwrap();
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    let mut sav = vec![0u8; 64 * 1024];
++    sav[0x100] = 0xa5;
++    core.load_save_ram(&sav).unwrap();
++    play(&mut core, 10);
++    assert_eq!(core.save_ram().unwrap(), sav);
++}
++
++#[test]
++fn the_options_slot_will_answer_are_declared_with_these_values() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = beetle_vb(d.path(), "black & red") else {
++        return;
++    };
++    core.load(&cart(d.path(), "Eyes")).unwrap();
++    let declared = core.declared_options();
++    let has = |key: &str, value: &str| {
++        declared
++            .get(key)
++            .is_some_and(|v| v.iter().any(|x| x == value))
++    };
++    assert!(has("vb_3dmode", "anaglyph"));
++    assert!(has("vb_anaglyph_preset", "disabled"));
++    for palette in [
++        "black & red",
++        "black & white",
++        "black & blue",
++        "black & cyan",
++        "black & electric cyan",
++        "black & green",
++        "black & magenta",
++        "black & yellow",
++    ] {
++        assert!(has("vb_color_mode", palette), "{palette}");
++    }
++    assert!(has("vb_right_analog_to_digital", "enabled"));
++    assert!(has("vb_right_analog_to_digital", "disabled"));
++    assert!(has("vb_cpu_emulation", "fast"));
++    assert!(!declared.contains_key("vb_frameskip"));
++}

@@ -1,10 +1,10 @@
 ---
 title: "Set the FBNeo options: Auto frameskip, no held-Start service menu"
-phase: 16
+phase: 17
 area: cores
 type: feature
 size: S
-depends_on: [155-platform-arcade]
+depends_on: [185-platform-arcade]
 ---
 
 ## Why
@@ -27,7 +27,7 @@ FBNeo's frameskip key is not `<prefix>_frameskip`, and its default diagnostic in
 - [x] O1 passes.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

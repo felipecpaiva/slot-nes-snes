@@ -1,10 +1,10 @@
 ---
 title: "Arcade device gate on the RG34XXSP"
-phase: 16
+phase: 17
 area: device
 type: chore
 size: S
-depends_on: [157-arcade-screen, 160-arcade-input]
+depends_on: [187-arcade-screen, 190-arcade-input]
 ---
 
 ## Why
@@ -30,4 +30,4 @@ The host proves behaviour, not speed on the H700.
 This issue.
 
 ## References
-- ADR 0097
+- ADR 0099

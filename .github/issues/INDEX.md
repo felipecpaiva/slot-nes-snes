@@ -144,14 +144,24 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [170](170-a7800-device-gate.md) | Atari 7800 device gate on the RG34XXSP | 14 | device | chore | S | 165-a7800-bios, 166-a7800-canvas-screen, 167-a7800-input-switches, 168-a7800-pal-pacing |
 | [171](171-atari-tests.md) | Test both Atari cores with generated carts | 14 | tests | test | S | 154-a2600-core-build, 155-a7800-core-build |
 | [172](172-deferred-atari-controllers.md) | DEFERRED: Atari paddles, keypads and the other special controllers | 6 | input | chore | L | 159-a2600-input-switches |
-| [153](153-arcade-tracking.md) | Arcade: Neo Geo, CPS1 and CPS2 on FinalBurn Neo, a shelf per board | 16 | device | tracking | L | 143-s32x-tracking |
-| [154](154-arcade-core-build.md) | Build FinalBurn Neo with only the Neo Geo and CPS drivers from a pinned commit for host and device, and record its licence | 16 | cores | feature | M | 153-arcade-tracking |
-| [155](155-platform-arcade.md) | Add Platform::NeoGeo, Cps1 and Cps2 with a set table, full titles and explicit policy | 16 | platform | feature | M | 154-arcade-core-build |
-| [156](156-arcade-options.md) | Set the FBNeo options: Auto frameskip, no held-Start service menu | 16 | cores | feature | S | 155-platform-arcade |
-| [157](157-arcade-screen.md) | Give each arcade board its own Screen section, and stand vertical games upright | 16 | video | feature | M | 156-arcade-options |
-| [158](158-neogeo-bios.md) | Check BIOS/neogeo.zip before a Neo Geo set starts | 16 | platform | feature | S | 155-platform-arcade |
-| [159](159-arcade-saves.md) | Arcade saves: the board's NVRAM in Saves/fbneo, progress in states | 16 | platform | chore | S | 155-platform-arcade |
-| [160](160-arcade-input.md) | Arcade input: FBNeo's Classic map, L1 and R1 to the game | 16 | input | feature | S | 155-platform-arcade |
-| [161](161-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 16 | tests | test | S | 154-arcade-core-build |
-| [162](162-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 16 | ui-art | feature | M | 155-platform-arcade |
-| [163](163-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 16 | device | chore | S | 157-arcade-screen, 160-arcade-input |
+| [173](173-vb-tracking.md) | Virtual Boy: Beetle VB, one eye on the flat panel, a shelf of its own | 16 | device | tracking | L | 143-s32x-tracking |
+| [174](174-vb-core-build.md) | Build Beetle VB from a pinned commit for host and device with the VR view off and record its licence | 16 | cores | feature | S | 173-vb-tracking |
+| [175](175-platform-vb.md) | Add Platform::Vb with its own shelf and explicit policy | 16 | platform | feature | M | 174-vb-core-build |
+| [176](176-vb-options.md) | Set the Beetle VB options: anaglyph with the preset off, the right stick as the right D-pad | 16 | cores | feature | S | 175-platform-vb |
+| [177](177-vb-screen.md) | Give the Virtual Boy its own Screen section with Shader, Picture, VB Speed, Palette and Right Pad | 16 | video | feature | M | 176-vb-options |
+| [178](178-vb-saves.md) | Virtual Boy saves: the ordinary .sav for the 64 KB cart RAM | 16 | platform | chore | S | 175-platform-vb |
+| [179](179-vb-input.md) | Map the Virtual Boy pad: the right stick as the right D-pad, an ABXY fallback | 16 | input | feature | M | 175-platform-vb |
+| [180](180-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 174-vb-core-build |
+| [181](181-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 175-platform-vb |
+| [182](182-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 177-vb-screen, 179-vb-input |
+| [183](183-arcade-tracking.md) | Arcade: Neo Geo, CPS1 and CPS2 on FinalBurn Neo, a shelf per board | 17 | device | tracking | L | 143-s32x-tracking |
+| [184](184-arcade-core-build.md) | Build FinalBurn Neo with only the Neo Geo and CPS drivers from a pinned commit for host and device, and record its licence | 17 | cores | feature | M | 183-arcade-tracking |
+| [185](185-platform-arcade.md) | Add Platform::NeoGeo, Cps1 and Cps2 with a set table, full titles and explicit policy | 17 | platform | feature | M | 184-arcade-core-build |
+| [186](186-arcade-options.md) | Set the FBNeo options: Auto frameskip, no held-Start service menu | 17 | cores | feature | S | 185-platform-arcade |
+| [187](187-arcade-screen.md) | Give each arcade board its own Screen section, and stand vertical games upright | 17 | video | feature | M | 186-arcade-options |
+| [188](188-neogeo-bios.md) | Check BIOS/neogeo.zip before a Neo Geo set starts | 17 | platform | feature | S | 185-platform-arcade |
+| [189](189-arcade-saves.md) | Arcade saves: the board's NVRAM in Saves/fbneo, progress in states | 17 | platform | chore | S | 185-platform-arcade |
+| [190](190-arcade-input.md) | Arcade input: FBNeo's Classic map, L1 and R1 to the game | 17 | input | feature | S | 185-platform-arcade |
+| [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
+| [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
+| [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |

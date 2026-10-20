@@ -1,10 +1,10 @@
 ---
 title: "Add Platform::NeoGeo, Cps1 and Cps2 with a set table, full titles and explicit policy"
-phase: 16
+phase: 17
 area: platform
 type: feature
 size: M
-depends_on: [154-arcade-core-build]
+depends_on: [184-arcade-core-build]
 ---
 
 ## Why
@@ -33,7 +33,7 @@ An arcade game is a romset zip named after its set; a shelf must list only sets 
 - [x] P1 and P2 pass; upstream sites (b) and (e) take their tokens.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

@@ -470,6 +470,25 @@ class Sega32X(NesSnes):
         self.assertEqual([a[0] for a in md], [19, 1])
 
 
+class VirtualBoy(Base):
+    ss_http = NesSnes.ss_http
+    run_ss = NesSnes.run_ss
+
+    def test_the_virtual_boy_names_its_library_folder_dat_and_screenscraper_id(self):
+        self.assertEqual(fl.SYSTEMS["VB"], ("virtualboy", {".vb", ".vboy"}, ["Nintendo - Virtual Boy"], 11))
+        self.assertNotIn("VB", fl.ART_SYSTEMS)
+
+    def test_a_vb_cart_matched_by_crc_is_asked_under_11_and_lands_in_labels_vb(self):
+        raw = b"v" * 0x10000
+        self.rom("VB", "Virtual Boy Wario Land (Japan, USA).vb", raw)
+        r = self.dat("VB", ("Virtual Boy Wario Land (Japan, USA)", crc(raw)))
+        stats = self.run_ss("VB", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "VB"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("VB", "Virtual Boy Wario Land (Japan, USA)"), PNG)
+        self.assertFalse(os.path.exists(os.path.join(self.card, "Labels", "cart_shell.txt")))
+        self.assertTrue(any("systemeid=11" in c for c in self.http.calls))
+
+
 class Lynx(Base):
     ss_http = NesSnes.ss_http
     run_ss = NesSnes.run_ss

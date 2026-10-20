@@ -1,10 +1,10 @@
 ---
 title: "Check BIOS/neogeo.zip before a Neo Geo set starts"
-phase: 16
+phase: 17
 area: platform
 type: feature
 size: S
-depends_on: [155-platform-arcade]
+depends_on: [185-platform-arcade]
 ---
 
 ## Why
@@ -29,7 +29,7 @@ FBNeo loads a Neo Geo set without the BIOS and shows its error page instead of t
 - [x] B1 and B2 pass.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

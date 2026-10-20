@@ -27,6 +27,8 @@ vars:
     sh: . ./SLOT_PIN && echo "$stella2014_commit"
   PROSYSTEM_COMMIT:
     sh: . ./SLOT_PIN && echo "$prosystem_commit"
+  MEDNAFEN_VB_COMMIT:
+    sh: . ./SLOT_PIN && echo "$mednafen_vb_commit"
   FBNEO_COMMIT:
     sh: . ./SLOT_PIN && echo "$fbneo_commit"
 
@@ -304,6 +306,25 @@ tasks:
     cmds:
       - sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
 
+  core:mednafen_vb:src:
+    desc: Fetch the pinned Beetle VB (beetle-vb-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/mednafen_vb-src.tar.gz
+      - test "$(cat vendor/mednafen_vb-src.sha 2>/dev/null)" = "{{.MEDNAFEN_VB_COMMIT}}"
+    cmds:
+      - rm -f vendor/mednafen_vb-src.tar.gz vendor/mednafen_vb-src.sha
+      - sh cores/mednafen_vb/build.sh fetch {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz
+      - echo "{{.MEDNAFEN_VB_COMMIT}}" > vendor/mednafen_vb-src.sha
+
+  core:mednafen_vb:host:
+    desc: Build the Beetle VB host dylib into vendor/ (core:host builds it too)
+    deps: [core:mednafen_vb:src]
+    status:
+      - test -f vendor/mednafen_vb_libretro.dylib
+      - test "$(cat vendor/mednafen_vb_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_vb/build.sh stamp {{.MEDNAFEN_VB_COMMIT}} host)"
+    cmds:
+      - sh cores/mednafen_vb/build.sh build {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz build/mednafen_vb-host vendor/mednafen_vb_libretro.dylib
+
   core:fbneo:src:
     desc: Fetch the pinned FinalBurn Neo (libretro/FBNeo) source tarball into vendor/ and verify its sha256, it ships as corresponding source
     status:
@@ -334,8 +355,8 @@ tasks:
         echo "arcade_sets.tsv matches the pinned FBNeo source"
 
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem and FinalBurn Neo from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:stella2014:src, core:prosystem:src, core:fbneo:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB and FinalBurn Neo from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:stella2014:src, core:prosystem:src, core:mednafen_vb:src, core:fbneo:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -393,12 +414,17 @@ tasks:
           test "$(cat vendor/prosystem_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/prosystem/build.sh stamp {{.PROSYSTEM_COMMIT}} host)" ||
           sh cores/prosystem/build.sh build {{.PROSYSTEM_COMMIT}} vendor/prosystem-src.tar.gz build/prosystem-host vendor/prosystem_libretro.dylib
       - |
+        test -f vendor/mednafen_vb_libretro.dylib &&
+          test "$(cat vendor/mednafen_vb_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_vb/build.sh stamp {{.MEDNAFEN_VB_COMMIT}} host)" ||
+          sh cores/mednafen_vb/build.sh build {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz build/mednafen_vb-host vendor/mednafen_vb_libretro.dylib
+
+      - |
         test -f vendor/fbneo_libretro.dylib &&
           test "$(cat vendor/fbneo_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/fbneo/build.sh stamp {{.FBNEO_COMMIT}} host)" ||
           sh cores/fbneo/build.sh build {{.FBNEO_COMMIT}} vendor/fbneo-src.tar.gz build/fbneo-host vendor/fbneo_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem and FinalBurn Neo cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB and FinalBurn Neo cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -413,6 +439,7 @@ tasks:
       - task: core:device:picodrive
       - task: core:device:stella2014
       - task: core:device:prosystem
+      - task: core:device:mednafen_vb
       - task: core:device:fbneo
 
   core:device:fceumm:
@@ -611,6 +638,21 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/prosystem_libretro.so && needs_old_glibc_only vendor/prosystem_libretro.so'
       - 'echo "built vendor/prosystem_libretro.so from vendor/prosystem-src.tar.gz @ {{.PROSYSTEM_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/prosystem_libretro.so")"'
 
+  core:device:mednafen_vb:
+    desc: Build the aarch64 linux Beetle VB core into vendor/mednafen_vb_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc and libm at GLIBC_2.17 or older (the C++ runtime is linked in)
+    deps: [core:mednafen_vb:src]
+    status:
+      - test -f vendor/mednafen_vb_libretro.so
+      - test "$(cat vendor/mednafen_vb-src.meta 2>/dev/null)" = "$(sh cores/mednafen_vb/build.sh srcmeta {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz)"
+      - test "$(cat vendor/mednafen_vb_libretro.so.meta 2>/dev/null)" = "$(sh cores/mednafen_vb/build.sh stamp {{.MEDNAFEN_VB_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/mednafen_vb/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/mednafen_vb/build.sh build {{.MEDNAFEN_VB_COMMIT}} vendor/mednafen_vb-src.tar.gz
+        build/mednafen_vb-device vendor/mednafen_vb_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/mednafen_vb_libretro.so && needs_old_glibc_only vendor/mednafen_vb_libretro.so'
+      - 'echo "built vendor/mednafen_vb_libretro.so from vendor/mednafen_vb-src.tar.gz @ {{.MEDNAFEN_VB_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/mednafen_vb_libretro.so")"'
+
   core:device:fbneo:
     desc: Build the aarch64 linux FinalBurn Neo core (Neo Geo, CPS1 and CPS2 drivers only) into vendor/fbneo_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only glibc symbols at GLIBC_2.17 or older
     deps: [core:fbneo:src]
@@ -655,6 +697,7 @@ tasks:
       - test -f vendor/picodrive_libretro.dylib
       - test -f vendor/stella2014_libretro.dylib
       - test -f vendor/prosystem_libretro.dylib
+      - test -f vendor/mednafen_vb_libretro.dylib
       - test -f vendor/fbneo_libretro.dylib
       - task: test
       - |
@@ -769,7 +812,7 @@ tasks:
       - sh evals/eval-frontend-cost.sh
 
   dist:device:
-    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem and FinalBurn Neo cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
+    desc: Build build/dist/<release name>/ for the H700, slot's own dist:device plus the fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB and FinalBurn Neo cores, their .meta, source and licences. Fails unless every core's shippable set exists. Skipped while its inputs are unchanged
     deps: [build, core:device]
     vars:
       NAME:
@@ -807,6 +850,8 @@ tasks:
       - vendor/stella2014-src.*
       - vendor/prosystem_libretro.so*
       - vendor/prosystem-src.*
+      - vendor/mednafen_vb_libretro.so*
+      - vendor/mednafen_vb-src.*
       - vendor/fbneo_libretro.so*
       - vendor/fbneo-src.*
       - scripts/dist-device.sh

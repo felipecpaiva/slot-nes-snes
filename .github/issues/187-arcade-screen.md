@@ -1,10 +1,10 @@
 ---
 title: "Give each arcade board its own Screen section, and stand vertical games upright"
-phase: 16
+phase: 17
 area: video
 type: feature
 size: M
-depends_on: [156-arcade-options]
+depends_on: [186-arcade-options]
 ---
 
 ## Why
@@ -31,7 +31,7 @@ Every system has its own Screen section. Vertical CPS games ask the frontend for
 - [x] S1 and S2 pass; upstream sites (g) and (h) take their tokens.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

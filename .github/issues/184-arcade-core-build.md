@@ -1,10 +1,10 @@
 ---
 title: "Build FinalBurn Neo with only the Neo Geo and CPS drivers from a pinned commit for host and device, and record its licence"
-phase: 16
+phase: 17
 area: cores
 type: feature
 size: M
-depends_on: [153-arcade-tracking]
+depends_on: [183-arcade-tracking]
 ---
 
 ## Why
@@ -32,7 +32,7 @@ FBNeo is one large core; slot needs only three boards. Its own subset makefiles 
 - [x] C1 and C2 pass.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

@@ -1,17 +1,17 @@
 ---
 title: "Arcade input: FBNeo's Classic map, L1 and R1 to the game"
-phase: 16
+phase: 17
 area: input
 type: feature
 size: S
-depends_on: [155-platform-arcade]
+depends_on: [185-platform-arcade]
 ---
 
 ## Why
 Six-button CPS games need L1 and R1; coin is SELECT.
 
 ## Scope
-- [x] `owns_shoulders` false, X and Y pass through, SELECT+X toggles the picture; FBNeo's own Classic map cited in ADR 0097.
+- [x] `owns_shoulders` false, X and Y pass through, SELECT+X toggles the picture; FBNeo's own Classic map cited in ADR 0099.
 
 ## Tests
 | ID | File | Asserts |
@@ -24,10 +24,10 @@ Six-button CPS games need L1 and R1; coin is SELECT.
 | Turned vertical game | D-pad turned, buttons kept (S1) |
 
 ## Acceptance
-- [x] I1 passes; the map is checked on the device (issue 163).
+- [x] I1 passes; the map is checked on the device (issue 193).
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

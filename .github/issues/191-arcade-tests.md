@@ -1,10 +1,10 @@
 ---
 title: "Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched"
-phase: 16
+phase: 17
 area: tests
 type: test
 size: S
-depends_on: [154-arcade-core-build]
+depends_on: [184-arcade-core-build]
 ---
 
 ## Why
@@ -27,7 +27,7 @@ No commercial ROM may be committed; FBNeo's patched-romset folder takes members 
 - [x] T1 passes.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

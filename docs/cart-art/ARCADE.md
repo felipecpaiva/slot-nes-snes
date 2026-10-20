@@ -1,9 +1,9 @@
-# Neo Geo, CPS1 and CPS2 shelf objects (issue 162)
+# Neo Geo, CPS1 and CPS2 shelf objects (issue 192)
 
 Same rules as [VARIANTS.md](VARIANTS.md): every value cites its source, says it is an estimate from a
 named photo, or says it is the maintainer's choice. Sources opened 2026-10-20. Arcade boards have no
 cart, so each shelf gets the object the board's games came in that best carries a game's art face-on
-(ADR 0097). Patch 0104.
+(ADR 0099). Patch 0116.
 
 ## Neo Geo: the AES home cart
 

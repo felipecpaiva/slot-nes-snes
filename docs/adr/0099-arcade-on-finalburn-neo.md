@@ -1,9 +1,9 @@
-# 0097. Bring Neo Geo, CPS1 and CPS2 into scope on one pinned FinalBurn Neo, a shelf per board, the zip as the romset
+# 0099. Bring Neo Geo, CPS1 and CPS2 into scope on one pinned FinalBurn Neo, a shelf per board, the zip as the romset
 
 - Status: Accepted. Amends [0002](0002-cores.md), the docs/PLAN.md "Who it's NOT for" line on more systems, and the "zip ROMs" non-goal for the three arcade shelves only
 - Date: 2026-10-20
 - Deciders: maintainer (Felipe Paiva)
-- Related: [next systems research](../research/next-systems-2026-10-20.md) sections 3, 5 and CPS3, [ADR 0059](0059-need-fullpath-load.md) (need_fullpath), [ADR 0093](0093-lynx-on-beetle-lynx.md) (the BIOS check precedent), [ADR 0096](0096-sega-32x-on-picodrive.md) (the non-commercial core precedent), issues 153 to 163, patches `0098-arcade-core-tests` to `0104-arcade-carts`
+- Related: [next systems research](../research/next-systems-2026-10-20.md) sections 3, 5 and CPS3, [ADR 0059](0059-need-fullpath-load.md) (need_fullpath), [ADR 0093](0093-lynx-on-beetle-lynx.md) (the BIOS check precedent), [ADR 0096](0096-sega-32x-on-picodrive.md) (the non-commercial core precedent), issues 183 to 193, patches `0110-arcade-core-tests` to `0116-arcade-carts`
 
 ## Context
 
@@ -35,7 +35,7 @@ FBNeo at the pin, read in its source:
 
 ## Decision
 
-- **Scope.** Neo Geo, CPS1 and CPS2 are in scope as Phase 16, on one core. Three shelves,
+- **Scope.** Neo Geo, CPS1 and CPS2 are in scope as Phase 17, on one core. Three shelves,
   `Games/NEOGEO`, `Games/CPS1` and `Games/CPS2`, because every system here gets its own shelf and Screen
   section. `Platform::NeoGeo`, `Cps1` and `Cps2` are appended to `SHELVES`, `Core::Fbneo` to `EVERY`;
   upstream's `ALL` lists are untouched and every policy method answers the three explicitly.
@@ -148,12 +148,19 @@ Neo Geo and CPS1/CPS2 set to hold 59.18 or 59.63 fps on the H700; the device gat
 
 ## Consequences
 
-- Seven patches, 0098 to 0104. Nothing touches GBA, GB or GBC; the harness compare stays at 0 diffs.
-- Upstream test sites take three tokens each, after the 32X's: (b) `| Platform::NeoGeo | Platform::Cps1 |
+- Seven patches, 0110 to 0116. Nothing touches GBA, GB or GBC; the harness compare stays at 0 diffs.
+- Upstream test sites take three tokens each, after the Virtual Boy's: (b) `| Platform::NeoGeo | Platform::Cps1 |
   Platform::Cps2`, (e) `| Core::Fbneo`, (g) `, "Neo Geo", "CPS1", "CPS2"`, (h) `, QuickRow::ScreenNeoGeo,
   QuickRow::ScreenCps1, QuickRow::ScreenCps2`, by the standing rule.
-- The maintainer's sets must match FBNeo 1.0.0.03. The romset audit (`docs/rom-library/best-copy/`)
-  says which do.
+- The maintainer's sets must match FBNeo 1.0.0.03. The romset audit (`docs/rom-library/best-copy/`,
+  2026-10-20, every zip named as a set in his 24 arcade folders, CRC per member against the dat) found:
+  Neo Geo 561 zips, 218 distinct sets, 201 complete (158 alone, 43 with their parent), 17 incomplete;
+  CPS1 203 zips, 108 sets, 43 complete, 65 incomplete (mostly MAME sets without the PLDs FBNeo now
+  lists); CPS2 132 zips, 55 sets, 37 complete, 18 incomplete. `Bios/neogeo/neogeo.zip` holds the
+  ver. 6 BIOS (as `asia-s3.rom`, CRC 91b64be3) and the three shared files. The device list,
+  `arcade-adds.tsv`, is 200 games in 3.53 GB (Neo Geo 140, CPS1 25, CPS2 35); 31 groups are left out
+  (`arcade-adds-left-out.tsv`), among them kod, forgottn, mercs, avsp, progear and 1944, owned only
+  incomplete or only as a Japanese clone.
 - On an FBNeo pin bump: run `task arcade:sets:check`, re-read `locate_archive`, `SetRotation` and the
   default input map, recheck the libm symbols (`task core:device:fbneo` fails otherwise), and recount
   the licence classes in LICENSING.md.

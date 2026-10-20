@@ -135,7 +135,11 @@ SYSTEMS = {
     # its 128-byte header. libretro-thumbnails has 2600 Named_Logos and no 7800 ones (checked 2026-10-20, 404).
     "A2600": ("atari2600", {".a26", ".bin"}, ["Atari - 2600"], 26),
     "A7800": ("atari7800", {".a78"}, ["Atari - 7800"], 41),
-    # Arcade (ADR 0097): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
+    # Nintendo Virtual Boy: libretro-database metadat/no-intro "Nintendo - Virtual Boy"; ScreenScraper id 11 per
+    # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "virtualboy,11,38,4918"). .vb and .vboy, as
+    # slot scans (ADR 0097); libretro-thumbnails has Nintendo - Virtual Boy Named_Logos (22, checked 2026-10-20).
+    "VB": ("virtualboy", {".vb", ".vboy"}, [NO_INTRO + "Virtual Boy"], 11),
+    # Arcade (ADR 0099): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
     # dat; ScreenScraper finds an arcade set by its file name (romnom). Ids per Skyscraper's
     # platforms_idmap.csv (Gemba/skyscraper c253bfe) row
     # "neogeo,142,36,24" for Neo Geo; CPS1 and CPS2 have no row there, and ScreenScraper's own system pages
@@ -1498,7 +1502,7 @@ def process(ctx, system, roms, have, out, dat, args):
 
 
 def process_arcade(ctx, system, roms, have, out, args):
-    """Labels for arcade sets by set name (ADR 0097). Returns the (stem, subs, None) left without one, for the
+    """Labels for arcade sets by set name (ADR 0099). Returns the (stem, subs, None) left without one, for the
     --by-name pass, which searches by the set's full title."""
     stats, tried, left = ctx.stats, 0, []
     for rom in roms:
@@ -1740,7 +1744,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, NEOGEO, CPS1, CPS2) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

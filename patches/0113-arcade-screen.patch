@@ -24,23 +24,26 @@ games. Every other core is still refused quarter turns.
 ---
  crates/slot-retro/src/canvas.rs        |  98 +++++++++
  crates/slot-retro/src/libretro.rs      |   8 +
+ crates/slot-store/tests/core_pairs.rs  |   4 +-
+ crates/slot-store/tests/vb_platform.rs |   8 +-
  crates/slot-ui/src/quick_menu.rs       |  70 ++++++-
  crates/slot-ui/src/quick_retro.rs      |  13 ++
- crates/slot-ui/tests/quick_menu.rs     |   4 +-
- crates/slot-ui/tests/retro_faces.rs    |   2 +
+ crates/slot-ui/tests/quick_menu.rs     |  10 +-
+ crates/slot-ui/tests/retro_faces.rs    |   8 +-
  crates/slot/src/app.rs                 |  58 +++++-
- crates/slot/src/arcade_turn.rs         | 181 +++++++++++++++++
+ crates/slot/src/app/atari_pad.rs       |  14 +-
+ crates/slot/src/arcade_turn.rs         | 184 +++++++++++++++++
  crates/slot/src/core.rs                |   3 +
  crates/slot/src/lib.rs                 |   1 +
  crates/slot/src/platform_video.rs      |   7 +-
  crates/slot/src/retro_quick.rs         |  18 +-
- crates/slot/src/session.rs             |   8 +-
- crates/slot/src/ws_input.rs            |  22 +-
+ crates/slot/src/session.rs             |   4 +-
+ crates/slot/src/ws_input.rs            |  20 +-
  crates/slot/tests/arcade_screen.rs     | 267 +++++++++++++++++++++++++
- crates/slot/tests/s32x_screen.rs       |   4 +-
- crates/slot/tests/sega_quick_shader.rs |   9 +-
+ crates/slot/tests/sega_quick_shader.rs |  10 +-
+ crates/slot/tests/vb_screen.rs         |   4 +-
  crates/slot/tests/wswan_input.rs       |  10 +-
- 18 files changed, 749 insertions(+), 34 deletions(-)
+ 21 files changed, 777 insertions(+), 42 deletions(-)
  create mode 100644 crates/slot/src/arcade_turn.rs
  create mode 100644 crates/slot/tests/arcade_screen.rs
 
@@ -207,14 +210,56 @@ index 1f67b74..d7c3ea2 100644
      pub fn plug_analog(&mut self, device: c_uint) {
          self.extra.port_device = device;
          self.extra.sticks = Some([0; 4]);
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index e103fb4..d3e64de 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_sixteen() {
++fn the_pinned_core_list_stays_two_while_every_lists_seventeen() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 16);
++    assert_eq!(Core::EVERY.len(), 17);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/vb_platform.rs b/crates/slot-store/tests/vb_platform.rs
+index 3e5ef26..10437d4 100644
+--- a/crates/slot-store/tests/vb_platform.rs
++++ b/crates/slot-store/tests/vb_platform.rs
+@@ -25,9 +25,9 @@ fn vb(root: &Path) -> Vec<Cart> {
+ }
+ 
+ #[test]
+-fn the_virtual_boy_is_the_last_shelf_and_upstreams_list_stays_three() {
+-    assert_eq!(Platform::SHELVES.last(), Some(&Platform::Vb));
+-    assert_eq!(Platform::SHELVES.len(), 17);
++fn the_virtual_boy_follows_the_atari_7800_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES[16], Platform::Vb);
++    assert_eq!(Platform::SHELVES[15], Platform::A7800);
+     assert_eq!(Platform::ALL.len(), 3);
+     assert_eq!(Platform::Vb.dir_name(), "VB");
+     assert_eq!(Platform::Vb.name(), "Nintendo Virtual Boy");
+@@ -82,7 +82,7 @@ fn the_virtual_boy_plays_like_the_snes_with_the_picture_toggle_and_answers_every
+ #[test]
+ fn the_virtual_boy_runs_on_beetle_vb_alone_on_a_three_by_two_canvas_one_frame_wide() {
+     assert_eq!(Core::default_for(Platform::Vb), Core::MednafenVb);
+-    assert_eq!(Core::EVERY.last(), Some(&Core::MednafenVb));
++    assert_eq!(Core::EVERY[15], Core::MednafenVb);
+     assert_eq!(Core::MednafenVb.as_str(), "mednafen_vb");
+     assert_eq!(Core::MednafenVb.option_prefix(), "vb");
+     assert_eq!(Core::parse("mednafen_vb"), Some(Core::MednafenVb));
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 8f25c10..5ad355a 100644
+index f7f1073..a525fcf 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -128,10 +128,21 @@ pub enum QuickRow {
-     S32xPalSpeed,
-     S32xRenderer,
-     S32xSoundRate,
+@@ -148,10 +148,21 @@ pub enum QuickRow {
+     VbSpeed,
+     VbPalette,
+     VbRightPad,
 +    NeoGeoShader,
 +    ScreenNeoGeo,
 +    NeoGeoPicture,
@@ -229,15 +274,15 @@ index 8f25c10..5ad355a 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 118] = [
-+    pub const ALL: [QuickRow; 129] = [
+-    pub const ALL: [QuickRow; 138] = [
++    pub const ALL: [QuickRow; 149] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -250,6 +261,17 @@ impl QuickRow {
-         QuickRow::S32xPalSpeed,
-         QuickRow::S32xRenderer,
-         QuickRow::S32xSoundRate,
+@@ -290,6 +301,17 @@ impl QuickRow {
+         QuickRow::VbSpeed,
+         QuickRow::VbPalette,
+         QuickRow::VbRightPad,
 +        QuickRow::NeoGeoShader,
 +        QuickRow::ScreenNeoGeo,
 +        QuickRow::NeoGeoPicture,
@@ -252,41 +297,41 @@ index 8f25c10..5ad355a 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -312,7 +334,7 @@ impl QuickRow {
+@@ -352,7 +374,7 @@ impl QuickRow {
          QuickRow::ScRewind,
      ];
  
--    pub const SCREEN: [QuickRow; 14] = [
-+    pub const SCREEN: [QuickRow; 17] = [
+-    pub const SCREEN: [QuickRow; 17] = [
++    pub const SCREEN: [QuickRow; 20] = [
          QuickRow::ScreenGba,
          QuickRow::ScreenGbc,
          QuickRow::ScreenGb,
-@@ -327,6 +349,9 @@ impl QuickRow {
-         QuickRow::ScreenLynx,
-         QuickRow::ScreenNgp,
-         QuickRow::ScreenS32x,
+@@ -370,6 +392,9 @@ impl QuickRow {
+         QuickRow::ScreenA2600,
+         QuickRow::ScreenA7800,
+         QuickRow::ScreenVb,
 +        QuickRow::ScreenNeoGeo,
 +        QuickRow::ScreenCps1,
 +        QuickRow::ScreenCps2,
      ];
  
      pub const SCREEN_GBA: [QuickRow; 3] = [
-@@ -397,7 +422,10 @@ impl QuickRow {
-             | QuickRow::ScreenWs
-             | QuickRow::ScreenLynx
-             | QuickRow::ScreenNgp
--            | QuickRow::ScreenS32x => &QuickRow::SCREEN,
-+            | QuickRow::ScreenS32x
+@@ -443,7 +468,10 @@ impl QuickRow {
+             | QuickRow::ScreenS32x
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+-            | QuickRow::ScreenVb => &QuickRow::SCREEN,
++            | QuickRow::ScreenVb
 +            | QuickRow::ScreenNeoGeo
 +            | QuickRow::ScreenCps1
 +            | QuickRow::ScreenCps2 => &QuickRow::SCREEN,
              QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
                  &QuickRow::SCREEN_GBA
              }
-@@ -465,6 +493,13 @@ impl QuickRow {
-             | QuickRow::S32xPalSpeed
-             | QuickRow::S32xRenderer
-             | QuickRow::S32xSoundRate => &QuickRow::SCREEN_S32X,
+@@ -528,6 +556,13 @@ impl QuickRow {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
 +            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
 +            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
 +                &QuickRow::SCREEN_CPS1
@@ -297,10 +342,10 @@ index 8f25c10..5ad355a 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -514,6 +549,13 @@ impl QuickRow {
-             | QuickRow::S32xPalSpeed
-             | QuickRow::S32xRenderer
-             | QuickRow::S32xSoundRate => Some(QuickRow::ScreenS32x),
+@@ -594,6 +629,13 @@ impl QuickRow {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
 +            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
 +            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
 +                Some(QuickRow::ScreenCps1)
@@ -311,98 +356,98 @@ index 8f25c10..5ad355a 100644
              _ => None,
          }
      }
-@@ -564,6 +606,9 @@ impl QuickRow {
-             QuickRow::ScreenLynx => Some(QuickRow::SCREEN_LYNX[0]),
-             QuickRow::ScreenNgp => Some(QuickRow::SCREEN_NGP[0]),
-             QuickRow::ScreenS32x => Some(QuickRow::SCREEN_S32X[0]),
+@@ -647,6 +689,9 @@ impl QuickRow {
+             QuickRow::ScreenA2600 => Some(QuickRow::SCREEN_A2600[0]),
+             QuickRow::ScreenA7800 => Some(QuickRow::SCREEN_A7800[0]),
+             QuickRow::ScreenVb => Some(QuickRow::SCREEN_VB[0]),
 +            QuickRow::ScreenNeoGeo => Some(QuickRow::SCREEN_NEOGEO[0]),
 +            QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
 +            QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
              _ => None,
          }
      }
-@@ -669,6 +714,7 @@ impl QuickRow {
-             QuickRow::LynxShader => "Shader",
-             QuickRow::NgpShader => "Shader",
+@@ -754,6 +799,7 @@ impl QuickRow {
              QuickRow::S32xShader => "Shader",
+             QuickRow::A2600Shader | QuickRow::A7800Shader => "Shader",
+             QuickRow::VbShader => "Shader",
 +            QuickRow::NeoGeoShader | QuickRow::Cps1Shader | QuickRow::Cps2Shader => "Shader",
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
-@@ -678,6 +724,9 @@ impl QuickRow {
-             QuickRow::ScreenLynx => "Lynx",
-             QuickRow::ScreenNgp => "Neo Geo Pocket",
-             QuickRow::ScreenS32x => "32X",
+@@ -766,6 +812,9 @@ impl QuickRow {
+             QuickRow::ScreenA2600 => "Atari 2600",
+             QuickRow::ScreenA7800 => "Atari 7800",
+             QuickRow::ScreenVb => "Virtual Boy",
 +            QuickRow::ScreenNeoGeo => "Neo Geo",
 +            QuickRow::ScreenCps1 => "CPS1",
 +            QuickRow::ScreenCps2 => "CPS2",
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -688,7 +737,10 @@ impl QuickRow {
-             | QuickRow::WsPicture
-             | QuickRow::LynxPicture
-             | QuickRow::NgpPicture
--            | QuickRow::S32xPicture => "Picture",
-+            | QuickRow::S32xPicture
+@@ -779,7 +828,10 @@ impl QuickRow {
+             | QuickRow::S32xPicture
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+-            | QuickRow::VbPicture => "Picture",
++            | QuickRow::VbPicture
 +            | QuickRow::NeoGeoPicture
 +            | QuickRow::Cps1Picture
 +            | QuickRow::Cps2Picture => "Picture",
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -702,6 +754,7 @@ impl QuickRow {
-             QuickRow::LynxFlip => "Flip Right Carts",
-             QuickRow::S32xRenderer => "Renderer",
-             QuickRow::S32xSoundRate => "Sound Rate",
+@@ -802,6 +854,7 @@ impl QuickRow {
+             QuickRow::VbSpeed => "VB Speed",
+             QuickRow::VbPalette => "Palette",
+             QuickRow::VbRightPad => "Right Pad",
 +            QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => "Vertical Games",
          }
      }
  
-@@ -738,6 +791,9 @@ impl QuickRow {
-                 | QuickRow::ScreenLynx
-                 | QuickRow::ScreenNgp
-                 | QuickRow::ScreenS32x
+@@ -841,6 +894,9 @@ impl QuickRow {
+                 | QuickRow::ScreenA2600
+                 | QuickRow::ScreenA7800
+                 | QuickRow::ScreenVb
 +                | QuickRow::ScreenNeoGeo
 +                | QuickRow::ScreenCps1
 +                | QuickRow::ScreenCps2
          )
      }
  
-@@ -846,6 +902,8 @@ pub enum QuickValue {
-     Fast,
-     Khz44,
-     Khz22,
+@@ -963,6 +1019,8 @@ pub enum QuickValue {
+     Yellow,
+     Stick,
+     Buttons,
 +    Upright,
 +    Turned,
  }
  
  impl QuickValue {
-@@ -905,6 +963,8 @@ impl QuickValue {
-             QuickValue::Fast => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 15,
-             QuickValue::Khz44 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 16,
-             QuickValue::Khz22 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 17,
-+            QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 18,
-+            QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 19,
+@@ -1036,6 +1094,8 @@ impl QuickValue {
+             QuickValue::Yellow => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 29,
+             QuickValue::Stick => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 30,
+             QuickValue::Buttons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 31,
++            QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 32,
++            QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -953,6 +1013,8 @@ impl QuickValue {
-             QuickValue::Fast => "Fast",
-             QuickValue::Khz44 => "44 kHz",
-             QuickValue::Khz22 => "22 kHz",
+@@ -1098,6 +1158,8 @@ impl QuickValue {
+             QuickValue::Yellow => "Yellow",
+             QuickValue::Stick => "Stick",
+             QuickValue::Buttons => "ABXY",
 +            QuickValue::Upright => "Upright",
 +            QuickValue::Turned => "Turned",
          }
      }
  
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
-index 2821248..5325ecb 100644
+index 574a652..d5ab459 100644
 --- a/crates/slot-ui/src/quick_retro.rs
 +++ b/crates/slot-ui/src/quick_retro.rs
-@@ -47,6 +47,17 @@ impl QuickRow {
-         QuickRow::S32xRenderer,
-         QuickRow::S32xSoundRate,
+@@ -70,6 +70,17 @@ impl QuickRow {
+         QuickRow::VbPalette,
+         QuickRow::VbRightPad,
      ];
 +    pub const SCREEN_NEOGEO: [QuickRow; 2] = [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture];
 +    pub const SCREEN_CPS1: [QuickRow; 3] = [
@@ -418,129 +463,155 @@ index 2821248..5325ecb 100644
  }
  
  impl QuickValue {
-@@ -73,6 +84,8 @@ impl QuickValue {
-                 QuickValue::Fast,
-                 QuickValue::Khz44,
-                 QuickValue::Khz22,
+@@ -110,6 +121,8 @@ impl QuickValue {
+                 QuickValue::Yellow,
+                 QuickValue::Stick,
+                 QuickValue::Buttons,
 +                QuickValue::Upright,
 +                QuickValue::Turned,
              ])
              .collect()
      }
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index e594500..775c1c6 100644
+index 0572def..6e9aabd 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -121,7 +121,10 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             "32X",
+             "Atari 2600",
+             "Atari 7800",
+-            "Virtual Boy"
++            "Virtual Boy",
++            "Neo Geo",
++            "CPS1",
++            "CPS2"
+         ]
      );
      assert_eq!(
-         QuickRow::SCREEN.map(QuickRow::label),
--        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X"]
-+        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Neo Geo", "CPS1", "CPS2"]
-     );
-     assert_eq!(
-         QuickRow::SCREEN_GBA.map(QuickRow::label),
-@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             QuickRow::Shortcuts,
-             QuickRow::Controls,
-             QuickRow::ControlsShelf,
--            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x
-+            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2
+@@ -184,7 +187,10 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::ScreenS32x,
+             QuickRow::ScreenA2600,
+             QuickRow::ScreenA7800,
+-            QuickRow::ScreenVb
++            QuickRow::ScreenVb,
++            QuickRow::ScreenNeoGeo,
++            QuickRow::ScreenCps1,
++            QuickRow::ScreenCps2
          ]
      );
      for page in [
 diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
-index d8f558e..1089166 100644
+index 89f50fd..4062ab6 100644
 --- a/crates/slot-ui/tests/retro_faces.rs
 +++ b/crates/slot-ui/tests/retro_faces.rs
-@@ -31,6 +31,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
-             QuickValue::Fast,
-             QuickValue::Khz44,
-             QuickValue::Khz22,
+@@ -45,6 +45,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Yellow,
+             QuickValue::Stick,
+             QuickValue::Buttons,
 +            QuickValue::Upright,
 +            QuickValue::Turned,
          ]
      );
      assert_eq!(
+@@ -81,6 +83,8 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Yellow.text(),
+             QuickValue::Stick.text(),
+             QuickValue::Buttons.text(),
++            QuickValue::Upright.text(),
++            QuickValue::Turned.text(),
+         ],
+         [
+             "Stretch",
+@@ -114,7 +118,9 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "Magenta",
+             "Yellow",
+             "Stick",
+-            "ABXY"
++            "ABXY",
++            "Upright",
++            "Turned"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 1c4aff4..9ad2aa9 100644
+index 197d4d7..34cfe7e 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -461,6 +461,7 @@ pub struct App {
-     sms_region: crate::sms_region::Region,
-     cpu_mode: crate::cpu_governor::CpuMode,
-     s32x_speed: crate::s32x_speed::S32xSpeed,
+@@ -465,6 +465,7 @@ pub struct App {
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
+     vb_buttons_seated: bool,
 +    arcade_turns: crate::arcade_turn::ArcadeTurns,
      rested: Option<(usize, usize)>,
      start_marked: bool,
      fast_trail: bool,
-@@ -651,6 +652,7 @@ impl App {
-             sms_region: crate::sms_region::Region::Auto,
-             cpu_mode: crate::cpu_governor::CpuMode::Performance,
-             s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+@@ -658,6 +659,7 @@ impl App {
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
+             vb_buttons_seated: false,
 +            arcade_turns: crate::arcade_turn::ArcadeTurns::default(),
              rested: None,
              start_marked: false,
              fast_trail: false,
-@@ -676,6 +678,7 @@ impl App {
-         app.sms_region = crate::sms_region::Region::read(root);
-         app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
+@@ -685,6 +687,7 @@ impl App {
          app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
+         app.atari = crate::atari_switches::AtariSwitches::read(root);
+         app.vb_screen = crate::vb_screen::VbScreen::read(root);
 +        app.arcade_turns = crate::arcade_turn::ArcadeTurns::read(root);
          app.lynx_flip = crate::lynx_turn::flips_right(root);
          app.restock_recents();
          app.restock_favorites();
-@@ -1042,6 +1045,9 @@ impl App {
-             (QuickRow::Shader, Platform::Lynx) => QuickRow::LynxShader,
-             (QuickRow::Shader, Platform::Ngp) => QuickRow::NgpShader,
-             (QuickRow::Shader, Platform::S32x) => QuickRow::S32xShader,
+@@ -1054,6 +1057,9 @@ impl App {
+             (QuickRow::Shader, Platform::A2600) => QuickRow::A2600Shader,
+             (QuickRow::Shader, Platform::A7800) => QuickRow::A7800Shader,
+             (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
 +            (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
 +            (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
 +            (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
-@@ -1098,6 +1104,9 @@ impl App {
-             QuickRow::LynxShader => Some(shader_value(self.sega_shaders.lynx)),
-             QuickRow::NgpShader => Some(shader_value(self.sega_shaders.ngp)),
-             QuickRow::S32xShader => Some(shader_value(self.sega_shaders.s32x)),
+@@ -1115,6 +1121,9 @@ impl App {
+             QuickRow::A2600Shader => Some(shader_value(self.sega_shaders.a2600)),
+             QuickRow::A7800Shader => Some(shader_value(self.sega_shaders.a7800)),
+             QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
 +            QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
 +            QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
 +            QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -1108,7 +1117,10 @@ impl App {
-             | QuickRow::WsPicture
-             | QuickRow::LynxPicture
-             | QuickRow::NgpPicture
--            | QuickRow::S32xPicture => self.pictures.get(row).map(VideoMode::quick_value),
-+            | QuickRow::S32xPicture
+@@ -1128,7 +1137,10 @@ impl App {
+             | QuickRow::S32xPicture
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+-            | QuickRow::VbPicture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::VbPicture
 +            | QuickRow::NeoGeoPicture
 +            | QuickRow::Cps1Picture
 +            | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -1120,6 +1132,7 @@ impl App {
-             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
-             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
-             QuickRow::S32xRenderer | QuickRow::S32xSoundRate => self.s32x_speed.quick_value(row),
+@@ -1150,6 +1162,7 @@ impl App {
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios => self.atari.quick_value(row),
+             QuickRow::VbPalette | QuickRow::VbRightPad => self.vb_screen.quick_value(row),
 +            QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => self.arcade_turns.quick_value(row),
              QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
-@@ -1176,6 +1189,9 @@ impl App {
-             | QuickRow::ScreenLynx
-             | QuickRow::ScreenNgp
-             | QuickRow::ScreenS32x
+@@ -1209,6 +1222,9 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
 +            | QuickRow::ScreenNeoGeo
 +            | QuickRow::ScreenCps1
 +            | QuickRow::ScreenCps2
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -1749,6 +1765,9 @@ impl App {
+@@ -1791,6 +1807,9 @@ impl App {
      }
  
      pub fn source_rect(&self) -> [f32; 4] {
@@ -550,7 +621,7 @@ index 1c4aff4..9ad2aa9 100644
          video_mode::source_rect(
              self.platform,
              crate::platform_video::shown(self.platform, self.frame_w, self.video_mode),
-@@ -2064,6 +2083,10 @@ impl App {
+@@ -2106,6 +2125,10 @@ impl App {
      }
  
      pub fn picture_rect(&self) -> [f32; 4] {
@@ -561,24 +632,24 @@ index 1c4aff4..9ad2aa9 100644
          let (w, h) = crate::platform_video::picture(self.platform, self.frame_w);
          let (sw, sh) = self.core.canvas_f32(self.platform, self.vertical);
          let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
-@@ -2751,7 +2774,10 @@ impl App {
-             | QuickRow::ScreenWs
-             | QuickRow::ScreenLynx
-             | QuickRow::ScreenNgp
--            | QuickRow::ScreenS32x => {
-+            | QuickRow::ScreenS32x
+@@ -2813,7 +2836,10 @@ impl App {
+             | QuickRow::ScreenS32x
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+-            | QuickRow::ScreenVb => {
++            | QuickRow::ScreenVb
 +            | QuickRow::ScreenNeoGeo
 +            | QuickRow::ScreenCps1
 +            | QuickRow::ScreenCps2 => {
                  if let Some(row) = row.child() {
                      let row = row.shown(&self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
-@@ -2851,7 +2877,15 @@ impl App {
-             | QuickRow::S32xPicture
-             | QuickRow::S32xPalSpeed
-             | QuickRow::S32xRenderer
--            | QuickRow::S32xSoundRate => {}
-+            | QuickRow::S32xSoundRate
+@@ -2930,7 +2956,15 @@ impl App {
+             | QuickRow::VbPicture
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+-            | QuickRow::VbRightPad => {}
++            | QuickRow::VbRightPad
 +            | QuickRow::NeoGeoShader
 +            | QuickRow::NeoGeoPicture
 +            | QuickRow::Cps1Shader
@@ -590,7 +661,7 @@ index 1c4aff4..9ad2aa9 100644
          }
      }
  
-@@ -2876,6 +2910,9 @@ impl App {
+@@ -2955,6 +2989,9 @@ impl App {
          if self
              .s32x_speed
              .change(row, right, self.root.as_deref(), &self.card_writes)
@@ -600,48 +671,73 @@ index 1c4aff4..9ad2aa9 100644
          {
              return;
          }
-@@ -3019,7 +3056,10 @@ impl App {
-             | QuickRow::WsShader
+@@ -3111,7 +3148,10 @@ impl App {
              | QuickRow::LynxShader
              | QuickRow::NgpShader
--            | QuickRow::S32xShader => return,
-+            | QuickRow::S32xShader
+             | QuickRow::S32xShader
+-            | QuickRow::VbShader => return,
++            | QuickRow::VbShader
 +            | QuickRow::NeoGeoShader
 +            | QuickRow::Cps1Shader
 +            | QuickRow::Cps2Shader => return,
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -3043,7 +3083,12 @@ impl App {
-             | QuickRow::S32xPicture
-             | QuickRow::S32xPalSpeed
-             | QuickRow::S32xRenderer
--            | QuickRow::S32xSoundRate => return,
-+            | QuickRow::S32xSoundRate
+@@ -3147,7 +3187,12 @@ impl App {
+             | QuickRow::A7800PalSpeed
+             | QuickRow::A7800LeftDifficulty
+             | QuickRow::A7800RightDifficulty
+-            | QuickRow::A7800Bios => return,
++            | QuickRow::A7800Bios
 +            | QuickRow::NeoGeoPicture
 +            | QuickRow::Cps1Picture
 +            | QuickRow::Cps1Rotation
 +            | QuickRow::Cps2Picture
 +            | QuickRow::Cps2Rotation => return,
-             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
-             QuickRow::Wallpaper
-             | QuickRow::Recents
-@@ -3075,6 +3120,9 @@ impl App {
-             | QuickRow::ScreenLynx
-             | QuickRow::ScreenNgp
-             | QuickRow::ScreenS32x
+             QuickRow::VbPicture
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+@@ -3186,6 +3231,9 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
 +            | QuickRow::ScreenNeoGeo
 +            | QuickRow::ScreenCps1
 +            | QuickRow::ScreenCps2
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
+diff --git a/crates/slot/src/app/atari_pad.rs b/crates/slot/src/app/atari_pad.rs
+index 8c79b49..e686647 100644
+--- a/crates/slot/src/app/atari_pad.rs
++++ b/crates/slot/src/app/atari_pad.rs
+@@ -4,9 +4,17 @@ use super::App;
+ 
+ impl App {
+     pub fn pad_code(&self, platform: Platform) -> u8 {
+-        self.atari.pad_code(platform).unwrap_or_else(|| {
+-            crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated)
+-        })
++        self.atari
++            .pad_code(platform)
++            .unwrap_or_else(|| match self.root.as_deref() {
++                Some(root) if platform.is_arcade() => crate::arcade_turn::pad_code(
++                    root,
++                    self.seated_cart(),
++                    platform,
++                    self.vertical(),
++                ),
++                _ => crate::ws_input::pad_code(platform, self.vertical(), self.vb_buttons_seated),
++            })
+     }
+ 
+     pub fn atari_pad_code(&self) -> Option<u8> {
 diff --git a/crates/slot/src/arcade_turn.rs b/crates/slot/src/arcade_turn.rs
 new file mode 100644
-index 0000000..615535b
+index 0000000..b07fb9c
 --- /dev/null
 +++ b/crates/slot/src/arcade_turn.rs
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,184 @@
 +use std::path::Path;
 +
 +use slot_retro::RetroCore;
@@ -715,7 +811,10 @@ index 0000000..615535b
 +        | Platform::Lynx
 +        | Platform::Ngp
 +        | Platform::S32x
-+        | Platform::NeoGeo => None,
++        | Platform::NeoGeo
++        | Platform::A2600
++        | Platform::A7800
++        | Platform::Vb => None,
 +    }
 +}
 +
@@ -814,17 +913,17 @@ index 0000000..615535b
 +
 +pub fn pad_code(root: &Path, seated: Option<&Cart>, platform: Platform, vertical: bool) -> u8 {
 +    if !platform.is_arcade() {
-+        return crate::ws_input::pad_code(platform, vertical);
++        return crate::ws_input::pad_code(platform, vertical, false);
 +    }
 +    let turned = seated.is_some_and(|c| c.platform == platform && turned(root, platform, &c.stem));
-+    crate::ws_input::pad_code(platform, turned)
++    crate::ws_input::pad_code(platform, turned, false)
 +}
 +
 +pub fn upright_rects(platform: Platform, vertical: bool) -> Option<[[f32; 4]; 2]> {
 +    (platform.is_arcade() && vertical).then_some([slot_gfx::WHOLE_TEXTURE, [0.25, 0.0, 0.75, 1.0]])
 +}
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 3de027d..a3c2280 100644
+index 0b788db..7bf4095 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -118,6 +118,9 @@ fn open_named(
@@ -838,110 +937,110 @@ index 3de027d..a3c2280 100644
                      &mut opened,
                      core,
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 4b3b196..07faf10 100644
+index aee633a..98c1c57 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
 @@ -1,4 +1,5 @@
  pub mod app;
 +pub mod arcade_turn;
+ pub mod atari_switches;
  pub mod audio;
  pub mod av_rate;
- pub mod baseos;
 diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
-index f2026f2..0812eeb 100644
+index 1356b8b..8d715d7 100644
 --- a/crates/slot/src/platform_video.rs
 +++ b/crates/slot/src/platform_video.rs
 @@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
  
  pub const PICTURE_FILE: &str = "Config/picture.txt";
  
--pub const PICTURE_ROWS: [(QuickRow, Platform); 11] = [
-+pub const PICTURE_ROWS: [(QuickRow, Platform); 14] = [
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 14] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
      (QuickRow::NesPicture, Platform::Nes),
      (QuickRow::SnesPicture, Platform::Snes),
      (QuickRow::GgPicture, Platform::Gg),
-@@ -21,6 +21,9 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 11] = [
-     (QuickRow::LynxPicture, Platform::Lynx),
-     (QuickRow::NgpPicture, Platform::Ngp),
-     (QuickRow::S32xPicture, Platform::S32x),
+@@ -24,6 +24,9 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 14] = [
+     (QuickRow::A2600Picture, Platform::A2600),
+     (QuickRow::A7800Picture, Platform::A7800),
+     (QuickRow::VbPicture, Platform::Vb),
 +    (QuickRow::NeoGeoPicture, Platform::NeoGeo),
 +    (QuickRow::Cps1Picture, Platform::Cps1),
 +    (QuickRow::Cps2Picture, Platform::Cps2),
  ];
  
  pub fn default_video_mode(platform: Platform) -> VideoMode {
-@@ -186,7 +189,7 @@ impl VideoMode {
+@@ -194,7 +197,7 @@ impl VideoMode {
  }
  
  #[derive(Clone, Copy, PartialEq, Eq, Debug)]
--pub struct SystemPictures([VideoMode; 11]);
-+pub struct SystemPictures([VideoMode; 14]);
+-pub struct SystemPictures([VideoMode; 14]);
++pub struct SystemPictures([VideoMode; 17]);
  
  impl Default for SystemPictures {
      fn default() -> Self {
 diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
-index a327ae1..739e0fd 100644
+index d933955..90833de 100644
 --- a/crates/slot/src/retro_quick.rs
 +++ b/crates/slot/src/retro_quick.rs
-@@ -21,6 +21,9 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
-         QuickRow::LynxShader => (&mut shaders.lynx, Platform::Lynx),
-         QuickRow::NgpShader => (&mut shaders.ngp, Platform::Ngp),
-         QuickRow::S32xShader => (&mut shaders.s32x, Platform::S32x),
+@@ -24,6 +24,9 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::A2600Shader => (&mut shaders.a2600, Platform::A2600),
+         QuickRow::A7800Shader => (&mut shaders.a7800, Platform::A7800),
+         QuickRow::VbShader => (&mut shaders.vb, Platform::Vb),
 +        QuickRow::NeoGeoShader => (&mut shaders.neogeo, Platform::NeoGeo),
 +        QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
 +        QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
          _ => return false,
      };
      *shader = shader.step(platform.shader_choices(), right);
-@@ -53,8 +56,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+@@ -59,8 +62,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
      }
  }
  
--pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 10] {
--    let mut seen = [false; 10];
-+pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 13] {
-+    let mut seen = [false; 13];
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 13] {
+-    let mut seen = [false; 13];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
++    let mut seen = [false; 16];
      for platform in platforms {
          let at = match platform {
              Platform::Gba | Platform::Gb | Platform::Gbc => continue,
-@@ -68,14 +71,16 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 10] {
-             Platform::Lynx => 7,
-             Platform::Ngp => 8,
-             Platform::S32x => 9,
+@@ -77,14 +80,16 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 13] {
+             Platform::A2600 => 10,
+             Platform::A7800 => 11,
+             Platform::Vb => 12,
 -            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => continue,
-+            Platform::NeoGeo => 10,
-+            Platform::Cps1 => 11,
-+            Platform::Cps2 => 12,
++            Platform::NeoGeo => 13,
++            Platform::Cps1 => 14,
++            Platform::Cps2 => 15,
          };
          seen[at] = true;
      }
      seen
  }
  
--const SYSTEM_ROWS: [&[QuickRow]; 10] = [
-+const SYSTEM_ROWS: [&[QuickRow]; 13] = [
+-const SYSTEM_ROWS: [&[QuickRow]; 13] = [
++const SYSTEM_ROWS: [&[QuickRow]; 16] = [
      &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
      &[QuickRow::ScreenGg],
      &[QuickRow::ScreenSms],
-@@ -86,9 +91,12 @@ const SYSTEM_ROWS: [&[QuickRow]; 10] = [
-     &[QuickRow::ScreenLynx],
-     &[QuickRow::ScreenNgp],
-     &[QuickRow::ScreenS32x],
+@@ -98,9 +103,12 @@ const SYSTEM_ROWS: [&[QuickRow]; 13] = [
+     &[QuickRow::ScreenA2600],
+     &[QuickRow::ScreenA7800],
+     &[QuickRow::ScreenVb],
 +    &[QuickRow::ScreenNeoGeo],
 +    &[QuickRow::ScreenCps1],
 +    &[QuickRow::ScreenCps2],
  ];
  
--pub fn hidden_on_shelf(systems: [bool; 10]) -> Vec<QuickRow> {
-+pub fn hidden_on_shelf(systems: [bool; 13]) -> Vec<QuickRow> {
+-pub fn hidden_on_shelf(systems: [bool; 13]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 16]) -> Vec<QuickRow> {
      SYSTEM_ROWS
          .iter()
          .zip(systems)
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index b133df5..e06c6e2 100644
+index dacd700..472696f 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -523,7 +523,8 @@ impl Session {
+@@ -527,7 +527,8 @@ impl Session {
          self.app.mark_start(platform, stem);
          self.app.set_core(core);
          self.app.set_platform(platform);
@@ -951,7 +1050,7 @@ index b133df5..e06c6e2 100644
          self.app.set_vertical(vertical);
          let native = self.app.ws_native();
          self.app
-@@ -549,6 +550,7 @@ impl Session {
+@@ -553,6 +554,7 @@ impl Session {
                  let palette = crate::core::palette_for(chosen, platform, &rom, player);
                  let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
                  crate::ws_load::prepare(opened.core.as_mut(), platform, vertical, native);
@@ -959,22 +1058,11 @@ index b133df5..e06c6e2 100644
                  crate::ps1_load::offer_remembered_disc(
                      opened.core.as_mut(),
                      &root,
-@@ -608,7 +610,9 @@ impl Session {
-         emu.set_native_pal(self.app.native_pal(loaded.platform));
-         emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
-         emu.set_pass_through(loaded.platform.passes_xy_through());
--        emu.set_ws_pad(crate::ws_input::pad_code(
-+        emu.set_ws_pad(crate::arcade_turn::pad_code(
-+            &self.root,
-+            self.app.seated_cart(),
-             loaded.platform,
-             self.app.vertical(),
-         ));
 diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
-index 85a88b9..1ac4cbf 100644
+index bc85e3e..93ed5c2 100644
 --- a/crates/slot/src/ws_input.rs
 +++ b/crates/slot/src/ws_input.rs
-@@ -7,15 +7,19 @@ const X_PAD: [u16; 4] = [M::UP, M::RIGHT, M::DOWN, M::LEFT];
+@@ -7,16 +7,20 @@ const X_PAD: [u16; 4] = [M::UP, M::RIGHT, M::DOWN, M::LEFT];
  const Y_PAD: [u16; 4] = [M::R2, M::R, M::L2, M::L];
  const UPRIGHT_DPAD: [u16; 4] = [M::R, M::L2, M::L, M::R2];
  const UPRIGHT_FACE: [u16; 4] = [M::RIGHT, M::DOWN, M::LEFT, M::UP];
@@ -985,28 +1073,29 @@ index 85a88b9..1ac4cbf 100644
  pub const VERTICAL: u8 = 2;
 +pub const SIDEWAYS: u8 = 3;
  
- pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
+ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
      match (platform, vertical) {
          (Platform::Ws, true) => VERTICAL,
          (Platform::Ws, false) => HORIZONTAL,
+         (Platform::Vb, _) => crate::vb_input::code(vb_buttons),
 +        (Platform::NeoGeo | Platform::Cps1 | Platform::Cps2, true) => SIDEWAYS,
 +        (Platform::NeoGeo | Platform::Cps1 | Platform::Cps2, false) => OFF,
          (
              Platform::Gba
              | Platform::Gb
-@@ -29,10 +33,7 @@ pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
-             | Platform::Tg16
-             | Platform::Lynx
+@@ -32,10 +36,7 @@ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
              | Platform::Ngp
--            | Platform::S32x
+             | Platform::S32x
+             | Platform::A2600
+-            | Platform::A7800
 -            | Platform::NeoGeo
 -            | Platform::Cps1
 -            | Platform::Cps2,
-+            | Platform::S32x,
++            | Platform::A7800,
              _,
          ) => OFF,
      }
-@@ -43,6 +44,7 @@ pub enum Layout {
+@@ -46,6 +47,7 @@ pub enum Layout {
      Horizontal,
      Upright,
      Turned,
@@ -1014,7 +1103,7 @@ index 85a88b9..1ac4cbf 100644
  }
  
  fn moved(mask: u16, from: [u16; 4], to: [u16; 4]) -> u16 {
-@@ -75,6 +77,9 @@ impl Layout {
+@@ -78,6 +80,9 @@ impl Layout {
                  };
                  dpad | face
              }
@@ -1024,7 +1113,7 @@ index 85a88b9..1ac4cbf 100644
              Layout::Upright => {
                  moved(m, DPAD, UPRIGHT_DPAD)
                      | moved(m, FACE, UPRIGHT_FACE)
-@@ -88,7 +93,7 @@ impl Layout {
+@@ -91,7 +96,7 @@ impl Layout {
      pub fn rotation(self) -> &'static str {
          match self {
              Layout::Upright => "portrait",
@@ -1033,18 +1122,9 @@ index 85a88b9..1ac4cbf 100644
          }
      }
  }
-@@ -113,7 +118,7 @@ impl Default for WsPad {
- 
- impl WsPad {
-     pub fn on(&self) -> bool {
--        self.code != OFF
-+        self.code == HORIZONTAL || self.code == VERTICAL
-     }
- 
-     pub fn layout(&self) -> Layout {
-@@ -134,6 +139,9 @@ impl WsPad {
-         if code == OFF {
-             return mask;
+@@ -144,6 +149,9 @@ impl WsPad {
+         if crate::vb_input::owns(code) {
+             return crate::vb_input::remap(code, mask);
          }
 +        if code == SIDEWAYS {
 +            return Layout::Sideways.remap(mask);
@@ -1052,7 +1132,7 @@ index 85a88b9..1ac4cbf 100644
          let select = mask.0 & M::SELECT != 0;
          let others = mask.0 & !M::SELECT != 0;
          match (self.select, select) {
-@@ -142,7 +150,7 @@ impl WsPad {
+@@ -152,7 +160,7 @@ impl WsPad {
              (true, false) if self.alone && code == VERTICAL => {
                  self.layout = match self.layout {
                      Layout::Upright => Layout::Turned,
@@ -1063,11 +1143,11 @@ index 85a88b9..1ac4cbf 100644
                  eprintln!("slot: ws: {}", self.layout.rotation());
 diff --git a/crates/slot/tests/arcade_screen.rs b/crates/slot/tests/arcade_screen.rs
 new file mode 100644
-index 0000000..e465d3a
+index 0000000..c746472
 --- /dev/null
 +++ b/crates/slot/tests/arcade_screen.rs
 @@ -0,0 +1,267 @@
-+// The Neo Geo, CPS1 and CPS2 Screen sections and the Vertical Games row (ADR 0097).
++// The Neo Geo, CPS1 and CPS2 Screen sections and the Vertical Games row (ADR 0099).
 +mod arcade_common;
 +mod common;
 +mod core_common;
@@ -1084,12 +1164,12 @@ index 0000000..e465d3a
 +use slot_ui::{QuickRow, QuickValue};
 +
 +#[test]
-+fn each_arcade_board_has_its_own_screen_section_after_the_32x() {
++fn each_arcade_board_has_its_own_screen_section_after_the_virtual_boy() {
 +    let screen = QuickRow::SCREEN;
 +    assert_eq!(
 +        screen[screen.len() - 4..],
 +        [
-+            QuickRow::ScreenS32x,
++            QuickRow::ScreenVb,
 +            QuickRow::ScreenNeoGeo,
 +            QuickRow::ScreenCps1,
 +            QuickRow::ScreenCps2
@@ -1334,69 +1414,73 @@ index 0000000..e465d3a
 +    );
 +    assert!(turned(root.path(), Platform::Cps1, "1941"));
 +}
-diff --git a/crates/slot/tests/s32x_screen.rs b/crates/slot/tests/s32x_screen.rs
-index 6ddf74f..ac8ea1d 100644
---- a/crates/slot/tests/s32x_screen.rs
-+++ b/crates/slot/tests/s32x_screen.rs
-@@ -46,8 +46,8 @@ fn down_to(app: &mut App, row: QuickRow) {
- }
- 
- #[test]
--fn the_32x_closes_the_screen_list_with_its_own_five_row_section() {
--    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenS32x));
-+fn the_32x_follows_the_neo_geo_pocket_in_the_screen_list_with_its_own_five_row_section() {
-+    assert_eq!(QuickRow::SCREEN.get(13), Some(&QuickRow::ScreenS32x));
-     assert_eq!(QuickRow::ScreenS32x.label(), "32X");
-     assert!(QuickRow::ScreenS32x.opens());
-     assert_eq!(QuickRow::ScreenS32x.child(), Some(QuickRow::S32xShader));
 diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
-index b208f1a..a67532c 100644
+index bd4d3c5..ef0dfb1 100644
 --- a/crates/slot/tests/sega_quick_shader.rs
 +++ b/crates/slot/tests/sega_quick_shader.rs
-@@ -92,9 +92,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+@@ -92,9 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
  #[test]
  fn every_card_mix_hides_exactly_the_absent_systems() {
      use slot::retro_quick::hidden_on_shelf;
--    assert!(hidden_on_shelf([true; 10]).is_empty());
--    for key in 0..1023u16 {
--        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(|i| key & 1 << i != 0);
-+    assert!(hidden_on_shelf([true; 13]).is_empty());
-+    for key in 0..8191u16 {
-+        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(|i| key & 1 << i != 0);
+-    assert!(hidden_on_shelf([true; 13]).is_empty());
+-    for key in 0..8191u16 {
+-        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(|i| key & 1 << i != 0);
++    assert!(hidden_on_shelf([true; 16]).is_empty());
++    for key in 0..65535u16 {
++        let systems =
++            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(|i| key & 1 << i != 0);
          let hidden = hidden_on_shelf(systems);
          assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
          assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
-@@ -107,6 +107,9 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
-         assert_eq!(hidden.contains(&QuickRow::ScreenLynx), !systems[7]);
-         assert_eq!(hidden.contains(&QuickRow::ScreenNgp), !systems[8]);
-         assert_eq!(hidden.contains(&QuickRow::ScreenS32x), !systems[9]);
-+        assert_eq!(hidden.contains(&QuickRow::ScreenNeoGeo), !systems[10]);
-+        assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[11]);
-+        assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[12]);
+@@ -110,6 +111,9 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenA2600), !systems[10]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenA7800), !systems[11]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenVb), !systems[12]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenNeoGeo), !systems[13]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[14]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[15]);
      }
  }
  
-diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
-index 8a7fc17..f6cfe6f 100644
---- a/crates/slot/tests/wswan_input.rs
-+++ b/crates/slot/tests/wswan_input.rs
-@@ -121,11 +121,17 @@ fn an_upright_vertical_game_reads_the_turned_d_pad_as_the_y_pad_and_l_r_as_a_b()
+diff --git a/crates/slot/tests/vb_screen.rs b/crates/slot/tests/vb_screen.rs
+index 30d253c..7b164d7 100644
+--- a/crates/slot/tests/vb_screen.rs
++++ b/crates/slot/tests/vb_screen.rs
+@@ -47,8 +47,8 @@ fn down_to(app: &mut App, row: QuickRow) {
  }
  
  #[test]
--fn only_wonderswan_gets_a_pad_code() {
-+fn only_wonderswan_and_turned_arcade_games_get_a_pad_code() {
-     assert_eq!(pad_code(Platform::Ws, false), HORIZONTAL);
-     assert_eq!(pad_code(Platform::Ws, true), VERTICAL);
-     for platform in Platform::SHELVES.into_iter().filter(|p| *p != Platform::Ws) {
--        assert_eq!(pad_code(platform, true), OFF, "{platform:?}");
+-fn the_virtual_boy_closes_the_screen_list_with_its_own_five_row_section() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenVb));
++fn the_virtual_boy_follows_the_atari_7800_with_its_own_five_row_section() {
++    assert_eq!(QuickRow::SCREEN[16], QuickRow::ScreenVb);
+     assert_eq!(QuickRow::ScreenVb.label(), "Virtual Boy");
+     assert!(QuickRow::ScreenVb.opens());
+     assert_eq!(QuickRow::ScreenVb.child(), Some(QuickRow::VbShader));
+diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
+index de423f3..6b64400 100644
+--- a/crates/slot/tests/wswan_input.rs
++++ b/crates/slot/tests/wswan_input.rs
+@@ -121,14 +121,20 @@ fn an_upright_vertical_game_reads_the_turned_d_pad_as_the_y_pad_and_l_r_as_a_b()
+ }
+ 
+ #[test]
+-fn only_wonderswan_and_the_virtual_boy_get_a_pad_code() {
++fn only_wonderswan_the_virtual_boy_and_turned_arcade_games_get_a_pad_code() {
+     assert_eq!(pad_code(Platform::Ws, false, false), HORIZONTAL);
+     assert_eq!(pad_code(Platform::Ws, true, true), VERTICAL);
+     for platform in Platform::SHELVES
+         .into_iter()
+         .filter(|p| !matches!(p, Platform::Ws | Platform::Vb))
+     {
+-        assert_eq!(pad_code(platform, true, true), OFF, "{platform:?}");
 +        let want = if platform.is_arcade() {
 +            slot::ws_input::SIDEWAYS
 +        } else {
 +            OFF
 +        };
-+        assert_eq!(pad_code(platform, true), want, "{platform:?}");
-+        assert_eq!(pad_code(platform, false), OFF, "{platform:?}");
++        assert_eq!(pad_code(platform, true, true), want, "{platform:?}");
++        assert_eq!(pad_code(platform, false, true), OFF, "{platform:?}");
      }
  }
  

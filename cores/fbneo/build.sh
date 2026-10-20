@@ -1,6 +1,6 @@
 #!/bin/sh
 # libretro/FBNeo (FinalBurn Neo, Neo Geo, CPS1 and CPS2 arcade sets): the shared steps are in cores/lib.sh.
-# Non-commercial licence that also forbids asking for donations, see LICENSING.md (ADR 0097).
+# Non-commercial licence that also forbids asking for donations, see LICENSING.md (ADR 0099).
 core=fbneo repo=FBNeo makefile=Makefile subdir=src/burner/libretro
 # Only the Neo Geo and CPS drivers are built: cores/fbneo/Makefile.arcade includes FBNeo's own neogeo and
 # cps12 subset makefiles together, and REGEN_HEADERS=1 has FBNeo's perl scripts write the driver list for

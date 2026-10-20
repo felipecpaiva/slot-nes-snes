@@ -2,6 +2,8 @@
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
+WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and Virtual
+Boy, beside slot's own
 WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and
 the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
@@ -37,6 +39,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device gate pending |
 | Atari 2600 | `Games/A2600` | `.a26`, `.bin` | Stella 2014 | none | device gate pending |
 | Atari 7800 | `Games/A7800` | `.a78` (headered or not) | ProSystem | optional, your own `7800 BIOS (U).rom`, off by default | device gate pending |
+| Virtual Boy | `Games/VB` | `.vb`, `.vboy` | Beetle VB | none | device gate pending |
 | Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
 | Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
@@ -108,6 +111,12 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **Atari 7800.** B is button 1, A button 2, X is Reset, SELECT is Select and START is Pause. Left and
   Right Difficulty rows (B and A by default, ProSystem's own choice), and a BIOS row. No High Score
   Cartridge (ProSystem has none), so saves are save states only.
+- **Virtual Boy.** One flat picture: the left eye in red on black, 384x224 at 1.875x (720x420), or
+  stretched to the panel. The Palette row swaps the red for white, blue, cyan, electric cyan, green,
+  magenta or yellow. The D-pad is the left D-pad and the right analog stick is the right D-pad; the
+  Right Pad row's ABXY choice puts the right D-pad on X, A, B and Y (A and B move to R2 and L2), for
+  games such as Red Alarm and Teleroboxer that use it as buttons. Games run at their own 50.27 Hz.
+  Every cart keeps a 64 KB `.sav` in `Saves/VB`.
 - **Neo Geo, CPS1 and CPS2** run on FinalBurn Neo, one shelf per board. The zip is the romset, named
   as the set (`mslug.zip`, `ffight.zip`, `ssf2t.zip`), for the pinned FinalBurn Neo (dat 1.0.0.03):
   a zip that is not a set of that board is left off the shelf, and an older MAME set may lack a file
@@ -134,6 +143,9 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
 | Refresh | WonderSwan | 60 Hz, 75 Hz |
+| VB Speed | Virtual Boy | Native (50.27 Hz, the default) or Panel |
+| Palette | Virtual Boy | Red (the default), White, Blue, Cyan, Electric Cyan, Green, Magenta, Yellow |
+| Right Pad | Virtual Boy | Stick (the default) or ABXY |
 | Speed | Lynx | Native, Panel |
 | Left, Right Difficulty; TV Type | Atari 2600 | Auto, A, B; Auto, Colour, B&W |
 | Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
@@ -177,6 +189,8 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - Sega 32X: the polygon games (Virtua Racing Deluxe, Star Wars Arcade, Virtua Fighter) are expected
   to sit near the frame budget on the H700. If one misses frames, set Renderer to Fast and then Sound
   Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
+- Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
+  there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 182) is still open.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few

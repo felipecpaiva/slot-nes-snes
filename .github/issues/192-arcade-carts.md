@@ -1,10 +1,10 @@
 ---
 title: "Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels"
-phase: 16
+phase: 17
 area: ui-art
 type: feature
 size: M
-depends_on: [155-platform-arcade]
+depends_on: [185-platform-arcade]
 ---
 
 ## Why
@@ -29,7 +29,7 @@ Arcade has no console cart; each board needs a shelf object at the same fidelity
 - [x] A1 and A2 pass; shelf renders compared with an existing shelf.
 
 ## Device check (RG34XXSP)
-Issue 163.
+Issue 193.
 
 ## References
-- ADR 0097
+- ADR 0099

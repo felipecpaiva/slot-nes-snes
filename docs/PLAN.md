@@ -19,7 +19,8 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
 | 8 | Spec (Who it's NOT for), Phase 11 | WonderSwan and Color in the patch set (patches 0064 to 0069, ADR 0092), device gate (issue 99) pending |
 | 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
-| 10 | Spec (Who it's NOT for), Phase 16 | Neo Geo, CPS1 and CPS2 in the patch set on FinalBurn Neo (patches 0098 to 0104, ADR 0097), the zip as the romset on those three shelves only, device gate (issue 163) pending |
+| 10 | Spec (Who it's NOT for), Phase 16 | Virtual Boy in the patch set on Beetle VB (patches 0102 to 0109, ADR 0097), device gate (issue 182) pending |
+| 11 | Spec (Who it's NOT for), Phase 17 | Neo Geo, CPS1 and CPS2 in the patch set on FinalBurn Neo (patches 0110 to 0116, ADR 0099), the zip as the romset on those three shelves only, device gate (issue 193) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -60,7 +61,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) and Neo Geo, CPS1 and CPS2 (Phase 16, ADR 0097, the only shelves where the zip is the romset) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) Virtual Boy (Phase 16, ADR 0097) and Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -560,25 +561,45 @@ planned. Patches 0099 to 0101 on main 1b20432; the device gates are the step lef
 | 10 | 161, 169, done (0101) | Carts and labels (ScreenScraper 26 and 41) |
 | 11 | 162, 170 | Device gates |
 
-### Phase 16: Neo Geo, CPS1 and CPS2 (in the patch set, device gate pending)
+### Phase 16: Virtual Boy (in the patch set, device gate pending)
 
-Tracking issue 153, children 154 to 163, ADR 0097. One core, FinalBurn Neo (`fbneo`) pinned at `2dbbac7`
-with only the Neo Geo and CPS drivers built, three shelves `Games/NEOGEO`, `Games/CPS1` and `Games/CPS2`
-for the board's romset zips (FBNeo 1.0.0.03 sets), the Neo Geo BIOS checked, never shipped. CPS3 is out.
-Patches 0098 to 0104 on upstream main 1b20432.
+Tracking issue 173, children 174 to 182, ADR 0097. One core, Beetle VB (`mednafen_vb`) pinned at
+`d5ae54c` with the VR view off, one shelf `Games/VB` for `.vb` and `.vboy`, no BIOS, no core picker.
+Anaglyph 3D with the preset off: the left eye alone in the palette colour. Patches 0102 to 0109.
 
 | Step | Issue | Content |
 |---|---|---|
 | 1 | done | ADR 0097 and the issues |
-| 2 | 154, done | Core build with FBNeo's neogeo and cps12 subsets, `log` and `pow` at GLIBC_2.17, licence and the no-donations rule |
-| 3 | 161, core half done | Zero-filled sets through FBNeo's patched-romset folder: frame sizes, rates, BIOS, rotation, states, NVRAM (patch 0098) |
-| 4 | 155, done (0099) | Three platforms, the set table from the pinned source, full titles, explicit policy |
-| 5 | 156, done (0100) | Options: Auto frameskip, no held-Start service menu |
-| 6 | 157, done (0101) | Screen sections; vertical games upright (slot's quarter turn) or turned (pad turned) |
-| 7 | 158, done (0102) | `BIOS/neogeo.zip` checked by CRC before a Neo Geo set starts |
-| 8 | 159, 160, 161, done (0103) | Real-session seats, NVRAM at session end, resume per board |
-| 9 | 162, done (0104) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
-| 10 | 163 | Device gate |
+| 2 | 174, done | Core build with `HAVE_VR=0`, the C++ runtime linked in, `pow` at GLIBC_2.17, licence |
+| 3 | 180, core half done | Generated two-eye cart: the left eye alone, both eyes with a real preset, states, cart RAM (patch 0102) |
+| 4 | 175, done (0103) | `Platform::Vb`, 384x256 canvas, explicit policy; joins dist and zip-check |
+| 5 | 176, done (0104) | Core options: anaglyph with the preset off, right stick to digital, fast V810 |
+| 6 | 177, done (0105) | Screen section: Shader, Picture, VB Speed, Palette, Right Pad |
+| 7 | 179, done (0106) | Pad: the right stick as the right D-pad, the ABXY fallback with L2 and R2 to the game |
+| 8 | 178, done (0107) | Saves: the 64 KB cart RAM as the ordinary `.sav`, tests only |
+| 9 | 180, done (0108) | A GBA game after a Virtual Boy game equals a GBA only run; resume |
+| 10 | 181, done (0109) | One grey Virtual Boy cart with its dust cap, labels for ScreenScraper id 11 |
+| 11 | 182 | Device gate: Virtual Boy Wario Land, Jack Bros., Red Alarm, Teleroboxer |
+
+### Phase 17: Neo Geo, CPS1 and CPS2 (in the patch set, device gate pending)
+
+Tracking issue 183, children 184 to 193, ADR 0099. One core, FinalBurn Neo (`fbneo`) pinned at `2dbbac7`
+with only the Neo Geo and CPS drivers built, three shelves `Games/NEOGEO`, `Games/CPS1` and `Games/CPS2`
+for the board's romset zips (FBNeo 1.0.0.03 sets), the Neo Geo BIOS checked, never shipped. CPS3 is out.
+Patches 0110 to 0116 on upstream main 1b20432.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0099 and the issues |
+| 2 | 184, done | Core build with FBNeo's neogeo and cps12 subsets, `log` and `pow` at GLIBC_2.17, licence and the no-donations rule |
+| 3 | 191, core half done | Zero-filled sets through FBNeo's patched-romset folder: frame sizes, rates, BIOS, rotation, states, NVRAM (patch 0110) |
+| 4 | 185, done (0111) | Three platforms, the set table from the pinned source, full titles, explicit policy |
+| 5 | 186, done (0112) | Options: Auto frameskip, no held-Start service menu |
+| 6 | 187, done (0113) | Screen sections; vertical games upright (slot's quarter turn) or turned (pad turned) |
+| 7 | 188, done (0114) | `BIOS/neogeo.zip` checked by CRC before a Neo Geo set starts |
+| 8 | 189, 190, 191, done (0115) | Real-session seats, NVRAM at session end, resume per board |
+| 9 | 192, done (0116) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
+| 10 | 193 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)
 

@@ -1,4 +1,4 @@
-"""tools/fetch-labels.py arcade route, offline: Neo Geo, CPS1 and CPS2 sets asked by file name (ADR 0097).
+"""tools/fetch-labels.py arcade route, offline: Neo Geo, CPS1 and CPS2 sets asked by file name (ADR 0099).
 
     python3 -m unittest tools/tests/test_fetch_labels_arcade.py
 """
