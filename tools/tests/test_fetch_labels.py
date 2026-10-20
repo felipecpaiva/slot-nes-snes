@@ -421,6 +421,33 @@ class Sega(Base):
         self.assertEqual(f"{rom.whole() & 0xffffffff:08X}", crc(raw))
 
 
+class Sega32X(NesSnes):
+    def systemeids(self):
+        return [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["systemeid"][0]
+                for u in self.http.calls if u.startswith(fl.SS_API + "jeuInfos.php")]
+
+    def test_the_32x_shelf_names_its_folder_extensions_dat_and_screenscraper_id(self):
+        self.assertEqual(fl.SYSTEMS["32X"][:2], ("sega32x", {".32x", ".bin"}))
+        self.assertEqual(fl.SYSTEMS["32X"][2], ["Sega - 32X"])
+        self.assertEqual(fl.SYSTEMS["32X"][3], 19)
+        self.assertNotIn("32X", fl.ART_SYSTEMS)
+
+    def test_a_32x_bin_matched_by_crc_is_asked_under_19_and_lands_in_labels_32x(self):
+        rom = bytes(range(256)) * 16
+        self.rom("32X", "Knuckles Chaotix 32X (JU) [!].bin", rom)
+        r = self.dat("32X", ("Knuckles' Chaotix (Japan, USA)", crc(rom)))
+        stats = self.run_ss("32X", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "32X"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("32X", "Knuckles Chaotix 32X (JU) [!]"), PNG)
+        self.assertEqual(self.systemeids(), ["19"])
+
+    def test_a_32x_name_search_drops_the_32x_word_and_asks_only_under_19(self):
+        out = fl.attempts("Knuckles Chaotix 32X (JU) [!]", "32X")
+        self.assertEqual([(a[0], a[1]) for a in out], [(19, "Knuckles Chaotix")])
+        md = fl.attempts("Doom 32X (JU) [!]", "MD")
+        self.assertEqual([a[0] for a in md], [19, 1])
+
+
 class Lynx(Base):
     ss_http = NesSnes.ss_http
     run_ss = NesSnes.run_ss

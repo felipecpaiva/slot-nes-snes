@@ -1,0 +1,1073 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 00:33:19 +0400
+Subject: [PATCH] s32x-screen
+
+The 32X gets its own Screen section, listed last and shown only when the
+card holds 32X games, with five rows. Shader walks Off and the retro list,
+stored in Config/s32x_shader.txt; the in-game Shader row and the shader
+shortcut walk the same list. Picture is the Mega Drive's: Stretch by
+default following the frame width, then Actual and 4:3, stored as 32x in
+Config/picture.txt, and every choice draws the size the Mega Drive one
+does. PAL Speed is the 32X's own row in Config/pal_speed.txt, Native by
+default: PicoDrive reports 50 fps for a PAL cart and ADR 0071 paces it.
+
+Renderer (Accurate, Good, Fast) and Sound Rate (44 kHz, 22 kHz) are
+PicoDrive's two speed options, kept in Config/s32x.txt. Accurate and 44
+kHz are the factory choice, PicoDrive's own defaults; the user's choice
+becomes the default and applies from the next game. A missing line is
+the factory choice and an unknown one is logged and read as it.
+---
+ crates/slot-ui/src/quick_menu.rs       |  57 +++++-
+ crates/slot-ui/src/quick_retro.rs      |  12 ++
+ crates/slot-ui/tests/quick_menu.rs     |   4 +-
+ crates/slot-ui/tests/retro_faces.rs    |  17 +-
+ crates/slot/src/app.rs                 |  39 +++-
+ crates/slot/src/core.rs                |   1 +
+ crates/slot/src/lib.rs                 |   1 +
+ crates/slot/src/pal_speed.rs           |   7 +-
+ crates/slot/src/platform_video.rs      |   5 +-
+ crates/slot/src/retro_quick.rs         |  12 +-
+ crates/slot/src/s32x_speed.rs          | 161 +++++++++++++++
+ crates/slot/tests/ngp_screen.rs        |   4 +-
+ crates/slot/tests/s32x_screen.rs       | 268 +++++++++++++++++++++++++
+ crates/slot/tests/sega_quick_shader.rs |   7 +-
+ 14 files changed, 566 insertions(+), 29 deletions(-)
+ create mode 100644 crates/slot/src/s32x_speed.rs
+ create mode 100644 crates/slot/tests/s32x_screen.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 0efa822..8f25c10 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -122,10 +122,16 @@ pub enum QuickRow {
+     NgpShader,
+     ScreenNgp,
+     NgpPicture,
++    S32xShader,
++    ScreenS32x,
++    S32xPicture,
++    S32xPalSpeed,
++    S32xRenderer,
++    S32xSoundRate,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 112] = [
++    pub const ALL: [QuickRow; 118] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -238,6 +244,12 @@ impl QuickRow {
+         QuickRow::NgpShader,
+         QuickRow::ScreenNgp,
+         QuickRow::NgpPicture,
++        QuickRow::S32xShader,
++        QuickRow::ScreenS32x,
++        QuickRow::S32xPicture,
++        QuickRow::S32xPalSpeed,
++        QuickRow::S32xRenderer,
++        QuickRow::S32xSoundRate,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -300,7 +312,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 13] = [
++    pub const SCREEN: [QuickRow; 14] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -314,6 +326,7 @@ impl QuickRow {
+         QuickRow::ScreenWs,
+         QuickRow::ScreenLynx,
+         QuickRow::ScreenNgp,
++        QuickRow::ScreenS32x,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -383,7 +396,8 @@ impl QuickRow {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+-            | QuickRow::ScreenNgp => &QuickRow::SCREEN,
++            | QuickRow::ScreenNgp
++            | QuickRow::ScreenS32x => &QuickRow::SCREEN,
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -446,6 +460,11 @@ impl QuickRow {
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => &QuickRow::SCREEN_LYNX,
+             QuickRow::NgpShader | QuickRow::NgpPicture => &QuickRow::SCREEN_NGP,
++            QuickRow::S32xShader
++            | QuickRow::S32xPicture
++            | QuickRow::S32xPalSpeed
++            | QuickRow::S32xRenderer
++            | QuickRow::S32xSoundRate => &QuickRow::SCREEN_S32X,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -490,6 +509,11 @@ impl QuickRow {
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => Some(QuickRow::ScreenLynx),
+             QuickRow::NgpShader | QuickRow::NgpPicture => Some(QuickRow::ScreenNgp),
++            QuickRow::S32xShader
++            | QuickRow::S32xPicture
++            | QuickRow::S32xPalSpeed
++            | QuickRow::S32xRenderer
++            | QuickRow::S32xSoundRate => Some(QuickRow::ScreenS32x),
+             _ => None,
+         }
+     }
+@@ -539,6 +563,7 @@ impl QuickRow {
+             QuickRow::ScreenWs => Some(QuickRow::SCREEN_WS[0]),
+             QuickRow::ScreenLynx => Some(QuickRow::SCREEN_LYNX[0]),
+             QuickRow::ScreenNgp => Some(QuickRow::SCREEN_NGP[0]),
++            QuickRow::ScreenS32x => Some(QuickRow::SCREEN_S32X[0]),
+             _ => None,
+         }
+     }
+@@ -643,6 +668,7 @@ impl QuickRow {
+             QuickRow::Tg16Shader | QuickRow::WsShader => "Shader",
+             QuickRow::LynxShader => "Shader",
+             QuickRow::NgpShader => "Shader",
++            QuickRow::S32xShader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -651,6 +677,7 @@ impl QuickRow {
+             QuickRow::ScreenWs => "WonderSwan",
+             QuickRow::ScreenLynx => "Lynx",
+             QuickRow::ScreenNgp => "Neo Geo Pocket",
++            QuickRow::ScreenS32x => "32X",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -660,17 +687,21 @@ impl QuickRow {
+             | QuickRow::Tg16Picture
+             | QuickRow::WsPicture
+             | QuickRow::LynxPicture
+-            | QuickRow::NgpPicture => "Picture",
++            | QuickRow::NgpPicture
++            | QuickRow::S32xPicture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+-            | QuickRow::Ps1PalSpeed => "PAL Speed",
++            | QuickRow::Ps1PalSpeed
++            | QuickRow::S32xPalSpeed => "PAL Speed",
+             QuickRow::SmsRegion => "Region",
+             QuickRow::Cpu => "CPU",
+             QuickRow::WsRefresh => "Refresh",
+             QuickRow::LynxSpeed => "Lynx Speed",
+             QuickRow::LynxFlip => "Flip Right Carts",
++            QuickRow::S32xRenderer => "Renderer",
++            QuickRow::S32xSoundRate => "Sound Rate",
+         }
+     }
+ 
+@@ -706,6 +737,7 @@ impl QuickRow {
+                 | QuickRow::ScreenWs
+                 | QuickRow::ScreenLynx
+                 | QuickRow::ScreenNgp
++                | QuickRow::ScreenS32x
+         )
+     }
+ 
+@@ -809,6 +841,11 @@ pub enum QuickValue {
+     Balanced,
+     FourThree,
+     Hz60,
++    Accurate,
++    Good,
++    Fast,
++    Khz44,
++    Khz22,
+ }
+ 
+ impl QuickValue {
+@@ -863,6 +900,11 @@ impl QuickValue {
+             QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
+             QuickValue::FourThree => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 11,
+             QuickValue::Hz60 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 12,
++            QuickValue::Accurate => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 13,
++            QuickValue::Good => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 14,
++            QuickValue::Fast => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 15,
++            QuickValue::Khz44 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 16,
++            QuickValue::Khz22 => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 17,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -906,6 +948,11 @@ impl QuickValue {
+             QuickValue::Balanced => "Balanced",
+             QuickValue::FourThree => "4:3",
+             QuickValue::Hz60 => "60 Hz",
++            QuickValue::Accurate => "Accurate",
++            QuickValue::Good => "Good",
++            QuickValue::Fast => "Fast",
++            QuickValue::Khz44 => "44 kHz",
++            QuickValue::Khz22 => "22 kHz",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 26ccba0..2821248 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -40,6 +40,13 @@ impl QuickRow {
+         QuickRow::LynxFlip,
+     ];
+     pub const SCREEN_NGP: [QuickRow; 2] = [QuickRow::NgpShader, QuickRow::NgpPicture];
++    pub const SCREEN_S32X: [QuickRow; 5] = [
++        QuickRow::S32xShader,
++        QuickRow::S32xPicture,
++        QuickRow::S32xPalSpeed,
++        QuickRow::S32xRenderer,
++        QuickRow::S32xSoundRate,
++    ];
+ }
+ 
+ impl QuickValue {
+@@ -61,6 +68,11 @@ impl QuickValue {
+                 QuickValue::Balanced,
+                 QuickValue::FourThree,
+                 QuickValue::Hz60,
++                QuickValue::Accurate,
++                QuickValue::Good,
++                QuickValue::Fast,
++                QuickValue::Khz44,
++                QuickValue::Khz22,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index a7c7a84..e594500 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x
+         ]
+     );
+     for page in [
+diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
+index 44f8a1b..d8f558e 100644
+--- a/crates/slot-ui/tests/retro_faces.rs
++++ b/crates/slot-ui/tests/retro_faces.rs
+@@ -26,6 +26,11 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Balanced,
+             QuickValue::FourThree,
+             QuickValue::Hz60,
++            QuickValue::Accurate,
++            QuickValue::Good,
++            QuickValue::Fast,
++            QuickValue::Khz44,
++            QuickValue::Khz22,
+         ]
+     );
+     assert_eq!(
+@@ -43,6 +48,11 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             QuickValue::Balanced.text(),
+             QuickValue::FourThree.text(),
+             QuickValue::Hz60.text(),
++            QuickValue::Accurate.text(),
++            QuickValue::Good.text(),
++            QuickValue::Fast.text(),
++            QuickValue::Khz44.text(),
++            QuickValue::Khz22.text(),
+         ],
+         [
+             "Stretch",
+@@ -57,7 +67,12 @@ fn the_quick_menu_uploads_the_upstream_values_then_one_face_per_retro_shader() {
+             "Performance",
+             "Balanced",
+             "4:3",
+-            "60 Hz"
++            "60 Hz",
++            "Accurate",
++            "Good",
++            "Fast",
++            "44 kHz",
++            "22 kHz"
+         ]
+     );
+     for (i, v) in every.iter().enumerate() {
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 330c1df..16e9978 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -460,6 +460,7 @@ pub struct App {
+     ws_native: bool,
+     sms_region: crate::sms_region::Region,
+     cpu_mode: crate::cpu_governor::CpuMode,
++    s32x_speed: crate::s32x_speed::S32xSpeed,
+     rested: Option<(usize, usize)>,
+     start_marked: bool,
+     fast_trail: bool,
+@@ -649,6 +650,7 @@ impl App {
+             ws_native: false,
+             sms_region: crate::sms_region::Region::Auto,
+             cpu_mode: crate::cpu_governor::CpuMode::Performance,
++            s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+             rested: None,
+             start_marked: false,
+             fast_trail: false,
+@@ -673,6 +675,7 @@ impl App {
+         app.ws_native = crate::ws_refresh::native(root);
+         app.sms_region = crate::sms_region::Region::read(root);
+         app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
++        app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
+         app.lynx_flip = crate::lynx_turn::flips_right(root);
+         app.restock_recents();
+         app.restock_favorites();
+@@ -1038,6 +1041,7 @@ impl App {
+             (QuickRow::Shader, Platform::Ws) => QuickRow::WsShader,
+             (QuickRow::Shader, Platform::Lynx) => QuickRow::LynxShader,
+             (QuickRow::Shader, Platform::Ngp) => QuickRow::NgpShader,
++            (QuickRow::Shader, Platform::S32x) => QuickRow::S32xShader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
+             (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
+@@ -1090,6 +1094,7 @@ impl App {
+             QuickRow::WsShader => Some(shader_value(self.sega_shaders.ws)),
+             QuickRow::LynxShader => Some(shader_value(self.sega_shaders.lynx)),
+             QuickRow::NgpShader => Some(shader_value(self.sega_shaders.ngp)),
++            QuickRow::S32xShader => Some(shader_value(self.sega_shaders.s32x)),
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -1099,16 +1104,19 @@ impl App {
+             | QuickRow::Tg16Picture
+             | QuickRow::WsPicture
+             | QuickRow::LynxPicture
+-            | QuickRow::NgpPicture => self.pictures.get(row).map(VideoMode::quick_value),
++            | QuickRow::NgpPicture
++            | QuickRow::S32xPicture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
+             | QuickRow::Ps1PalSpeed
+-            | QuickRow::LynxSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
++            | QuickRow::LynxSpeed
++            | QuickRow::S32xPalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
+             QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
+             QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
+             QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
++            QuickRow::S32xRenderer | QuickRow::S32xSoundRate => self.s32x_speed.quick_value(row),
+             QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
+@@ -1164,6 +1172,7 @@ impl App {
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
++            | QuickRow::ScreenS32x
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+@@ -2723,7 +2732,8 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+-            | QuickRow::ScreenNgp => {
++            | QuickRow::ScreenNgp
++            | QuickRow::ScreenS32x => {
+                 if let Some(row) = row.child() {
+                     let row = row.shown(&self.hidden_rows())[0];
+                     self.phase = Phase::QuickMenu { row };
+@@ -2818,7 +2828,12 @@ impl App {
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip
+             | QuickRow::NgpShader
+-            | QuickRow::NgpPicture => {}
++            | QuickRow::NgpPicture
++            | QuickRow::S32xShader
++            | QuickRow::S32xPicture
++            | QuickRow::S32xPalSpeed
++            | QuickRow::S32xRenderer
++            | QuickRow::S32xSoundRate => {}
+         }
+     }
+ 
+@@ -2840,6 +2855,12 @@ impl App {
+             }
+             return;
+         }
++        if self
++            .s32x_speed
++            .change(row, right, self.root.as_deref(), &self.card_writes)
++        {
++            return;
++        }
+         if row == QuickRow::WsRefresh {
+             self.ws_native = !self.ws_native;
+             if let Some(root) = &self.root {
+@@ -2979,7 +3000,8 @@ impl App {
+             | QuickRow::Tg16Shader
+             | QuickRow::WsShader
+             | QuickRow::LynxShader
+-            | QuickRow::NgpShader => return,
++            | QuickRow::NgpShader
++            | QuickRow::S32xShader => return,
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -2999,7 +3021,11 @@ impl App {
+             | QuickRow::Cpu
+             | QuickRow::WsRefresh
+             | QuickRow::Tg16Picture
+-            | QuickRow::NgpPicture => return,
++            | QuickRow::NgpPicture
++            | QuickRow::S32xPicture
++            | QuickRow::S32xPalSpeed
++            | QuickRow::S32xRenderer
++            | QuickRow::S32xSoundRate => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+@@ -3030,6 +3056,7 @@ impl App {
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
++            | QuickRow::ScreenS32x
+             | QuickRow::GbBezel
+             | QuickRow::GbcBezel
+             | QuickRow::GbaBezel
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 44da988..dae87d8 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -128,6 +128,7 @@ fn open_named(
+                     palette,
+                 );
+                 crate::sms_region::apply(&mut opened, root, platform);
++                crate::s32x_speed::apply(&mut opened, root, platform);
+                 if let Some(player) = link {
+                     apply_link_options(&mut opened, core, player);
+                 }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index cf8c558..4b3b196 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -51,6 +51,7 @@ pub mod resample;
+ pub mod retro_quick;
+ pub mod rewind;
+ pub mod root;
++pub mod s32x_speed;
+ pub mod session;
+ pub mod shelf_restock;
+ pub mod sms_region;
+diff --git a/crates/slot/src/pal_speed.rs b/crates/slot/src/pal_speed.rs
+index b964a01..ada4466 100644
+--- a/crates/slot/src/pal_speed.rs
++++ b/crates/slot/src/pal_speed.rs
+@@ -7,13 +7,14 @@ use crate::card_log::CardWrites;
+ 
+ pub const PAL_SPEED_FILE: &str = "Config/pal_speed.txt";
+ 
+-pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 6] = [
++pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 7] = [
+     (QuickRow::NesPalSpeed, Platform::Nes),
+     (QuickRow::SnesPalSpeed, Platform::Snes),
+     (QuickRow::SmsPalSpeed, Platform::Sms),
+     (QuickRow::MdPalSpeed, Platform::Md),
+     (QuickRow::Ps1PalSpeed, Platform::Ps1),
+     (QuickRow::LynxSpeed, Platform::Lynx),
++    (QuickRow::S32xPalSpeed, Platform::S32x),
+ ];
+ 
+ fn key(platform: Platform) -> String {
+@@ -39,11 +40,11 @@ pub fn quick_value(native: bool) -> QuickValue {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct PalSpeeds([bool; 6]);
++pub struct PalSpeeds([bool; 7]);
+ 
+ impl Default for PalSpeeds {
+     fn default() -> Self {
+-        PalSpeeds([true; 6])
++        PalSpeeds([true; 7])
+     }
+ }
+ 
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 55ea4ff..b581674 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 10] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 11] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -20,6 +20,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 10] = [
+     (QuickRow::WsPicture, Platform::Ws),
+     (QuickRow::LynxPicture, Platform::Lynx),
+     (QuickRow::NgpPicture, Platform::Ngp),
++    (QuickRow::S32xPicture, Platform::S32x),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+@@ -173,7 +174,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 10]);
++pub struct SystemPictures([VideoMode; 11]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 910e8bc..9b75459 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -20,6 +20,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::WsShader => (&mut shaders.ws, Platform::Ws),
+         QuickRow::LynxShader => (&mut shaders.lynx, Platform::Lynx),
+         QuickRow::NgpShader => (&mut shaders.ngp, Platform::Ngp),
++        QuickRow::S32xShader => (&mut shaders.s32x, Platform::S32x),
+         _ => return false,
+     };
+     *shader = shader.step(platform.shader_choices(), right);
+@@ -49,8 +50,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 9] {
+-    let mut seen = [false; 9];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 10] {
++    let mut seen = [false; 10];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -63,14 +64,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 9] {
+             Platform::Ws => 6,
+             Platform::Lynx => 7,
+             Platform::Ngp => 8,
+-            Platform::S32x => continue,
++            Platform::S32x => 9,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 9] = [
++const SYSTEM_ROWS: [&[QuickRow]; 10] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -80,9 +81,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 9] = [
+     &[QuickRow::ScreenWs],
+     &[QuickRow::ScreenLynx],
+     &[QuickRow::ScreenNgp],
++    &[QuickRow::ScreenS32x],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 9]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 10]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/s32x_speed.rs b/crates/slot/src/s32x_speed.rs
+new file mode 100644
+index 0000000..cb482b4
+--- /dev/null
++++ b/crates/slot/src/s32x_speed.rs
+@@ -0,0 +1,161 @@
++use std::path::Path;
++
++use slot_retro::LibretroCore;
++use slot_store::{ini, Platform};
++use slot_ui::{QuickRow, QuickValue};
++
++use crate::card_log::CardWrites;
++
++pub const S32X_FILE: &str = "Config/s32x.txt";
++
++const RENDERER_KEY: &str = "renderer";
++const SOUND_RATE_KEY: &str = "sound_rate";
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum Renderer {
++    #[default]
++    Accurate,
++    Good,
++    Fast,
++}
++
++impl Renderer {
++    pub const ALL: [Renderer; 3] = [Renderer::Accurate, Renderer::Good, Renderer::Fast];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Renderer::Accurate => "accurate",
++            Renderer::Good => "good",
++            Renderer::Fast => "fast",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            Renderer::Accurate => QuickValue::Accurate,
++            Renderer::Good => QuickValue::Good,
++            Renderer::Fast => QuickValue::Fast,
++        }
++    }
++
++    fn stepped(self, right: bool) -> Renderer {
++        let n = Renderer::ALL.len();
++        let at = Renderer::ALL.iter().position(|r| *r == self).unwrap_or(0);
++        let next = if right {
++            (at + 1) % n
++        } else {
++            (at + n - 1) % n
++        };
++        Renderer::ALL.get(next).copied().unwrap_or(self)
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum SoundRate {
++    #[default]
++    Khz44,
++    Khz22,
++}
++
++impl SoundRate {
++    pub const ALL: [SoundRate; 2] = [SoundRate::Khz44, SoundRate::Khz22];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            SoundRate::Khz44 => "44100",
++            SoundRate::Khz22 => "22050",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            SoundRate::Khz44 => QuickValue::Khz44,
++            SoundRate::Khz22 => QuickValue::Khz22,
++        }
++    }
++
++    fn flipped(self) -> SoundRate {
++        match self {
++            SoundRate::Khz44 => SoundRate::Khz22,
++            SoundRate::Khz22 => SoundRate::Khz44,
++        }
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub struct S32xSpeed {
++    pub renderer: Renderer,
++    pub sound_rate: SoundRate,
++}
++
++fn read_one<T: Copy + Default>(
++    root: &Path,
++    key: &str,
++    all: &[T],
++    name: fn(T) -> &'static str,
++) -> T {
++    let Some(line) = ini::value(root, S32X_FILE, key) else {
++        return T::default();
++    };
++    all.iter()
++        .copied()
++        .find(|v| name(*v) == line)
++        .unwrap_or_else(|| {
++            eprintln!("slot: s32x.txt: ignoring {key}={line}");
++            T::default()
++        })
++}
++
++impl S32xSpeed {
++    pub fn read(root: &Path) -> S32xSpeed {
++        S32xSpeed {
++            renderer: read_one(root, RENDERER_KEY, &Renderer::ALL, Renderer::as_str),
++            sound_rate: read_one(root, SOUND_RATE_KEY, &SoundRate::ALL, SoundRate::as_str),
++        }
++    }
++
++    pub fn quick_value(&self, row: QuickRow) -> Option<QuickValue> {
++        match row {
++            QuickRow::S32xRenderer => Some(self.renderer.quick_value()),
++            QuickRow::S32xSoundRate => Some(self.sound_rate.quick_value()),
++            _ => None,
++        }
++    }
++
++    pub fn change(
++        &mut self,
++        row: QuickRow,
++        right: bool,
++        root: Option<&Path>,
++        writes: &CardWrites,
++    ) -> bool {
++        let (key, value) = match row {
++            QuickRow::S32xRenderer => {
++                self.renderer = self.renderer.stepped(right);
++                (RENDERER_KEY, self.renderer.as_str())
++            }
++            QuickRow::S32xSoundRate => {
++                self.sound_rate = self.sound_rate.flipped();
++                (SOUND_RATE_KEY, self.sound_rate.as_str())
++            }
++            _ => return false,
++        };
++        if let Some(root) = root {
++            let written = ini::write(root, S32X_FILE, key, value);
++            if let Err(e) = &written {
++                eprintln!("slot: emu: could not write s32x.txt: {e}");
++            }
++            writes.wrote("s32x.txt", &written);
++        }
++        true
++    }
++}
++
++pub fn apply(core: &mut LibretroCore, root: &Path, platform: Platform) {
++    if platform != Platform::S32x {
++        return;
++    }
++    let speed = S32xSpeed::read(root);
++    core.set_option("picodrive_renderer", speed.renderer.as_str());
++    core.set_option("picodrive_sound_rate", speed.sound_rate.as_str());
++}
+diff --git a/crates/slot/tests/ngp_screen.rs b/crates/slot/tests/ngp_screen.rs
+index dc384b2..7417105 100644
+--- a/crates/slot/tests/ngp_screen.rs
++++ b/crates/slot/tests/ngp_screen.rs
+@@ -35,8 +35,8 @@ fn open_neogeo_pocket(app: &mut App) {
+ }
+ 
+ #[test]
+-fn the_neogeo_pocket_closes_the_screen_list_with_a_shader_and_picture_section_only() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenNgp));
++fn the_neogeo_pocket_follows_lynx_in_the_screen_list_with_a_shader_and_picture_section_only() {
++    assert_eq!(QuickRow::SCREEN[12], QuickRow::ScreenNgp);
+     assert_eq!(QuickRow::ScreenNgp.label(), "Neo Geo Pocket");
+     assert!(QuickRow::ScreenNgp.opens());
+     assert_eq!(QuickRow::ScreenNgp.child(), Some(QuickRow::NgpShader));
+diff --git a/crates/slot/tests/s32x_screen.rs b/crates/slot/tests/s32x_screen.rs
+new file mode 100644
+index 0000000..6ddf74f
+--- /dev/null
++++ b/crates/slot/tests/s32x_screen.rs
+@@ -0,0 +1,268 @@
++mod common;
++mod core_common;
++mod s32x_common;
++
++use common::{boot, core_lock, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::pal_speed::PAL_SPEED_FILE;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::s32x_speed::{apply, Renderer, S32xSpeed, SoundRate, S32X_FILE};
++use slot::video_mode::VideoMode;
++use slot_input::{Action, Btn};
++use slot_retro::LibretroCore;
++use slot_store::{read_sega_shaders, Platform, Shader, S32X_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_cart() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(root.path().join("Games/32X/Chaotix.32x"), [0u8; 16]).expect("write cart");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_32x(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenS32x.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenS32x));
++    press(app, Btn::A);
++}
++
++fn down_to(app: &mut App, row: QuickRow) {
++    while app.quick_menu() != Some(row) {
++        press(app, Btn::Down);
++    }
++}
++
++#[test]
++fn the_32x_closes_the_screen_list_with_its_own_five_row_section() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenS32x));
++    assert_eq!(QuickRow::ScreenS32x.label(), "32X");
++    assert!(QuickRow::ScreenS32x.opens());
++    assert_eq!(QuickRow::ScreenS32x.child(), Some(QuickRow::S32xShader));
++    assert_eq!(
++        QuickRow::SCREEN_S32X.map(QuickRow::label),
++        ["Shader", "Picture", "PAL Speed", "Renderer", "Sound Rate"]
++    );
++    for row in QuickRow::SCREEN_S32X {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenS32x));
++    }
++}
++
++#[test]
++fn the_32x_row_shows_only_on_a_card_with_32x_games() {
++    let (_root, mut app) = card_with_a_cart();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenS32x));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let without = boot(root.path());
++    assert!(without.hidden_rows().contains(&QuickRow::ScreenS32x));
++    open_32x(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::S32xShader));
++}
++
++#[test]
++fn the_32x_picture_starts_stretch_like_the_mega_drive_and_offers_actual_and_four_three() {
++    assert_eq!(default_video_mode(Platform::S32x), VideoMode::Stretch);
++    assert_eq!(
++        default_video_mode(Platform::S32x),
++        default_video_mode(Platform::Md)
++    );
++    assert_eq!(
++        picture_choices(Platform::S32x),
++        [VideoMode::Stretch, VideoMode::Actual, VideoMode::FourThree]
++    );
++    let (root, mut app) = card_with_a_cart();
++    open_32x(&mut app);
++    down_to(&mut app, QuickRow::S32xPicture);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xPicture),
++        Some(QuickValue::Stretch)
++    );
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        system_picture(root.path(), Platform::S32x),
++        VideoMode::Actual
++    );
++    assert_eq!(
++        system_picture(root.path(), Platform::Md),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "32x = actual\n"
++    );
++}
++
++#[test]
++fn the_32x_shader_walks_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_32x(&mut app);
++    assert_eq!(app.quick_value(QuickRow::S32xShader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(read_sega_shaders(root.path()).s32x);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(S32X_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}
++
++#[test]
++fn the_32x_pal_speed_row_is_its_own_and_starts_native() {
++    let (root, mut app) = card_with_a_cart();
++    open_32x(&mut app);
++    down_to(&mut app, QuickRow::S32xPalSpeed);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xPalSpeed),
++        Some(QuickValue::Native)
++    );
++    press(&mut app, Btn::Right);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xPalSpeed),
++        Some(QuickValue::Panel)
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PAL_SPEED_FILE)).expect("pal_speed.txt"),
++        "32x = panel\n"
++    );
++    assert!(app.native_pal(Platform::Md));
++}
++
++#[test]
++fn the_renderer_walks_accurate_good_fast_and_the_choice_is_the_next_boots_default() {
++    let (root, mut app) = card_with_a_cart();
++    open_32x(&mut app);
++    down_to(&mut app, QuickRow::S32xRenderer);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xRenderer),
++        Some(QuickValue::Accurate)
++    );
++    let mut seen = Vec::new();
++    for _ in 0..3 {
++        press(&mut app, Btn::Right);
++        seen.push(app.quick_value(QuickRow::S32xRenderer));
++    }
++    assert_eq!(
++        seen,
++        [
++            Some(QuickValue::Good),
++            Some(QuickValue::Fast),
++            Some(QuickValue::Accurate)
++        ]
++    );
++    press(&mut app, Btn::Left);
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(S32X_FILE)).expect("s32x.txt"),
++        "renderer = fast\n"
++    );
++    let again = boot(root.path());
++    assert_eq!(
++        again.quick_value(QuickRow::S32xRenderer),
++        Some(QuickValue::Fast)
++    );
++}
++
++#[test]
++fn the_sound_rate_flips_between_44_and_22_khz_and_the_choice_is_the_next_boots_default() {
++    let (root, mut app) = card_with_a_cart();
++    open_32x(&mut app);
++    down_to(&mut app, QuickRow::S32xSoundRate);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xSoundRate),
++        Some(QuickValue::Khz44)
++    );
++    press(&mut app, Btn::Right);
++    assert_eq!(
++        app.quick_value(QuickRow::S32xSoundRate),
++        Some(QuickValue::Khz22)
++    );
++    let again = boot(root.path());
++    assert_eq!(
++        again.quick_value(QuickRow::S32xSoundRate),
++        Some(QuickValue::Khz22)
++    );
++    assert_eq!(
++        S32xSpeed::read(root.path()),
++        S32xSpeed {
++            renderer: Renderer::Accurate,
++            sound_rate: SoundRate::Khz22
++        }
++    );
++}
++
++#[test]
++fn an_unknown_value_in_s32x_txt_reads_as_the_factory_choice() {
++    let (root, _app) = card_with_a_cart();
++    std::fs::write(
++        root.path().join(S32X_FILE),
++        "renderer = turbo\nsound_rate = 11025\n",
++    )
++    .expect("write");
++    assert_eq!(S32xSpeed::read(root.path()), S32xSpeed::default());
++    let app = boot(root.path());
++    assert_eq!(
++        app.quick_value(QuickRow::S32xRenderer),
++        Some(QuickValue::Accurate)
++    );
++}
++
++#[test]
++fn the_chosen_renderer_and_sound_rate_are_what_picodrive_is_told_at_start() {
++    let _g = core_lock();
++    let Some(dylib) = s32x_common::picodrive() else {
++        return;
++    };
++    let root = tmp_root_with_real_carts(&[]);
++    std::fs::write(
++        root.path().join(S32X_FILE),
++        "renderer = good\nsound_rate = 22050\n",
++    )
++    .expect("write");
++    let mut core = LibretroCore::open_with(&dylib, root.path(), root.path()).expect("open");
++    apply(&mut core, root.path(), Platform::S32x);
++    assert_eq!(core.option("picodrive_renderer").as_deref(), Some("good"));
++    assert_eq!(
++        core.option("picodrive_sound_rate").as_deref(),
++        Some("22050")
++    );
++    drop(core);
++    let mut md = LibretroCore::open_with(&dylib, root.path(), root.path()).expect("open");
++    apply(&mut md, root.path(), Platform::Md);
++    assert_eq!(md.option("picodrive_renderer"), None);
++}
++
++#[test]
++fn every_32x_picture_is_drawn_the_size_the_mega_drive_one_is() {
++    for mode in [VideoMode::Stretch, VideoMode::Actual, VideoMode::FourThree] {
++        for frame_w in [256, 320] {
++            assert_eq!(
++                slot::platform_video::shown(Platform::S32x, frame_w, mode),
++                slot::platform_video::shown(Platform::Md, frame_w, mode),
++                "{mode:?} {frame_w}"
++            );
++        }
++    }
++    assert_eq!(
++        slot::platform_video::shown(Platform::S32x, 320, VideoMode::Actual),
++        (320, 224)
++    );
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index e026172..b208f1a 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,9 +92,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 9]).is_empty());
+-    for key in 0..511u16 {
+-        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(|i| key & 1 << i != 0);
++    assert!(hidden_on_shelf([true; 10]).is_empty());
++    for key in 0..1023u16 {
++        let systems = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -106,6 +106,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenWs), !systems[6]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenLynx), !systems[7]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNgp), !systems[8]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenS32x), !systems[9]);
+     }
+ }
+ 

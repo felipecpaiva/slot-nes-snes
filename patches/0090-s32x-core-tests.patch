@@ -1,0 +1,322 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 00:04:43 +0400
+Subject: [PATCH] s32x-core-tests
+
+PicoDrive (libretro/picodrive 1890c29, ADR 0096) on the generic libretro
+host, before any 32X platform code. The facts the platform steps build on:
+it loads by path with no BIOS, runs a 32X cart through its built-in BIOS
+(the master SH2 answers M_OK in comm port 0 only once the 68k sets ADEN
+and RES), reports 60 fps and 44100 Hz, and draws the 320x224 H40 picture
+in the middle of the Mega Drive's 360x240 canvas. A state is 679,178
+bytes for every Mega Drive cart, because retro_serialize_size always adds
+the 32X chunks, and it round trips. Every cart gets 16 KB of save RAM,
+reported before the first frame and afterwards only once the game wrote a
+byte, so a game that never saves leaves no .sav. The options slot will
+answer are declared with the values it will use; picodrive_drc exists
+only on the aarch64 build, because Makefile.libretro turns the DRCs off
+on Apple.
+
+The synthetic cart is ours: the 32X header words of the real carts
+("SEGA 32X" at 0x100, "MARS CHECK MODE" at 0x3c0) and the boot handshake
+of PicoDrive's msh2_code.
+---
+ crates/slot/tests/s32x_common/mod.rs | 121 ++++++++++++++++++++
+ crates/slot/tests/s32x_core.rs       | 160 +++++++++++++++++++++++++++
+ 2 files changed, 281 insertions(+)
+ create mode 100644 crates/slot/tests/s32x_common/mod.rs
+ create mode 100644 crates/slot/tests/s32x_core.rs
+
+diff --git a/crates/slot/tests/s32x_common/mod.rs b/crates/slot/tests/s32x_common/mod.rs
+new file mode 100644
+index 0000000..637f5af
+--- /dev/null
++++ b/crates/slot/tests/s32x_common/mod.rs
+@@ -0,0 +1,121 @@
++#![allow(dead_code)]
++// The synthetic 32X cart. The header words come from the 32X ROMs on the maintainer's shelf (ADR 0096):
++// "SEGA 32X" at 0x100 and the "MARS CHECK MODE" module name at 0x3c0, followed by the master and slave
++// SH2 start addresses at 0x3e0 and 0x3e4. The boot handshake is the one PicoDrive's built-in BIOS runs
++// (pico/32x/memory.c msh2_code at 1890c29): the 68k sets ADEN and RES at 0xa15101, the master SH2
++// writes "M_OK" to the first comm port and jumps to the address at 0x3e0. The code is ours.
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub const MD_TITLE: &str = "SLOT 32X CART";
++pub const RED_BGRX: [u8; 3] = [0, 0, 239];
++pub const PICTURE: (usize, usize) = (320, 224);
++pub const CANVAS: (usize, usize) = (360, 240);
++pub const SRAM_MARK: u8 = 0x5a;
++
++pub fn picodrive() -> Option<PathBuf> {
++    require_core("picodrive")
++}
++
++/// The Mega Drive half: H40, backdrop colour 0 set to red, display on, then `bra *`. The same VDP
++/// writes as sega_common::md_rom.
++fn paint_red() -> Vec<u8> {
++    let mut program = vec![0x33, 0xfc, 0x81, 0x44, 0x00, 0xc0, 0x00, 0x04];
++    program.extend([0x33, 0xfc, 0x8c, 0x81, 0x00, 0xc0, 0x00, 0x04]);
++    program.extend([0x23, 0xfc, 0xc0, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x04]);
++    program.extend([0x33, 0xfc, 0x00, 0x0e, 0x00, 0xc0, 0x00, 0x00, 0x60, 0xfe]);
++    program
++}
++
++/// The 32X boot: ADEN, then ADEN and RES (the SH2s leave reset), a jump into the cart's 32X window at
++/// 0x880000, and a loop until the master SH2 has answered "M_OK" in comm port 0 (0xa15120).
++fn boot_32x() -> Vec<u8> {
++    let mut code = vec![0x13, 0xfc, 0x00, 0x01, 0x00, 0xa1, 0x51, 0x01];
++    code.extend([0x13, 0xfc, 0x00, 0x03, 0x00, 0xa1, 0x51, 0x01]);
++    code.extend([0x4e, 0xf9, 0x00, 0x88, 0x02, 0x16]);
++    code.extend([0x20, 0x39, 0x00, 0xa1, 0x51, 0x20]);
++    code.extend([0x0c, 0x80]);
++    code.extend(b"M_OK");
++    code.extend([0x66, 0xf2]);
++    code
++}
++
++pub struct Cart {
++    pub mars_header: bool,
++    pub adapter: bool,
++    pub sram: bool,
++}
++
++// `sram`: the game writes SRAM_MARK to the cart SRAM at 0x200001 before it paints.
++
++impl Cart {
++    pub const GAME: Cart = Cart {
++        mars_header: true,
++        adapter: true,
++        sram: false,
++    };
++
++    pub fn bytes(&self) -> Vec<u8> {
++        let mut rom = vec![0u8; 0x20000];
++        rom[0..4].copy_from_slice(&0x00ff_fe00u32.to_be_bytes());
++        rom[4..8].copy_from_slice(&0x0000_0200u32.to_be_bytes());
++        let system: &[u8; 16] = if self.mars_header {
++            b"SEGA 32X        "
++        } else {
++            b"SEGA MEGA DRIVE "
++        };
++        rom[0x100..0x110].copy_from_slice(system);
++        rom[0x120..0x180].fill(b' ');
++        rom[0x150..0x150 + MD_TITLE.len()].copy_from_slice(MD_TITLE.as_bytes());
++        rom[0x1f0..0x1f4].copy_from_slice(b"JUE ");
++        let mut program = if self.adapter { boot_32x() } else { Vec::new() };
++        if self.sram {
++            program.extend([0x13, 0xfc, 0x00, SRAM_MARK, 0x00, 0x20, 0x00, 0x01]);
++        }
++        program.extend(paint_red());
++        rom[0x200..0x200 + program.len()].copy_from_slice(&program);
++        if self.mars_header {
++            rom[0x3c0..0x3d0].copy_from_slice(b"MARS CHECK MODE ");
++        }
++        rom[0x3e0..0x3e4].copy_from_slice(&0x2200_0400u32.to_be_bytes());
++        rom[0x3e4..0x3e8].copy_from_slice(&0x2200_0400u32.to_be_bytes());
++        rom[0x400..0x404].copy_from_slice(&[0xaf, 0xfe, 0x00, 0x09]);
++        rom
++    }
++
++    pub fn write(&self, dir: &Path, file: &str) -> PathBuf {
++        let path = dir.join(file);
++        std::fs::write(&path, self.bytes()).unwrap();
++        path
++    }
++}
++
++pub fn cart(dir: &Path, stem: &str) -> PathBuf {
++    Cart::GAME.write(dir, &format!("{stem}.32x"))
++}
++
++/// Every canvas pixel: red inside the 320x224 picture centred on the 360x240 canvas, black elsewhere.
++pub fn assert_red_picture(video: &[u8]) {
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    let (left, top) = ((CANVAS.0 - PICTURE.0) / 2, (CANVAS.1 - PICTURE.1) / 2);
++    for y in 0..CANVAS.1 {
++        for x in 0..CANVAS.0 {
++            let at = (y * CANVAS.0 + x) * 4;
++            let px = &video[at..at + 3];
++            if (left..left + PICTURE.0).contains(&x) && (top..top + PICTURE.1).contains(&y) {
++                assert_eq!(px, RED_BGRX, "({x}, {y})");
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++pub fn red(frame: &[u8]) -> usize {
++    frame
++        .chunks_exact(4)
++        .filter(|px| px[..3] == RED_BGRX)
++        .count()
++}
+diff --git a/crates/slot/tests/s32x_core.rs b/crates/slot/tests/s32x_core.rs
+new file mode 100644
+index 0000000..f2d0851
+--- /dev/null
++++ b/crates/slot/tests/s32x_core.rs
+@@ -0,0 +1,160 @@
++// PicoDrive (Sega 32X) on the generic libretro host, before any 32X platform code exists (issues 143
++// and 149, ADR 0096). The synthetic cart lives in s32x_common.
++mod common;
++mod core_common;
++mod s32x_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use s32x_common::{assert_red_picture, cart, red, Cart, CANVAS, SRAM_MARK};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++/// The core opened the way slot opens every core today (BIOS/ and Saves/, `slot::core::open_named`)
++/// on the Mega Drive's 360x240 canvas.
++fn picodrive(root: &Path) -> Option<LibretroCore> {
++    let dylib = s32x_common::picodrive()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open PicoDrive");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn a_32x_cart_boots_with_no_bios_its_sh2s_answer_and_it_draws_320_by_224_in_360_by_240() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    assert!(core.needs_full_path(), "PicoDrive loads by path");
++    core.load(&cart(d.path(), "Paint"))
++        .expect("PicoDrive refused the cart");
++    play(&mut core, 60);
++    let av = core.av_info();
++    assert!((59.9..60.05).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    assert_eq!(core.frame_width(), 320);
++    assert_red_picture(core.video_xrgb8888());
++}
++
++#[test]
++fn without_the_adapter_write_the_sh2s_never_answer_and_the_68k_never_paints() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    let mut rom = Cart::GAME.bytes();
++    rom[0x200..0x216].copy_from_slice(&[0x4e, 0x71].repeat(11));
++    let path = d.path().join("Silent.32x");
++    std::fs::write(&path, rom).unwrap();
++    core.load(&path).unwrap();
++    play(&mut core, 60);
++    assert_eq!(red(core.video_xrgb8888()), 0);
++}
++
++#[test]
++fn a_32x_state_round_trips_at_the_size_picodrive_gives_every_mega_drive_cart() {
++    // retro_serialize_size adds the 32X chunks for any Mega Drive cart, so a 32X state is the same
++    // 679,178 bytes as PicoDrive's Mega Drive one. That is what rewind captures (ADR 0096).
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint")).unwrap();
++    play(&mut core, 30);
++    let state = core.serialize().expect("no state");
++    assert_eq!(state.len(), 679_178);
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    play(&mut core, 1);
++    assert_red_picture(core.video_xrgb8888());
++}
++
++#[test]
++fn every_cart_gets_16_kb_of_save_ram_at_load_reported_only_once_the_game_writes_it() {
++    // PicoDrive reports the whole SRAM before the first frame (so a .sav can be loaded) and afterwards
++    // only if a byte is non-zero, so a game that never saves leaves no .sav (issue 147).
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint")).unwrap();
++    assert_eq!(core.save_ram().map(|s| s.len()), Some(16 * 1024));
++    play(&mut core, 30);
++    assert_eq!(core.save_ram(), None);
++    drop(core);
++
++    let mut core = picodrive(d.path()).unwrap();
++    let saving = Cart {
++        sram: true,
++        ..Cart::GAME
++    };
++    core.load(&saving.write(d.path(), "Battery.32x")).unwrap();
++    play(&mut core, 30);
++    let ram = core.save_ram().expect("no save RAM");
++    assert_eq!(ram.len(), 16 * 1024);
++    assert_eq!(ram[1], SRAM_MARK);
++}
++
++#[test]
++fn a_save_loaded_before_the_first_frame_reaches_the_game() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint")).unwrap();
++    let mut sav = vec![0u8; 16 * 1024];
++    sav[0x100] = 0xa5;
++    core.load_save_ram(&sav).unwrap();
++    play(&mut core, 30);
++    assert_eq!(core.save_ram().unwrap(), sav);
++}
++
++#[test]
++fn the_options_slot_will_answer_are_declared_with_these_values() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = picodrive(d.path()) else {
++        return;
++    };
++    core.load(&cart(d.path(), "Paint")).unwrap();
++    let declared = core.declared_options();
++    let has = |key: &str, value: &str| {
++        declared
++            .get(key)
++            .is_some_and(|v| v.iter().any(|x| x == value))
++    };
++    for renderer in ["accurate", "good", "fast"] {
++        assert!(has("picodrive_renderer", renderer), "{renderer}");
++    }
++    for rate in ["44100", "22050"] {
++        assert!(has("picodrive_sound_rate", rate), "{rate}");
++    }
++    assert!(has("picodrive_input1", "6 button pad"));
++    assert!(has("picodrive_frameskip", "auto"));
++    assert!(has("picodrive_region", "Auto"));
++    // The SH2 dynarec option exists only where it is built: on the aarch64 device, not on macOS
++    // (Makefile.libretro turns the DRCs off for Apple).
++    assert_eq!(
++        declared.contains_key("picodrive_drc"),
++        cfg!(target_os = "linux") && cfg!(target_arch = "aarch64")
++    );
++}

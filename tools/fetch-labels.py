@@ -124,6 +124,10 @@ SYSTEMS = {
     # ngp 25 and ngpc 82 per Skyscraper's platforms_idmap.csv at ccd49ae, dats from libretro-database
     # metadat/no-intro (docs/research/ngp-plan.md section 6).
     "NGP": ("ngp", {".ngp", ".ngc", ".ngpc"}, ["SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color"], 25),
+    # Sega 32X: libretro-database metadat/no-intro "Sega - 32X"; ScreenScraper id 19 per Skyscraper's
+    # platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "sega32x,19,21,33"). .32x and .bin, as slot scans
+    # (patch 0091); libretro-thumbnails has no Sega - 32X Named_Logos (checked 2026-10-20, 404).
+    "32X": ("sega32x", {".32x", ".bin"}, [SEGA + "32X"], 19),
 }
 WS_COLOR_ID = 46
 NGP_COLOR_ID = 82
@@ -882,9 +886,11 @@ def attempts(stem, system):
         q = re.sub(r"\s+by\s+\S.*$", "", t, flags=re.I) or t
         return q.rsplit(" ", 1)[0] if cut and " " in q else q
     out = []
-    if system == "MD" and re.search(r"\b32x\b", title, re.I):
+    if system in ("MD", "32X") and re.search(r"\b32x\b", title, re.I):
         t32 = " ".join(re.sub(r"\b32x\b", " ", title, flags=re.I).split())
         out.append((19, query(t32), title_key(t32, system), cut))
+        if system == "32X":
+            return [a for a in out if a[2]]
     out.append((SYSTEMS[system][3], query(title), title_key(stem, system), cut))
     return [a for a in out if a[2]]
 
@@ -1588,7 +1594,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
