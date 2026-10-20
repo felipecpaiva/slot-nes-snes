@@ -43,8 +43,9 @@ There is no row in Settings. A row in General changes the label list in upstream
 an existing match arm, so CONTRIBUTING section 1 needs the maintainer's approval for a new named
 site, as the CPU row needed site (j). Control > Shelf is pinned the same way (`SHELF_KEYS`). Until
 that approval, the option is the file, read the same way `Config/cpu.txt` and `Config/refresh.txt`
-are. With the approval, the row goes directly after CPU (no upstream test counts Down presses past
-it) and saves the file the way `CpuMode::save` does.
+are. With the approval, the row saves the file the way `CpuMode::save` does; its place in General
+(after CPU is the first candidate) must be checked then against the upstream tests that walk
+that page with Down presses.
 
 ### The Screen platform list stays fixed
 
