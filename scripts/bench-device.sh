@@ -3,7 +3,7 @@
 # bench:device task (same docker path as dist-device.sh), pushes the binary and the ROM to a temp
 # dir on the SD card, runs it against the core already deployed in System/, prints the output and
 # removes the temp dir. Use task deploy:device first so the core under test is the one you built.
-#   CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus|genesis_plus_gx|pcsx_rearmed   ROM=path/to/local/rom   SD=/mnt/sdcard   ARGS='--frames 3000 ...'
+#   CORE=mgba|gpsp|fceumm|nestopia|snes9x|snes9x2005_plus|genesis_plus_gx|pcsx_rearmed|picodrive   ROM=path/to/local/rom   SD=/mnt/sdcard   ARGS='--frames 3000 ...'
 #   ROM_ON_DEVICE=/mnt/sdcard/Games/...   run a ROM that is already on the card: nothing is pushed, nothing is copied to
 #     this machine, and the ROM name is left out of the printed output (core_bench's header line is redacted).
 #   BENCH_NO_BUILD=1   reuse an existing build/slot/target-device core_bench (scripts/perf-eval.sh builds once)
@@ -26,9 +26,9 @@ ROM_ON_DEVICE="${ROM_ON_DEVICE:-}"
 shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 case "$CORE" in
-mgba | gpsp | fceumm | nestopia | snes9x | snes9x2005_plus | genesis_plus_gx | pcsx_rearmed) ;;
+mgba | gpsp | fceumm | nestopia | snes9x | snes9x2005_plus | genesis_plus_gx | pcsx_rearmed | picodrive) ;;
 *)
-	echo "slot-nes-snes: CORE is '$CORE', want mgba, gpsp, fceumm, nestopia, snes9x, snes9x2005_plus, genesis_plus_gx or pcsx_rearmed" >&2
+	echo "slot-nes-snes: CORE is '$CORE', want mgba, gpsp, fceumm, nestopia, snes9x, snes9x2005_plus, genesis_plus_gx, pcsx_rearmed or picodrive" >&2
 	exit 2
 	;;
 esac

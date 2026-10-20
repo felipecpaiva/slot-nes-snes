@@ -114,3 +114,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [77](77-ngp-tests.md) | Test NGP with a generated cart that paints and writes flash | 9 | tests | test | S | 71-ngp-core-build |
 | [78](78-ngp-carts.md) | Draw NGP carts (mono and Color shells) and fetch their labels | 9 | ui-art | feature | M | 72-platform-ngp |
 | [79](79-ngp-device-gate.md) | NGP device gate on the RG34XXSP | 9 | device | chore | S | 74-ngp-canvas-screen, 75-ngp-flash-saves, 76-ngp-input |
+| [143](143-s32x-tracking.md) | Sega 32X: 32X on PicoDrive, a shelf of its own beside an unchanged Mega Drive | 15 | device | tracking | L | 70-ngp-tracking |
+| [144](144-s32x-core-build.md) | Build PicoDrive and its three submodules from pinned commits for host and device and record its licence | 15 | cores | feature | M | 143-s32x-tracking |
+| [145](145-platform-s32x.md) | Add Platform::S32x with its own shelf, a 32X header check and explicit policy | 15 | platform | feature | M | 144-s32x-core-build |
+| [146](146-s32x-options.md) | Set the PicoDrive options: six-button pad, region Auto, dynarec on | 15 | cores | feature | S | 145-platform-s32x |
+| [147](147-s32x-screen.md) | Give the 32X its own Screen section with Shader, Picture, PAL Speed, Renderer and Sound Rate | 15 | video | feature | M | 146-s32x-options |
+| [148](148-s32x-saves.md) | 32X saves: the ordinary .sav, written only for games that save | 15 | platform | chore | S | 145-platform-s32x |
+| [149](149-s32x-input.md) | Map the 32X pad as the Mega Drive six-button pad | 15 | input | feature | S | 145-platform-s32x |
+| [150](150-s32x-tests.md) | Test the 32X with a generated cart whose SH-2s must answer, and Mega Drive after 32X | 15 | tests | test | S | 144-s32x-core-build |
+| [151](151-s32x-carts.md) | Draw the 32X cart and fetch its labels | 15 | ui-art | feature | M | 145-platform-s32x |
+| [152](152-s32x-device-gate.md) | 32X device gate on the RG34XXSP | 15 | device | chore | S | 147-s32x-screen, 149-s32x-input |

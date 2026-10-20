@@ -30,6 +30,17 @@ set adds more shelves the same way:
 | WonderSwan and WonderSwan Color (device gate pending) | `Games/WS` (`.ws`, `.wsc`) | Beetle Cygne (3x, vertical games 2x) | none |
 | Atari Lynx (device gate pending) | `Games/Lynx` (`.lnx`, `.lyx`) | Beetle Lynx (4x) | none |
 | NeoGeo Pocket and Pocket Color (planned, not shipped) | `Games/NGP` (`.ngp`, `.ngc`, `.ngpc`) | Beetle NeoPop (3x) | none |
+| Sega 32X (device gate pending) | `Games/32X` (`.32x`, `.bin` with a 32X header) | PicoDrive (2x, 6-button) | none |
+
+Sega 32X (Phase 15, ADR 0096, issue 143, patches 0090 to 0097) runs on PicoDrive in `Games/32X`. A
+`.32x` always lists; a `.bin` lists only if its header says 32X (`SEGA 32X` at 0x100 or
+`MARS CHECK MODE` at 0x3c0), because `.bin` is also a Mega Drive extension. The Mega Drive shelf is
+unchanged and stays on Genesis Plus GX, so a 32X game left in `Games/MD` does not run: move it to
+`Games/32X`. 32X plays like Mega Drive (six-button pad, SELECT+X picture toggle, Stretch following the
+frame width). Its Screen section has Shader, Picture, PAL Speed, Renderer (Accurate, Good, Fast) and
+Sound Rate (44 kHz, 22 kHz); Accurate and 44 kHz are the factory choice and your choice becomes the
+default from the next game. No BIOS is needed. Saves are ordinary `.sav` files in `Saves/32X`, written
+only for games that save. The device gate (issue 152) is still open.
 
 The Sega shelves (ADR 0050 to 0056) play like their nearest Nintendo cousin: Game Gear and Master
 System like NES (slot keeps L1 and R1, X and Y are turbo, START is Pause on Master System), Mega
@@ -210,10 +221,11 @@ Progress is tracked on the [project board](https://github.com/users/felipecpaiva
 ## Licences
 
 slot is GPL-3.0-or-later, so this patch set is too (see [LICENSE](LICENSE)). fceumm and nestopia
-are GPL-2.0-or-later. **snes9x, snes9x2005_plus and Genesis Plus GX are not GPL**: they are free for
-non-commercial use only. Builds that include them ship their licence files
+are GPL-2.0-or-later. **snes9x, snes9x2005_plus, Genesis Plus GX and PicoDrive are not GPL**: they are
+free for non-commercial use only. Builds that include them ship their licence files
 (`System/licenses/snes9x-LICENSE.txt`, `System/licenses/snes9x2005-LICENSE.txt`,
-`System/licenses/genesis_plus_gx-LICENSE.txt`) and must never be sold or bundled with anything sold.
+`System/licenses/genesis_plus_gx-LICENSE.txt`, `System/licenses/picodrive-LICENSE.txt`) and their exact
+source, and must never be sold or bundled with anything sold.
 Beetle Cygne (WonderSwan) is GPL-2.0-or-later; its NEC V30MZ emulator is by Bryan McPhail.
 See [LICENSING.md](LICENSING.md).
 

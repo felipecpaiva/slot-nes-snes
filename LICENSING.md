@@ -21,6 +21,9 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `nestopia-src.tar.gz` and `nestopia-src.meta`: the same for nestopia.
 - `snes9x2005_plus-src.tar.gz` and `snes9x2005_plus-src.meta`: the same for snes9x2005_plus.
 - `pcsx_rearmed-src.tar.gz` and `pcsx_rearmed-src.meta`: the same for pcsx_rearmed.
+- `picodrive-src.tar.gz`, `picodrive-emu2413-src.tar.gz`, `picodrive-dr_libs-src.tar.gz`,
+  `picodrive-libpicofe-src.tar.gz` and `picodrive-src.meta`: PicoDrive and the three submodules its
+  build compiles, each the archive `SLOT_PIN` pins (below).
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
@@ -124,10 +127,10 @@ What follows for users:
 
 Notice text (README "Licences" and the release notes carry it):
 
-> snes9x, snes9x2005_plus and Genesis Plus GX are licensed for non-commercial use only and are not
-> GPL. This release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
-> System/licenses/snes9x2005-LICENSE.txt and System/licenses/genesis_plus_gx-LICENSE.txt. Do not
-> sell this zip or bundle it with anything that is sold.
+> snes9x, snes9x2005_plus, Genesis Plus GX and PicoDrive are licensed for non-commercial use only and
+> are not GPL. This release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
+> System/licenses/snes9x2005-LICENSE.txt, System/licenses/genesis_plus_gx-LICENSE.txt and
+> System/licenses/picodrive-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold.
 
 ## nestopia
 
@@ -469,6 +472,53 @@ recording its sha256.
 The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
 nelynes/slotPlus ([a8eae4c](https://github.com/nelynes/slotPlus/commit/a8eae4c), GPL-3.0) and are
 credited in the commit that added the build.
+
+## PicoDrive (Sega 32X)
+
+Checked at commit `1890c2932234c9d30f4cd3851d02228baae8f09e` of libretro/picodrive, the commit `SLOT_PIN`
+pins as `picodrive_commit`, with the three submodules its libretro build compiles, each pinned at the
+commit the core records: digital-sound-antiques/emu2413 `a2dfc20ff507e4fd075cd325620bcea655e2c1f7`,
+mackron/dr_libs `dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb` and irixxxx/libpicofe
+`9ed5822606dd7ff20a782a882e8fd611cb53ba88` (`picodrive_<name>_commit` and
+`picodrive_<name>_tarball_sha256`). It is built by `cores/picodrive/build.sh` for the 32X (ADR 0096). Its
+licence, the root `COPYING` of that source copied verbatim and whole, is `licenses/picodrive-LICENSE.txt`.
+The exact sources ship with the core as `picodrive-src.tar.gz` and the three
+`picodrive-<name>-src.tar.gz`, with `picodrive-src.meta` recording the commits and sha256s.
+`scripts/dist-device.sh` copies them and every file in `licenses/` into `System/licenses/`, and
+`scripts/zip-check.sh` requires them, checks each tarball against `SLOT_PIN` and compares each licence
+file byte for byte.
+
+**PicoDrive is not free software and is not GPL-compatible**, like snes9x and Genesis Plus GX. Its
+`COPYING` is the same MAME-style text as Genesis Plus GX's, quoted:
+
+- "Redistributions may not be sold, nor may they be used in a commercial product or activity."
+- "Redistributions that are modified from the original source must include the complete source code,
+  including the source code for all components used by a binary built from the modified sources." We
+  build the pinned source unmodified, submodules included, and ship all four tarballs anyway.
+- "Redistributions must reproduce the above copyright notice", which is why the whole file ships.
+
+What is compiled into `picodrive_libretro.so` (the 103 sources of the device link line, at the pin):
+
+- 42 carry the line "This work is licensed under the terms of MAME license" (notaz, irixxxx and
+  others), the licence above. None says GPL: no source on the link line carries "General Public".
+- 23 have no licence text in their first 60 lines, listed in `licenses/picodrive-headerless-files.txt`
+  with the command that produced the list: the FAME 68000 and CZ80 Z80 cores, the SN76496 and YM2413
+  glue, the Sega CD MegaSD, VGM and patch code, `mp3_sync.c`, `unzip.c` and Tremor. We treat the
+  non-Tremor files as covered by the project `COPYING`; a judgement, not a quote.
+- Tremor (`platform/common/tremor`, Xiph): BSD-style, its `COPYING` verbatim in
+  `licenses/picodrive-tremor-BSD.txt`, which the binary must carry.
+- emu2413 (Mitsutaka Okazaki): MIT, its `LICENSE` verbatim in `licenses/picodrive-emu2413-MIT.txt`.
+- dr_mp3 (`dr_libs`): public domain or MIT-0, the choice stated in the file.
+- zlib (Jean-loup Gailly and Mark Adler) and `libretro-common` (the RetroArch team's MIT text).
+- libpicofe: only `plat.h` (a pixel-format macro) is included; libpicofe is GPL-2.0-or-later,
+  LGPL-2.1-or-later or the MAME licence at the user's option (its README), and the MAME option is the
+  one that matches the core.
+
+The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across
+the libretro C ABI, the zip an aggregate of separate works. This is our reading, not legal advice. The
+core is plain C and links only `libc` and `libm` on the device (`log` and `pow` bound to their GLIBC_2.17
+versions, ADR 0096). The notice under snes9x names PicoDrive, and the release terms do not change: the
+zip is never sold and never carries a donation or sponsor link.
 
 ## NES and SNES screen shaders
 
