@@ -473,11 +473,19 @@ def apply_patch(src, p, target_crc=None, warn=print):
 class LocalCard:
     """A mounted card or a temp dir. An absolute path is taken as is (the library and its Mac backups)."""
 
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, root, expansion=None):
+        self.root, self.expansion, self.moved = root, expansion, fl.expansion_systems(root)
 
     def p(self, rel):
-        return rel if os.path.isabs(rel) else os.path.join(self.root, *rel.split("/"))
+        if os.path.isabs(rel):
+            return rel
+        parts = rel.split("/")
+        if parts[0] == "Games" and len(parts) > 1 and parts[1] in self.moved:
+            if not self.expansion:
+                raise Refuse(f"Games/{parts[1]} is on the Expansion Card (Config/expansion.txt): "
+                             f"pass --expansion <its mounted root>, or use --device")
+            return os.path.join(self.expansion, *parts)
+        return os.path.join(self.root, *parts)
 
     def exists(self, rel):
         return os.path.exists(self.p(rel))
@@ -1674,6 +1682,8 @@ def main(argv=None, ctx=None):
                     help="unzip the library copies of updated hacks still in a zip (library only)")
     ap.add_argument("--card", help="a mounted SD card root")
     ap.add_argument("--device", action="store_true", help="the card inside the device, over adb")
+    ap.add_argument("--expansion", help="with --card, the mounted Expansion Card root, for the systems "
+                                        "Config/expansion.txt lists")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
     ap.add_argument("--library", help="ROM library with gba/ gbc/ megadrive/ ... folders (needed to update)")
     ap.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
@@ -1691,7 +1701,8 @@ def main(argv=None, ctx=None):
     if args.card and args.device:
         ap.error("give at most one of --card or --device")
     args.library = os.path.abspath(os.path.expanduser(args.library)) if args.library else None
-    card = LocalCard(os.path.abspath(os.path.expanduser(args.card))) if args.card else \
+    card = LocalCard(os.path.abspath(os.path.expanduser(args.card)),
+                     os.path.abspath(os.path.expanduser(args.expansion)) if args.expansion else None) if args.card else \
         AdbCard(ctx.adb or fl.adb_runner(), args.sd) if args.device else None
     if args.device:
         fl.Device(card.run, args.sd).check()
@@ -1743,5 +1754,8 @@ def main(argv=None, ctx=None):
 
 
 if __name__ == "__main__":
-    r = main()
+    try:
+        r = main()
+    except Refuse as e:
+        sys.exit(f"refused: {e}")
     sys.exit(1 if isinstance(r, int) and not isinstance(r, bool) and r else 0)

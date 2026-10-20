@@ -734,9 +734,26 @@ def loose_rom(path):
     return Rom(os.path.splitext(os.path.basename(path))[0], os.path.getsize(path), read, path=path)
 
 
-def scan_card(card, system):
-    """(roms, collisions) for Games/<SYSTEM>/ on a mounted card."""
+def expansion_systems(card):
+    """The Games/ folders Config/expansion.txt moves to the Expansion Card (ADR 0098), read as System/expansion.sh
+    reads it. On the main card mounted alone, their folders are empty mount points."""
+    try:
+        text = slurp(os.path.join(card, "Config", "expansion.txt"), "r")
+    except OSError:
+        return set()
+    return {w for line in text.splitlines() for w in line.split("#")[0].split() if w.isascii() and w.isalnum()}
+
+
+def scan_card(card, system, expansion=None):
+    """(roms, collisions) for Games/<SYSTEM>/ on a mounted card, or on the mounted Expansion Card for a system
+    Config/expansion.txt lists. Without --expansion such a system is skipped out loud, never read as empty."""
     d = os.path.join(card, "Games", system)
+    if system in expansion_systems(card):
+        if not expansion:
+            print(f"{system}: skipped, Games/{system} is on the Expansion Card (Config/expansion.txt): "
+                  f"pass --expansion <its mounted root>, or use --device")
+            return [], []
+        d = os.path.join(expansion, "Games", system)
     by_stem, clash = {}, set()
     for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         p = os.path.join(d, n)
@@ -1527,7 +1544,7 @@ def run(args, ctx):
                 print(f"{system}: {len(names)} on the device, {len(lib)} in the library" +
                       (f", {len(bad)} bad zips" if bad else ""))
             else:
-                roms, clash = scan_card(args.card, system)
+                roms, clash = scan_card(args.card, system, args.expansion)
                 for k in clash:
                     ctx.stats["collisions"] += 1
                     print(f"  collision  {system}/{k} has two extensions, nothing written")
@@ -1603,6 +1620,8 @@ def main(argv=None, ctx=None):
     ap.add_argument("--report", help="write a TSV of the --by-name outcomes (system, stem, outcome, source, media)")
     ap.add_argument("--suggest", help="with --by-name, write a TSV of the nearest candidate for each ROM still "
                                       "without a label and why it was not taken (no art is written from it)")
+    ap.add_argument("--expansion", help="with --card, the mounted Expansion Card root, for the systems "
+                                        "Config/expansion.txt lists (labels still go to --card)")
     ap.add_argument("--aliases", help="with --by-name, a TSV of system, stem, ss:<game id> or sibling:<stem> "
                                       "that forces those matches")
     ap.add_argument("--logo-fallback", action="store_true",
@@ -1616,6 +1635,7 @@ def main(argv=None, ctx=None):
     if args.card and not os.path.isdir(os.path.expanduser(args.card)):
         ap.error(f"--card not found: {args.card}")
     args.card = os.path.abspath(os.path.expanduser(args.card)) if args.card else None
+    args.expansion = os.path.abspath(os.path.expanduser(args.expansion)) if args.expansion else None
     args.library = os.path.abspath(os.path.expanduser(args.library)) if args.library else None
     args.only_system = args.only_stem = None
     if args.only:

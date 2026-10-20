@@ -1,0 +1,290 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 09:55:34 +0400
+Subject: [PATCH] expansion-card
+
+---
+ card/System/expansion.sh       |  70 ++++++++++++++
+ card/System/launch_frontend.sh |   2 +
+ card/System/repair.sh          |   3 +
+ card/test-expansion.sh         | 167 +++++++++++++++++++++++++++++++++
+ 4 files changed, 242 insertions(+)
+ create mode 100644 card/System/expansion.sh
+ create mode 100644 card/test-expansion.sh
+
+diff --git a/card/System/expansion.sh b/card/System/expansion.sh
+new file mode 100644
+index 0000000..0a7544e
+--- /dev/null
++++ b/card/System/expansion.sh
+@@ -0,0 +1,70 @@
++#!/bin/sh
++set -uf
++
++SD="${SLOT_ROOT:-/mnt/sdcard}"
++DEV="${AGS_EXPANSION_DEV:-/dev/mmcblk1p2}"
++POINT="${AGS_EXPANSION:-/mnt/expansion}"
++MOUNTS="${AGS_MOUNTS:-/proc/mounts}"
++MOUNT="${AGS_MOUNT:-mount}"
++SLEEP="${AGS_SLEEP:-sleep}"
++TRIES="${AGS_EXPANSION_TRIES:-10}"
++LIST="$SD/Config/expansion.txt"
++
++log() {
++	echo "$(date '+%F %T') expansion: $*" >> "$SD/Logs/slot-session.log" 2>/dev/null
++}
++
++mounted() {
++	awk -v p="$1" '$2 == p { f = 1 } END { exit !f }' "$MOUNTS" 2>/dev/null
++}
++
++systems=
++if [ -f "$LIST" ]; then
++	for s in $(sed 's/#.*//' "$LIST" | tr -d '\r'); do
++		case "$s" in
++		*[!A-Za-z0-9]*) log "skipping \"$s\" in Config/expansion.txt, a system folder name has only letters and digits" ;;
++		*) systems="$systems $s" ;;
++		esac
++	done
++fi
++
++n=0
++while [ -n "$systems" ] && [ ! -e "$DEV" ] && [ "$n" -lt "$TRIES" ]; do
++	$SLEEP 0.1
++	n=$((n + 1))
++done
++if [ ! -e "$DEV" ]; then
++	[ -z "$systems" ] || log "no card at $DEV, the shelves show the base card only"
++	exit 0
++fi
++
++if ! mounted "$POINT"; then
++	mkdir -p "$POINT" 2>/dev/null
++	if $MOUNT -t exfat -o rw,noatime "$DEV" "$POINT" 2>/dev/null; then
++		log "mounted $DEV at $POINT (exfat)"
++	elif $MOUNT -t vfat -o rw,utf8,noatime,shortname=mixed "$DEV" "$POINT" 2>/dev/null; then
++		log "mounted $DEV at $POINT (vfat)"
++	else
++		log "could not mount $DEV at $POINT, the shelves show the base card only"
++		exit 0
++	fi
++fi
++
++for s in $systems; do
++	src="$POINT/Games/$s"
++	dst="$SD/Games/$s"
++	if mounted "$dst"; then
++		log "Games/$s is already on the expansion card"
++	elif [ ! -d "$src" ]; then
++		log "no Games/$s on the expansion card, keeping the base card's"
++	else
++		mkdir -p "$dst" 2>/dev/null
++		[ -z "$(ls -A "$dst" 2>/dev/null)" ] \
++			|| log "Games/$s on the base card is not empty, its files are hidden while the expansion card is in"
++		if $MOUNT -o bind "$src" "$dst" 2>/dev/null; then
++			log "Games/$s now comes from the expansion card"
++		else
++			log "could not bind $src onto $dst"
++		fi
++	fi
++done
+diff --git a/card/System/launch_frontend.sh b/card/System/launch_frontend.sh
+index 90f28a1..d6d2842 100644
+--- a/card/System/launch_frontend.sh
++++ b/card/System/launch_frontend.sh
+@@ -34,6 +34,8 @@ fi
+ 
+ echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/dev/null
+ 
++sh "$SYS/expansion.sh"
++
+ [ -f "$LOGS/slot.log" ] && mv -f "$LOGS/slot.log" "$LOGS/slot.log.1"
+ log "exec $SYS/slot"
+ 
+diff --git a/card/System/repair.sh b/card/System/repair.sh
+index 40c12c6..832dd65 100644
+--- a/card/System/repair.sh
++++ b/card/System/repair.sh
+@@ -67,6 +67,9 @@ finish() {
+ }
+ 
+ unmount() {
++	awk -v m="$1/" 'index($2, m) == 1 { print $2 }' "$MOUNTS" | sort -r | while read -r sub; do
++		$UMOUNT "$sub" 2>/dev/null
++	done
+ 	$UMOUNT "$1" 2>/dev/null
+ 	if [ -n "$(options "$1")" ]; then
+ 		$FUSER -km "$1" 2>/dev/null
+diff --git a/card/test-expansion.sh b/card/test-expansion.sh
+new file mode 100644
+index 0000000..a376de7
+--- /dev/null
++++ b/card/test-expansion.sh
+@@ -0,0 +1,167 @@
++#!/bin/sh
++set -eu
++
++HERE="$(cd "$(dirname "$0")" && pwd)"
++SCRIPT="$HERE/System/expansion.sh"
++TMP="$(mktemp -d)"
++export TMP
++trap 'rm -rf "$TMP"' EXIT HUP INT TERM
++
++fail() {
++	echo "expansion: $*" >&2
++	exit 1
++}
++
++fake() {
++	cat > "$TMP/bin/$1" <<-SH
++		#!/bin/sh
++		echo "$1 \$*" >> "$TMP/calls"
++		$2
++	SH
++	chmod +x "$TMP/bin/$1"
++}
++
++setup() {
++	rm -rf "$TMP/bin" "$TMP/card" "$TMP/exp" "$TMP/calls" "$TMP/dev" "$TMP/refuse"
++	mkdir -p "$TMP/bin" "$TMP/card/Config" "$TMP/card/Logs" "$TMP/card/Games/PS1" "$TMP/exp/Games/PS1"
++	: > "$TMP/calls"
++	: > "$TMP/refuse"
++	echo "/dev/mmcblk0p7 $TMP/card vfat rw,noatime 0 0" > "$TMP/mounts"
++	: > "$TMP/dev"
++	fake mount '
++		for last; do :; done
++		case " $* " in
++		*" -o bind "*) echo "$TMP/dev $last exfat rw 0 0" >> "$TMP/mounts"; exit 0 ;;
++		esac
++		fs="$2"
++		grep -qx "$fs" "$TMP/refuse" && exit 32
++		echo "$TMP/dev $last $fs rw 0 0" >> "$TMP/mounts"'
++	fake sleep 'exit 0'
++}
++
++expand() {
++	SLOT_ROOT="$TMP/card" AGS_EXPANSION_DEV="$TMP/dev" AGS_EXPANSION="$TMP/exp" AGS_MOUNTS="$TMP/mounts" \
++		AGS_MOUNT="$TMP/bin/mount" AGS_SLEEP="$TMP/bin/sleep" sh "$SCRIPT"
++}
++
++called() {
++	grep -qx "$1" "$TMP/calls"
++}
++
++logged() {
++	grep -q "expansion: $1" "$TMP/card/Logs/slot-session.log"
++}
++
++bound() {
++	grep -q "^$TMP/dev $TMP/card/Games/$1 " "$TMP/mounts"
++}
++
++setup
++rm "$TMP/dev"
++expand
++[ ! -s "$TMP/calls" ] || fail "a card with no Config/expansion.txt waited or mounted: $(cat "$TMP/calls")"
++[ ! -e "$TMP/card/Logs/slot-session.log" ] || fail "a card with no Config/expansion.txt wrote to the session log"
++
++setup
++rm "$TMP/dev"
++echo PS1 > "$TMP/card/Config/expansion.txt"
++expand
++[ "$(grep -c '^sleep 0.1$' "$TMP/calls")" = 10 ] || fail "did not wait a second for a late expansion card"
++! grep -q '^mount' "$TMP/calls" || fail "mounted with no expansion card"
++logged "no card at $TMP/dev" || fail "a missing expansion card was not logged"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++expand
++called "mount -t exfat -o rw,noatime $TMP/dev $TMP/exp" || fail "the expansion card was not mounted as exFAT"
++called "mount -o bind $TMP/exp/Games/PS1 $TMP/card/Games/PS1" || fail "Games/PS1 was not bound from the expansion card"
++! grep -q '^sleep' "$TMP/calls" || fail "waited for a card that was already there"
++logged "Games/PS1 now comes from the expansion card" || fail "the bind was not logged"
++! grep -q "is not empty" "$TMP/card/Logs/slot-session.log" || fail "an empty base folder was reported as hiding files"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++echo exfat > "$TMP/refuse"
++expand
++called "mount -t vfat -o rw,utf8,noatime,shortname=mixed $TMP/dev $TMP/exp" || fail "a FAT expansion card was not tried"
++bound PS1 || fail "Games/PS1 was not bound from a FAT expansion card"
++logged "mounted $TMP/dev at $TMP/exp (vfat)" || fail "the FAT mount was not logged"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++printf 'exfat\nvfat\n' > "$TMP/refuse"
++expand
++! grep -q '^mount -o bind' "$TMP/calls" || fail "bound a folder from a card that did not mount"
++logged "could not mount $TMP/dev" || fail "a card that did not mount was not logged"
++
++setup
++printf '# systems on the expansion card\nSEGACD\n\n  PS1  # the discs\r\n../Saves\nG*\n' > "$TMP/card/Config/expansion.txt"
++(cd "$TMP/card" && expand)
++bound PS1 || fail "a commented, indented or CRLF line was not read"
++logged "no Games/SEGACD on the expansion card" || fail "a listed folder missing on the card was not logged"
++! grep -q 'Saves' "$TMP/calls" || fail "a path outside Games/ was bound"
++! grep -q 'Games/Games' "$TMP/card/Logs/slot-session.log" || fail "a glob in Config/expansion.txt was expanded"
++logged 'skipping "../Saves"' || fail "a bad folder name was not logged"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++expand
++: > "$TMP/calls"
++expand
++! grep -q '^mount' "$TMP/calls" || fail "a second launch mounted again: $(cat "$TMP/calls")"
++logged "Games/PS1 is already on the expansion card" || fail "a second launch did not log the bind it kept"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++echo old > "$TMP/card/Games/PS1/Old.chd"
++expand
++bound PS1 || fail "a base folder with files was not bound over"
++logged "Games/PS1 on the base card is not empty" || fail "files hidden under the bind were not logged"
++
++setup
++echo MD > "$TMP/card/Config/expansion.txt"
++mkdir -p "$TMP/exp/Games/MD"
++expand
++[ -d "$TMP/card/Games/MD" ] || fail "the mount point for a folder the base card lacks was not made"
++bound MD || fail "a folder the base card lacks was not bound"
++
++setup
++echo PS1 > "$TMP/card/Config/expansion.txt"
++mkdir -p "$TMP/card/System" "$TMP/run"
++cp "$SCRIPT" "$TMP/card/System/expansion.sh"
++: > "$TMP/card/System/led.sh"
++: > "$TMP/card/System/lid.sh"
++SLOT_ROOT="$TMP/card" AGS_RUN="$TMP/run" AGS_EXPANSION_DEV="$TMP/dev" AGS_EXPANSION="$TMP/exp" \
++	AGS_MOUNTS="$TMP/mounts" AGS_MOUNT="$TMP/bin/mount" AGS_SLEEP="$TMP/bin/sleep" \
++	sh "$HERE/System/launch_frontend.sh" 2>/dev/null || true
++bound PS1 || fail "launch_frontend.sh did not bring in the expansion card"
++[ "$(grep -n 'Games/PS1 now comes' "$TMP/card/Logs/slot-session.log" | cut -d: -f1)" -lt \
++	"$(grep -n ' exec ' "$TMP/card/Logs/slot-session.log" | cut -d: -f1)" ] || fail "slot started before the bind"
++
++setup
++mkdir -p "$TMP/data" "$TMP/run"
++cat > "$TMP/mounts" <<-M
++	/dev/mmcblk0p7 /mnt/sdcard vfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/expansion exfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/sdcard/Games/PS1 exfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/sdcard/Games/MD exfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/sdcard2 exfat rw,noatime 0 0
++M
++fake umount 'grep -q " $1/" "$TMP/mounts" && exit 32; grep -v " $1 " "$TMP/mounts" > "$TMP/m"; mv "$TMP/m" "$TMP/mounts"'
++for f in fuser sync reboot splash rmmod fsck.fat fsck.exfat; do fake "$f" 'exit 0'; done
++echo "100.00 50.00" > "$TMP/uptime"
++AGS_DATA="$TMP/data" AGS_RUN="$TMP/run" AGS_MOUNTS="$TMP/mounts" \
++	AGS_UMOUNT="$TMP/bin/umount" AGS_MOUNT="$TMP/bin/mount" AGS_FUSER="$TMP/bin/fuser" \
++	AGS_SYNC="$TMP/bin/sync" AGS_REBOOT="$TMP/bin/reboot" AGS_RMMOD="$TMP/bin/rmmod" AGS_SPLASH="$TMP/bin/splash" \
++	AGS_FSCK_FAT="$TMP/bin/fsck.fat" AGS_FSCK_EXFAT="$TMP/bin/fsck.exfat" \
++	AGS_OUT="$TMP/out" AGS_UPTIME="$TMP/uptime" AGS_SLEEP="$TMP/bin/sleep" \
++	sh "$HERE/System/repair.sh" /dev/mmcblk0p7 /mnt/sdcard vfat
++[ "$(grep '^umount' "$TMP/calls" | tr '\n' '|')" = \
++	"umount /mnt/sdcard/Games/PS1|umount /mnt/sdcard/Games/MD|umount /mnt/sdcard|" ] \
++	|| fail "repair did not unmount the expansion folders before the card: $(grep '^umount' "$TMP/calls" | tr '\n' '|')"
++[ "$(cat "$TMP/data/slot-repair.result")" = clean ] || fail "repair with expansion folders bound did not read clean"
++! grep -q 'remount\|^fuser' "$TMP/calls" || fail "repair had to force the card with expansion folders bound"
++! grep -q 'mmcblk1' "$TMP/calls" || fail "repair touched the expansion card"
++grep -q '/mnt/expansion' "$TMP/mounts" || fail "repair unmounted the expansion card itself"
++
++echo "expansion: all passed"

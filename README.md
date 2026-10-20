@@ -172,6 +172,52 @@ It is safe. Stock slot does not scan the new folders, so a new-system cart left 
 an empty slot. No file is deleted. `sh scripts/check-downgrade.sh` runs this case against the
 upstream tree.
 
+### Expansion Card
+
+A device with two TF slots (the RG34XXSP has them) can keep whole systems on a second card. The card
+in TF1 (the **Base System card**, the one BaseOS runs from) stays the main card: carts, `Saves/`,
+`States/`, `Config/`, `Labels/`, `BIOS/` and `System/` all stay on it. The card in TF2 (the
+**Expansion Card**) holds only the game folders of the systems you move there, for example
+`Games/PS1/`. At launch `System/expansion.sh` mounts it at `/mnt/expansion` and binds each listed
+folder onto `Games/<SYS>` of the main card, so slot sees one `Games/` tree (ADR 0098).
+
+Prepare the card on a Mac (or on Linux with `--disk /dev/sdX`). BaseOS mounts the first partition of
+TF2 as the main card whenever anything there mounts, so the tool makes that partition 16 MiB of
+zeros and puts the games on a second, exFAT partition named `EXPANSION`. It erases the whole disk, so
+it refuses unless the identifier, the exact size in bytes and a current volume name all match, and
+without `--yes` it only prints its plan:
+
+```sh
+diskutil info disk4 | grep "Disk Size"            # the size in bytes
+python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --systems PS1
+sudo python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --systems PS1 --yes
+```
+
+Then copy the games into `Games/PS1/` on `EXPANSION` (run `dot_clean -m /Volumes/EXPANSION` after a
+Finder copy) and list the moved systems in `Config/expansion.txt` on the main card, one folder name
+per line. `#` starts a comment:
+
+```
+# Systems on the Expansion Card
+PS1
+```
+
+- **Without the Expansion Card** the base card's own folders show, as before. A listed system's shelf
+  is whatever the base card holds (usually nothing), and a seated game from it is not resumed. The
+  launch waits at most one second for a late card and writes every step to `Logs/slot-session.log`.
+- **Files under a moved folder on the base card are hidden** while the Expansion Card is in, and
+  still take space there. The session log says so when it finds any. Once the games play from the
+  Expansion Card, delete the old copies from the base card (with the Expansion Card out, or from a
+  computer) to get the space back.
+- **Saves, states and labels of moved systems stay on the main card**, so a game keeps its saves when
+  the Expansion Card is swapped.
+- **USB storage mode** (hold MENU at power on) exports TF2 when a card is in it, so you get the
+  Expansion Card. Take it out to reach the main card over USB.
+- **Card repair** checks the main card only. It unmounts the Expansion Card folders first.
+- **The tools** see the same paths over adb (`--device`). With the main card mounted on a Mac, pass
+  the Expansion Card too: `--card /Volumes/SLOT --expansion /Volumes/EXPANSION`. Without it they stop
+  (or skip that system) and say why. They never read the empty folder as no games.
+
 ### Building from source
 
 ```sh
