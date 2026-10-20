@@ -19,6 +19,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 7 | Header, Phase 8 | PS1 shipped (patches 0034 to 0041, device gate rows in docs/DEVICE-GATE.md); base is upstream main 1b20432 (ADR 0083) |
 | 8 | Spec (Who it's NOT for), Phase 11 | WonderSwan and Color in the patch set (patches 0064 to 0069, ADR 0092), device gate (issue 99) pending |
 | 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
+| 10 | Spec (Who it's NOT for), Phase 16 | Virtual Boy in the patch set on Beetle VB (patches 0099 to 0106, ADR 0097), device gate (issue 162) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -59,7 +60,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090) and Sega 32X (Phase 15, ADR 0096) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096) and Virtual Boy (Phase 16, ADR 0097) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -538,6 +539,26 @@ on their own branches.)
 | 9 | 150, done (0096) | A Mega Drive game after a 32X game equals a Mega Drive only run |
 | 10 | 151, done (0097) | One black 32X cart, labels for ScreenScraper id 19 |
 | 11 | 152 | Device gate: dynarec active, Virtua Racing Deluxe, Star Wars Arcade, Knuckles' Chaotix |
+
+### Phase 16: Virtual Boy (in the patch set, device gate pending)
+
+Tracking issue 153, children 154 to 162, ADR 0097. One core, Beetle VB (`mednafen_vb`) pinned at
+`d5ae54c` with the VR view off, one shelf `Games/VB` for `.vb` and `.vboy`, no BIOS, no core picker.
+Anaglyph 3D with the preset off: the left eye alone in the palette colour. Patches 0099 to 0106.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0097 and the issues |
+| 2 | 154, done | Core build with `HAVE_VR=0`, the C++ runtime linked in, licence |
+| 3 | 160, core half done | Generated two-eye cart: the left eye alone, both eyes with a real preset, states, cart RAM (patch 0099) |
+| 4 | 155, done (0100) | `Platform::Vb`, 384x256 canvas, explicit policy; joins dist and zip-check |
+| 5 | 156, done (0101) | Core options: anaglyph with the preset off, right stick to digital, fast V810 |
+| 6 | 157, done (0102) | Screen section: Shader, Picture, VB Speed, Palette, Right Pad |
+| 7 | 159, done (0103) | Pad: the right stick as the right D-pad, the ABXY fallback with L2 and R2 to the game |
+| 8 | 158, done (0104) | Saves: the 64 KB cart RAM as the ordinary `.sav`, tests only |
+| 9 | 160, done (0105) | A GBA game after a Virtual Boy game equals a GBA only run; resume |
+| 10 | 161, done (0106) | One grey Virtual Boy cart with its dust cap, labels for ScreenScraper id 11 |
+| 11 | 162 | Device gate: Virtual Boy Wario Land, Jack Bros., Red Alarm, Teleroboxer |
 
 ### Phase 6+: deferred (non-blocking)
 

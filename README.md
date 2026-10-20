@@ -2,7 +2,7 @@
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, and NeoGeo Pocket and Pocket Color, beside slot's own
+WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, and Virtual Boy, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -34,6 +34,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | WonderSwan, WonderSwan Color | `Games/WS` | `.ws`, `.wsc` | Beetle Cygne | none | device gate pending |
 | Atari Lynx | `Games/Lynx` | `.lnx`, `.lyx` | Beetle Lynx | **required**, your own `lynxboot.img` | device gate pending |
 | NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device gate pending |
+| Virtual Boy | `Games/VB` | `.vb`, `.vboy` | Beetle VB | none | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -86,6 +87,12 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **NeoGeo Pocket and Pocket Color.** One shelf, the 160x152 screen at 3x. The game's saves live in
   the cart's flash, which slot checks before the core reads it and writes atomically at every lid
   close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`.
+- **Virtual Boy.** One flat picture: the left eye in red on black, 384x224 at 1.875x (720x420), or
+  stretched to the panel. The Palette row swaps the red for white, blue, cyan, electric cyan, green,
+  magenta or yellow. The D-pad is the left D-pad and the right analog stick is the right D-pad; the
+  Right Pad row's ABXY choice puts the right D-pad on X, A, B and Y (A and B move to R2 and L2), for
+  games such as Red Alarm and Teleroboxer that use it as buttons. Games run at their own 50.27 Hz.
+  Every cart keeps a 64 KB `.sav` in `Saves/VB`.
 
 ### The Screen page
 
@@ -94,11 +101,14 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X) |
+| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X); Actual is the Virtual Boy default |
 | PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
 | Refresh | WonderSwan | 60 Hz, 75 Hz |
+| VB Speed | Virtual Boy | Native (50.27 Hz, the default) or Panel |
+| Palette | Virtual Boy | Red (the default), White, Blue, Cyan, Electric Cyan, Green, Magenta, Yellow |
+| Right Pad | Virtual Boy | Stick (the default) or ABXY |
 | Speed | Lynx | Native, Panel |
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
@@ -139,6 +149,8 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - Sega 32X: the polygon games (Virtua Racing Deluxe, Star Wars Arcade, Virtua Fighter) are expected
   to sit near the frame budget on the H700. If one misses frames, set Renderer to Fast and then Sound
   Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
+- Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
+  there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 162) is still open.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few

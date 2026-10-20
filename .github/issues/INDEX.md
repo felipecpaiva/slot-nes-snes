@@ -124,3 +124,13 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [150](150-s32x-tests.md) | Test the 32X with a generated cart whose SH-2s must answer, and Mega Drive after 32X | 15 | tests | test | S | 144-s32x-core-build |
 | [151](151-s32x-carts.md) | Draw the 32X cart and fetch its labels | 15 | ui-art | feature | M | 145-platform-s32x |
 | [152](152-s32x-device-gate.md) | 32X device gate on the RG34XXSP | 15 | device | chore | S | 147-s32x-screen, 149-s32x-input |
+| [153](153-vb-tracking.md) | Virtual Boy: Beetle VB, one eye on the flat panel, a shelf of its own | 16 | device | tracking | L | 143-s32x-tracking |
+| [154](154-vb-core-build.md) | Build Beetle VB from a pinned commit for host and device with the VR view off and record its licence | 16 | cores | feature | S | 153-vb-tracking |
+| [155](155-platform-vb.md) | Add Platform::Vb with its own shelf and explicit policy | 16 | platform | feature | M | 154-vb-core-build |
+| [156](156-vb-options.md) | Set the Beetle VB options: anaglyph with the preset off, the right stick as the right D-pad | 16 | cores | feature | S | 155-platform-vb |
+| [157](157-vb-screen.md) | Give the Virtual Boy its own Screen section with Shader, Picture, VB Speed, Palette and Right Pad | 16 | video | feature | M | 156-vb-options |
+| [158](158-vb-saves.md) | Virtual Boy saves: the ordinary .sav for the 64 KB cart RAM | 16 | platform | chore | S | 155-platform-vb |
+| [159](159-vb-input.md) | Map the Virtual Boy pad: the right stick as the right D-pad, an ABXY fallback | 16 | input | feature | M | 155-platform-vb |
+| [160](160-vb-tests.md) | Test the Virtual Boy with a generated two-eye cart, and GBA after the Virtual Boy | 16 | tests | test | S | 154-vb-core-build |
+| [161](161-vb-carts.md) | Draw the Virtual Boy cart and fetch its labels | 16 | ui-art | feature | M | 155-platform-vb |
+| [162](162-vb-device-gate.md) | Virtual Boy device gate on the RG34XXSP | 16 | device | chore | S | 157-vb-screen, 159-vb-input |
