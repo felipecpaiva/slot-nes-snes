@@ -409,6 +409,31 @@ lists the device copy). Host numbers are 0.21 to 0.30 ms a frame on the M5 Max; 
 | ddtod | CPS2 | | | | | |
 | 1941 | CPS1 | | | | | vertical, both ways |
 
+## Shelf order (ADR 0100)
+
+Checks that Release year reorders the shelves on the device and that the choice survives a restart.
+The maintainer's device runs Release year; every other card stays Classic.
+
+1. `task deploy:device`. With no `Config/shelf_order.txt`, R1 from Recents walks GBA, GB, GBC, NES,
+   SNES and on in the old order.
+2. Set Release year: `adb shell 'printf "order = release-year\n" > /mnt/sdcard/Config/shelf_order.txt'`
+   (or put that line in `Config/shelf_order.txt` with the card in a computer), then restart slot
+   (`adb shell 'killall slot'`, or power off and on).
+3. R1 from Recents: Atari 2600, NES, Master System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
+   Game Boy, Lynx, Neo Geo, Game Gear, SNES, CPS2, 32X, PlayStation, Virtual Boy, Game Boy Color,
+   Neo Geo Pocket, WonderSwan, GBA (shelves with no carts are skipped), then Recents again. L1 walks
+   it backwards. The shelves peeking left and right of the current one are its neighbours in this
+   order.
+4. Stop on a cart on the Virtual Boy shelf, close the lid or power off, start again: slot comes back
+   on that shelf and cart, and R1 goes to Game Boy Color.
+5. `grep -i "shelf.order" /mnt/sdcard/Logs/slot-session.log` prints nothing.
+6. Back to Classic: `adb shell 'rm /mnt/sdcard/Config/shelf_order.txt'` and restart (not on the
+   maintainer's device, which keeps Release year).
+
+| Step | Result | Date | Zip version | Notes |
+|---|---|---|---|---|
+| 1 to 5 | needs device | | | |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.
