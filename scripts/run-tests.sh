@@ -14,7 +14,7 @@ trap 'rm -f "$log" "$log.skips"' EXIT
 # check promises real-core tests: with SLOT_REQUIRE_CORES=1 every host dylib below must exist inside the
 # tree under test (build/slot/vendor is a symlink to the shared vendor/, -f follows it).
 if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
-	for core in mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo; do
+	for core in mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo mednafen_supergrafx; do
 		[ -f "$1/vendor/${core}_libretro.dylib" ] || {
 			echo "slot-nes-snes: $1/vendor/${core}_libretro.dylib is missing, run task core:host" >&2
 			exit 1

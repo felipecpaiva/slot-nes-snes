@@ -139,6 +139,13 @@ SYSTEMS = {
     # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "virtualboy,11,38,4918"). .vb and .vboy, as
     # slot scans (ADR 0097); libretro-thumbnails has Nintendo - Virtual Boy Named_Logos (22, checked 2026-10-20).
     "VB": ("virtualboy", {".vb", ".vboy"}, [NO_INTRO + "Virtual Boy"], 11),
+    # PC Engine SuperGrafx: libretro-database metadat/no-intro "NEC - PC Engine SuperGrafx" for the five
+    # SuperGrafx cards, and the PC Engine dat for the PC-SG cards (Darius Plus and Darius Alpha, "(SG
+    # Enhanced)"), which are PC Engine HuCards. ScreenScraper id 105, "PC Engine SuperGrafx" (systemeinfos.php,
+    # checked 2026-10-21; Skyscraper's platforms_idmap.csv has no SuperGrafx row); an SG Enhanced card asks
+    # under the PC Engine 31 (ss_id). .sgx and .pce, as slot scans (ADR 0101); libretro-thumbnails has
+    # NEC - PC Engine SuperGrafx Named_Logos for all five (checked 2026-10-21).
+    "SGX": ("supergrafx", {".sgx", ".pce"}, ["NEC - PC Engine SuperGrafx", "NEC - PC Engine - TurboGrafx 16"], 105),
     # Arcade (ADR 0099): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
     # dat; ScreenScraper finds an arcade set by its file name (romnom). Ids per Skyscraper's
     # platforms_idmap.csv (Gemba/skyscraper c253bfe) row
@@ -605,7 +612,7 @@ class Rom:
             yield zlib.crc32(self.read()[128:])
         if system == "SNES" and self.size % 1024 == 512:
             yield zlib.crc32(self.read()[512:])
-        if system == "TG16" and self.size % 8192 == 512:
+        if system in ("TG16", "SGX") and self.size % 8192 == 512:
             yield zlib.crc32(self.read()[512:])
         if system == "MD" and self.size % 512 == 0 and (self.size // 512) % 2 == 1:
             data = self.read()
@@ -1417,7 +1424,10 @@ class Ctx:
 
 def ss_id(system, rom):
     """ScreenScraper system id for one ROM: a Neo Geo Pocket Color cart (header byte 0x23 is 0x10, the
-    byte Beetle NeoPop reads) asks under ngpc 82, everything else as system_id says."""
+    byte Beetle NeoPop reads) asks under ngpc 82, an SG Enhanced card on the SuperGrafx shelf under the PC
+    Engine 31, everything else as system_id says."""
+    if system == "SGX" and "(SG Enhanced)" in rom.stem:
+        return SYSTEMS["TG16"][3]
     if system == "NGP":
         head = rom.read()[:0x24]
         if len(head) == 0x24 and head[0x23] == 0x10:
@@ -1747,7 +1757,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, SGX) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

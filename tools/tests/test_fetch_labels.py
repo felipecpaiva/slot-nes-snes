@@ -489,6 +489,40 @@ class VirtualBoy(Base):
         self.assertTrue(any("systemeid=11" in c for c in self.http.calls))
 
 
+class SuperGrafx(Base):
+    ss_http = NesSnes.ss_http
+    run_ss = NesSnes.run_ss
+
+    def dats(self, sgx, pce):
+        sgx_dat, pce_dat = fl.SYSTEMS["SGX"][2]
+        return {fl.DAT + urllib.parse.quote(sgx_dat) + ".dat": (200, dat_text(*sgx).encode(), None),
+                fl.DAT + urllib.parse.quote(pce_dat) + ".dat": (200, dat_text(*pce).encode(), None)}
+
+    def test_the_supergrafx_names_its_library_folder_both_dats_and_screenscraper_id(self):
+        self.assertEqual(fl.SYSTEMS["SGX"], ("supergrafx", {".sgx", ".pce"},
+                                             ["NEC - PC Engine SuperGrafx", "NEC - PC Engine - TurboGrafx 16"], 105))
+        self.assertNotIn("SGX", fl.ART_SYSTEMS)
+
+    def test_a_supergrafx_card_matched_by_crc_is_asked_under_105_and_lands_in_labels_sgx(self):
+        raw = b"s" * 0x10000
+        self.rom("SGX", "Daimakaimura (Japan) (En).sgx", raw)
+        r = self.dats([("Daimakaimura (Japan) (En)", crc(raw))], [])
+        stats = self.run_ss("SGX", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "SGX"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("SGX", "Daimakaimura (Japan) (En)"), PNG)
+        self.assertTrue(any("systemeid=105" in c for c in self.http.calls))
+
+    def test_an_sg_enhanced_card_matches_the_pc_engine_dat_and_is_asked_under_31(self):
+        raw = b"d" * 0x10000
+        self.rom("SGX", "Darius Plus (Japan) (En) (SG Enhanced).pce", raw)
+        r = self.dats([], [("Darius Plus (Japan) (En) (SG Enhanced)", crc(raw))])
+        stats = self.run_ss("SGX", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "SGX"])
+        self.assertEqual((stats["matched"], stats["written"]), (1, 1))
+        self.assertEqual(self.label("SGX", "Darius Plus (Japan) (En) (SG Enhanced)"), PNG)
+        self.assertTrue(any("systemeid=31" in c for c in self.http.calls))
+        self.assertFalse(any("systemeid=105" in c for c in self.http.calls))
+
+
 class Lynx(Base):
     ss_http = NesSnes.ss_http
     run_ss = NesSnes.run_ss

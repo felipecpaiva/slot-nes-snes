@@ -2,10 +2,8 @@
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and Virtual
-Boy, beside slot's own
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and
-the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
+WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, Virtual
+Boy, the Neo Geo, CPS1 and CPS2 arcade boards, and the PC Engine SuperGrafx, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -43,6 +41,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
 | Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
+| PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -91,7 +90,14 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   sticks, and L1, R1, L2 and R2 go to the game. SELECT+R2 toggles fast-forward.
 - **TurboGrafx-16 and PC Engine** play like Game Gear: B is II, A is I, START is Run, X and Y are
   turbo. Picture is Crop by default (8 lines off the top and bottom), then Stretch and Actual. Every
-  HuCard keeps a 2 KB `.sav`. CD games and SuperGrafx are out of scope.
+  HuCard keeps a 2 KB `.sav`. CD games are out of scope; SuperGrafx cards have their own shelf.
+- **PC Engine SuperGrafx** has its own shelf, `Games/SGX`, on Beetle SuperGrafx: the five SuperGrafx
+  HuCards (`.sgx`) and the PC Engine cards with SuperGrafx enhancements (Darius Plus and Darius Alpha,
+  `.pce`), every one run on the SuperGrafx hardware. It plays and saves like the TurboGrafx-16 (B is II,
+  A is I, START is Run, X and Y are turbo, a 2 KB `.sav` per card); Picture is Crop by default, then
+  Stretch, Actual and 4:3. The Pad row switches to the 6-button pad (III and IV on Y and X, V and VI
+  on L1 and R1, the picture toggle on SELECT+X) from the next start. A SuperGrafx card is drawn as a Super HuCard, its label the other way up
+  from a standard HuCard's. A `.pce` card on the TG16 shelf stays a TurboGrafx-16 game.
 - **WonderSwan and WonderSwan Color.** Horizontal games are drawn at 3x, vertical ones upright at
   2x, read from the cart's own footer; a SELECT tap turns a vertical game sideways and back. 60 Hz by
   default, and the Refresh row switches to the native 75 Hz.
@@ -138,7 +144,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, Atari 2600 and 7800, where it is the default) |
+| Picture | every new system | Crop (NES, SNES, TurboGrafx-16, SuperGrafx), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, Atari 2600 and 7800, where it is the default) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -150,6 +156,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Left, Right Difficulty; TV Type | Atari 2600 | Auto, A, B; Auto, Colour, B&W |
 | Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
 | Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
+| Pad | SuperGrafx | 2 Buttons (the default), 6 Buttons |
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.
@@ -196,6 +203,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
 - Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
   there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 182) is still open.
+- PC Engine SuperGrafx: with the 6-button pad turbo is off and L1 and R1 belong to the game. Beetle
+  SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16. The device gate (issue 199) is
+  still open.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few

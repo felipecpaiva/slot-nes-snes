@@ -31,6 +31,8 @@ vars:
     sh: . ./SLOT_PIN && echo "$mednafen_vb_commit"
   FBNEO_COMMIT:
     sh: . ./SLOT_PIN && echo "$fbneo_commit"
+  MEDNAFEN_SUPERGRAFX_COMMIT:
+    sh: . ./SLOT_PIN && echo "$mednafen_supergrafx_commit"
 
 tasks:
   default:
@@ -344,6 +346,25 @@ tasks:
     cmds:
       - sh cores/fbneo/build.sh build {{.FBNEO_COMMIT}} vendor/fbneo-src.tar.gz build/fbneo-host vendor/fbneo_libretro.dylib
 
+  core:mednafen_supergrafx:src:
+    desc: Fetch the pinned Beetle SuperGrafx (beetle-supergrafx-libretro) source tarball into vendor/ and verify its sha256, it ships as corresponding source
+    status:
+      - test -f vendor/mednafen_supergrafx-src.tar.gz
+      - test "$(cat vendor/mednafen_supergrafx-src.sha 2>/dev/null)" = "{{.MEDNAFEN_SUPERGRAFX_COMMIT}}"
+    cmds:
+      - rm -f vendor/mednafen_supergrafx-src.tar.gz vendor/mednafen_supergrafx-src.sha
+      - sh cores/mednafen_supergrafx/build.sh fetch {{.MEDNAFEN_SUPERGRAFX_COMMIT}} vendor/mednafen_supergrafx-src.tar.gz
+      - echo "{{.MEDNAFEN_SUPERGRAFX_COMMIT}}" > vendor/mednafen_supergrafx-src.sha
+
+  core:mednafen_supergrafx:host:
+    desc: Build the Beetle SuperGrafx host dylib into vendor/ (core:host builds it too)
+    deps: [core:mednafen_supergrafx:src]
+    status:
+      - test -f vendor/mednafen_supergrafx_libretro.dylib
+      - test "$(cat vendor/mednafen_supergrafx_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_supergrafx/build.sh stamp {{.MEDNAFEN_SUPERGRAFX_COMMIT}} host)"
+    cmds:
+      - sh cores/mednafen_supergrafx/build.sh build {{.MEDNAFEN_SUPERGRAFX_COMMIT}} vendor/mednafen_supergrafx-src.tar.gz build/mednafen_supergrafx-host vendor/mednafen_supergrafx_libretro.dylib
+
   arcade:sets:check:
     desc: Regenerate the arcade set table from the pinned FBNeo source and fail if the patched tree's differs (run after an FBNeo pin bump)
     deps: [core:fbneo:src]
@@ -355,8 +376,8 @@ tasks:
         echo "arcade_sets.tsv matches the pinned FBNeo source"
 
   core:host:
-    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB and FinalBurn Neo from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
-    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:stella2014:src, core:prosystem:src, core:mednafen_vb:src, core:fbneo:src]
+    desc: Build mGBA, fetch gpSP and build fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB, FinalBurn Neo and Beetle SuperGrafx from their pinned source into the shared vendor/, and check the gpSP dylib against gpsp_host_sha256_<arch> in SLOT_PIN
+    deps: [core:fceumm:src, core:snes9x:src, core:nestopia:src, core:snes9x2005_plus:src, core:genesis_plus_gx:src, core:pcsx_rearmed:src, core:mednafen_pce_fast:src, core:mednafen_wswan:src, core:mednafen_lynx:src, core:mednafen_ngp:src, core:picodrive:src, core:stella2014:src, core:prosystem:src, core:mednafen_vb:src, core:fbneo:src, core:mednafen_supergrafx:src]
     cmds:
       - '{{.TASK_EXE}} -d build/slot core:mgba:host'
       - '{{.TASK_EXE}} -d build/slot core:gpsp:host'
@@ -422,9 +443,13 @@ tasks:
         test -f vendor/fbneo_libretro.dylib &&
           test "$(cat vendor/fbneo_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/fbneo/build.sh stamp {{.FBNEO_COMMIT}} host)" ||
           sh cores/fbneo/build.sh build {{.FBNEO_COMMIT}} vendor/fbneo-src.tar.gz build/fbneo-host vendor/fbneo_libretro.dylib
+      - |
+        test -f vendor/mednafen_supergrafx_libretro.dylib &&
+          test "$(cat vendor/mednafen_supergrafx_libretro.dylib.meta 2>/dev/null)" = "$(sh cores/mednafen_supergrafx/build.sh stamp {{.MEDNAFEN_SUPERGRAFX_COMMIT}} host)" ||
+          sh cores/mednafen_supergrafx/build.sh build {{.MEDNAFEN_SUPERGRAFX_COMMIT}} vendor/mednafen_supergrafx-src.tar.gz build/mednafen_supergrafx-host vendor/mednafen_supergrafx_libretro.dylib
 
   core:device:
-    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB and FinalBurn Neo cores into vendor/
+    desc: Build the aarch64 linux fceumm, snes9x, nestopia, snes9x2005_plus, Genesis Plus GX, pcsx_rearmed, Beetle PCE Fast, Beetle Cygne, Beetle Lynx, Beetle NeoPop, PicoDrive, Stella 2014, ProSystem, Beetle VB, FinalBurn Neo and Beetle SuperGrafx cores into vendor/
     cmds:
       - task: core:device:fceumm
       - task: core:device:snes9x
@@ -441,6 +466,7 @@ tasks:
       - task: core:device:prosystem
       - task: core:device:mednafen_vb
       - task: core:device:fbneo
+      - task: core:device:mednafen_supergrafx
 
   core:device:fceumm:
     desc: Build the aarch64 linux fceumm core into vendor/fceumm_libretro.so (beside the host dylib, where slot's dist reads cores), in rust:1-bullseye via scripts/device-sh.sh
@@ -668,6 +694,21 @@ tasks:
       - sh -c '. scripts/lib.sh; is_aarch64 vendor/fbneo_libretro.so && needs_old_glibc_only vendor/fbneo_libretro.so'
       - 'echo "built vendor/fbneo_libretro.so from vendor/fbneo-src.tar.gz @ {{.FBNEO_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/fbneo_libretro.so")"'
 
+  core:device:mednafen_supergrafx:
+    desc: Build the aarch64 linux Beetle SuperGrafx core into vendor/mednafen_supergrafx_libretro.so, in rust:1-bullseye via scripts/device-sh.sh, and fail unless it needs only libc and libm at GLIBC_2.17 or older (the C++ runtime is linked in)
+    deps: [core:mednafen_supergrafx:src]
+    status:
+      - test -f vendor/mednafen_supergrafx_libretro.so
+      - test "$(cat vendor/mednafen_supergrafx-src.meta 2>/dev/null)" = "$(sh cores/mednafen_supergrafx/build.sh srcmeta {{.MEDNAFEN_SUPERGRAFX_COMMIT}} vendor/mednafen_supergrafx-src.tar.gz)"
+      - test "$(cat vendor/mednafen_supergrafx_libretro.so.meta 2>/dev/null)" = "$(sh cores/mednafen_supergrafx/build.sh stamp {{.MEDNAFEN_SUPERGRAFX_COMMIT}} device)"
+    cmds:
+      - >-
+        CORE_BUILDER="$(sh cores/mednafen_supergrafx/build.sh builder)" sh scripts/device-sh.sh
+        'sh cores/mednafen_supergrafx/build.sh build {{.MEDNAFEN_SUPERGRAFX_COMMIT}} vendor/mednafen_supergrafx-src.tar.gz
+        build/mednafen_supergrafx-device vendor/mednafen_supergrafx_libretro.so'
+      - sh -c '. scripts/lib.sh; is_aarch64 vendor/mednafen_supergrafx_libretro.so && needs_old_glibc_only vendor/mednafen_supergrafx_libretro.so'
+      - 'echo "built vendor/mednafen_supergrafx_libretro.so from vendor/mednafen_supergrafx-src.tar.gz @ {{.MEDNAFEN_SUPERGRAFX_COMMIT}}, sha256 $(sh -c ". scripts/lib.sh; file_sha256 vendor/mednafen_supergrafx_libretro.so")"'
+
   test:
     desc: Run the whole upstream-plus-ours test suite in build/slot with SLOT_REQUIRE_CORES=1 and fail on a skip for a missing core
     deps: [upstream:build]
@@ -699,6 +740,7 @@ tasks:
       - test -f vendor/prosystem_libretro.dylib
       - test -f vendor/mednafen_vb_libretro.dylib
       - test -f vendor/fbneo_libretro.dylib
+      - test -f vendor/mednafen_supergrafx_libretro.dylib
       - task: test
       - |
         {{.TASK_EXE}} -d build/slot test:card || {
@@ -854,6 +896,8 @@ tasks:
       - vendor/mednafen_vb-src.*
       - vendor/fbneo_libretro.so*
       - vendor/fbneo-src.*
+      - vendor/mednafen_supergrafx_libretro.so*
+      - vendor/mednafen_supergrafx-src.*
       - scripts/dist-device.sh
       - scripts/device-sh.sh
       - scripts/fetch-task.sh

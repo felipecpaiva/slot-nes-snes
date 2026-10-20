@@ -409,6 +409,43 @@ lists the device copy). Host numbers are 0.21 to 0.30 ms a frame on the M5 Max; 
 | ddtod | CPS2 | | | | | |
 | 1941 | CPS1 | | | | | vertical, both ways |
 
+## PC Engine SuperGrafx (issue 199, ADR 0101)
+
+Pending. No BIOS. Apply `docs/rom-library/best-copy/sgx-adds.tsv` (workspace): copy the five SuperGrafx
+cards into `Games/SGX` and move the two Darius cards there from `Games/TG16`, with their
+`Labels/TG16/<stem>.png` to `Labels/SGX/` and any `Saves/TG16/<stem>.sav` and `States/TG16/<stem>*` to the
+SGX folders. Then fetch the missing labels
+(`task labels:fetch -- --device --library <library> --only SGX --by-name --logo-fallback`).
+
+1. Speed: `task bench:device CORE=mednafen_supergrafx ROM_ON_DEVICE=/mnt/sdcard/Games/SGX/<game>` with
+   `ARGS="--frames 3000 --warmup 600 --repeats 3 --option sgx_forcesgx=enabled"`, for Daimakaimura and
+   1941. Record the medians; the budget at 59.82 fps is 16.7 ms, the host estimate 3 to 7 ms.
+2. Boot: each card seats with no BIOS; the TG16 shelf no longer lists the Darius cards; the SGX shelf
+   lists seven, the five as Super HuCards (contacts on top) and the two Darius as plain HuCards.
+3. SuperGrafx mode: the five SuperGrafx cards boot past their title screens (a PC Engine cannot run
+   them). Darius Alpha and Darius Plus show their SuperGrafx picture: compare a boss fight with the same
+   card on the TG16 shelf before the move, and note any difference in sprite flicker.
+4. Picture: Crop by default; the Picture row walks Stretch, Actual, 4:3 and back; L1 and R1 change it in
+   game; the next game starts in the chosen one, and the TG16 shelf keeps its own.
+5. Controls: B is II, A is I, START is Run; SELECT alone after the hold is Select; SELECT and START soft
+   reset; X and Y fire turbo I and II with Turbo Buttons on and nothing with it off; L2 rewinds, R2
+   fast-forwards. Pad 6 Buttons, next start: X, Y, L1 and R1 reach the game (any fighting HuCard that
+   reads the Avenue Pad 6 shows III to VI), SELECT+X toggles the picture, X and Y no longer fire turbo.
+6. Speed in play: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0, no missed frames
+   past the first window, audio without crackle. Note the fast-forward speed (no core frameskip).
+7. States and rewind: save and load a state; rewind works; eject and power cycle resume the SGX game.
+8. Saves: a card writes `Saves/SGX/<stem>.sav` (2 KB, `HUBM`) on eject and finds it on the next start.
+
+| Title | CPU | bench:device ms/frame | Starved / dropped | FF speed | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|
+| Daimakaimura | | | | | | | two VDCs, the heaviest card |
+| 1941: Counter Attack | | | | | | | vertical shooter, cloud layer |
+| Aldynes | | | | | | | |
+| Battle Ace | | | | | | | pseudo 3D |
+| Madou King Granzort | | | | | | | |
+| Darius Plus | | | | | | | PC-SG mark, detected by CRC |
+| Darius Alpha | | | | | | | not in the core's table, needs sgx_forcesgx |
+
 ## Shelf order (ADR 0100)
 
 Checks that Release year reorders the shelves on the device and that the choice survives a restart.

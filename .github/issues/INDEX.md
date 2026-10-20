@@ -165,3 +165,10 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
 | [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
 | [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |
+| [194](194-sgx-tracking.md) | PC Engine SuperGrafx: Beetle SuperGrafx, a shelf of its own beside the TurboGrafx-16 | 18 | device | tracking | L | 183-arcade-tracking |
+| [195](195-sgx-core-build.md) | Build Beetle SuperGrafx from a pinned commit for host and device without CD images and record its licence | 18 | cores | feature | S | 194-sgx-tracking |
+| [196](196-platform-sgx.md) | Add Platform::Sgx with its options, Screen section, saves and the TurboGrafx-16 pad | 18 | platform | feature | M | 195-sgx-core-build |
+| [197](197-sgx-carts.md) | Draw the Super HuCard and fetch SuperGrafx labels | 18 | ui-art | feature | M | 196-platform-sgx |
+| [198](198-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 18 | tests | test | S | 195-sgx-core-build |
+| [199](199-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 18 | device | chore | S | 196-platform-sgx, 197-sgx-carts |
+| [200](200-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 18 | input | feature | M | 196-platform-sgx |

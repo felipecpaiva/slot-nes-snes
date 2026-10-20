@@ -21,6 +21,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
 | 10 | Spec (Who it's NOT for), Phase 16 | Virtual Boy in the patch set on Beetle VB (patches 0102 to 0109, ADR 0097), device gate (issue 182) pending |
 | 11 | Spec (Who it's NOT for), Phase 17 | Neo Geo, CPS1 and CPS2 in the patch set on FinalBurn Neo (patches 0110 to 0116, ADR 0099), the zip as the romset on those three shelves only, device gate (issue 193) pending |
+| 12 | Spec (Who it's NOT for), Phase 18 | PC Engine SuperGrafx in the patch set on Beetle SuperGrafx (patches 0120 to 0123, ADR 0101), device gate (issue 199) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -61,7 +62,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) Virtual Boy (Phase 16, ADR 0097) and Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset) and PC Engine SuperGrafx (Phase 18, ADR 0101) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -601,6 +602,22 @@ Patches 0110 to 0116 and 0119 on upstream main 1b20432.
 | 9 | 192, done (0116) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
 | 10 | done (0119) | The set table indexed once; a 20,000-file scan guard (boot regression found on the device) |
 | 11 | 193 | Device gate |
+
+### Phase 18: PC Engine SuperGrafx (in the patch set, device gate pending)
+
+Tracking issue 194, children 195 to 200, ADR 0101. One core, Beetle SuperGrafx (`mednafen_supergrafx`)
+pinned at `9c11dcd`, one shelf `Games/SGX` for `.sgx` and `.pce`, no BIOS, no core picker, every card run
+as a SuperGrafx (`sgx_forcesgx`). The TurboGrafx-16 shelf is unchanged. Patches 0120 to 0123.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0101 and the issues |
+| 2 | 195, done | Core build with `HAVE_CHD=0`, the C++ runtime linked in, `powf` at GLIBC_2.17, licence |
+| 3 | 198, core half done | Generated HuCard: picture, rates, SuperGrafx mode by extension and by `sgx_forcesgx`, states, backup RAM (patch 0120) |
+| 4 | 196, done (0121) | `Platform::Sgx`, options, Screen section (Shader, Picture with 4:3), saves, the TurboGrafx-16 pad |
+| 5 | 197, done (0122) | The Super HuCard, labels for ScreenScraper id 105 |
+| 6 | 199 | Device gate: Daimakaimura, 1941, Aldynes, Battle Ace, Granzort, Darius Plus, Darius Alpha |
+| 7 | 200, done (0123) | Pad row: 2 Buttons or the 6-button Avenue Pad; a GBA game after it equals a GBA only run |
 
 ### Phase 6+: deferred (non-blocking)
 

@@ -1,0 +1,649 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 01:37:41 +0400
+Subject: [PATCH] sgx-pad
+
+The SuperGrafx section gains a Pad row: 2 Buttons (the default) or 6
+Buttons, kept in Config/sgx.txt as pad = 2 or 6 and answered as
+sgx_default_joypad_type_p1 when the next card starts, as the core reads
+it at load. With 6 buttons, Beetle SuperGrafx's Avenue Pad 6 takes III
+and IV from RetroPad Y and X and V and VI from L and R: X and Y reach
+the core raw (slot's turbo is passed by), L1 and R1 go to the game, and
+the picture toggle moves to SELECT+X, as on the SNES. The mode is
+latched when the card seats, the Virtual Boy Right Pad way, so a GBA
+game after a six-button SuperGrafx game gets the GBA input and picture.
+With 2 buttons nothing changes: X and Y are turbo, L1 and R1 are slot's.
+---
+ crates/slot-ui/src/quick_menu.rs  |  17 +++-
+ crates/slot-ui/src/quick_retro.rs |   5 +-
+ crates/slot/src/app.rs            |  25 ++++-
+ crates/slot/src/core.rs           |   1 +
+ crates/slot/src/lib.rs            |   1 +
+ crates/slot/src/session.rs        |   5 +-
+ crates/slot/src/sgx_pad.rs        |  84 ++++++++++++++++
+ crates/slot/tests/sgx_platform.rs |  96 +++++++++++++++++-
+ crates/slot/tests/sgx_then_gba.rs | 161 ++++++++++++++++++++++++++++++
+ 9 files changed, 385 insertions(+), 10 deletions(-)
+ create mode 100644 crates/slot/src/sgx_pad.rs
+ create mode 100644 crates/slot/tests/sgx_then_gba.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index b0f1b84..b1ad88f 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -163,10 +163,11 @@ pub enum QuickRow {
+     SgxShader,
+     ScreenSgx,
+     SgxPicture,
++    SgxPad,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 153] = [
++    pub const ALL: [QuickRow; 154] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -320,6 +321,7 @@ impl QuickRow {
+         QuickRow::SgxShader,
+         QuickRow::ScreenSgx,
+         QuickRow::SgxPicture,
++        QuickRow::SgxPad,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -575,7 +577,7 @@ impl QuickRow {
+             QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
+                 &QuickRow::SCREEN_CPS2
+             }
+-            QuickRow::SgxShader | QuickRow::SgxPicture => &QuickRow::SCREEN_SGX,
++            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => &QuickRow::SCREEN_SGX,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -649,7 +651,9 @@ impl QuickRow {
+             QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
+                 Some(QuickRow::ScreenCps2)
+             }
+-            QuickRow::SgxShader | QuickRow::SgxPicture => Some(QuickRow::ScreenSgx),
++            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => {
++                Some(QuickRow::ScreenSgx)
++            }
+             _ => None,
+         }
+     }
+@@ -816,6 +820,7 @@ impl QuickRow {
+             QuickRow::VbShader => "Shader",
+             QuickRow::NeoGeoShader | QuickRow::Cps1Shader | QuickRow::Cps2Shader => "Shader",
+             QuickRow::SgxShader => "Shader",
++            QuickRow::SgxPad => "Pad",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -1043,6 +1048,8 @@ pub enum QuickValue {
+     Turned,
+     Classic,
+     ReleaseYear,
++    TwoButtons,
++    SixButtons,
+ }
+ 
+ impl QuickValue {
+@@ -1120,6 +1127,8 @@ impl QuickValue {
+             QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
+             QuickValue::Classic => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 34,
+             QuickValue::ReleaseYear => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 35,
++            QuickValue::TwoButtons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 36,
++            QuickValue::SixButtons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 37,
+             fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
+         }
+     }
+@@ -1186,6 +1195,8 @@ impl QuickValue {
+             QuickValue::Turned => "Turned",
+             QuickValue::Classic => "Classic",
+             QuickValue::ReleaseYear => "Release Year",
++            QuickValue::TwoButtons => "2 Buttons",
++            QuickValue::SixButtons => "6 Buttons",
+         }
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index eb5947b..ae30c92 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -81,7 +81,8 @@ impl QuickRow {
+         QuickRow::Cps2Picture,
+         QuickRow::Cps2Rotation,
+     ];
+-    pub const SCREEN_SGX: [QuickRow; 2] = [QuickRow::SgxShader, QuickRow::SgxPicture];
++    pub const SCREEN_SGX: [QuickRow; 3] =
++        [QuickRow::SgxShader, QuickRow::SgxPicture, QuickRow::SgxPad];
+ }
+ 
+ impl QuickValue {
+@@ -126,6 +127,8 @@ impl QuickValue {
+                 QuickValue::Turned,
+                 QuickValue::Classic,
+                 QuickValue::ReleaseYear,
++                QuickValue::TwoButtons,
++                QuickValue::SixButtons,
+             ])
+             .collect()
+     }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index a7f58db..7b0e0a2 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -468,6 +468,8 @@ pub struct App {
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
+     vb_buttons_seated: bool,
++    sgx_pad: crate::sgx_pad::SgxPad,
++    sgx_six_seated: bool,
+     arcade_turns: crate::arcade_turn::ArcadeTurns,
+     rested: Option<(usize, usize)>,
+     start_marked: bool,
+@@ -663,6 +665,8 @@ impl App {
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
+             vb_buttons_seated: false,
++            sgx_pad: crate::sgx_pad::SgxPad::Two,
++            sgx_six_seated: false,
+             arcade_turns: crate::arcade_turn::ArcadeTurns::default(),
+             rested: None,
+             start_marked: false,
+@@ -692,6 +696,7 @@ impl App {
+         app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
+         app.atari = crate::atari_switches::AtariSwitches::read(root);
+         app.vb_screen = crate::vb_screen::VbScreen::read(root);
++        app.sgx_pad = crate::sgx_pad::SgxPad::read(root);
+         app.arcade_turns = crate::arcade_turn::ArcadeTurns::read(root);
+         app.lynx_flip = crate::lynx_turn::flips_right(root);
+         app.restock_recents();
+@@ -1026,7 +1031,7 @@ impl App {
+         if self.single_cart() {
+             hidden.push(QuickRow::ExitGame);
+         }
+-        if self.playing_platform().owns_shoulders() {
++        if self.playing_platform().owns_shoulders() && !self.sgx_six_seated {
+             hidden.extend([QuickRow::GameL, QuickRow::GameR]);
+         }
+         if !self.left_stick {
+@@ -1172,6 +1177,7 @@ impl App {
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios => self.atari.quick_value(row),
+             QuickRow::VbPalette | QuickRow::VbRightPad => self.vb_screen.quick_value(row),
++            QuickRow::SgxPad => Some(self.sgx_pad.quick_value()),
+             QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => self.arcade_turns.quick_value(row),
+             QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
+             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+@@ -1833,7 +1839,9 @@ impl App {
+     }
+ 
+     fn slot_owns_the_shoulders(&self) -> bool {
+-        matches!(self.phase, Phase::Playing { .. }) && self.platform.owns_shoulders()
++        matches!(self.phase, Phase::Playing { .. })
++            && self.platform.owns_shoulders()
++            && !self.sgx_six_seated
+     }
+ 
+     pub fn taken_buttons(&self) -> Vec<Btn> {
+@@ -2348,6 +2356,12 @@ impl App {
+         self.vb_buttons_seated
+     }
+ 
++    pub fn latch_sgx_pad(&mut self, platform: Platform) -> bool {
++        self.sgx_six_seated =
++            platform == Platform::Sgx && self.sgx_pad == crate::sgx_pad::SgxPad::Six;
++        self.sgx_six_seated
++    }
++
+     pub fn triggers_to_game(&self) -> bool {
+         let platform = self.playing_platform();
+         !platform.owns_triggers() || (platform == Platform::Vb && self.vb_buttons_seated)
+@@ -2977,6 +2991,7 @@ impl App {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad
++            | QuickRow::SgxPad
+             | QuickRow::NeoGeoShader
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Shader
+@@ -3024,6 +3039,9 @@ impl App {
+         if self
+             .vb_screen
+             .change(row, right, self.root.as_deref(), &self.card_writes)
++            || self
++                .sgx_pad
++                .change(row, self.root.as_deref(), &self.card_writes)
+         {
+             return;
+         }
+@@ -3223,7 +3241,8 @@ impl App {
+             QuickRow::VbPicture
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+-            | QuickRow::VbRightPad => return,
++            | QuickRow::VbRightPad
++            | QuickRow::SgxPad => return,
+             QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
+             QuickRow::Wallpaper
+             | QuickRow::Recents
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 3ad88be..f96808e 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -133,6 +133,7 @@ fn open_named(
+                 crate::sms_region::apply(&mut opened, root, platform);
+                 crate::s32x_speed::apply(&mut opened, root, platform);
+                 crate::vb_screen::apply(&mut opened, root, platform);
++                crate::sgx_pad::apply(&mut opened, root, platform);
+                 if let Some(player) = link {
+                     apply_link_options(&mut opened, core, player);
+                 }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 9ca7e8e..890717f 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -55,6 +55,7 @@ pub mod rewind;
+ pub mod root;
+ pub mod s32x_speed;
+ pub mod session;
++pub mod sgx_pad;
+ pub mod shelf_order;
+ pub mod shelf_restock;
+ pub mod sms_region;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 472696f..8451102 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -613,11 +613,12 @@ impl Session {
+         emu.set_driven(self.driven);
+         emu.set_native_pal(self.app.native_pal(loaded.platform));
+         emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
+-        emu.set_pass_through(loaded.platform.passes_xy_through());
++        let sgx_six = self.app.latch_sgx_pad(loaded.platform);
++        emu.set_pass_through(loaded.platform.passes_xy_through() || sgx_six);
+         let vb_buttons = self.app.latch_vb_pad(loaded.platform);
+         emu.set_ws_pad(self.app.pad_code(loaded.platform));
+         self.gestures
+-            .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
++            .set_video_mode_chord(loaded.platform.select_x_toggles_picture() || sgx_six);
+         self.gestures.set_disc_chord(loaded.platform.swaps_discs());
+         self.gestures
+             .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
+diff --git a/crates/slot/src/sgx_pad.rs b/crates/slot/src/sgx_pad.rs
+new file mode 100644
+index 0000000..e1fa72a
+--- /dev/null
++++ b/crates/slot/src/sgx_pad.rs
+@@ -0,0 +1,84 @@
++use std::path::Path;
++
++use slot_retro::LibretroCore;
++use slot_store::{ini, Platform};
++use slot_ui::{QuickRow, QuickValue};
++
++use crate::card_log::CardWrites;
++
++pub const SGX_FILE: &str = "Config/sgx.txt";
++
++const PAD_KEY: &str = "pad";
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
++pub enum SgxPad {
++    #[default]
++    Two,
++    Six,
++}
++
++impl SgxPad {
++    pub const ALL: [SgxPad; 2] = [SgxPad::Two, SgxPad::Six];
++
++    pub fn as_str(self) -> &'static str {
++        match self {
++            SgxPad::Two => "2",
++            SgxPad::Six => "6",
++        }
++    }
++
++    pub fn core_value(self) -> &'static str {
++        match self {
++            SgxPad::Two => "2 Buttons",
++            SgxPad::Six => "6 Buttons",
++        }
++    }
++
++    pub fn quick_value(self) -> QuickValue {
++        match self {
++            SgxPad::Two => QuickValue::TwoButtons,
++            SgxPad::Six => QuickValue::SixButtons,
++        }
++    }
++
++    pub fn read(root: &Path) -> SgxPad {
++        let Some(line) = ini::value(root, SGX_FILE, PAD_KEY) else {
++            return SgxPad::default();
++        };
++        SgxPad::ALL
++            .into_iter()
++            .find(|p| p.as_str() == line)
++            .unwrap_or_else(|| {
++                eprintln!("slot: sgx.txt: ignoring {PAD_KEY}={line}");
++                SgxPad::default()
++            })
++    }
++
++    pub fn change(&mut self, row: QuickRow, root: Option<&Path>, writes: &CardWrites) -> bool {
++        if row != QuickRow::SgxPad {
++            return false;
++        }
++        *self = match self {
++            SgxPad::Two => SgxPad::Six,
++            SgxPad::Six => SgxPad::Two,
++        };
++        if let Some(root) = root {
++            let written = ini::write(root, SGX_FILE, PAD_KEY, self.as_str());
++            if let Err(e) = &written {
++                eprintln!("slot: emu: could not write sgx.txt: {e}");
++            }
++            writes.wrote("sgx.txt", &written);
++        }
++        true
++    }
++}
++
++pub fn apply(core: &mut LibretroCore, root: &Path, platform: Platform) {
++    if platform != Platform::Sgx {
++        return;
++    }
++    core.set_option(
++        "sgx_default_joypad_type_p1",
++        SgxPad::read(root).core_value(),
++    );
++}
+diff --git a/crates/slot/tests/sgx_platform.rs b/crates/slot/tests/sgx_platform.rs
+index 88fd51b..8b6fa1b 100644
+--- a/crates/slot/tests/sgx_platform.rs
++++ b/crates/slot/tests/sgx_platform.rs
+@@ -16,6 +16,7 @@ use slot::input::Pad;
+ use slot::persist::Snapshot;
+ use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
+ use slot::session::Session;
++use slot::sgx_pad::SgxPad;
+ use slot::video_mode::VideoMode;
+ use slot_input::{Action, Btn, RawEvent, SELECT_CHORD_MS};
+ use slot_retro::{ButtonMask, LibretroCore};
+@@ -183,7 +184,7 @@ fn supergrafx_follows_cps2_in_the_screen_list_and_opens_shader_and_picture() {
+     assert_eq!(QuickRow::ScreenSgx.child(), Some(QuickRow::SgxShader));
+     assert_eq!(
+         QuickRow::SCREEN_SGX.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Pad"]
+     );
+     for row in QuickRow::SCREEN_SGX {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenSgx));
+@@ -384,3 +385,96 @@ fn on_the_device_select_reaches_the_supergrafx_game_only_after_the_chord_hold()
+         assert_eq!(input(&session), 0, "{btn:?} let go");
+     }
+ }
++
++#[test]
++fn the_pad_row_walks_two_and_six_buttons_into_sgx_txt() {
++    let (root, mut app) = card_with_a_supergrafx_game();
++    open_supergrafx(&mut app);
++    press(&mut app, Btn::Down);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::SgxPad));
++    assert_eq!(
++        app.quick_value(QuickRow::SgxPad),
++        Some(QuickValue::TwoButtons)
++    );
++    assert!(!root.path().join(slot::sgx_pad::SGX_FILE).exists());
++    press(&mut app, Btn::Right);
++    assert_eq!(
++        app.quick_value(QuickRow::SgxPad),
++        Some(QuickValue::SixButtons)
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(slot::sgx_pad::SGX_FILE)).expect("sgx.txt"),
++        "pad = 6\n"
++    );
++    assert_eq!(slot::sgx_pad::SgxPad::read(root.path()), SgxPad::Six);
++    press(&mut app, Btn::Right);
++    assert_eq!(slot::sgx_pad::SgxPad::read(root.path()), SgxPad::Two);
++}
++
++#[test]
++fn the_pad_row_answers_the_cores_joypad_type_and_only_on_the_supergrafx() {
++    let _g = core_lock();
++    let Some(dylib) = supergrafx() else {
++        return;
++    };
++    let d = tmp_root_with_real_carts(&[]);
++    for (file, want) in [(None, "2 Buttons"), (Some("pad = 6\n"), "6 Buttons")] {
++        if let Some(text) = file {
++            std::fs::write(d.path().join(slot::sgx_pad::SGX_FILE), text).unwrap();
++        }
++        let mut core = answered(&dylib);
++        slot::sgx_pad::apply(&mut core, d.path(), Platform::Sgx);
++        assert_eq!(
++            core.option("sgx_default_joypad_type_p1").as_deref(),
++            Some(want)
++        );
++        drop(core);
++        let mut other = answered(&dylib);
++        slot::sgx_pad::apply(&mut other, d.path(), Platform::Tg16);
++        assert_eq!(
++            other.option("sgx_default_joypad_type_p1").as_deref(),
++            Some("2 Buttons")
++        );
++    }
++}
++
++#[test]
++fn with_six_buttons_x_y_l1_and_r1_reach_the_supergrafx_game_as_iii_to_vi() {
++    let _g = core_lock();
++    let Some(dylib) = supergrafx() else {
++        return;
++    };
++    let root = seated(&dylib);
++    std::fs::write(root.path().join(slot::sgx_pad::SGX_FILE), "pad = 6\n").unwrap();
++    let mut session = real_seat::play(root.path(), true);
++    let input = |s: &Session| s.emu().expect("no core").input().0;
++    assert!(session.app().taken_buttons().is_empty());
++    let mut now = 5000;
++    for (btn, bit) in [
++        (Btn::X, ButtonMask::X),
++        (Btn::Y, ButtonMask::Y),
++        (Btn::L1, ButtonMask::L),
++        (Btn::R1, ButtonMask::R),
++    ] {
++        session.feed([RawEvent::Down(btn)], now);
++        assert_eq!(input(&session), bit, "{btn:?} held");
++        session.feed([RawEvent::Up(btn)], now + 100);
++        assert_eq!(input(&session), 0, "{btn:?} let go");
++        now += 200;
++    }
++}
++
++#[test]
++fn with_two_buttons_l1_and_r1_stay_slots_picture_keys() {
++    let _g = core_lock();
++    let Some(dylib) = supergrafx() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut session = real_seat::play(root.path(), true);
++    let input = |s: &Session| s.emu().expect("no core").input().0;
++    assert_eq!(session.app().taken_buttons(), [Btn::L1, Btn::R1]);
++    session.feed([RawEvent::Down(Btn::L1)], 5000);
++    assert_eq!(input(&session), 0);
++}
+diff --git a/crates/slot/tests/sgx_then_gba.rs b/crates/slot/tests/sgx_then_gba.rs
+new file mode 100644
+index 0000000..0126b80
+--- /dev/null
++++ b/crates/slot/tests/sgx_then_gba.rs
+@@ -0,0 +1,161 @@
++mod common;
++mod core_common;
++mod real_seat;
++mod sgx_common;
++mod tg16_common;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use sgx_common::{card, supergrafx};
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(20);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn booted(pce: &Path, mgba: &Path) -> Rig {
++        let roms = tempfile::tempdir().expect("tempdir");
++        let rom = card(roms.path(), "Aaa", "sgx");
++        let root = real_seat::rooted(Platform::Sgx, "Aaa", &rom, pce);
++        std::fs::write(root.path().join(slot::sgx_pad::SGX_FILE), "pad = 6\n").expect("sgx.txt");
++        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
++        std::os::unix::fs::symlink(
++            std::fs::canonicalize(mgba).expect("core path"),
++            root.path().join("System").join(dylib_name(Core::Mgba)),
++        )
++        .expect("link core");
++        let mut sink = StubSink::draining();
++        sink.open(32_768).expect("the stub refused to open");
++        Rig {
++            session: Session::boot_with(root.path().to_path_buf(), Box::new(sink)),
++            root,
++            now: 0,
++        }
++    }
++
++    fn playing(&mut self, what: &str) {
++        self.until(what, |s| {
++            matches!(s.app().phase(), Phase::Playing { .. }) && s.frames_published() >= 10
++        });
++    }
++
++    fn gba(after_sgx: bool) -> Option<Rig> {
++        let pce = supergrafx()?;
++        let mgba = core_common::require_core("mgba")?;
++        let mut r = Rig::booted(&pce, &mgba);
++        if after_sgx {
++            r.tap(Btn::R1);
++            r.tap(Btn::A);
++            r.playing("the supergrafx card to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Sgx);
++            assert!(r.session.app().taken_buttons().is_empty(), "six buttons");
++            r.feed(RawEvent::Down(Btn::Menu));
++            r.until("the eject", |s| !s.has_core());
++            r.feed(RawEvent::Up(Btn::Menu));
++            r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++            r.tap(Btn::L1);
++        }
++        r.tap(Btn::A);
++        r.playing("the gba cart to seat");
++        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
++        Some(r)
++    }
++
++    fn input(&mut self) -> Vec<u16> {
++        let mut seen = vec![u16::from(
++            self.session.emu().expect("core").passes_through(),
++        )];
++        for btn in [
++            Btn::A,
++            Btn::B,
++            Btn::X,
++            Btn::Y,
++            Btn::L1,
++            Btn::R1,
++            Btn::L2,
++            Btn::R2,
++        ] {
++            self.feed(RawEvent::Down(btn));
++            seen.push(self.pad());
++            self.feed(RawEvent::Up(btn));
++            seen.push(self.pad());
++        }
++        self.feed(RawEvent::Down(Btn::Select));
++        self.feed(RawEvent::Down(Btn::X));
++        seen.push(self.pad() & ButtonMask::X);
++        self.feed(RawEvent::Up(Btn::X));
++        self.feed(RawEvent::Up(Btn::Select));
++        seen.push(u16::from(
++            self.root.path().join("Config/video_mode.txt").exists(),
++        ));
++        seen
++    }
++
++    fn picture(&self) -> ([f32; 4], u32, usize) {
++        let emu = self.session.emu().expect("core");
++        let frame = emu.latest_frame().expect("nothing was published").len();
++        (self.session.app().source_rect(), emu.frame_width(), frame)
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_six_button_supergrafx_game_gets_the_same_input_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(mut alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.input();
++    drop(alone);
++    let mut after = Rig::gba(true).expect("cores");
++    assert_eq!(after.input(), want);
++}
++
++#[test]
++fn a_gba_game_after_a_supergrafx_game_gets_the_same_picture_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.picture();
++    assert_eq!(want.2, 240 * 160 * 4);
++    drop(alone);
++    let after = Rig::gba(true).expect("cores");
++    assert_eq!(after.picture(), want);
++}
