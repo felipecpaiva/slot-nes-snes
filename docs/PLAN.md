@@ -586,7 +586,7 @@ Anaglyph 3D with the preset off: the left eye alone in the palette colour. Patch
 Tracking issue 183, children 184 to 193, ADR 0099. One core, FinalBurn Neo (`fbneo`) pinned at `2dbbac7`
 with only the Neo Geo and CPS drivers built, three shelves `Games/NEOGEO`, `Games/CPS1` and `Games/CPS2`
 for the board's romset zips (FBNeo 1.0.0.03 sets), the Neo Geo BIOS checked, never shipped. CPS3 is out.
-Patches 0110 to 0116 on upstream main 1b20432.
+Patches 0110 to 0116 and 0118 on upstream main 1b20432.
 
 | Step | Issue | Content |
 |---|---|---|
@@ -599,7 +599,8 @@ Patches 0110 to 0116 on upstream main 1b20432.
 | 7 | 188, done (0114) | `BIOS/neogeo.zip` checked by CRC before a Neo Geo set starts |
 | 8 | 189, 190, 191, done (0115) | Real-session seats, NVRAM at session end, resume per board |
 | 9 | 192, done (0116) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
-| 10 | 193 | Device gate |
+| 10 | done (0118) | The set table indexed once; a 20,000-file scan guard (boot regression found on the device) |
+| 11 | 193 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)
 

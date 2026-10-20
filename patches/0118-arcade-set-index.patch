@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 21:25:20 +0400
+Subject: [PATCH] arcade-set-index
+
+---
+ crates/slot-store/src/arcade.rs      | 51 ++++++++++++++++-------
+ crates/slot-store/tests/scan_time.rs | 62 ++++++++++++++++++++++++++++
+ 2 files changed, 97 insertions(+), 16 deletions(-)
+ create mode 100644 crates/slot-store/tests/scan_time.rs
+
+diff --git a/crates/slot-store/src/arcade.rs b/crates/slot-store/src/arcade.rs
+index 6b53595..5565172 100644
+--- a/crates/slot-store/src/arcade.rs
++++ b/crates/slot-store/src/arcade.rs
+@@ -1,4 +1,6 @@
++use std::collections::HashMap;
+ use std::path::Path;
++use std::sync::OnceLock;
+ 
+ use crate::platform::Platform;
+ use crate::scan::Cart;
+@@ -16,25 +18,42 @@ pub struct Set {
+     pub vertical: bool,
+ }
+ 
+-pub fn set(platform: Platform, stem: &str) -> Option<Set> {
+-    SETS.lines().find_map(|line| {
+-        let mut cols = line.split('\t');
+-        let (board, name, parent, flags, title) = (
+-            cols.next()?,
+-            cols.next()?,
+-            cols.next()?,
+-            cols.next()?,
+-            cols.next()?,
+-        );
+-        (board == platform.dir_name() && name.eq_ignore_ascii_case(stem)).then_some(Set {
+-            name,
+-            parent: (parent != "-").then_some(parent),
+-            title,
+-            vertical: flags.contains('v'),
+-        })
++/// The set table, parsed once and keyed by board and lowercase set name. A scan asks for every
++/// file on every shelf, so a walk of the table per file is what a card of 20,000 games cannot afford.
++fn index() -> &'static HashMap<(&'static str, String), Set> {
++    static INDEX: OnceLock<HashMap<(&'static str, String), Set>> = OnceLock::new();
++    INDEX.get_or_init(|| {
++        SETS.lines()
++            .filter_map(|line| {
++                let mut cols = line.split('\t');
++                let (board, name, parent, flags, title) = (
++                    cols.next()?,
++                    cols.next()?,
++                    cols.next()?,
++                    cols.next()?,
++                    cols.next()?,
++                );
++                let set = Set {
++                    name,
++                    parent: (parent != "-").then_some(parent),
++                    title,
++                    vertical: flags.contains('v'),
++                };
++                Some(((board, name.to_ascii_lowercase()), set))
++            })
++            .collect()
+     })
+ }
+ 
++pub fn set(platform: Platform, stem: &str) -> Option<Set> {
++    if !platform.is_arcade() {
++        return None;
++    }
++    index()
++        .get(&(platform.dir_name(), stem.to_ascii_lowercase()))
++        .copied()
++}
++
+ pub fn admits(platform: Platform, rom: &Path) -> bool {
+     let stem = rom.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+     if set(platform, stem).is_some() {
+diff --git a/crates/slot-store/tests/scan_time.rs b/crates/slot-store/tests/scan_time.rs
+new file mode 100644
+index 0000000..cb97622
+--- /dev/null
++++ b/crates/slot-store/tests/scan_time.rs
+@@ -0,0 +1,62 @@
++// A card with tens of thousands of games must still scan in a blink. The arcade set table once
++// cost a linear walk of every FBNeo set per scanned file on every shelf: 0.5 s became 14 s on the
++// device. This guard scans 20,000 files across the shelves and fails long before that comes back.
++use std::time::Instant;
++
++use slot_store::{scan, Platform};
++
++const FILES: usize = 20_000;
++
++fn card() -> tempfile::TempDir {
++    let d = tempfile::tempdir().unwrap();
++    let shelves: [(Platform, &str); 10] = [
++        (Platform::Gba, "gba"),
++        (Platform::Nes, "nes"),
++        (Platform::Snes, "sfc"),
++        (Platform::Md, "md"),
++        (Platform::Gg, "gg"),
++        (Platform::Sms, "sms"),
++        (Platform::Tg16, "pce"),
++        (Platform::A2600, "a26"),
++        (Platform::Vb, "vb"),
++        (Platform::Cps2, "zip"),
++    ];
++    for (platform, _) in shelves {
++        std::fs::create_dir_all(d.path().join("Games").join(platform.dir_name())).unwrap();
++    }
++    for i in 0..FILES {
++        let (platform, ext) = shelves[i % shelves.len()];
++        let stem = if platform == Platform::Cps2 && i == 9 {
++            "ddtod".to_string()
++        } else {
++            format!("Game {i:05} (USA)")
++        };
++        let dir = d.path().join("Games").join(platform.dir_name());
++        let _ = std::fs::write(dir.join(format!("{stem}.{ext}")), b"PK\x05\x06");
++    }
++    d
++}
++
++#[test]
++fn twenty_thousand_games_scan_in_well_under_a_second() {
++    let d = card();
++    scan(d.path()).unwrap();
++    let t = Instant::now();
++    let carts = scan(d.path()).unwrap();
++    let took = t.elapsed();
++    eprintln!("scan of {FILES} files: {took:?}");
++    assert!(carts.len() > FILES * 8 / 10, "scanned {}", carts.len());
++    assert!(
++        carts
++            .iter()
++            .any(|c| c.platform == Platform::Cps2
++                && c.shelf_name().starts_with("Dungeons & Dragons")),
++        "an arcade set still takes its full title"
++    );
++    // ponytail: wall-clock bound, generous for a debug build on a loaded CI runner; the regression it
++    // guards was more than 20x slower than this bound on the host.
++    assert!(
++        took.as_millis() < 1500,
++        "scan of {FILES} files took {took:?}"
++    );
++}

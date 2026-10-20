@@ -148,7 +148,7 @@ Neo Geo and CPS1/CPS2 set to hold 59.18 or 59.63 fps on the H700; the device gat
 
 ## Consequences
 
-- Seven patches, 0110 to 0116. Nothing touches GBA, GB or GBC; the harness compare stays at 0 diffs.
+- Seven patches, 0110 to 0116, and the set index fix 0118. Nothing touches GBA, GB or GBC; the harness compare stays at 0 diffs.
 - Upstream test sites take three tokens each, after the Virtual Boy's: (b) `| Platform::NeoGeo | Platform::Cps1 |
   Platform::Cps2`, (e) `| Core::Fbneo`, (g) `, "Neo Geo", "CPS1", "CPS2"`, (h) `, QuickRow::ScreenNeoGeo,
   QuickRow::ScreenCps1, QuickRow::ScreenCps2`, by the standing rule.
@@ -161,6 +161,11 @@ Neo Geo and CPS1/CPS2 set to hold 59.18 or 59.63 fps on the H700; the device gat
   `arcade-adds.tsv`, is 200 games in 3.53 GB (Neo Geo 140, CPS1 25, CPS2 35); 31 groups are left out
   (`arcade-adds-left-out.tsv`), among them kod, forgottn, mercs, avsp, progear and 1944, owned only
   incomplete or only as a Japanese clone.
+- The set table is parsed once into a map keyed by board and set name, and a non-arcade shelf never
+  looks in it (patch 0118). The first version walked all 1,540 rows for every scanned file on every
+  shelf: on a card of about 20,000 games the device boot went from 0.48 s to 14.4 s before the scan
+  returned. `slot-store/tests/scan_time.rs` scans 20,000 files and fails above 1.5 s (host: 1.42 s
+  release and 7.5 s debug before, 22 ms and 70 ms after).
 - On an FBNeo pin bump: run `task arcade:sets:check`, re-read `locate_archive`, `SetRotation` and the
   default input map, recheck the libm symbols (`task core:device:fbneo` fails otherwise), and recount
   the licence classes in LICENSING.md.
