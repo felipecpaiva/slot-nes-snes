@@ -7,23 +7,50 @@ General gains a Shelf Order row (Classic, Release Year) between Game
 Titles and CPU, saved as `order = release-year` in Config/shelf_order.txt
 the way the CPU row saves cpu.txt (ADR 0100). The new order applies at
 once: the shelves are sorted again and the shelf that was selected stays
-selected, its faces with it. Upstream slot-ui/tests/quick_menu.rs gains
-the "Shelf Order" label line in the General labels, named site (k),
-approved by the maintainer on 2026-10-20.
+selected, its faces with it. The Settings > Screen page lists the
+systems in the same order, read from the same list (ShelfOrder::platforms
+through screen_row), held per thread in slot_ui::screen_page;
+QuickRow::SCREEN keeps the classic order, so site (g) is unchanged.
+Upstream slot-ui/tests/quick_menu.rs gains the "Shelf Order" label line
+in the General labels, named site (k), approved by the maintainer on
+2026-10-20.
 ---
- crates/slot-ui/src/quick_menu.rs     |  17 +++-
+ crates/slot-ui/src/lib.rs            |   2 +
+ crates/slot-ui/src/quick_menu.rs     |  25 +++-
  crates/slot-ui/src/quick_retro.rs    |   2 +
+ crates/slot-ui/src/screen_order.rs   |  23 +++
  crates/slot-ui/tests/quick_menu.rs   |   1 +
  crates/slot-ui/tests/retro_faces.rs  |   8 +-
- crates/slot/src/app.rs               |  11 ++-
- crates/slot/src/app/shelf_order.rs   |  36 +++++--
- crates/slot/src/shelf_order.rs       |  25 +++++
- crates/slot/tests/shelf_order_row.rs | 141 +++++++++++++++++++++++++++
- 8 files changed, 229 insertions(+), 12 deletions(-)
+ crates/slot/src/app.rs               |  11 +-
+ crates/slot/src/app/shelf_order.rs   |  37 ++++-
+ crates/slot/src/shelf_order.rs       |  65 ++++++++
+ crates/slot/tests/shelf_order_row.rs | 215 +++++++++++++++++++++++++++
+ 10 files changed, 373 insertions(+), 16 deletions(-)
+ create mode 100644 crates/slot-ui/src/screen_order.rs
  create mode 100644 crates/slot/tests/shelf_order_row.rs
 
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 4c989e6..8dc26e7 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -36,6 +36,7 @@ mod retro_face;
+ mod retro_mould;
+ mod retro_shadows;
+ mod retro_shell;
++mod screen_order;
+ mod shelf;
+ mod shell;
+ mod silhouette;
+@@ -84,6 +85,7 @@ pub use link_art::{
+     PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
+ };
+ pub use lynx_toast::LynxToast;
++pub use screen_order::{screen_page, set_screen_page};
+ pub use plate::{
+     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints,
+     hint_coloured, hint_face, hint_quad, hint_row, hint_width, title_face, title_line_face,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index a525fcf..56424b6 100644
+index a525fcf..e7ba0f0 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
 @@ -159,10 +159,11 @@ pub enum QuickRow {
@@ -62,6 +89,15 @@ index a525fcf..56424b6 100644
          QuickRow::Cpu,
          QuickRow::LidOff,
          QuickRow::DateTime,
+@@ -471,7 +474,7 @@ impl QuickRow {
+             | QuickRow::ScreenVb
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+-            | QuickRow::ScreenCps2 => &QuickRow::SCREEN,
++            | QuickRow::ScreenCps2 => crate::screen_page(),
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
 @@ -496,7 +499,8 @@ impl QuickRow {
              | QuickRow::Recents
              | QuickRow::ShowTitles
@@ -72,6 +108,24 @@ index a525fcf..56424b6 100644
              QuickRow::ControlsShelf | QuickRow::Shortcuts | QuickRow::ControlsInGame => {
                  &QuickRow::CONTROL_PAGES
              }
+@@ -653,7 +657,7 @@ impl QuickRow {
+             &QuickRow::MAIN[..],
+             &QuickRow::PLAY,
+             &QuickRow::SETTINGS,
+-            &QuickRow::SCREEN,
++            crate::screen_page(),
+             &QuickRow::CONTROL_PAGES,
+         ]
+         .contains(&self.page())
+@@ -661,7 +665,7 @@ impl QuickRow {
+ 
+     pub fn child(self) -> Option<QuickRow> {
+         match self {
+-            QuickRow::Screen => Some(QuickRow::SCREEN[0]),
++            QuickRow::Screen => crate::screen_page().first().copied(),
+             QuickRow::Game => Some(QuickRow::GAME[0]),
+             QuickRow::Settings => Some(QuickRow::SETTINGS[0]),
+             QuickRow::PlayScreen => Some(QuickRow::PLAY_SCREEN[0]),
 @@ -842,6 +846,7 @@ impl QuickRow {
              | QuickRow::A7800PalSpeed => "PAL Speed",
              QuickRow::SmsRegion => "Region",
@@ -107,6 +161,15 @@ index a525fcf..56424b6 100644
          }
      }
  
+@@ -1623,7 +1634,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
+         &QuickRow::CONTROLS[..],
+         &QuickRow::SHORTCUTS,
+         &QuickRow::GENERAL,
+-        &QuickRow::SCREEN,
++        crate::screen_page(),
+     ]
+     .contains(&page)
+ }
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 index 08e471b..b85aa21 100644
 --- a/crates/slot-ui/src/quick_retro.rs
@@ -120,6 +183,35 @@ index 08e471b..b85aa21 100644
              ])
              .collect()
      }
+diff --git a/crates/slot-ui/src/screen_order.rs b/crates/slot-ui/src/screen_order.rs
+new file mode 100644
+index 0000000..46fdd3b
+--- /dev/null
++++ b/crates/slot-ui/src/screen_order.rs
+@@ -0,0 +1,23 @@
++use std::cell::Cell;
++
++use crate::QuickRow;
++
++thread_local! {
++    static SCREEN_PAGE: Cell<&'static [QuickRow]> = const { Cell::new(&QuickRow::SCREEN) };
++}
++
++pub fn screen_page() -> &'static [QuickRow] {
++    SCREEN_PAGE.with(Cell::get)
++}
++
++pub fn set_screen_page(rows: &'static [QuickRow]) {
++    let same_rows =
++        rows.len() == QuickRow::SCREEN.len() && QuickRow::SCREEN.iter().all(|r| rows.contains(r));
++    if !same_rows {
++        eprintln!(
++            "slot: screen order: ignoring a Screen page that is not the Screen rows reordered"
++        );
++        return;
++    }
++    SCREEN_PAGE.with(|p| p.set(rows));
++}
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
 index d442be4..d47895c 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
@@ -230,10 +322,10 @@ index d8460ce..4381119 100644
              | QuickRow::Tg16Picture
              | QuickRow::NgpPicture
 diff --git a/crates/slot/src/app/shelf_order.rs b/crates/slot/src/app/shelf_order.rs
-index 7d86fb0..4c92460 100644
+index 7d86fb0..cd249c9 100644
 --- a/crates/slot/src/app/shelf_order.rs
 +++ b/crates/slot/src/app/shelf_order.rs
-@@ -1,10 +1,37 @@
+@@ -1,10 +1,38 @@
 +use std::path::Path;
 +
  use crate::shelf_order::ShelfOrder;
@@ -269,11 +361,12 @@ index 7d86fb0..4c92460 100644
 +    }
 +
 +    fn arrange_shelves(&mut self) {
++        slot_ui::set_screen_page(self.shelf_order.screen_rows());
 +        let platforms = self.shelf_order.platforms();
          self.shelves.sort_by_key(|(rack, _)| match rack {
              Rack::Recents => 0,
              Rack::Favorites => 1,
-@@ -15,10 +42,5 @@ impl App {
+@@ -15,10 +43,5 @@ impl App {
                      .unwrap_or(platforms.len())
              }
          });
@@ -285,20 +378,21 @@ index 7d86fb0..4c92460 100644
      }
  }
 diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
-index 850f95c..144d0c8 100644
+index 850f95c..264be97 100644
 --- a/crates/slot/src/shelf_order.rs
 +++ b/crates/slot/src/shelf_order.rs
-@@ -1,6 +1,9 @@
+@@ -1,6 +1,10 @@
  use std::path::Path;
++use std::sync::OnceLock;
  
  use slot_store::{ini, Platform};
-+use slot_ui::QuickValue;
++use slot_ui::{QuickRow, QuickValue};
 +
 +use crate::card_log::CardWrites;
  
  pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
  
-@@ -46,6 +49,28 @@ impl ShelfOrder {
+@@ -46,6 +50,42 @@ impl ShelfOrder {
          }
      }
  
@@ -324,22 +418,65 @@ index 850f95c..144d0c8 100644
 +        writes.wrote("shelf_order.txt", &written);
 +    }
 +
++    pub fn screen_rows(self) -> &'static [QuickRow] {
++        static RELEASE_YEAR: OnceLock<Vec<QuickRow>> = OnceLock::new();
++        match self {
++            ShelfOrder::Classic => &QuickRow::SCREEN,
++            ShelfOrder::ReleaseYear => RELEASE_YEAR.get_or_init(|| {
++                ShelfOrder::ReleaseYear
++                    .platforms()
++                    .into_iter()
++                    .map(screen_row)
++                    .collect()
++            }),
++        }
++    }
++
      pub fn read(root: &Path) -> ShelfOrder {
          let Some(line) = ini::value(root, SHELF_ORDER_FILE, KEY) else {
              return ShelfOrder::Classic;
+@@ -81,3 +121,28 @@ pub fn released(platform: Platform) -> Option<(u16, u8, u8)> {
+     }
+     found
+ }
++
++pub fn screen_row(platform: Platform) -> QuickRow {
++    match platform {
++        Platform::Gba => QuickRow::ScreenGba,
++        Platform::Gb => QuickRow::ScreenGb,
++        Platform::Gbc => QuickRow::ScreenGbc,
++        Platform::Nes => QuickRow::ScreenNes,
++        Platform::Snes => QuickRow::ScreenSnes,
++        Platform::Gg => QuickRow::ScreenGg,
++        Platform::Sms => QuickRow::ScreenSms,
++        Platform::Md => QuickRow::ScreenMd,
++        Platform::Ps1 => QuickRow::ScreenPs1,
++        Platform::Tg16 => QuickRow::ScreenTg16,
++        Platform::Ws => QuickRow::ScreenWs,
++        Platform::Lynx => QuickRow::ScreenLynx,
++        Platform::Ngp => QuickRow::ScreenNgp,
++        Platform::S32x => QuickRow::ScreenS32x,
++        Platform::A2600 => QuickRow::ScreenA2600,
++        Platform::A7800 => QuickRow::ScreenA7800,
++        Platform::Vb => QuickRow::ScreenVb,
++        Platform::NeoGeo => QuickRow::ScreenNeoGeo,
++        Platform::Cps1 => QuickRow::ScreenCps1,
++        Platform::Cps2 => QuickRow::ScreenCps2,
++    }
++}
 diff --git a/crates/slot/tests/shelf_order_row.rs b/crates/slot/tests/shelf_order_row.rs
 new file mode 100644
-index 0000000..24dcbfb
+index 0000000..ae696f7
 --- /dev/null
 +++ b/crates/slot/tests/shelf_order_row.rs
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,215 @@
 +mod common;
 +
 +use std::path::Path;
 +
 +use common::tmp_root_with_carts;
 +use slot::app::App;
-+use slot::shelf_order::{ShelfOrder, SHELF_ORDER_FILE};
++use slot::shelf_order::{screen_row, ShelfOrder, SHELF_ORDER_FILE};
 +use slot_input::{Action, Btn};
 +use slot_store::{write_slot_state, Platform, SlotState};
 +use slot_ui::{QuickRow, QuickValue};
@@ -473,4 +610,78 @@ index 0000000..24dcbfb
 +    assert_eq!(a.shelf_platform_name(), Some(Platform::Snes.name()));
 +    press(&mut a, Btn::R1);
 +    assert_eq!(a.shelf_platform_name(), Some(Platform::Gg.name()));
++}
++
++fn screen_page_walk(a: &mut App) -> Vec<QuickRow> {
++    a.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&a.hidden_rows()) {
++        press(a, Btn::Down);
++    }
++    press(a, Btn::A);
++    let first = a.quick_menu().expect("on the Screen page");
++    let mut rows = vec![first];
++    loop {
++        press(a, Btn::Down);
++        let row = a.quick_menu().expect("still on the Screen page");
++        if row == first {
++            break;
++        }
++        rows.push(row);
++    }
++    while a.quick_menu().is_some() {
++        press(a, Btn::B);
++    }
++    rows
++}
++
++#[test]
++fn the_screen_rows_in_release_year_are_the_shelf_order_platforms() {
++    let rows: Vec<QuickRow> = ShelfOrder::ReleaseYear
++        .platforms()
++        .into_iter()
++        .map(screen_row)
++        .collect();
++    assert_eq!(ShelfOrder::ReleaseYear.screen_rows(), rows);
++    assert_eq!(ShelfOrder::Classic.screen_rows(), QuickRow::SCREEN);
++}
++
++#[test]
++fn the_screen_page_lists_the_systems_in_the_classic_order_by_default() {
++    let d = card();
++    let mut a = boot(d.path());
++    assert_eq!(
++        screen_page_walk(&mut a),
++        [
++            QuickRow::ScreenGba,
++            QuickRow::ScreenGbc,
++            QuickRow::ScreenGb,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes,
++            QuickRow::ScreenGg,
++            QuickRow::ScreenPs1,
++            QuickRow::ScreenS32x,
++        ]
++    );
++}
++
++#[test]
++fn release_year_reorders_the_screen_page_at_once_and_after_a_reboot() {
++    let d = card();
++    let mut a = boot(d.path());
++    flip_shelf_order(&mut a);
++    let want = [
++        QuickRow::ScreenNes,
++        QuickRow::ScreenGb,
++        QuickRow::ScreenGg,
++        QuickRow::ScreenSnes,
++        QuickRow::ScreenS32x,
++        QuickRow::ScreenPs1,
++        QuickRow::ScreenGbc,
++        QuickRow::ScreenGba,
++    ];
++    assert_eq!(screen_page_walk(&mut a), want);
++    let mut a = boot(d.path());
++    assert_eq!(screen_page_walk(&mut a), want);
++    flip_shelf_order(&mut a);
++    assert_eq!(screen_page_walk(&mut a)[0], QuickRow::ScreenGba);
 +}

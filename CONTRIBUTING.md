@@ -44,6 +44,8 @@ code as possible, and prove GBA did not change.**
      position 3) or find their row with `position` (`slot/tests/recents.rs`, `show_titles.rs`,
      `clock.rs`, `render_quick_menu.rs`, `quick_menu.rs`), so a row below Game Titles moves none. The guard removes exactly that line, then the CPU line, before comparing, and
      accepts the file without either.
+     The Screen page following the shelf order (ADR 0100) needs no site: `QuickRow::SCREEN`, which
+     site (g) pins, keeps the classic order, and the page reads `slot_ui::screen_page()`.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must

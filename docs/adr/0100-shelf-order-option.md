@@ -1,6 +1,6 @@
 # 0100. Offer a Shelf order option: Classic by default, or the systems by first release date
 
-- Status: Accepted. Settings row added 2026-10-20 (site (k), patch 0118)
+- Status: Accepted. Settings row added and the Screen list made to follow the order on 2026-10-20 (site (k), patch 0118)
 - Date: 2026-10-20
 - Deciders: maintainer (Felipe Paiva)
 - Related: patches `patches/0117-shelf-order.patch` and `patches/0118-shelf-order-row.patch`, [ADR 0025](0025-shelf-memory.md), [ADR 0049](0049-per-shelf-cart-memory.md), [ADR 0085](0085-cpu-governor-user-option.md), [ADR 0048](0048-nes-snes-in-the-screen-platform-list.md)
@@ -56,10 +56,21 @@ selection and faces; a cart face still being built for an old position is droppe
 `shelf_restock::face_fits` (ADR 0073) and asked for again; and the remembered shelf is keyed by
 name. The rest-write cache (`rested`) is cleared so the next rest writes the seat again.
 
-### The Screen platform list stays fixed
+### The Screen platform list follows the shelf order (amended 2026-10-20)
 
-Settings > Screen lists one section per system in `QuickRow::SCREEN`, which is a pinned shape
-(CONTRIBUTING section 3) whose exact order is site (g). It keeps its order in both shelf orders.
+First shipped fixed. The maintainer then asked for Settings > Screen to list the systems in the
+same order as the shelves. It reads the same list: `ShelfOrder::screen_rows` maps
+`ShelfOrder::platforms()` through `screen_row` (an exhaustive match, one Screen row per platform),
+and `App::arrange_shelves` hands it to slot-ui with `slot_ui::set_screen_page` every time it sorts
+the shelves, at boot and on a row flip. `QuickRow::page`, `centred`, `child` and the scroll check
+read `slot_ui::screen_page()` instead of `QuickRow::SCREEN`.
+
+`QuickRow::SCREEN` itself keeps the classic order, so site (g) and every upstream test that reads
+it stay as they are, and no new site is needed for this part (the maintainer had approved one if
+it were). The page is held per thread (`thread_local`, default `QuickRow::SCREEN`): the menu is
+built, walked and drawn on the thread that owns `App`, and tests that run in parallel threads each
+keep their own. `set_screen_page` refuses (and logs) a list that is not the Screen rows reordered.
+Systems without carts are still hidden from the page, in either order.
 
 ### The dates
 
@@ -98,7 +109,9 @@ The order matches the one the maintainer gave.
 - A player sets the option in Settings > General > Shelf Order, or by writing the file.
 - `crates/slot/tests/shelf_order_row.rs`: the row's place, Classic on a fresh card, Right saving
   `order = release-year` and a reboot keeping it, the order applying at once with the same shelf
-  selected, and flipping back to Classic.
+  selected, and flipping back to Classic; the Screen page in the classic order by default and in
+  Release year at once and after a reboot, and the Release year Screen rows equal to the shelf
+  order's platforms.
 - `crates/slot/tests/shelf_order.rs`: both orders through R1 from Recents and back, L1 backwards,
   a remembered Virtual Boy shelf coming back in Release year with Game Boy Color after it, an
   unknown word read as Classic, and one release row per shelf platform.
