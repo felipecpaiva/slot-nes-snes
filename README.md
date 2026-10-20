@@ -193,6 +193,12 @@ python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --
 sudo python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --systems PS1 --yes
 ```
 
+On macOS the tool runs one `diskutil partitionDisk -noEFI` for the table and the exFAT partition,
+zeroes p1 and reads it back. It prints `ok:` for each step it ran; if one fails it says whether the
+card was touched yet. A card left half done is not for the device: run the tool again with the label
+it now shows (`diskutil list`). Take the card out and put it back first after a failed run, so macOS
+reads its table again.
+
 Then copy the games into `Games/PS1/` on `EXPANSION` (run `dot_clean -m /Volumes/EXPANSION` after a
 Finder copy) and list the moved systems in `Config/expansion.txt` on the main card, one folder name
 per line. `#` starts a comment:

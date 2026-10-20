@@ -6,15 +6,15 @@ that slot binds under Games/ on the main card at launch (System/expansion.sh, AD
     sudo python3 tools/expansion-card.py --disk disk4 --size 255869321216 --label MuOs --yes  # erases disk4
 
 Layout (GPT):
-  p1  16 MiB at 1 MiB, type Linux reserved, every byte zero (1 MiB to 19 MiB of the disk is zeroed before the
-      new table is written, so nothing an old table left there can be mounted, even for a moment). BaseOS rcS mounts TF2 p1 as the main card when
-      it mounts as vfat, exfat or `-t auto` (after one fsck.fat -a), so p1 must hold no filesystem at all.
-      Zero bytes carry no superblock for any filesystem the kernel knows, and fsck.fat refuses a zero boot
-      sector without writing.
-  p2  the rest, exFAT labelled EXPANSION, with Games/<SYS>/ for each --systems entry.
+  p1  16 MiB at 1 MiB, type Linux reserved, every byte zero (written as zeros after the table, then read back).
+      BaseOS rcS mounts TF2 p1 as the main card when it mounts as vfat, exfat or `-t auto` (after one
+      fsck.fat -a), so p1 must hold no filesystem at all. Zero bytes carry no superblock for any filesystem
+      the kernel knows, and fsck.fat refuses a zero boot sector without writing.
+  p2  the rest, from 17 MiB, exFAT labelled EXPANSION, with Games/<SYS>/ for each --systems entry.
 
-Never `diskutil partitionDisk ... GPT`: it puts a 200 MiB FAT32 EFI partition first, which would become TF2 p1
-and the main card. The macOS plan uses gpt(8) so the table holds exactly the two partitions above.
+macOS: one `diskutil partitionDisk -noEFI` writes the table and formats p2. -noEFI matters: without it a GPT
+gets a 200 MiB FAT32 EFI partition first, which would become TF2 p1 and the main card. gpt(8) cannot be used:
+since macOS 27 it only runs `show`, every write verb fails "operation not permitted", root or not.
 
 Refuses unless --disk is a whole removable disk (never the system disk), --size is its exact size in bytes and
 --label is the name of a volume on it now. Without --yes it only prints the commands.
@@ -30,10 +30,13 @@ import sys
 MIB = 1 << 20
 P1_START, P1_SIZE = 1 * MIB, 16 * MIB
 P2_START = P1_START + P1_SIZE
-ZEROED = P1_SIZE + 2 * MIB
+ZEROED = P1_SIZE + 2 * MIB  # Linux: p1 and the head of p2, before the table
 P1_TYPE = "8DA63339-0007-60C0-C436-083AC8230908"
 P2_TYPE = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
 LABEL = "EXPANSION"
+BEFORE = "nothing was erased yet: the card is as it was."
+AFTER = ("the card is erased but not finished: do not put it in the device. "
+         f"Run the tool again with --label {LABEL} (or the label it now shows) to redo it.")
 
 
 class Refuse(Exception):
@@ -121,18 +124,17 @@ def part(disk, n, raw=False):
     return f"/dev/{'r' if raw else ''}{disk}s{n}"
 
 
-def mac_plan(disk, block, systems, mnt):
-    s = lambda b: str(b // block)
+def mac_plan(disk, systems, mnt):
+    # Sizes in S (512-byte sectors, whatever the device block). The leading gap is counted from sector 0,
+    # so p1 lands at 1 MiB; layout_ok checks that diskutil kept it there.
     return [
         ["diskutil", "unmountDisk", "force", disk],
-        ["gpt", "destroy", disk],
-        ["dd", "if=/dev/zero", f"of=/dev/r{disk}", "bs=1m", f"seek={P1_START // MIB}", f"count={ZEROED // MIB}"],
-        ["gpt", "create", "-f", disk],
-        ["gpt", "add", "-b", s(P1_START), "-s", s(P1_SIZE), "-t", P1_TYPE, disk],
-        ["gpt", "add", "-b", s(P2_START), "-t", P2_TYPE, disk],
+        ["diskutil", "partitionDisk", "-noEFI", disk, "3", "GPT",
+         "Free Space", "gap", f"{P1_START // 512}S",
+         f"%{P1_TYPE}%", "%noformat%", f"{P1_SIZE // 512}S",
+         "ExFAT", LABEL, "R"],
         ["diskutil", "unmountDisk", "force", disk],
-        ["newfs_exfat", "-R", "-v", LABEL, part(disk, 2, raw=True)],
-        ["diskutil", "unmount", part(disk, 2)],
+        ["dd", "if=/dev/zero", f"of={part(disk, 1, raw=True)}", "bs=1m", f"count={P1_SIZE // MIB}"],
         ["diskutil", "mount", "-mountPoint", mnt, part(disk, 2)],
         ["mkdir", "-p"] + [f"{mnt}/Games/{x}" for x in systems],
         ["diskutil", "unmount", part(disk, 2)],
@@ -199,7 +201,7 @@ def main(argv=None, sh=run, system=platform.system):
         print(f"expansion-card: {e}", file=sys.stderr)
         return 2
     mnt = "/tmp/slot-expansion"
-    plan = mac_plan(args.disk, d["block"], systems, mnt) if mac else linux_plan(args.disk, systems, mnt, d["mounted"])
+    plan = mac_plan(args.disk, systems, mnt) if mac else linux_plan(args.disk, systems, mnt, d["mounted"])
     print(f"{args.disk}: {args.size} bytes, volumes {', '.join(d['labels'])}. Everything on it will be erased.")
     for step in plan:
         print("  " + (show(step[:2]) + " <<<\n    " + step[2].replace("\n", "\n    ") if step[0] == "sfdisk" else show(step)))
@@ -208,16 +210,20 @@ def main(argv=None, sh=run, system=platform.system):
         print("dry run: nothing written. Add --yes to erase the disk.")
         return 0
     os.makedirs(mnt, exist_ok=True)
+    erased = False
     for step in plan:
+        erased = erased or step[:2] in (["diskutil", "partitionDisk"], ["wipefs", "-a"])
         rc, out = sh(step[:2], step[2]) if step[0] == "sfdisk" else sh(step)
-        if rc != 0 and step[:2] not in (["gpt", "destroy"], ["diskutil", "unmount"]):
+        if rc != 0 and step[:2] != ["diskutil", "unmount"]:
             print(f"expansion-card: {show(step)} failed ({rc}): {out!r:.300}", file=sys.stderr)
+            print("expansion-card: " + (AFTER if erased else BEFORE), file=sys.stderr)
             return 1
+        print(f"ok: {show(step[:2]) if step[0] == 'sfdisk' else show(step)}")
     if not layout_ok(args.disk, d["block"], sh):
-        print("expansion-card: the partition table is not exactly p1 at 1 MiB and p2 at 17 MiB", file=sys.stderr)
+        print("expansion-card: the partition table is not exactly p1 at 1 MiB and p2 at 17 MiB. " + AFTER, file=sys.stderr)
         return 1
     if not p1_is_zero(part(args.disk, 1, raw=True)):
-        print("expansion-card: p1 is not all zero, BaseOS could mount it as the main card", file=sys.stderr)
+        print("expansion-card: p1 is not all zero, BaseOS could mount it as the main card. " + AFTER, file=sys.stderr)
         return 1
     print(f"done: p1 checked all zero, p2 is exFAT {LABEL} with " + ", ".join(f"Games/{x}" for x in systems))
     return 0
