@@ -286,6 +286,45 @@ interpreter number; the device is the first place the dynarec runs.
 | Star Wars Arcade | | | | | | | heavy, polygons |
 | Knuckles' Chaotix | | | | | | | 2D platformer |
 
+## Expansion Card (ADR 0098)
+
+Pending. Needs the RG34XXSP with the Base System card in TF1 and an Expansion Card prepared by
+`tools/expansion-card.py` in TF2, `Games/PS1/` filled on it and `PS1` in `Config/expansion.txt`. Read
+everything over adb (`mise exec -- adb shell ...`).
+
+1. Main card: after boot, `grep -E 'mmcblk|expansion' /proc/mounts` shows `/dev/mmcblk0p7` at
+   `/mnt/sdcard`, `/dev/mmcblk1p2` at `/mnt/expansion` and again at `/mnt/sdcard/Games/PS1`, and no
+   `mmcblk1p1` anywhere. `grep mmcblk1p1 /mnt/sdcard/baseos-boot.log /mnt/sdcard/Logs/*.log` finds
+   nothing mounted from it.
+2. p1 stays empty: `dd if=/dev/mmcblk1p1 bs=1M count=16 2>/dev/null | od -An -tx1 | sort -u` prints a
+   single line of zeros, also after a reboot (the boot-time `fsck.fat -a` must not have written it).
+3. Session log: `grep expansion: /mnt/sdcard/Logs/slot-session.log` shows the exFAT mount and
+   `Games/PS1 now comes from the expansion card` before the `exec` line.
+4. Shelf: the PlayStation shelf lists the Expansion Card's games; a disc boots, a multi-disc game
+   swaps discs, the jewel case and disc label show (labels on the main card).
+5. Saves and states: a memory card save and a save state land in `Saves/PS1` and `States/PS1` on the
+   main card (`ls -l /mnt/sdcard/Saves/PS1`), not on the Expansion Card.
+6. Respawn: `killall slot`; after the frontend restarts, `/proc/mounts` has each line from step 1
+   once (no second bind) and the log says `Games/PS1 is already on the expansion card`.
+7. Card out: power off, remove TF2, boot. The shelves show the base card only, the session log says
+   `no card at /dev/mmcblk1p2`, boot takes about one second longer, nothing crashes. A PS1 game
+   seated at power off is not resumed. Put the card back and power on: the shelf returns.
+8. Power off with the card in, from the menu and by closing the lid past its timeout. On the next
+   boot `dmesg | grep -i -E 'exfat|fat-fs'` shows no dirty or not-unmounted warning for
+   `mmcblk1p2` or `mmcblk0p7`.
+9. Card repair (Repair in the power menu, "Repair the SD card?") with the card in: it ends `REPAIR COMPLETE`,
+   `/data/slot-repair.log` names only `/dev/mmcblk0p7`, and there is no `could not unmount` line.
+10. USB storage (hold MENU at power on): the Mac sees the Expansion Card (`EXPANSION` plus an
+    unformatted 16 MiB partition, which macOS must not offer to initialise silently; dismiss it).
+    Eject, remove TF2, repeat: the Mac sees the main card.
+11. Tools over adb: `python3 tools/hacks.py --check --device` and
+    `python3 tools/fetch-labels.py --device --library ~/ROMS --only PS1 --dry-run` list the
+    Expansion Card's PS1 games.
+
+| Step | Result | Date | Zip version | Notes |
+|---|---|---|---|---|
+| 1 to 11 | | | | |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

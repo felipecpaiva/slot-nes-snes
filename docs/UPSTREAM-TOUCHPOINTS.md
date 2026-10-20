@@ -7,6 +7,8 @@ the reasons (docs/REBASE.md).
 
 | File | Hunks | Lines changed (+/-) | Patches |
 |---|---|---|---|
+| `card/System/launch_frontend.sh` | 1 | 2 (+2/-0) | 0098-expansion-card |
+| `card/System/repair.sh` | 1 | 3 (+3/-0) | 0098-expansion-card |
 | `crates/slot-gfx/src/fbo.rs` | 1 | 4 (+4/-0) | 0004-canvas |
 | `crates/slot-gfx/src/lcd3x.rs` | 2 | 10 (+9/-1) | 0017-retro-shaders |
 | `crates/slot-gfx/src/lib.rs` | 2 | 4 (+4/-0) | 0056-headless-egl |
@@ -63,6 +65,8 @@ the reasons (docs/REBASE.md).
 
 | File | Key | Upstream lines | +/- | Context | Why |
 |---|---|---|---|---|---|
+| `card/System/launch_frontend.sh` | card/System/launch_frontend.sh#echo "\|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/#L36#5cee396a | 36 | +2/-0 | echo "\|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/ | Runs the new System/expansion.sh before slot starts, so Expansion Card folders are bound under Games/ first (ADR 0098) |
+| `card/System/repair.sh` | card/System/repair.sh#unmount() {#L69#05aa0bb9 | 69 | +3/-0 | unmount() { | Unmounts anything mounted below the card (Expansion Card binds) deepest first, else umount fails busy and the repair runs read-only (ADR 0098) |
 | `crates/slot-gfx/src/fbo.rs` | crates/slot-gfx/src/fbo.rs#impl Compositor {#L138#a8cfa5e8 | 138 | +4/-0 | impl Compositor { | Lets the compositor resize the game texture to the core's canvas |
 | `crates/slot-gfx/src/lcd3x.rs` | crates/slot-gfx/src/lcd3x.rs#pub enum ScreenEffect {#L18#203ad6dd | 18 | +1/-0 | pub enum ScreenEffect { | The one retro hook in ScreenEffect: Retro(n) for the NES and SNES shaders (0020), drawn by pipeline/retro.rs |
 | `crates/slot-gfx/src/lcd3x.rs` | crates/slot-gfx/src/lcd3x.rs#impl ScreenEffect {#L23#05602c18 | 23 | +8/-1 | impl ScreenEffect { | `self as u8` cannot cast an enum with a payload, so mode() lists upstream's values 0 to 4 by hand; Retro gives 0 so the game program draws it plain if the retro program is missing |

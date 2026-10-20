@@ -86,7 +86,7 @@ for g in "$d"/Games/*; do
 done
 
 # System/ holds exactly this set: upstream's dist output plus our core and licence files.
-req="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
+req="bezels/640x480.png bootlogo.bmp coresave.sh expansion.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so"
 for f in $req; do
@@ -96,7 +96,7 @@ mc="$(slot_var MGBA_COMMIT)"
 gc="$(slot_var GPSP_COMMIT)"
 ev="$(slot_var EXFATPROGS_VERSION)"
 [ -n "$mc" ] && [ -n "$gc" ] && [ -n "$ev" ] || bad "no MGBA_COMMIT, GPSP_COMMIT or EXFATPROGS_VERSION in build/slot/taskfile.yml, run task build"
-ok="bezels/640x480.png bootlogo.bmp coresave.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
+ok="bezels/640x480.png bootlogo.bmp coresave.sh expansion.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
 licenses/exfatprogs-GPL-2.0.txt licenses/exfatprogs-$ev.tar.gz
 mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so
