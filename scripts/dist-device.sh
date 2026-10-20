@@ -48,7 +48,7 @@ check_cores() {
 		vendor/picodrive-src.meta licenses/picodrive-LICENSE.txt licenses/picodrive-tremor-BSD.txt \
 		licenses/picodrive-emu2413-MIT.txt licenses/picodrive-headerless-files.txt \
 		vendor/fbneo_libretro.so vendor/fbneo_libretro.so.meta vendor/fbneo-src.tar.gz vendor/fbneo-src.meta \
-		licenses/fbneo-LICENSE.txt licenses/fbneo-MAME-license.txt licenses/fbneo-headerless-files.txt licenses/fbneo-ugui-OFL.txt; do
+		licenses/fbneo-LICENSE.txt licenses/fbneo-MAME-license.txt licenses/fbneo-headerless-files.txt licenses/fbneo-ugui-OFL.txt licenses/fbneo-notices.txt; do
 		[ -f "$root/$f" ] || missing "$f"
 	done
 	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive fbneo; do

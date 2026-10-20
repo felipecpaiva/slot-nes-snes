@@ -119,7 +119,7 @@ licenses/mednafen_ngp_libretro.so.meta licenses/mednafen_ngp-src.meta licenses/m
 licenses/picodrive_libretro.so.meta licenses/picodrive-src.meta licenses/picodrive-src.tar.gz licenses/picodrive-emu2413-src.tar.gz
 licenses/picodrive-dr_libs-src.tar.gz licenses/picodrive-libpicofe-src.tar.gz licenses/picodrive-LICENSE.txt licenses/picodrive-tremor-BSD.txt
 licenses/picodrive-emu2413-MIT.txt licenses/picodrive-headerless-files.txt
-licenses/fbneo_libretro.so.meta licenses/fbneo-src.meta licenses/fbneo-src.tar.gz licenses/fbneo-LICENSE.txt licenses/fbneo-MAME-license.txt licenses/fbneo-headerless-files.txt licenses/fbneo-ugui-OFL.txt"
+licenses/fbneo_libretro.so.meta licenses/fbneo-src.meta licenses/fbneo-src.tar.gz licenses/fbneo-LICENSE.txt licenses/fbneo-MAME-license.txt licenses/fbneo-headerless-files.txt licenses/fbneo-ugui-OFL.txt licenses/fbneo-notices.txt"
 for p in "$root"/build/slot/cores/mgba/*.patch; do ok="$ok licenses/mgba-$(basename "$p")"; done
 for p in "$root"/build/slot/cores/gpsp/*.patch; do ok="$ok licenses/gpsp-$(basename "$p")"; done
 for p in "$root"/patches/*.patch; do ok="$ok licenses/slot-nes-snes-$(basename "$p")"; done
@@ -228,7 +228,7 @@ for core in $cores; do
 	mednafen_lynx) need mednafen_lynx_libretro.so.meta mednafen_lynx-src.tar.gz mednafen_lynx-src.meta mednafen_lynx-GPL-2.0.txt mednafen_lynx-Handy-zlib.txt mednafen_lynx-headerless-files.txt ;;
 	mednafen_ngp) need mednafen_ngp_libretro.so.meta mednafen_ngp-src.tar.gz mednafen_ngp-src.meta mednafen_ngp-GPL-2.0.txt mednafen_ngp-headerless-files.txt ;;
 	picodrive) need picodrive_libretro.so.meta picodrive-src.tar.gz picodrive-emu2413-src.tar.gz picodrive-dr_libs-src.tar.gz picodrive-libpicofe-src.tar.gz picodrive-src.meta picodrive-LICENSE.txt picodrive-tremor-BSD.txt picodrive-emu2413-MIT.txt picodrive-headerless-files.txt ;;
-	fbneo) need fbneo_libretro.so.meta fbneo-src.tar.gz fbneo-src.meta fbneo-LICENSE.txt fbneo-MAME-license.txt fbneo-headerless-files.txt fbneo-ugui-OFL.txt ;;
+	fbneo) need fbneo_libretro.so.meta fbneo-src.tar.gz fbneo-src.meta fbneo-LICENSE.txt fbneo-MAME-license.txt fbneo-headerless-files.txt fbneo-ugui-OFL.txt fbneo-notices.txt ;;
 	*) bad "no file list for core $core in zip-check.sh" ;;
 	esac
 done

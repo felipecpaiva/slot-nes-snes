@@ -124,3 +124,14 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [150](150-s32x-tests.md) | Test the 32X with a generated cart whose SH-2s must answer, and Mega Drive after 32X | 15 | tests | test | S | 144-s32x-core-build |
 | [151](151-s32x-carts.md) | Draw the 32X cart and fetch its labels | 15 | ui-art | feature | M | 145-platform-s32x |
 | [152](152-s32x-device-gate.md) | 32X device gate on the RG34XXSP | 15 | device | chore | S | 147-s32x-screen, 149-s32x-input |
+| [153](153-arcade-tracking.md) | Arcade: Neo Geo, CPS1 and CPS2 on FinalBurn Neo, a shelf per board | 16 | device | tracking | L | 143-s32x-tracking |
+| [154](154-arcade-core-build.md) | Build FinalBurn Neo with only the Neo Geo and CPS drivers from a pinned commit for host and device, and record its licence | 16 | cores | feature | M | 153-arcade-tracking |
+| [155](155-platform-arcade.md) | Add Platform::NeoGeo, Cps1 and Cps2 with a set table, full titles and explicit policy | 16 | platform | feature | M | 154-arcade-core-build |
+| [156](156-arcade-options.md) | Set the FBNeo options: Auto frameskip, no held-Start service menu | 16 | cores | feature | S | 155-platform-arcade |
+| [157](157-arcade-screen.md) | Give each arcade board its own Screen section, and stand vertical games upright | 16 | video | feature | M | 156-arcade-options |
+| [158](158-neogeo-bios.md) | Check BIOS/neogeo.zip before a Neo Geo set starts | 16 | platform | feature | S | 155-platform-arcade |
+| [159](159-arcade-saves.md) | Arcade saves: the board's NVRAM in Saves/fbneo, progress in states | 16 | platform | chore | S | 155-platform-arcade |
+| [160](160-arcade-input.md) | Arcade input: FBNeo's Classic map, L1 and R1 to the game | 16 | input | feature | S | 155-platform-arcade |
+| [161](161-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 16 | tests | test | S | 154-arcade-core-build |
+| [162](162-arcade-carts.md) | Draw the Neo Geo MVS cart and the CPS shelf objects and fetch arcade labels | 16 | ui-art | feature | M | 155-platform-arcade |
+| [163](163-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 16 | device | chore | S | 157-arcade-screen, 160-arcade-input |

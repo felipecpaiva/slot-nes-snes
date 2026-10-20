@@ -24,6 +24,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `picodrive-src.tar.gz`, `picodrive-emu2413-src.tar.gz`, `picodrive-dr_libs-src.tar.gz`,
   `picodrive-libpicofe-src.tar.gz` and `picodrive-src.meta`: PicoDrive and the three submodules its
   build compiles, each the archive `SLOT_PIN` pins (below).
+- `fbneo-src.tar.gz` and `fbneo-src.meta`: the exact FinalBurn Neo source and its sha256 (below).
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
@@ -127,10 +128,12 @@ What follows for users:
 
 Notice text (README "Licences" and the release notes carry it):
 
-> snes9x, snes9x2005_plus, Genesis Plus GX and PicoDrive are licensed for non-commercial use only and
-> are not GPL. This release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
-> System/licenses/snes9x2005-LICENSE.txt, System/licenses/genesis_plus_gx-LICENSE.txt and
-> System/licenses/picodrive-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold.
+> snes9x, snes9x2005_plus, Genesis Plus GX, PicoDrive and FinalBurn Neo are licensed for non-commercial
+> use only and are not GPL. This release includes them, with their licences in
+> System/licenses/snes9x-LICENSE.txt, System/licenses/snes9x2005-LICENSE.txt,
+> System/licenses/genesis_plus_gx-LICENSE.txt, System/licenses/picodrive-LICENSE.txt and
+> System/licenses/fbneo-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold. This
+> project never asks for donations.
 
 ## nestopia
 
@@ -519,6 +522,67 @@ the libretro C ABI, the zip an aggregate of separate works. This is our reading,
 core is plain C and links only `libc` and `libm` on the device (`log` and `pow` bound to their GLIBC_2.17
 versions, ADR 0096). The notice under snes9x names PicoDrive, and the release terms do not change: the
 zip is never sold and never carries a donation or sponsor link.
+
+## FinalBurn Neo (Neo Geo, CPS1 and CPS2)
+
+Checked at commit `2dbbac7623fbae1c7894a6437769e8a3adb78610` of libretro/FBNeo (its master on 2026-10-19),
+the commit `SLOT_PIN` pins as `fbneo_commit`, archive sha256 `fbneo_tarball_sha256`. It is built by
+`cores/fbneo/build.sh` for the Neo Geo, CPS1 and CPS2 shelves (ADR 0097), with only the Neo Geo and CPS
+drivers: `cores/fbneo/Makefile.arcade` includes FBNeo's own `Makefile.neogeo` and `Makefile.cps12` subset
+makefiles together, and the build regenerates FBNeo's driver list for those sources with FBNeo's own
+perl script. That makefile and `cores/fbneo/glibc-2.17.h` are the only build inputs that are not in the
+archive; both are in this repository, so they ship inside `slot-nes-snes-src-<release>.tar.gz`. No
+FBNeo source file is changed. The exact source ships with the core as `fbneo-src.tar.gz`, with
+`fbneo-src.meta` recording its commit and sha256.
+
+FBNeo's licence is `src/license.txt` of that source (the root `LICENSE.md` only points to it), copied
+verbatim and whole to `licenses/fbneo-LICENSE.txt`. It names the MAME licence by URL at MAME commit
+`5cef4e1f91010f0d573bbd662208979fa39e73ec` and says FB Neo is also subject to it; that file,
+`docs/mamelicense.txt` at that commit, is `licenses/fbneo-MAME-license.txt`. Both ship in
+`System/licenses/`, and `scripts/zip-check.sh` requires them.
+
+**FinalBurn Neo is not free software and is not GPL-compatible**, like snes9x, Genesis Plus GX and
+PicoDrive. Its terms, quoted from `src/license.txt`:
+
+- "You may not sell, lease, rent or otherwise seek to gain monetary profit from FB Neo;"
+- "You must make public any changes you make to the source code;" We change none, and the makefile
+  that picks the drivers is public in this repository and in every release's source tarball.
+- "You must include, verbatim, the full text of this license;" `licenses/fbneo-LICENSE.txt`.
+- "You may not distribute FB Neo with ROM images unless you have the legal right to distribute them;"
+  No ROM, BIOS or romset is shipped or fetched. Tests use zero-filled zips with the dat's member names.
+- "You may not ask for donations to support your work on any project that uses the FB Neo source code."
+  **This project asks for no donations, anywhere, ever**: no donation, sponsor, Patreon, Ko-fi or
+  PayPal link in the repository, the README, the release notes or the zip, and no `.github/FUNDING.yml`.
+  This is a standing rule (ADR 0097), not only for releases that carry FBNeo.
+
+The MAME licence adds: "Redistributions may not be sold, nor may they be used in a commercial product or
+activity", the complete source for a modified build, and the copyright notice reproduced.
+
+What is compiled into `fbneo_libretro.so` (the 152 sources of the device link line, at the pin):
+
+- 81 have no licence or copyright text in their first 60 lines, listed in
+  `licenses/fbneo-headerless-files.txt` with the command that produced the list. They are FB Neo's own
+  files (the Neo Geo and CPS drivers, the burner and the libretro glue); we treat them as covered by
+  `src/license.txt`, a judgement, not a quote.
+- None says GPL. zstd (`dep/libs/zstd/zstddeclib.c`) is BSD or GPLv2 at the user's choice; we take BSD.
+- The Musashi 68000 core (Karl Stenerud, version 3.32) "may be freely used for non-commercial purpooses
+  as long as this copyright notice remains unaltered in the source code and any binary files containing
+  this code in compiled form": the same non-commercial line as the rest, and the notice is a string the
+  core keeps in the binary. The Z80, Yamaha FM, MSM5205 and MSM6295 cores carry their MAME notices; the
+  licence above covers them.
+- zlib (the zlib licence), the LZMA SDK and lib7z (public domain), libchdr (BSD-3-Clause, Aaron Giles),
+  libretro-common (MIT). The notices whose terms ask to travel with a binary (libchdr, Musashi, zlib,
+  libretro-common) are copied verbatim from the pinned source into `licenses/fbneo-notices.txt`.
+- The µGUI module and its Source Han Sans font (FBNeo's on-screen messages): µGUI's own terms and the
+  SIL Open Font License 1.1, both in `src/burner/libretro/deps/ugui/LICENSE.md`, copied verbatim to
+  `licenses/fbneo-ugui-OFL.txt`, which the binary must carry under the OFL.
+
+The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across the
+libretro C ABI, the zip an aggregate of separate works. This is our reading, not legal advice. On the
+device the core links the C++ runtime statically (`-static-libstdc++ -static-libgcc`) and binds `log` and
+`pow` to their GLIBC_2.17 versions (`cores/fbneo/glibc-2.17.h`), so it needs only `libc`, `libm` and
+`libpthread`. The notice under snes9x names FinalBurn Neo, and the release terms do not change: the zip
+is never sold and never carries a donation or sponsor link.
 
 ## NES and SNES screen shaders
 

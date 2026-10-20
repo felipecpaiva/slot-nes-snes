@@ -2,7 +2,8 @@
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, and NeoGeo Pocket and Pocket Color, beside slot's own
+WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, and the Neo Geo, CPS1
+and CPS2 arcade boards, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -34,6 +35,9 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | WonderSwan, WonderSwan Color | `Games/WS` | `.ws`, `.wsc` | Beetle Cygne | none | device gate pending |
 | Atari Lynx | `Games/Lynx` | `.lnx`, `.lyx` | Beetle Lynx | **required**, your own `lynxboot.img` | device gate pending |
 | NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device gate pending |
+| Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
+| Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
+| Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -48,6 +52,10 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
 - **Atari Lynx:** required. `BIOS/lynxboot.img`, 512 bytes. Without it the cart stays on the shelf
   and slot says "Lynx needs BIOS/lynxboot.img" (a 0-byte placeholder counts as missing). A 512-byte
   file that is not the known dump still launches, with a one-time toast.
+- **Neo Geo:** required. `BIOS/neogeo.zip`, the FinalBurn Neo BIOS set. slot checks that it holds the
+  MVS Asia/Europe ver. 6 BIOS and the three shared files (`sp-s3.sp1` or `asia-s3.rom`, `sm1.sm1`,
+  `sfix.sfix`, `000-lo.lo`, matched by CRC); without them a Neo Geo set stays on the shelf and slot says
+  "Neo Geo needs BIOS/neogeo.zip". CPS1 and CPS2 need none.
 - **Every other new system:** none.
 
 A file whose name starts with `[BIOS]` (a System Card, a boot ROM, any No-Intro or Redump firmware
@@ -86,6 +94,17 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **NeoGeo Pocket and Pocket Color.** One shelf, the 160x152 screen at 3x. The game's saves live in
   the cart's flash, which slot checks before the core reads it and writes atomically at every lid
   close, POWER tap, autosave and eject, in `Saves/NGP/<game>.flash`.
+- **Neo Geo, CPS1 and CPS2** run on FinalBurn Neo, one shelf per board. The zip is the romset, named
+  as the set (`mslug.zip`, `ffight.zip`, `ssf2t.zip`), for the pinned FinalBurn Neo (dat 1.0.0.03):
+  a zip that is not a set of that board is left off the shelf, and an older MAME set may lack a file
+  (FinalBurn Neo then shows which one). The shelf shows each game's full title. SELECT is Coin and START
+  is Start. Neo Geo A, B, C, D are on B, A, Y, X; the six-button CPS games have the punches on Y, X, L1
+  and the kicks on B, A, R1 (FinalBurn Neo's own Street Fighter layout), so L1 and R1 belong to the game
+  and the picture toggle is SELECT+X. Vertical games (1941, Varth, 19XX...) stand upright in the
+  middle of the screen; the CPS Vertical Games row turns them sideways at full size, with the D-pad
+  turned for a handheld held with its right edge up. The board's own settings and high scores
+  (`Saves/fbneo/`) are written when the game closes; progress mid-game is in save states. CPS3 is not
+  included.
 
 ### The Screen page
 
@@ -94,12 +113,13 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X) |
+| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
 | Refresh | WonderSwan | 60 Hz, 75 Hz |
 | Speed | Lynx | Native, Panel |
+| Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.
@@ -271,10 +291,12 @@ GPL-3.0-or-later, nestopia and pcsx_rearmed are GPL-2.0-or-later, and the Beetle
 Cygne, Lynx, NeoPop) are Mednafen's GPL code. Every release carries the complete corresponding
 source in `System/licenses/`.
 
-> snes9x, snes9x2005_plus, Genesis Plus GX and PicoDrive are licensed for non-commercial use only and
-> are not GPL. This release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
-> System/licenses/snes9x2005-LICENSE.txt, System/licenses/genesis_plus_gx-LICENSE.txt and
-> System/licenses/picodrive-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold.
+> snes9x, snes9x2005_plus, Genesis Plus GX, PicoDrive and FinalBurn Neo are licensed for non-commercial
+> use only and are not GPL. This release includes them, with their licences in
+> System/licenses/snes9x-LICENSE.txt, System/licenses/snes9x2005-LICENSE.txt,
+> System/licenses/genesis_plus_gx-LICENSE.txt, System/licenses/picodrive-LICENSE.txt and
+> System/licenses/fbneo-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold. This
+> project never asks for donations.
 
 Each core is loaded at run time across the libretro C ABI and is a separate program; the zip is an
 aggregate of separate works, each under its own licence. That is our reading, not legal advice.

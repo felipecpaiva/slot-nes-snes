@@ -286,6 +286,34 @@ interpreter number; the device is the first place the dynarec runs.
 | Star Wars Arcade | | | | | | | heavy, polygons |
 | Knuckles' Chaotix | | | | | | | 2D platformer |
 
+## Neo Geo, CPS1 and CPS2 (issue 163, ADR 0097)
+
+Pending. Put `neogeo.zip` in `BIOS/` and the sets in their shelves (`docs/rom-library/best-copy/arcade-adds.tsv`
+lists the device copy). Host numbers are 0.21 to 0.30 ms a frame on the M5 Max; the device sets the bar.
+
+1. Speed: `task bench:device CORE=fbneo ROM_ON_DEVICE=/mnt/sdcard/Games/<BOARD>/<set>.zip ARGS="--frames 3000
+   --warmup 600 --repeats 3 --system /mnt/sdcard/BIOS"` for mslug (Neo Geo), ffight or dino (CPS1, dino has
+   QSound) and ddtod (CPS2); record the medians.
+2. BIOS: with `BIOS/neogeo.zip` moved away, a Neo Geo set stays on the shelf with "Neo Geo needs
+   BIOS/neogeo.zip"; put back, it boots the MVS Asia/Europe BIOS.
+3. Picture: Stretch fills the panel, SELECT+X walks Actual and 4:3; Neo Geo 304-wide sets (mslug) stretch
+   like the 320-wide ones.
+4. Vertical: 1941 or varth stands upright, 360x480 in the middle; Vertical Games Turned fills the panel
+   sideways and the D-pad moves the plane the right way with the handheld held right edge up.
+5. Controls: SELECT inserts a coin, START starts; Neo Geo A, B, C, D on B, A, Y, X; a CPS2 fighter
+   (ssf2t) has the punches on Y, X, L1 and the kicks on B, A, R1; the service menu never opens on a
+   held START.
+6. Audio: 10 minutes each under `SLOT_TRACE`; no crackle; `starved` and `dropped` stay 0.
+7. States, rewind, resume: save and load a state, rewind, eject and power cycle resume the set.
+8. NVRAM: change a CPS2 game's settings in its own menu, quit, start again: kept (`Saves/fbneo/<set>.nv`).
+
+| Set | Board | bench:device ms/frame | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|
+| mslug | Neo Geo | | | | | 304 wide |
+| dino | CPS1 | | | | | QSound |
+| ddtod | CPS2 | | | | | |
+| 1941 | CPS1 | | | | | vertical, both ways |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

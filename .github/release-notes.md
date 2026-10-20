@@ -5,7 +5,7 @@ the coming 1.8.0. GBA, GB and GBC stay byte-identical to that slot.
 
 ## What is in it
 
-Eleven new shelves beside slot's GBA, GB and GBC, each with its own folder, cores, saves and Screen
+Fourteen new shelves beside slot's GBA, GB and GBC, each with its own folder, cores, saves and Screen
 section:
 
 | Shelf | Folder | Core (pinned commit) | BIOS |
@@ -21,6 +21,9 @@ section:
 | WonderSwan, WonderSwan Color | `Games/WS` | Beetle Cygne `4b01295838ea` | none |
 | Atari Lynx | `Games/Lynx` | Beetle Lynx `fcdefcfb3c11` | **required**, your own `lynxboot.img` |
 | NeoGeo Pocket, Pocket Color | `Games/NGP` | Beetle NeoPop `a50d5ac288a8` | none |
+| Neo Geo (MVS and AES arcade sets) | `Games/NEOGEO` | FinalBurn Neo `2dbbac7623fb` | **required**, your own `neogeo.zip` |
+| Capcom CPS1 | `Games/CPS1` | FinalBurn Neo `2dbbac7623fb` | none |
+| Capcom CPS2 | `Games/CPS2` | FinalBurn Neo `2dbbac7623fb` | none |
 
 Full commits and sha256s are in `SLOT_PIN`. mGBA and gpSP are slot's own, unchanged.
 
@@ -57,8 +60,10 @@ release to slot's tracker. Open them at https://github.com/felipecpaiva/slot-nes
 2. Copy the contents of that folder (`System/`, `BIOS/`, `Config/`, `Games/` and the rest) onto the
    root of the SD card, merging with what is there.
 3. Put games in their folders: `Games/NES`, `Games/SNES`, `Games/SMS`, `Games/GG`, `Games/MD`,
-   `Games/32X`, `Games/PS1`, `Games/TG16`, `Games/WS`, `Games/Lynx` and `Games/NGP`. Zip ROMs are
-   not supported. Put BIOS files in `BIOS/`.
+   `Games/32X`, `Games/PS1`, `Games/TG16`, `Games/WS`, `Games/Lynx`, `Games/NGP`, `Games/NEOGEO`,
+   `Games/CPS1` and `Games/CPS2`. Zip ROMs are not supported, except on the three arcade shelves, where
+   the zip is the romset (FinalBurn Neo 1.0.0.03 sets, named as the set, for example `mslug.zip`). Put
+   BIOS files in `BIOS/`, the Neo Geo one as `BIOS/neogeo.zip`.
 4. Boot the device.
 
 ## Update
@@ -69,13 +74,18 @@ release to slot's tracker. Open them at https://github.com/felipecpaiva/slot-nes
 
 ## Known limits
 
-- Device gate still open for Sega 32X, TurboGrafx-16, WonderSwan, Atari Lynx and NeoGeo Pocket:
+- Device gate still open for Neo Geo, CPS1, CPS2, Sega 32X, TurboGrafx-16, WonderSwan, Atari Lynx and NeoGeo Pocket:
   they pass their host tests and run on the device, but the full speed and audio gate has not been
   run. Mega Drive is a provisional go until its heavy-title gate passes.
 - Sega 32X: the polygon games (Virtua Racing Deluxe, Star Wars Arcade, Virtua Fighter) may sit near
   the frame budget. If one misses frames, set Renderer to Fast, then Sound Rate to 22 kHz, in the
   32X Screen section. A 32X game left in `Games/MD` does not run there: move it to `Games/32X`.
 - Atari Lynx needs `BIOS/lynxboot.img` (512 bytes) and keeps progress in save states only (no EEPROM).
+- Arcade (Neo Geo, CPS1, CPS2): device gate not run yet. Sets must match FinalBurn Neo 1.0.0.03 (the
+  pinned dat); an older MAME set may lack a file and FBNeo then shows which one. The board's own
+  settings and high scores are written when the game is closed; progress mid-game is in save states.
+  Vertical CPS games (1941, 19XX, Varth...) stand upright in the middle of the screen by default; the
+  Vertical Games row turns them sideways at full size. CPS3 is not included.
 - PlayStation: no rewind, and L3 and R3 are not mapped.
 - SNES hi-res frames are blended 2:1. No colour correction on the new systems.
 - Settings keyed only by file name collide if the same name exists on two systems.
