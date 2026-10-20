@@ -1,0 +1,144 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:46:18 +0400
+Subject: [PATCH] arcade-tests
+
+Arcade sets through a real session on FBNeo, with zero-filled sets: a
+CPS1 set seats and draws on the 432x288 canvas, a CPS2 set needs no BIOS
+and its EEPROM reaches Saves/fbneo/<set>.nv when the session ends, a Neo
+Geo set with the BIOS draws on the 360x240 canvas, and a vertical set
+seats upright on 576x384 and shows the whole canvas. A remembered arcade
+set resumes on its own shelf and never as a NES cart with the same name.
+---
+ crates/slot/tests/arcade_seat.rs | 122 +++++++++++++++++++++++++++++++
+ 1 file changed, 122 insertions(+)
+ create mode 100644 crates/slot/tests/arcade_seat.rs
+
+diff --git a/crates/slot/tests/arcade_seat.rs b/crates/slot/tests/arcade_seat.rs
+new file mode 100644
+index 0000000..b6ea248
+--- /dev/null
++++ b/crates/slot/tests/arcade_seat.rs
+@@ -0,0 +1,122 @@
++// Arcade sets through a real session on FBNeo (ADR 0097), with the zero-filled sets of arcade_common.
++mod arcade_common;
++mod common;
++mod core_common;
++mod real_seat;
++
++use arcade_common::{
++    fbneo, install, install_neogeo_bios, Set, NINETEEN_FORTY_ONE, QAD, SPF2T, VLINER,
++};
++use common::core_lock;
++use slot::app::{App, Phase};
++use slot_store::{read_slot_state, write_slot_state, Core, Platform};
++
++fn seat(
++    set: &Set,
++    platform: Platform,
++    bios: bool,
++) -> Option<(tempfile::TempDir, slot::session::Session)> {
++    let dylib = fbneo()?;
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = install(carts.path(), set);
++    let root = real_seat::rooted(platform, set.name, &rom, &dylib);
++    install(root.path(), set);
++    if bios {
++        install_neogeo_bios(root.path());
++    }
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++#[test]
++fn a_cps1_set_seats_on_fbneo_and_draws_its_board_on_the_432_by_288_canvas() {
++    let _g = core_lock();
++    let Some((_root, session)) = seat(&QAD, Platform::Cps1, false) else {
++        return;
++    };
++    assert_eq!(session.app().core(), Core::Fbneo);
++    assert_eq!(session.app().playing_platform(), Platform::Cps1);
++    let frame = session
++        .emu()
++        .expect("no core")
++        .latest_frame()
++        .expect("no frame");
++    assert_eq!(frame.len(), 432 * 288 * 4);
++}
++
++#[test]
++fn a_cps2_set_seats_with_no_bios_and_its_eeprom_lands_in_saves_fbneo_when_the_session_ends() {
++    let _g = core_lock();
++    let Some((root, session)) = seat(&SPF2T, Platform::Cps2, false) else {
++        return;
++    };
++    assert_eq!(session.app().playing_platform(), Platform::Cps2);
++    drop(session);
++    assert!(root.path().join("Saves/fbneo/spf2t.nv").is_file());
++}
++
++#[test]
++fn a_neo_geo_set_seats_with_the_bios_on_the_mega_drive_canvas() {
++    let _g = core_lock();
++    let Some((_root, session)) = seat(&VLINER, Platform::NeoGeo, true) else {
++        return;
++    };
++    assert_eq!(session.app().playing_platform(), Platform::NeoGeo);
++    let frame = session
++        .emu()
++        .expect("no core")
++        .latest_frame()
++        .expect("no frame");
++    assert_eq!(frame.len(), 360 * 240 * 4);
++}
++
++#[test]
++fn a_vertical_set_seats_upright_and_shows_its_whole_canvas() {
++    let _g = core_lock();
++    let Some((_root, session)) = seat(&NINETEEN_FORTY_ONE, Platform::Cps1, false) else {
++        return;
++    };
++    assert!(session.app().vertical());
++    assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
++    assert_eq!(session.app().picture_rect(), [0.25, 0.0, 0.75, 1.0]);
++    let frame = session
++        .emu()
++        .expect("no core")
++        .latest_frame()
++        .expect("no frame");
++    assert_eq!(frame.len(), 576 * 384 * 4);
++}
++
++#[test]
++fn a_remembered_arcade_set_resumes_on_its_own_shelf_and_never_as_a_nes_cart() {
++    for (platform, set) in [
++        (Platform::NeoGeo, "mslug"),
++        (Platform::Cps1, "ffight"),
++        (Platform::Cps2, "ddtod"),
++    ] {
++        let root = common::tmp_root_with_real_carts(&[]);
++        install_neogeo_bios(root.path());
++        let mut nes = b"NES\x1a\x02\x01".to_vec();
++        nes.resize(16 + 0x8000 + 0x2000, 0);
++        std::fs::write(root.path().join(format!("Games/NES/{set}.nes")), nes).unwrap();
++        std::fs::write(
++            root.path()
++                .join(format!("Games/{}/{set}.zip", platform.dir_name())),
++            b"PK\x05\x06",
++        )
++        .unwrap();
++        for remembered in [platform, Platform::Nes] {
++            let mut state = read_slot_state(root.path());
++            state.cart = Some(set.into());
++            state.cart_platform = Some(remembered);
++            state.clock_set = true;
++            write_slot_state(root.path(), &state).unwrap();
++            let app = App::boot(root.path());
++            assert!(
++                matches!(app.phase(), Phase::Inserting { .. }),
++                "{remembered:?}"
++            );
++            assert_eq!(app.seated_cart().map(|c| c.platform), Some(remembered));
++        }
++    }
++}

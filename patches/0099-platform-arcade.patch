@@ -1,0 +1,3318 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:18:26 +0400
+Subject: [PATCH] platform-arcade
+
+Neo Geo, CPS1 and CPS2 get a shelf each, Games/NEOGEO, Games/CPS1 and
+Games/CPS2, on FinalBurn Neo (fbneo) alone. Platform::NeoGeo, Cps1 and
+Cps2 are appended to SHELVES and Core::Fbneo to EVERY; upstream's ALL
+lists stay as they are. A shelf lists .zip files, and the zip is the
+romset FBNeo loads by path: it lists only when its name is a set of that
+board in the pinned core, from slot_store::arcade's table
+(arcade_sets.tsv, written by tools/arcade-sets.py from the pinned
+source's driver structs). A zip that is not, the BIOS set neogeo.zip and
+the Neo Geo system drivers included, is logged and left off.
+
+The table also gives each set its full title, parent and orientation.
+The title names the cart, sorts the shelf and drives the letter jumps
+(Cart::shelf_name), so mslug.zip reads "Metal Slug - Super Vehicle-001";
+the stem stays the set name, since FBNeo picks the driver from it.
+
+Every policy method answers the arcade platforms explicitly and like
+Mega Drive: L1 and R1 belong to the game (six-button CPS fighters), X
+and Y pass through, no core picker, no crop, Stretch by default with a
+4:3 choice, rewind on, the retro shader list. Neo Geo draws 320 or 304
+wide on the 360x240 canvas and follows the frame width; CPS draws 384x224
+on a 432x288 canvas, since a frame wider than its canvas would be
+halved. A vertical arcade set drawn upright gets a 3:2 canvas as tall as
+its long side. Shaders are kept in Config/neogeo_shader.txt,
+cps1_shader.txt and cps2_shader.txt. Saves, States and Labels get the
+three folders at boot. The shelves show the 32X cart until the arcade
+shells land.
+---
+ crates/slot-store/src/arcade.rs              |  113 ++
+ crates/slot-store/src/arcade_sets.tsv        | 1540 ++++++++++++++++++
+ crates/slot-store/src/bindings.rs            |    5 +-
+ crates/slot-store/src/core.rs                |   77 +-
+ crates/slot-store/src/core_policy.rs         |   37 +-
+ crates/slot-store/src/lib.rs                 |    6 +-
+ crates/slot-store/src/platform.rs            |   12 +
+ crates/slot-store/src/platform_policy.rs     |  111 +-
+ crates/slot-store/src/scan.rs                |    6 +-
+ crates/slot-store/src/sega_shader.rs         |   23 +-
+ crates/slot-store/tests/arcade_platform.rs   |  195 +++
+ crates/slot-store/tests/core_pairs.rs        |    4 +-
+ crates/slot-store/tests/md_platform.rs       |    5 +-
+ crates/slot-store/tests/s32x_platform.rs     |    8 +-
+ crates/slot-store/tests/sega_shader_state.rs |    3 +
+ crates/slot-store/tests/wswan_platform.rs    |    5 +-
+ crates/slot-ui/src/cart.rs                   |   15 +-
+ crates/slot-ui/src/retro_cart.rs             |    9 +-
+ crates/slot-ui/src/shelf.rs                  |   10 +-
+ crates/slot-ui/src/shell.rs                  |    5 +-
+ crates/slot-ui/tests/chrome.rs               |    2 +-
+ crates/slot/src/app.rs                       |   50 +-
+ crates/slot/src/core.rs                      |    3 +-
+ crates/slot/src/core_options_policy.rs       |   10 +-
+ crates/slot/src/platform_video.rs            |   16 +-
+ crates/slot/src/retro_quick.rs               |    6 +-
+ crates/slot/src/root.rs                      |   14 +-
+ crates/slot/src/snes_input.rs                |    5 +-
+ crates/slot/src/ws_input.rs                  |    5 +-
+ crates/slot/tests/crop_overscan.rs           |    7 +-
+ crates/slot/tests/four_three.rs              |    9 +-
+ crates/slot/tests/gpsp.rs                    |    2 +-
+ crates/slot/tests/snes_select.rs             |    4 +-
+ crates/slot/tests/system_picture.rs          |    7 +-
+ 34 files changed, 2245 insertions(+), 84 deletions(-)
+ create mode 100644 crates/slot-store/src/arcade.rs
+ create mode 100644 crates/slot-store/src/arcade_sets.tsv
+ create mode 100644 crates/slot-store/tests/arcade_platform.rs
+
+diff --git a/crates/slot-store/src/arcade.rs b/crates/slot-store/src/arcade.rs
+new file mode 100644
+index 0000000..6b53595
+--- /dev/null
++++ b/crates/slot-store/src/arcade.rs
+@@ -0,0 +1,113 @@
++use std::path::Path;
++
++use crate::platform::Platform;
++use crate::scan::Cart;
++
++const SETS: &str = include_str!("arcade_sets.tsv");
++
++pub const NEOGEO_BIOS_FILE: &str = "neogeo.zip";
++pub const NEOGEO_BIOS_CRCS: [u32; 4] = [0x91b6_4be3, 0x9441_6d67, 0xc2ea_0cfd, 0x5a86_cff2];
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub struct Set {
++    pub name: &'static str,
++    pub parent: Option<&'static str>,
++    pub title: &'static str,
++    pub vertical: bool,
++}
++
++pub fn set(platform: Platform, stem: &str) -> Option<Set> {
++    SETS.lines().find_map(|line| {
++        let mut cols = line.split('\t');
++        let (board, name, parent, flags, title) = (
++            cols.next()?,
++            cols.next()?,
++            cols.next()?,
++            cols.next()?,
++            cols.next()?,
++        );
++        (board == platform.dir_name() && name.eq_ignore_ascii_case(stem)).then_some(Set {
++            name,
++            parent: (parent != "-").then_some(parent),
++            title,
++            vertical: flags.contains('v'),
++        })
++    })
++}
++
++pub fn admits(platform: Platform, rom: &Path) -> bool {
++    let stem = rom.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
++    if set(platform, stem).is_some() {
++        return true;
++    }
++    eprintln!(
++        "slot: scan: {}: not a {} set FBNeo runs, left off the shelf",
++        rom.display(),
++        platform.dir_name()
++    );
++    false
++}
++
++pub fn title(platform: Platform, stem: &str) -> String {
++    set(platform, stem).map_or_else(String::new, |s| s.title.to_string())
++}
++
++pub fn vertical(platform: Platform, stem: &str) -> bool {
++    set(platform, stem).is_some_and(|s| s.vertical)
++}
++
++pub fn zip_crcs(bytes: &[u8]) -> Option<Vec<u32>> {
++    let le16 = |at: usize| -> Option<usize> {
++        Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?) as usize)
++    };
++    let le32 = |at: usize| -> Option<u32> {
++        Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
++    };
++    let end = (0..bytes.len().saturating_sub(21))
++        .rev()
++        .take(0x10000 + 22)
++        .find(|&at| le32(at) == Some(0x0605_4b50))?;
++    let count = le16(end + 10)?;
++    let mut at = le32(end + 16)? as usize;
++    let mut crcs = Vec::with_capacity(count);
++    for _ in 0..count {
++        if le32(at)? != 0x0201_4b50 {
++            return None;
++        }
++        crcs.push(le32(at + 16)?);
++        at += 46 + le16(at + 28)? + le16(at + 30)? + le16(at + 32)?;
++    }
++    Some(crcs)
++}
++
++pub fn has_neogeo_bios(bios_dir: &Path) -> bool {
++    let Ok(bytes) = std::fs::read(bios_dir.join(NEOGEO_BIOS_FILE)) else {
++        return false;
++    };
++    let Some(crcs) = zip_crcs(&bytes) else {
++        eprintln!("slot: neogeo: BIOS/{NEOGEO_BIOS_FILE} is not a zip slot can read");
++        return false;
++    };
++    let missing: Vec<String> = NEOGEO_BIOS_CRCS
++        .iter()
++        .filter(|c| !crcs.contains(c))
++        .map(|c| format!("{c:08x}"))
++        .collect();
++    if !missing.is_empty() {
++        eprintln!(
++            "slot: neogeo: BIOS/{NEOGEO_BIOS_FILE} lacks crc32 {}",
++            missing.join(" ")
++        );
++    }
++    missing.is_empty()
++}
++
++impl Cart {
++    pub fn shelf_name(&self) -> &str {
++        if self.platform.is_arcade() && !self.title.is_empty() {
++            &self.title
++        } else {
++            &self.stem
++        }
++    }
++}
+diff --git a/crates/slot-store/src/arcade_sets.tsv b/crates/slot-store/src/arcade_sets.tsv
+new file mode 100644
+index 0000000..42c8bf1
+--- /dev/null
++++ b/crates/slot-store/src/arcade_sets.tsv
+@@ -0,0 +1,1540 @@
++CPS1	1941	-	v	1941: Counter Attack (World 900227)
++CPS1	1941j	1941	vc	1941: Counter Attack (Japan)
++CPS1	1941r1	1941	vc	1941: Counter Attack (World)
++CPS1	1941u	1941	vc	1941: Counter Attack (USA 900227)
++CPS1	3wonders	-	-	Three Wonders (World 910520)
++CPS1	3wondersb	3wonders	cb	Three Wonders (bootleg)
++CPS1	3wondersh	3wonders	cb	Three Wonders (hack, set 1)
++CPS1	3wondersha	3wonders	cb	Three Wonders (hack, set 2)
++CPS1	3wondersr1	3wonders	c	Three Wonders (World 910513)
++CPS1	3wondersu	3wonders	c	Three Wonders (USA 910520)
++CPS1	area88	unsquad	c	Area 88 (Japan)
++CPS1	area88r	unsquad	c	Area 88 (Japan Resale Ver.)
++CPS1	captc1v4	captcomm	ch	Captain Commando (1v4, Hack)
++CPS1	captcm2y	captcomm	ch	Captain Commando (Master, Hack)
++CPS1	captcmcr	captcomm	ch	Captain Commando (CR7 Elite, Hack)
++CPS1	captcmdw	captcomm	ch	Captain Commando (Warriors, Hack)
++CPS1	captcmjy	captcomm	ch	Captain Commando (Elite Competition, Hack)
++CPS1	captcmjyb	captcomm	ch	Captain Commando (Elite Competition ver B, Hack)
++CPS1	captcmmy	captcomm	ch	Captain Commando (Incubus, Hack)
++CPS1	captcmsc	captcomm	ch	Captain Commando (Switchable Character, Hack)
++CPS1	captcmsh	captcomm	ch	Captain Commando (Contest, Hack)
++CPS1	captcmwx	captcomm	ch	Captain Commando (Infinite Bullets, Hack)
++CPS1	captcmzs	captcomm	ch	Captain Commando (God of War, Hack)
++CPS1	captcmzt	captcomm	ch	Captain Commando (Journey, Hack)
++CPS1	captcomm	-	-	Captain Commando (World 911202)
++CPS1	captcommb	captcomm	cb	Captain Commando (bootleg)
++CPS1	captcommb2	captcomm	cbw	Captain Commando (bootleg with 2xMSM5205)
++CPS1	captcommb3	captcomm	cb	Captain Commando (bootleg with YM2151 + 2xMSM5205)
++CPS1	captcommj	captcomm	c	Captain Commando (Japan 911202)
++CPS1	captcommjr1	captcomm	c	Captain Commando (Japan 910928)
++CPS1	captcommr1	captcomm	c	Captain Commando (World 911014)
++CPS1	captcommu	captcomm	c	Captain Commando (USA 910928)
++CPS1	captre	captcomm	ch	Captain Commando Readjusted (Hack, v1.2)
++CPS1	cawing	-	-	Carrier Air Wing (World 901012)
++CPS1	cawingb2	cawing	cb	Carrier Air Wing (bootleg with 2xYM2203 + 2xMSM5205, set 2)
++CPS1	cawingbl	cawing	cb	Carrier Air Wing (bootleg with 2xYM2203 + 2xMSM5205, set 1)
++CPS1	cawingj	cawing	c	U.S. Navy (Japan 901012)
++CPS1	cawingjr	cawing	c	U.S. Navy (Japan Resale Ver. 901130)
++CPS1	cawingr1	cawing	c	Carrier Air Wing (World 901009)
++CPS1	cawingu	cawing	c	Carrier Air Wing (USA 901130)
++CPS1	cawingur1	cawing	c	Carrier Air Wing (USA 901012)
++CPS1	chikij	mtwins	c	Chiki Chiki Boys (Japan 900619)
++CPS1	cps1demo	-	d	Chaos Demo (CPS-1)
++CPS1	cps1frog	-	d	Frog Feast (CPS-1)
++CPS1	cworld2j	-	-	Adventure Quiz Capcom World 2 (Japan 920611)
++CPS1	cworld2ja	cworld2j	c	Adventure Quiz Capcom World 2 (Japan 920611, B-Board 90629B-3, no battery)
++CPS1	cworld2jb	cworld2j	c	Adventure Quiz Capcom World 2 (Japan 920611, B-Board 91634B-2)
++CPS1	daimakai	ghouls	c	Daimakaimura (Japan)
++CPS1	daimakaib	ghouls	cb	Daimakaimura (bootleg)
++CPS1	daimakaiknight	ghouls	ch	Daimakaimura - Knight Artoria Edition (Japan)
++CPS1	daimakaimaiden	ghouls	ch	Daimakaimura - Maiden Artoria Edition (Japan)
++CPS1	daimakair	ghouls	c	Daimakaimura (Japan Resale Ver.)
++CPS1	dino	-	-	Cadillacs and Dinosaurs (World 930201)
++CPS1	dino1v3	dino	ch	Cadillacs and Dinosaurs (1v3, Hack)
++CPS1	dino3j	dino	ch	Cadillacs: Kyouryuu Shin Seiki (Three Prohibitions, Hack)
++CPS1	dinoa	dino	c	Cadillacs and Dinosaurs (Asia TW 930223)
++CPS1	dinods	dino	ch	Cadillacs and Dinosaurs (God of War, Hack)
++CPS1	dinodw	dino	ch	Cadillacs and Dinosaurs (Warriors, Hack)
++CPS1	dinoeh	dino	ch	Cadillacs and Dinosaurs (hack, World 930201)
++CPS1	dinofw	dino	ch	Cadillacs and Dinosaurs (Framework 2022 Series, Hack)
++CPS1	dinoh	dino	cb	Cadillacs and Dinosaurs (bootleg, Asia TW 930223)
++CPS1	dinohc	dino	cb	Cadillacs and Dinosaurs (Chinese bootleg, Asia TW 930223)
++CPS1	dinohunt	dino	cb	Dinosaur Hunter (Chinese bootleg of Cadillacs and Dinosaurs)
++CPS1	dinoj	dino	c	Cadillacs: Kyouryuu Shin Seiki (Japan 930201)
++CPS1	dinojd	dino	ch	Cadillacs and Dinosaurs (GOTVG 10th Anniversary, Hack)
++CPS1	dinojj	dino	ch	Cadillacs and Dinosaurs (Contest, Hack)
++CPS1	dinokr	dino	ch	Cadillacs and Dinosaurs (Crazy BBQ, Hack)
++CPS1	dinoly	dino	ch	Cadillacs and Dinosaurs (Purgatory, Hack)
++CPS1	dinopic	dino	cb	Cadillacs and Dinosaurs (bootleg with PIC16C57, set 1)
++CPS1	dinopic2	dino	cb	Cadillacs and Dinosaurs (bootleg with PIC16C57, set 2)
++CPS1	dinopic3	dino	cb	Cadillacs and Dinosaurs (bootleg with PIC16C57, set 3)
++CPS1	dinopic4	dino	cb	Cadillacs and Dinosaurs (bootleg with PIC16C57, set 4)
++CPS1	dinopic5	dino	cb	Cadillacs and Dinosaurs (bootleg with PIC16C57, set 5)
++CPS1	dinoplus	dino	ch	Cadillacs and Dinosaurs (Judgement Day, Hack)
++CPS1	dinore	dino	ch	Cadillacs and Dinosaurs Readjusted (Hack, v1.4)
++CPS1	dinosdj	dino	ch	Cadillacs and Dinosaurs (Triassic, Hack)
++CPS1	dinosj	dino	ch	Cadillacs and Dinosaurs (Century, Hack)
++CPS1	dinoss	dino	ch	Cadillacs and Dinosaurs (Competition, Hack)
++CPS1	dinosyn	dino	ch	Cadillacs and Dinosaurs (2020 Commemorative, Hack)
++CPS1	dinot	dino	cb	Cadillacs and Dinosaurs Turbo 97 (bootleg, Asia TW 930223, set 1)
++CPS1	dinotj	dino	ch	Cadillacs and Dinosaurs (General, Hack)
++CPS1	dinotpic	dino	cb	Cadillacs and Dinosaurs Turbo 97 (bootleg, Asia TW 930223, set 2)
++CPS1	dinotw	dino	ch	Cadillacs and Dinosaurs (King, Hack)
++CPS1	dinou	dino	c	Cadillacs and Dinosaurs (USA 930201)
++CPS1	dinowj	dino	ch	Cadillacs and Dinosaurs (Random Enemies, Hack)
++CPS1	dinoxz	dino	ch	Cadillacs and Dinosaurs (Scream, Hack)
++CPS1	dinoyz	dino	ch	Cadillacs and Dinosaurs (Dragon, Hack)
++CPS1	dynwar	-	-	Dynasty Wars (USA, B-Board 89624B-?)
++CPS1	dynwara	dynwar	c	Dynasty Wars (USA, B-Board 88622B-3)
++CPS1	dynwarj	dynwar	c	Tenchi wo Kurau (Japan)
++CPS1	dynwarjr	dynwar	c	Tenchi wo Kurau (Japan Resale Ver.)
++CPS1	fcrash	ffight	cb	Final Crash (bootleg of Final Fight)
++CPS1	ffigh1v2	ffight	ch	Final Fight (1v2, Hack)
++CPS1	ffight	-	-	Final Fight (World, set 1)
++CPS1	ffighta	ffight	c	Final Fight (World, set 2)
++CPS1	ffightae	ffight	ch	Final Fight 30th Anniversary Edition (World, hack)
++CPS1	ffightaemgc	ffight	ch	Final Fight 30th Anniversary Edition (Mad Gear's City Hack)
++CPS1	ffightbl	ffight	cb	Final Fight (bootleg)
++CPS1	ffightbla	ffight	cb	Final Fight (bootleg on Final Crash PCB)
++CPS1	ffightdw	ffight	ch	Final Fight (Warriors, Hack)
++CPS1	ffightfw	ffight	ch	Final Fight (Framework, Hack)
++CPS1	ffightj	ffight	c	Final Fight (Japan)
++CPS1	ffightj1	ffight	c	Final Fight (Japan 900112)
++CPS1	ffightj2	ffight	c	Final Fight (Japan 900305)
++CPS1	ffightj3	ffight	c	Final Fight (Japan 900405)
++CPS1	ffightj4	ffight	c	Final Fight (Japan 900613)
++CPS1	ffightjh	ffight	cb	Street Smart / Final Fight (Japan, hack)
++CPS1	ffightu	ffight	c	Final Fight (USA, set 1)
++CPS1	ffightu1	ffight	c	Final Fight (USA, set 2)
++CPS1	ffightu2	ffight	c	Final Fight (USA, set 3)
++CPS1	ffightua	ffight	c	Final Fight (USA 900112)
++CPS1	ffightub	ffight	c	Final Fight (USA 900424)
++CPS1	ffightuc	ffight	c	Final Fight (USA 900613)
++CPS1	forgottn	-	-	Forgotten Worlds (World, newer)
++CPS1	forgottna	forgottn	c	Forgotten Worlds (World)
++CPS1	forgottnj	forgottn	cp	Forgotten Worlds (Japan) (English prototype)
++CPS1	forgottnu	forgottn	c	Forgotten Worlds (USA, B-Board 88621B-2, Rev. C)
++CPS1	forgottnua	forgottn	c	Forgotten Worlds (USA, B-Board 88618B-2, Rev. A)
++CPS1	forgottnuaa	forgottn	c	Forgotten Worlds (USA, B-Board 88618B-2, Rev. AA)
++CPS1	forgottnuc	forgottn	c	Forgotten Worlds (USA, B-Board 88618B-2, Rev. C)
++CPS1	forgottnue	forgottn	c	Forgotten Worlds (USA, B-Board 88618B-2, Rev. E)
++CPS1	ganbare	-	-	Ganbare! Marine Kun (Japan 2K0411)
++CPS1	ghouls	-	-	Ghouls'n Ghosts (World)
++CPS1	ghoulsknight	ghouls	ch	Ghouls'n Ghosts - Knight Artoria Edition (World)
++CPS1	ghoulsmaiden	ghouls	ch	Ghouls'n Ghosts - Maiden Artoria Edition (World)
++CPS1	ghoulsu	ghouls	c	Ghouls'n Ghosts (USA)
++CPS1	ghoulsuknight	ghouls	ch	Ghouls'n Ghosts - Knight Artoria Edition (USA)
++CPS1	ghoulsumaiden	ghouls	ch	Ghouls'n Ghosts - Maiden Artoria Edition (USA)
++CPS1	gulunpa	-	p	Gulun.Pa! (Japan 931220 L) (prototype)
++CPS1	jurassic99	dino	cb	Jurassic 99 (Cadillacs and Dinosaurs bootleg with EM78P447AP)
++CPS1	knightct	knights	ch	Knights of the Round (Count, Hack)
++CPS1	knights	-	-	Knights of the Round (World 911127)
++CPS1	knightsb	knights	cb	Knights of the Round (bootleg with 2xMSM5205, set 1)
++CPS1	knightsb2	knights	cb	Knights of the Round (bootleg, World 911127)
++CPS1	knightsb3	knights	cbw	Knights of the Round (bootleg with 2xMSM5205, set 2)
++CPS1	knightsb4	knights	cb	Knights of the Round (bootleg with YM2151 + 2xMSM5205)
++CPS1	knightsb5	knights	cb	Knights of the Round (bootleg, Japan 911127)
++CPS1	knightsc	knights	ch	Knights of the Round (hack, Chinese Translation)
++CPS1	knightsh	knights	ch	Knights of the Round (hack)
++CPS1	knightsh2	knights	cb	Knights of the Round (bootleg, World 911127 alt)
++CPS1	knightsj	knights	c	Knights of the Round (Japan 911127, B-Board 91634B-2)
++CPS1	knightsja	knights	c	Knights of the Round (Japan 911127, B-Board 89625B-1)
++CPS1	knightsp	knights	ch	Knights of the Round (Plus, Hack)
++CPS1	knightsu	knights	c	Knights of the Round (USA 911127)
++CPS1	kod	-	-	The King of Dragons (World 910805)
++CPS1	kod1v3	kod	ch	The King of Dragons (1v3, Hack)
++CPS1	kodb	kod	cb	The King of Dragons (bootleg)
++CPS1	kodbs	kod	ch	The King of Dragons (Boss Battle, Hack)
++CPS1	kodda	kod	cb	The King of Dragons (World 910731 Phoenix Edition) (bootleg)
++CPS1	koddw	kod	ch	The King of Dragons (Warriors, Hack)
++CPS1	kodh	kod	ch	The King of Dragons (hack)
++CPS1	kodj	kod	c	The King of Dragons (Japan 910805, B-Board 90629B-3)
++CPS1	kodja	kod	c	The King of Dragons (Japan 910805, B-Board 89625B-1)
++CPS1	kodly	kod	ch	The King of Dragons (Tough Plus, Hack)
++CPS1	kodlys	kod	ch	The King of Dragons (Dragonslayer, Hack)
++CPS1	kodr1	kod	c	The King of Dragons (World 910711)
++CPS1	kodr2	kod	c	The King of Dragons (World 910731)
++CPS1	kodsr	kod	ch	The King of Dragons (Remix Special, Hack)
++CPS1	kodu	kod	c	The King of Dragons (USA 910910)
++CPS1	kodyh	kod	ch	The King of Dragons (Fireworks, Hack)
++CPS1	lostwrld	forgottn	c	Lost Worlds (Japan)
++CPS1	lostwrldo	forgottn	c	Lost Worlds (Japan Old Ver.)
++CPS1	mbomberj	slammast	c	Muscle Bomber: The Body Explosion (Japan 930713)
++CPS1	mbombrd	-	-	Muscle Bomber Duo: Ultimate Team Battle (World 931206)
++CPS1	mbombrdj	mbombrd	c	Muscle Bomber Duo: Heat Up Warriors (Japan 931206)
++CPS1	megaman	-	-	Mega Man: The Power Battle (CPS1, USA 951006)
++CPS1	megamana	megaman	c	Mega Man: The Power Battle (CPS1, Asia 951006)
++CPS1	mercs	-	v	Mercs (World 900302)
++CPS1	mercsc	mercs	vch	Senjo no Ookami II (hack, Chinese Translation)
++CPS1	mercsj	mercs	vc	Senjou no Ookami II (Japan 900302)
++CPS1	mercsu	mercs	vc	Mercs (USA 900608)
++CPS1	mercsur1	mercs	vc	Mercs (USA 900302)
++CPS1	mpumpkin	-	-	Magical Pumpkin: Puroland de Daibouken (Japan 960712)
++CPS1	msword	-	-	Magic Sword: Heroic Fantasy (World 900725)
++CPS1	mswordj	msword	c	Magic Sword: Heroic Fantasy (Japan 900623)
++CPS1	mswordr1	msword	c	Magic Sword: Heroic Fantasy (World 900623)
++CPS1	mswordu	msword	c	Magic Sword: Heroic Fantasy (USA 900725)
++CPS1	mtwins	-	-	Mega Twins (World 900619)
++CPS1	mtwinsb	mtwins	cb	Twins (bootleg of Mega Twins)
++CPS1	nemo	-	-	Nemo (World 901130)
++CPS1	nemoj	nemo	c	Nemo (Japan 901120, 88622B-3 ROM board)
++CPS1	nemoja	nemo	c	Nemo (Japan 901120, 89625B-1 ROM board)
++CPS1	nemor1	nemo	c	Nemo (World 901109)
++CPS1	pang3	-	-	Pang! 3 (Europe 950601)
++CPS1	pang3b	pang3	cb	Pang! 3 (bootleg, set 1)
++CPS1	pang3b2	pang3	cb	Pang! 3 (bootleg, set 2)
++CPS1	pang3b3	pang3	cb	Pang! 3 (bootleg, set 3)
++CPS1	pang3b4	pang3	cb	Pang! 3 (bootleg, set 4)
++CPS1	pang3b5	pang3	cb	Pang! 3 (bootleg, set 5)
++CPS1	pang3b6	pang3	cb	Pang! 3 (bootleg, set 6)
++CPS1	pang3b7	pang3	cb	Pang! 3 (bootleg, set 7)
++CPS1	pang3j	pang3	c	Pang! 3: Kaitou Tachi no Karei na Gogo (Japan 950511)
++CPS1	pang3r1	pang3	c	Pang! 3 (Europe 950511)
++CPS1	pang3r1a	pang3	c	Pang! 3 (Europe 950511, alt)
++CPS1	pnickj	-	-	Pnickies (Japan 940608)
++CPS1	pokonyan	-	-	Pokonyan! Balloon (Japan 940322)
++CPS1	punipic	punisher	cb	The Punisher (bootleg with PIC16C57, set 1)
++CPS1	punipic2	punisher	cb	The Punisher (bootleg with PIC16C57, set 2)
++CPS1	punipic3	punisher	cb	The Punisher (bootleg with PIC16C57, set 3)
++CPS1	punishbs	punisher	ch	The Punisher (1vs2 Match, Hack)
++CPS1	punishdw	punisher	ch	The Punisher (Warriors, Hack)
++CPS1	punisher	-	-	The Punisher (World 930422)
++CPS1	punisherb	punisher	cb	The Punisher (bootleg)
++CPS1	punisherbz	punisher	cb	Biaofeng Zhanjing (Chinese bootleg of The Punisher)
++CPS1	punisherh	punisher	c	The Punisher (Hispanic 930422)
++CPS1	punisherj	punisher	c	The Punisher (Japan 930422)
++CPS1	punisheru	punisher	c	The Punisher (USA 930422)
++CPS1	punishfw	punisher	ch	The Punisher (Framework 2020, Hack)
++CPS1	punishhr	punisher	ch	The Punisher (1vs2 Invincible, Hack)
++CPS1	punishly	punisher	ch	The Punisher (1vs2 Flame, Hack)
++CPS1	punishpf	punisher	ch	The Punisher (1vs2 Perfect, Hack)
++CPS1	qad	-	-	Quiz & Dragons: Capcom Quiz Game (USA 920701)
++CPS1	qadjr	qad	c	Quiz & Dragons: Capcom Quiz Game (Japan Resale Ver. 940921)
++CPS1	qtono2j	-	-	Quiz Tonosama no Yabou 2: Zenkoku-ban (Japan 950123)
++CPS1	rockmanj	megaman	c	Rockman: The Power Battle (CPS1, Japan 950922)
++CPS1	sf2	-	-	Street Fighter II: The World Warrior (World 910522)
++CPS1	sf2acc	sf2ce	cb	Street Fighter II': Champion Edition (Accelerator!, bootleg, set 1)
++CPS1	sf2acca	sf2ce	cb	Street Fighter II': Champion Edition (Accelerator!, bootleg, set 2)
++CPS1	sf2accp2	sf2ce	cb	Street Fighter II': Champion Edition (Accelerator Pt.II, bootleg)
++CPS1	sf2amf	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 1)
++CPS1	sf2amf10	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 9)
++CPS1	sf2amf11	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom w/ Mega Co, bootleg)
++CPS1	sf2amf12	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 10)
++CPS1	sf2amf13	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 11)
++CPS1	sf2amf14	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 12)
++CPS1	sf2amf2	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 2)
++CPS1	sf2amf3	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 3)
++CPS1	sf2amf4	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 4)
++CPS1	sf2amf5	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 5)
++CPS1	sf2amf6	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 6)
++CPS1	sf2amf7	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 7)
++CPS1	sf2amf8	sf2ce	cb	Street Fighter II': Champion Edition (Anno Test Rom, bootleg)
++CPS1	sf2amf9	sf2ce	cb	Street Fighter II': Champion Edition (L735 Test Rom, bootleg, set 8)
++CPS1	sf2b	sf2	cb	Street Fighter II: The World Warrior (bootleg, set 1)
++CPS1	sf2b2	sf2	cb	Street Fighter II: The World Warrior (bootleg, set 2)
++CPS1	sf2b3	sf2	cb	Street Fighter II: The World Warrior (bootleg, set 3)
++CPS1	sf2b4	sf2	cb	Street Fighter II: The World Warrior (bootleg, set 4)
++CPS1	sf2b5	sf2	cb	Street Fighter II: The World Warrior (bootleg, earliest, set 5)
++CPS1	sf2bhh	sf2ce	cb	Street Fighter II': Champion Edition (Hung Hsi, bootleg)
++CPS1	sf2bs	sf2ce	ch	Street Fighter II': BONUS STAGE (Hack)
++CPS1	sf2ce	-	-	Street Fighter II': Champion Edition (World 920513)
++CPS1	sf2ceb	sf2ce	cb	Street Fighter II': Champion Edition (Playmark bootleg, set 1)
++CPS1	sf2ceb2	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, set 1)
++CPS1	sf2ceb3	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, set 2)
++CPS1	sf2ceb4	sf2ce	cb	Street Fighter II': Champion Edition (Playmark bootleg, set 2)
++CPS1	sf2ceb5	sf2ce	cb	Street Fighter II': Champion Edition (Playmark bootleg, set 3)
++CPS1	sf2ceblp	sf2ce	cb	Street Fighter II': Champion Edition (protected bootleg on non-dash board)
++CPS1	sf2cebltw	sf2ce	cb	Street Fighter II': Champion Edition ('Taiwan' bootleg with PAL)
++CPS1	sf2cebr	sf2ce	ch	Street Fighter II': Champion Edition (Brasil 920313, v1.0, Hack)
++CPS1	sf2ceda	sf2ce	ch	Street Fighter II': Champion Edition (unknown hack)
++CPS1	sf2ceea	sf2ce	c	Street Fighter II': Champion Edition (World 920313)
++CPS1	sf2ceeab2	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, World 920313, set 2)
++CPS1	sf2ceeab3	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, World 920313, set 3)
++CPS1	sf2ceeabl	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, World 920313, set 1)
++CPS1	sf2ceec	sf2ce	c	Street Fighter II': Champion Edition (World 920803)
++CPS1	sf2ceja	sf2ce	c	Street Fighter II': Champion Edition (Japan 920322)
++CPS1	sf2cejab2	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, Japan 920322, set 2)
++CPS1	sf2cejabl	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, Japan 920322, set 1)
++CPS1	sf2cejb	sf2ce	c	Street Fighter II': Champion Edition (Japan 920513)
++CPS1	sf2cejc	sf2ce	c	Street Fighter II': Champion Edition (Japan 920803)
++CPS1	sf2cems6a	sf2ce	cb	Street Fighter II': Champion Edition (Mstreet-6, bootleg, set 1)
++CPS1	sf2cet	sf2ce	c	Street Fighter II': Champion Edition (Taiwan 920313)
++CPS1	sf2ceua	sf2ce	c	Street Fighter II': Champion Edition (USA 920313)
++CPS1	sf2ceuab2	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 2)
++CPS1	sf2ceuab3	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 3)
++CPS1	sf2ceuab4	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 4)
++CPS1	sf2ceuab5	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 5)
++CPS1	sf2ceuab6	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 6)
++CPS1	sf2ceuab7	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 7)
++CPS1	sf2ceuab8	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 8)
++CPS1	sf2ceuab9	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 9)
++CPS1	sf2ceuabl	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920313, set 1)
++CPS1	sf2ceub	sf2ce	c	Street Fighter II': Champion Edition (USA 920513)
++CPS1	sf2ceuc	sf2ce	c	Street Fighter II': Champion Edition (USA 920803)
++CPS1	sf2ceucbl	sf2ce	cb	Street Fighter II': Champion Edition (bootleg, USA 920803)
++CPS1	sf2ceupl	sf2ce	cb	Street Fighter II': Champion Edition (Japan 920322, UPL bootleg?)
++CPS1	sf2cre	sf2ce	ch	Street Fighter II': Champion Re-Edit (Hack, v0.29.7)
++CPS1	sf2dkot2	sf2ce	cb	Street Fighter II': Champion Edition (Double K.O. Turbo II, bootleg)
++CPS1	sf2dongb	sf2ce	cb	Street Fighter II': Champion Edition (Dongfang Bubai protection, bootleg)
++CPS1	sf2ea	sf2	c	Street Fighter II: The World Warrior (World 910204)
++CPS1	sf2eb	sf2	c	Street Fighter II: The World Warrior (World 910214)
++CPS1	sf2ebbl	sf2	cb	Street Fighter II: The World Warrior (TAB Austria, bootleg, set 1)
++CPS1	sf2ebbl2	sf2	cb	Street Fighter II: The World Warrior (TAB Austria, bootleg, set 3)
++CPS1	sf2ebbl3	sf2	cb	Street Fighter II: The World Warrior (TAB Austria, bootleg, set 4)
++CPS1	sf2ebbl4	sf2	cb	Street Fighter II: The World Warrior (TAB Austria, bootleg, set 5)
++CPS1	sf2ed	sf2	c	Street Fighter II: The World Warrior (World 910318)
++CPS1	sf2ee	sf2	c	Street Fighter II: The World Warrior (World 910228)
++CPS1	sf2ef	sf2	c	Street Fighter II: The World Warrior (World 910411)
++CPS1	sf2em	sf2	c	Street Fighter II: The World Warrior (World 910129)
++CPS1	sf2en	sf2	c	Street Fighter II: The World Warrior (World 910204, conversion)
++CPS1	sf2gm	sf2ce	cbh	Street Fighter II': Champion Edition (Golden Magic, Hack)
++CPS1	sf2hf	-	-	Street Fighter II': Hyper Fighting (World 921209)
++CPS1	sf2hfj	sf2hf	c	Street Fighter II' Turbo: Hyper Fighting (Japan 921209)
++CPS1	sf2hfjb	sf2hf	cb	Street Fighter II' Turbo: Hyper Fighting (bootleg, set 1)
++CPS1	sf2hfjb2	sf2hf	cb	Street Fighter II' Turbo: Hyper Fighting (bootleg, set 2)
++CPS1	sf2hfsce	sf2hf	c	Street Fighter II': Hyper Fighting (Sr. SF Champion Edition v1.4, Hack)
++CPS1	sf2hfu	sf2hf	c	Street Fighter II': Hyper Fighting (USA 921209)
++CPS1	sf2j	sf2	c	Street Fighter II: The World Warrior (Japan 911210, CPS-B-13)
++CPS1	sf2j17	sf2	c	Street Fighter II: The World Warrior (Japan 911210, CPS-B-17)
++CPS1	sf2ja	sf2	c	Street Fighter II: The World Warrior (Japan 910214)
++CPS1	sf2jc	sf2	c	Street Fighter II: The World Warrior (Japan 910306)
++CPS1	sf2jf	sf2	c	Street Fighter II: The World Warrior (Japan 910411)
++CPS1	sf2jh	sf2	c	Street Fighter II: The World Warrior (Japan 910522)
++CPS1	sf2jl	sf2	c	Street Fighter II: The World Warrior (Japan 920312)
++CPS1	sf2jla	sf2	c	Street Fighter II: The World Warrior (Japan 911210, Rev. L)
++CPS1	sf2koryu	sf2ce	cb	Street Fighter II': Champion Edition (Xiang Long, Chinese bootleg, set 1)
++CPS1	sf2koryu2	sf2ce	cb	Street Fighter II': Champion Edition (Xiang Long, Chinese bootleg, set 2)
++CPS1	sf2koryu3	sf2ce	cb	Street Fighter II': Champion Edition (Xiang Long, Chinese bootleg, set 3)
++CPS1	sf2level	sf2ce	cb	Street Fighter II': Champion Edition (bootleg with level selection)
++CPS1	sf2ly	sf2	c	Street Fighter II: The World Warrior (with bosses like Champion Edition, Japan 910522, CPS-B-11)
++CPS1	sf2md	sf2ce	cb	Street Fighter II': Champion Edition (Magic Delta, bootleg)
++CPS1	sf2mdt	sf2ce	cb	Street Fighter II': Magic Delta Turbo (bootleg, set 1)
++CPS1	sf2mdta	sf2ce	cb	Street Fighter II': Magic Delta Turbo (bootleg, set 2)
++CPS1	sf2mdtb	sf2ce	cb	Street Fighter II': Magic Delta Turbo (bootleg, set 3)
++CPS1	sf2mdtc	sf2ce	cb	Street Fighter II': Magic Delta Turbo (bootleg, set 4)
++CPS1	sf2mega	sf2ce	cb	Street Fighter II': Champion Edition (Mega Co, bootleg, set 1)
++CPS1	sf2mega2	sf2ce	cb	Street Fighter II': Champion Edition (Mega Co, bootleg, set 2)
++CPS1	sf2mix	sf2ce	ch	Street Fighter II Mix (v1.7)
++CPS1	sf2mkot	sf2ce	cb	Street Fighter II': Magic KO Turbo!! - Nightmare Crack (set 1)
++CPS1	sf2mkot2	sf2ce	cb	Street Fighter II': Magic KO Turbo!! - Nightmare Crack (set 2)
++CPS1	sf2pp	sf2	ch	Street Fighter II Plus Plus (Ver. 2020/07/19, Hack)
++CPS1	sf2qp1	sf2	cb	Street Fighter II: The World Warrior (Quicken Pt-I, bootleg)
++CPS1	sf2qp2	sf2	cb	Street Fighter II: The World Warrior (Quicken, bootleg)
++CPS1	sf2rb	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 1)
++CPS1	sf2rb2	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 2)
++CPS1	sf2rb3	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 3)
++CPS1	sf2rb4	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 4)
++CPS1	sf2rb5	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 5)
++CPS1	sf2rb6	sf2ce	cb	Street Fighter II': Champion Edition (Rainbow, bootleg, set 6)
++CPS1	sf2re	sf2ce	cb	Street Fighter II': Champion Edition (RE, bootleg)
++CPS1	sf2red	sf2ce	cb	Street Fighter II': Champion Edition (Red Wave, bootleg, set 1)
++CPS1	sf2red2	sf2ce	cb	Street Fighter II': Champion Edition (Red Wave, bootleg, set 3)
++CPS1	sf2reda	sf2ce	cb	Street Fighter II': Champion Edition (Red Wave, bootleg, set 2)
++CPS1	sf2redp2	sf2ce	cb	Street Fighter II': Champion Edition (Red Wave PtII, bootleg)
++CPS1	sf2rk	sf2	cb	Street Fighter II: The World Warrior (RK, bootleg, set 1)
++CPS1	sf2rk2	sf2	cb	Street Fighter II: The World Warrior (RK, bootleg, set 2)
++CPS1	sf2rules	sf2	cb	Street Fighter II: The World Warrior (bootleg with rules screen)
++CPS1	sf2sl73a	sf2ce	ch	Street Fighter II': Champion Edition (Sheng Long v 7.3a)
++CPS1	sf2stt	sf2	cb	Street Fighter II: The World Warrior (TAB Austria, bootleg, set 2)
++CPS1	sf2thndr	sf2	cb	Street Fighter II: The World Warrior (Thunder Edition, bootleg, set 1)
++CPS1	sf2thndr2	sf2	cb	Street Fighter II: The World Warrior (Thunder Edition, bootleg, set 2)
++CPS1	sf2tlona	sf2ce	cb	Street Fighter II': Champion Edition (Tu Long, Chinese bootleg, set 1)
++CPS1	sf2tlonb	sf2ce	cb	Street Fighter II': Champion Edition (Tu Long, Chinese bootleg, set 2)
++CPS1	sf2tlonc	sf2ce	cb	Street Fighter II': Champion Edition (Tu Long, Chinese bootleg, set 3)
++CPS1	sf2ua	sf2	c	Street Fighter II: The World Warrior (USA 910206)
++CPS1	sf2ub	sf2	c	Street Fighter II: The World Warrior (USA 910214)
++CPS1	sf2uc	sf2	c	Street Fighter II: The World Warrior (USA 910306)
++CPS1	sf2ud	sf2	c	Street Fighter II: The World Warrior (USA 910318)
++CPS1	sf2ue	sf2	c	Street Fighter II: The World Warrior (USA 910228)
++CPS1	sf2uf	sf2	c	Street Fighter II: The World Warrior (USA 910411)
++CPS1	sf2ug	sf2	c	Street Fighter II: The World Warrior (USA 910522, Rev. G)
++CPS1	sf2uh	sf2	c	Street Fighter II: The World Warrior (USA 910522, Rev. H)
++CPS1	sf2ui	sf2	c	Street Fighter II: The World Warrior (USA 910522, Rev. I)
++CPS1	sf2uk	sf2	c	Street Fighter II: The World Warrior (USA 911101)
++CPS1	sf2um	sf2	c	Street Fighter II: The World Warrior (USA 920312)
++CPS1	sf2v004	sf2ce	cb	Street Fighter II': Champion Edition (V004, bootleg, set 1)
++CPS1	sf2v0042	sf2ce	cb	Street Fighter II': Champion Edition (V004, bootleg, set 2)
++CPS1	sf2v0043	sf2ce	cb	Street Fighter II': Champion Edition (V004, bootleg, set 3)
++CPS1	sf2yyc	sf2ce	cb	Street Fighter II': Champion Edition (YYC, bootleg, set 1)
++CPS1	sf2yyc2	sf2ce	cb	Street Fighter II': Champion Edition (YYC, bootleg, set 2)
++CPS1	sfach	sfzch	c	Street Fighter Alpha: Warriors' Dreams (CPS Changer, Publicity USA 950727)
++CPS1	sfzbch	sfzch	c	Street Fighter Zero (CPS Changer, Brazil 950727)
++CPS1	sfzch	-	-	Street Fighter Zero (CPS Changer, Japan 951020)
++CPS1	sfzcha	sfzch	c	Street Fighter Zero (CPS Changer, Japan 040820)
++CPS1	sgyxz	wof	cb	SanGuo YingXiongZhuan (Chinese bootleg of Sangokushi II, set 1)
++CPS1	sgyxza	wof	cb	SanGuo YingXiongZhuan (Chinese bootleg of Sangokushi II, set 2)
++CPS1	sgyxzb	wof	cb	SanGuo YingXiongZhuan (Chinese bootleg of Sangokushi II, set 3)
++CPS1	slammast	-	-	Saturday Night Slam Masters (World 930713)
++CPS1	slammastu	slammast	c	Saturday Night Slam Masters (USA 930713)
++CPS1	slampic	slammast	cb	Saturday Night Slam Masters (bootleg with PIC16C57, set 1)
++CPS1	slampic2	slammast	cbw	Saturday Night Slam Masters (bootleg with PIC16C57, set 2)
++CPS1	strider	-	-	Strider (USA, B-Board 89624B-2)
++CPS1	striderfix	strider	ch	Strider (USA, B-Board 89624B-2)(Graphic and music fixes, Hack)
++CPS1	striderj	strider	c	Strider Hiryu (Japan)
++CPS1	striderjr	strider	c	Strider Hiryu (Japan Resale Ver.)
++CPS1	striderua	strider	c	Strider (USA, B-Board 89624B-3)
++CPS1	strideruc	strider	cb	Strider (USA, B-Board 90629B-3, buggy Street Fighter II conversion)
++CPS1	unsquad	-	-	U.N. Squadron (USA)
++CPS1	varth	-	v	Varth: Operation Thunderstorm (World 920714)
++CPS1	varthb	varth	vcb	Varth: Operation Thunderstorm (bootleg, set 1)
++CPS1	varthb2	varth	vcb	Varth: Operation Thunderstorm (bootleg, set 2)
++CPS1	varthb3	varth	vcb	Varth: Operation Thunderstorm (bootleg, set 3)
++CPS1	varthj	varth	vc	Varth: Operation Thunderstorm (Japan 920714)
++CPS1	varthjr	varth	vc	Varth: Operation Thunderstorm (Japan Resale Ver. 920714)
++CPS1	varthr1	varth	vc	Varth: Operation Thunderstorm (World 920612)
++CPS1	varthu	varth	vc	Varth: Operation Thunderstorm (USA 920612)
++CPS1	willow	-	-	Willow (World)
++CPS1	willowbr	willow	ch	Willow (Hack, Portuguese-BR Translation, v1.06)
++CPS1	willowj	willow	c	Willow (Japan)
++CPS1	willowu	willow	c	Willow (USA)
++CPS1	willowuo	willow	c	Willow (USA Old Ver.)
++CPS1	wof	-	-	Warriors of Fate (World 921031)
++CPS1	wof1v3	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (1v3, Hack)
++CPS1	wof1v3p	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (1v3 Plus, Hack)
++CPS1	wofa	wof	c	Sangokushi II (Asia 921005)
++CPS1	wofabl	wof	cb	Sangokushi II (bootleg, set 1)
++CPS1	wofabla	wof	cb	Sangokushi II (bootleg, set 2)
++CPS1	wofah	wof	ch	Sangokushi II (Asia 921005, hack, set 1)
++CPS1	wofaha	wof	ch	Sangokushi II (Asia 921005, hack, set 2)
++CPS1	wofahb	wof	ch	Sangokushi II (Asia 921005, hack, set 3)
++CPS1	wofc	wof	ch	Sangokushi II (hack, Chinese Translation)
++CPS1	wofch	-	-	Tenchi wo Kurau II: Sekiheki no Tatakai (CPS Changer, Japan 921031)
++CPS1	wofchdx	wofch	ch	Sangokushi III Gaiden: Kakou-On's Revenge DX (hack)
++CPS1	wofchp	wofch	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (PS/SS Version, Hack)
++CPS1	wofdr	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Master, Hack)
++CPS1	wofdr20	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Master 2020, Hack)
++CPS1	wofhfh	wof	cb	Huo Feng Huang (Chinese bootleg of Sangokushi II)
++CPS1	wofj	wof	c	Tenchi wo Kurau II: Sekiheki no Tatakai (Japan 921031)
++CPS1	wofjh	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (hack, Japan 921031)
++CPS1	wofkm3	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Subject 3, Hack)
++CPS1	wofmws	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (3M Warriors, Hack)
++CPS1	wofmz1v3	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Cavalry 1v3, Hack)
++CPS1	wofpic	wof	cb	Warriors of Fate (bootleg with PIC16C57)
++CPS1	wofr1	wof	c	Warriors of Fate (World 921002)
++CPS1	wofr1bl	wof	cb	Warriors of Fate (bootleg)
++CPS1	wofsc	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Switchable Character, Hack)
++CPS1	wofsgzb	wof	cb	Sanguo Zhengba (Chinese bootleg of Sangokushi II)
++CPS1	wofsj	wof	cb	Sangokushi II: Sheng Jian (Chinese bootleg, set 1)
++CPS1	wofsja	wof	cb	Sangokushi II: Sheng Jian (Chinese bootleg, set 2)
++CPS1	wofsjb	wof	cb	Sangokushi II: Sheng Jian (Chinese bootleg, set 3)
++CPS1	wofsjs	wof	cb	San Jian Sheng (Chinese bootleg of Sangokushi II, set 1)
++CPS1	wofsjsa	wof	cb	San Jian Sheng (Chinese bootleg of Sangokushi II, set 2)
++CPS1	wofsjsb	wof	cb	San Jian Sheng (Chinese bootleg of Sangokushi II, set 3)
++CPS1	wofsm	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (3M, Hack)
++CPS1	wofssj	wof	cb	Sangokushi II: San Sheng Jian (Chinese bootleg, set 1)
++CPS1	wofssja	wof	cb	Sangokushi II: San Sheng Jian (Chinese bootleg, set 2)
++CPS1	wofu	wof	c	Warriors of Fate (USA 921031)
++CPS1	wofwjq	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Warriors Enhanced, Hack)
++CPS1	wofwp	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Warriors Plus, Hack)
++CPS1	wofzl	wof	ch	Tenchi wo Kurau II: Sekiheki no Tatakai (Wolf Warriors, Hack)
++CPS1	wonder3	3wonders	c	Wonder 3 (Japan 910520)
++CPS2	1944	-	-	1944: The Loop Master (Europe 000620)
++CPS2	1944ad	1944	cb	1944: The Loop Master (USA 000620 alt Phoenix Edition) (bootleg)
++CPS2	1944d	1944	cb	1944: The Loop Master (USA 000620 Phoenix Edition) (bootleg)
++CPS2	1944j	1944	c	1944: The Loop Master (Japan 000620)
++CPS2	1944u	1944	c	1944: The Loop Master (USA 000620)
++CPS2	19xx	-	v	19XX: The War Against Destiny (Europe 960104)
++CPS2	19xxa	19xx	vc	19XX: The War Against Destiny (Asia 960104)
++CPS2	19xxar1	19xx	vc	19XX: The War Against Destiny (Asia 951207)
++CPS2	19xxb	19xx	vc	19XX: The War Against Destiny (Brazil 951218)
++CPS2	19xxd	19xx	vcb	19XX: The War Against Destiny (USA 951207 Phoenix Edition) (bootleg)
++CPS2	19xxh	19xx	vc	19XX: The War Against Destiny (Hispanic 951218)
++CPS2	19xxj	19xx	vc	19XX: The War Against Destiny (Japan 960104, yellow case)
++CPS2	19xxjr1	19xx	vc	19XX: The War Against Destiny (Japan 951225)
++CPS2	19xxjr2	19xx	vc	19XX: The War Against Destiny (Japan 951207)
++CPS2	19xxu	19xx	vc	19XX: The War Against Destiny (USA 951207)
++CPS2	armwar	-	-	Armored Warriors (Europe 941024)
++CPS2	armwar1d	armwar	cb	Armored Warriors (Europe 941011 Phoenix Edition) (bootleg)
++CPS2	armwara	armwar	c	Armored Warriors (Asia 941024)
++CPS2	armwarar1	armwar	c	Armored Warriors (Asia 940920)
++CPS2	armwarb	armwar	c	Armored Warriors (Brazil 941024)
++CPS2	armwarr1	armwar	c	Armored Warriors (Europe 941011)
++CPS2	armwaru	armwar	c	Armored Warriors (USA 941024)
++CPS2	armwaru1	armwar	c	Armored Warriors (USA 940920)
++CPS2	avsp	-	-	Alien vs. Predator (Europe 940520)
++CPS2	avspa	avsp	c	Alien vs. Predator (Asia 940520)
++CPS2	avspd	avsp	cb	Alien vs. Predator (Europe 940520 Phoenix Edition) (bootleg)
++CPS2	avsph	avsp	c	Alien vs. Predator (Hispanic 940520)
++CPS2	avspj	avsp	c	Alien vs. Predator (Japan 940520)
++CPS2	avspu	avsp	c	Alien vs. Predator (USA 940520)
++CPS2	batcir	-	-	Battle Circuit (Europe 970319)
++CPS2	batcira	batcir	c	Battle Circuit (Asia 970319)
++CPS2	batcird	batcir	cb	Battle Circuit (Europe 970319 Phoenix Edition) (bootleg)
++CPS2	batcirj	batcir	c	Battle Circuit (Japan 970319)
++CPS2	choko	-	-	Janpai Puzzle Choukou (Japan 010820)
++CPS2	chokop	choko	c	Janpai Puzzle Choukou (Japan 010820 Publicity)
++CPS2	csclub	-	-	Capcom Sports Club (Europe 971017)
++CPS2	csclub1	csclub	c	Capcom Sports Club (Europe 970722)
++CPS2	csclub1d	csclub	cb	Capcom Sports Club (Europe 970722 Phoenix Edition) (bootleg)
++CPS2	cscluba	csclub	c	Capcom Sports Club (Asia 970722)
++CPS2	csclubh	csclub	c	Capcom Sports Club (Hispanic 970722)
++CPS2	csclubj	csclub	c	Capcom Sports Club (Japan 970722)
++CPS2	csclubjy	csclub	c	Capcom Sports Club (Japan 970722, yellow case)
++CPS2	cybots	-	-	Cyberbots: Fullmetal Madness (Europe 950424)
++CPS2	cybotsam	cybots	ch	Cyberbots: Fullmetal Madness (Access Mod, Hack)
++CPS2	cybotsj	cybots	c	Cyberbots: Fullmetal Madness (Japan 950420)
++CPS2	cybotsjd	cybots	cb	Cyberbots: Fullmetal Madness (Japan 950424) (decrypted bootleg)
++CPS2	cybotsu	cybots	c	Cyberbots: Fullmetal Madness (USA 950424)
++CPS2	cybotsud	cybots	cb	Cyberbots: Fullmetal Madness (USA 950424 Phoenix Edition) (bootleg)
++CPS2	ddsom	-	-	Dungeons & Dragons: Shadow over Mystara (Europe 960619)
++CPS2	ddsom1v4	ddsom	ch	Dungeons & Dragons: Shadow over Mystara (1v4, Hack)
++CPS2	ddsoma	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Asia 960619)
++CPS2	ddsomar1	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Asia 960208)
++CPS2	ddsomb	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Brazil 960223)
++CPS2	ddsomcfs	ddsom	ch	Dungeons & Dragons: Shadow over Mystara (Change the Final Strike condition, Hack)
++CPS2	ddsomh	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Hispanic 960223)
++CPS2	ddsomj	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Japan 960619)
++CPS2	ddsomjc	ddsom	ch	Dungeons & Dragons: Shadow over Mystara (T-Chi)
++CPS2	ddsomjr1	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Japan 960223)
++CPS2	ddsomjr2	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Japan 960206)
++CPS2	ddsomr1	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Europe 960223)
++CPS2	ddsomr2	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Europe 960209)
++CPS2	ddsomr3	ddsom	c	Dungeons & Dragons: Shadow over Mystara (Europe 960208)
++CPS2	ddsomu	ddsom	c	Dungeons & Dragons: Shadow over Mystara (USA 960619)
++CPS2	ddsomud	ddsom	cb	Dungeons & Dragons: Shadow over Mystara (USA 960619 Phoenix Edition) (bootleg)
++CPS2	ddsomudp	ddsom	ch	Dungeons & Dragons: Shadow over Mystara (Plus, Hack)
++CPS2	ddsomur1	ddsom	c	Dungeons & Dragons: Shadow over Mystara (USA 960209)
++CPS2	ddtod	-	-	Dungeons & Dragons: Tower of Doom (Europe 940412)
++CPS2	ddtoda	ddtod	c	Dungeons & Dragons: Tower of Doom (Asia 940412)
++CPS2	ddtodar1	ddtod	c	Dungeons & Dragons: Tower of Doom (Asia 940113)
++CPS2	ddtodd	ddtod	cb	Dungeons & Dragons: Tower of Doom (Europe 940412 Phoenix Edition) (bootleg)
++CPS2	ddtoddp	ddtod	ch	Dungeons & Dragons: Tower of Doom (Plus, Hack)
++CPS2	ddtodh	ddtod	c	Dungeons & Dragons: Tower of Doom (Hispanic 940412)
++CPS2	ddtodhr1	ddtod	c	Dungeons & Dragons: Tower of Doom (Hispanic 940125)
++CPS2	ddtodhr2	ddtod	c	Dungeons & Dragons: Tower of Doom (Hispanic 940113)
++CPS2	ddtodj	ddtod	c	Dungeons & Dragons: Tower of Doom (Japan 940412)
++CPS2	ddtodjr1	ddtod	c	Dungeons & Dragons: Tower of Doom (Japan 940125)
++CPS2	ddtodjr2	ddtod	c	Dungeons & Dragons: Tower of Doom (Japan 940113)
++CPS2	ddtodr1	ddtod	c	Dungeons & Dragons: Tower of Doom (Europe 940113)
++CPS2	ddtodu	ddtod	c	Dungeons & Dragons: Tower of Doom (USA 940125)
++CPS2	ddtodur1	ddtod	c	Dungeons & Dragons: Tower of Doom (USA 940113)
++CPS2	dimahoo	-	v	Dimahoo (Europe 000121)
++CPS2	dimahoou	dimahoo	vc	Dimahoo (USA 000121)
++CPS2	dimahoud	dimahoo	vcb	Dimahoo (USA 000121 Phoenix Edition) (bootleg)
++CPS2	dstlk	-	-	Darkstalkers: The Night Warriors (Europe 940705)
++CPS2	dstlka	dstlk	c	Darkstalkers: The Night Warriors (Asia 940705)
++CPS2	dstlkb	dstlk	c	Darkstalkers: The Night Warriors (Brazil 940818)
++CPS2	dstlkh	dstlk	c	Darkstalkers: The Night Warriors (Hispanic 940818)
++CPS2	dstlku	dstlk	c	Darkstalkers: The Night Warriors (USA 940818)
++CPS2	dstlku1d	dstlk	cb	Darkstalkers: The Night Warriors (USA 940705 Phoenix Edition) (bootleg)
++CPS2	dstlkur1	dstlk	c	Darkstalkers: The Night Warriors (USA 940705)
++CPS2	ecofghtr	-	-	Eco Fighters (World 931203)
++CPS2	ecofghtra	ecofghtr	c	Eco Fighters (Asia 931203)
++CPS2	ecofghtrd	ecofghtr	cb	Eco Fighters (World 931203 Phoenix Edition) (bootleg)
++CPS2	ecofghtrh	ecofghtr	c	Eco Fighters (Hispanic 931203)
++CPS2	ecofghtru	ecofghtr	c	Eco Fighters (USA 940215)
++CPS2	ecofghtru1	ecofghtr	c	Eco Fighters (USA 931203)
++CPS2	ffightaec2	-	bh	Final Fight: Anniversary Edition (CPS2 hardware)
++CPS2	ffightaec2ds	ffightaec2	cbh	Final Fight: Anniversary Edition (Deadly Streets, Hack)(CPS2 Hardware)
++CPS2	gigaman2	megaman2	cb	Giga Man 2: The Power Fighters (bootleg of Mega Man 2: The Power Fighters)
++CPS2	gigawing	-	-	Giga Wing (USA 990222)
++CPS2	gigawinga	gigawing	c	Giga Wing (Asia 990222)
++CPS2	gigawingb	gigawing	c	Giga Wing (Brazil 990222)
++CPS2	gigawingd	gigawing	cb	Giga Wing (USA 990222 Phoenix Edition) (bootleg)
++CPS2	gigawingh	gigawing	c	Giga Wing (Hispanic 990222)
++CPS2	gigawingj	gigawing	c	Giga Wing (Japan 990223)
++CPS2	gigawingjd	gigawing	cb	Giga Wing (Japan 990223 Phoenix Edition) (bootleg)
++CPS2	gmahou	dimahoo	vc	Great Mahou Daisakusen (Japan 000121)
++CPS2	halfway	progear	cb	Halfway To Hell: Progear Red Label (2016-1-17 Red label ver)
++CPS2	hsf2	-	-	Hyper Street Fighter II: The Anniversary Edition (USA 040202)
++CPS2	hsf230b	hsf2	ch	Hyper Street Fighter II: The Anniversary Edition (30% Blood, Hack)
++CPS2	hsf2a	hsf2	c	Hyper Street Fighter II: The Anniversary Edition (Asia 040202)
++CPS2	hsf2app	hsf2	ch	Hyper Street Fighter II Plus Plus (Asia ver.170625 Hack by yumeji)
++CPS2	hsf2d	hsf2	cb	Hyper Street Fighter II: The Anniversary Edition (Asia 040202 Phoenix Edition) (bootleg)
++CPS2	hsf2da	hsf2	cb	Hyper Street Fighter II: The Anniversary Edition (Asia 040202 alt Phoenix Edition) (bootleg)
++CPS2	hsf2df	hsf2	ch	Hyper Street Fighter II: The Anniversary Edition (Difficulty Fix, Hack)
++CPS2	hsf2ev2	hsf2	ch	Hyper Street Fighter II: The Anniversary Edition (Easy Move v2, Hack)
++CPS2	hsf2j	hsf2	c	Hyper Street Fighter II: The Anniversary Edition (Japan 040202)
++CPS2	hsf2j1	hsf2	c	Hyper Street Fighter II: The Anniversary Edition (Japan 040123)
++CPS2	hsf2j2	hsf2	c	Hyper Street Fighter II: The Anniversary Edition (Japan 031222)
++CPS2	hsf2jpp	hsf2	ch	Hyper Street Fighter II Plus Plus (Japan ver.170625 Hack by yumeji)
++CPS2	hsf2pp	hsf2	ch	Hyper Street Fighter II Plus Plus (USA ver.170625 Hack by yumeji)
++CPS2	jyangoku	-	-	Jyangokushi: Haoh no Saihai (Japan 990527)
++CPS2	megaman2	-	-	Mega Man 2: The Power Fighters (USA 960708)
++CPS2	megaman2a	megaman2	c	Mega Man 2: The Power Fighters (Asia 960708)
++CPS2	megaman2h	megaman2	c	Mega Man 2: The Power Fighters (Hispanic 960712)
++CPS2	megamn2d	megaman2	cb	Mega Man 2: The Power Fighters (USA 960708 Phoenix Edition) (bootleg)
++CPS2	mmancp2u	megaman	c	Mega Man: The Power Battle (CPS2, USA 951006, SAMPLE Version)
++CPS2	mmancp2ur1	megaman	c	Mega Man: The Power Battle (CPS2, USA 950926, SAMPLE Version)
++CPS2	mmancp2ur2	megaman	c	Mega Man: The Power Battle (CPS2, USA 950925, SAMPLE Version)
++CPS2	mmatrix	-	-	Mars Matrix: Hyper Solid Shooting (USA 000412)
++CPS2	mmatrixa	mmatrix	c	Mars Matrix: Hyper Solid Shooting (Asia 000412)
++CPS2	mmatrixd	mmatrix	cb	Mars Matrix: Hyper Solid Shooting (USA 000412 Phoenix Edition) (bootleg)
++CPS2	mmatrixi	mmatrix	ch	Mars Matrix: Hyper Solid Shooting (Hack, Improvement v1.0.0)
++CPS2	mmatrixj	mmatrix	c	Mars Matrix: Hyper Solid Shooting (Japan 000412)
++CPS2	mpang	-	-	Mighty! Pang (Europe 001010)
++CPS2	mpanga	mpang	c	Mighty! Pang (Asia 001010)
++CPS2	mpangj	mpang	c	Mighty! Pang (Japan 001011)
++CPS2	mpangjd	mpang	cb	Mighty! Pang (Japan 001011 Phoenix Edition) (bootleg)
++CPS2	mpangr1	mpang	c	Mighty! Pang (Europe 000925)
++CPS2	mpangu	mpang	c	Mighty! Pang (USA 001010)
++CPS2	msh	-	-	Marvel Super Heroes (Europe 951024)
++CPS2	msha	msh	c	Marvel Super Heroes (Asia 951024)
++CPS2	mshb	msh	c	Marvel Super Heroes (Brazil 951117)
++CPS2	mshbh	msh	ch	Marvel Super Heroes (Boss Hack)
++CPS2	mshbr1	msh	c	Marvel Super Heroes (Brazil 951024)
++CPS2	mshh	msh	c	Marvel Super Heroes (Hispanic 951117)
++CPS2	mshj	msh	c	Marvel Super Heroes (Japan 951117)
++CPS2	mshjr1	msh	c	Marvel Super Heroes (Japan 951024)
++CPS2	mshu	msh	c	Marvel Super Heroes (USA 951024)
++CPS2	mshud	msh	cb	Marvel Super Heroes (USA 951024 Phoenix Edition) (bootleg)
++CPS2	mshvsf	-	-	Marvel Super Heroes Vs. Street Fighter (Europe 970625)
++CPS2	mshvsfa	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Asia 970625)
++CPS2	mshvsfa1	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Asia 970620)
++CPS2	mshvsfb	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Brazil 970827)
++CPS2	mshvsfb1	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Brazil 970625)
++CPS2	mshvsfbh	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter (Boss Hack)
++CPS2	mshvsfcph	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter (Coop, Hack)
++CPS2	mshvsfem	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter (Easy Moves, Hack)
++CPS2	mshvsfex	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter EX (Hack, USA RC4)
++CPS2	mshvsfexj	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter EX (Hack, Japan RC4)
++CPS2	mshvsfh	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Hispanic 970625)
++CPS2	mshvsfj	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Japan 970707)
++CPS2	mshvsfj1	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Japan 970702)
++CPS2	mshvsfj2	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (Japan 970625)
++CPS2	mshvsfre	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter (USA, Restoration RC1)
++CPS2	mshvsfrej	mshvsf	ch	Marvel Super Heroes Vs. Street Fighter (Japan, Restoration RC1)
++CPS2	mshvsfu	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (USA 970827)
++CPS2	mshvsfu1	mshvsf	c	Marvel Super Heroes Vs. Street Fighter (USA 970625)
++CPS2	mshvsfu1d	mshvsf	cb	Marvel Super Heroes Vs. Street Fighter (USA 970625 Phoenix Edition) (bootleg)
++CPS2	mvsc	-	-	Marvel Vs. Capcom: Clash of Super Heroes (Europe 980123)
++CPS2	mvsca	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Asia 980123)
++CPS2	mvscar1	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Asia 980112)
++CPS2	mvscb	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Brazil 980123)
++CPS2	mvscbh	mvsc	ch	Marvel Vs. Capcom: Clash of Super Heroes (Boss Hack)
++CPS2	mvscem	mvsc	ch	Marvel Vs. Capcom: Clash of Super Heroes (Easy Moves, Hack)
++CPS2	mvsch	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Hispanic 980123)
++CPS2	mvscj	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Japan 980123)
++CPS2	mvscjr1	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Japan 980112)
++CPS2	mvscjsing	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Japan 980123) (Single PCB)
++CPS2	mvscr1	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (Europe 980112)
++CPS2	mvscu	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (USA 980123)
++CPS2	mvscud	mvsc	cb	Marvel Vs. Capcom: Clash of Super Heroes (USA 980123 Phoenix Edition) (bootleg)
++CPS2	mvscur1	mvsc	c	Marvel Vs. Capcom: Clash of Super Heroes (USA 971222)
++CPS2	nwarr	-	-	Night Warriors: Darkstalkers' Revenge (Europe 950316)
++CPS2	nwarra	nwarr	c	Night Warriors: Darkstalkers' Revenge (Asia 950302)
++CPS2	nwarrb	nwarr	c	Night Warriors: Darkstalkers' Revenge (Brazil 950403)
++CPS2	nwarrh	nwarr	c	Night Warriors: Darkstalkers' Revenge (Hispanic 950403)
++CPS2	nwarrre	nwarr	ch	Night Warriors: Darkstalkers' Revenge (Hack, English Restoration RC1)
++CPS2	nwarru	nwarr	c	Night Warriors: Darkstalkers' Revenge (USA 950406)
++CPS2	nwarrud	nwarr	cb	Night Warriors: Darkstalkers' Revenge (USA 950406 Phoenix Edition) (bootleg)
++CPS2	pfghtj	sgemf	c	Pocket Fighter (Japan 970904)
++CPS2	pfghtsc	sgemf	ch	Pocket Fighter (Simplified Chinese plot translation, Hack)
++CPS2	pgear	armwar	c	Powered Gear: Strategic Variant Armor Equipment (Japan 941024)
++CPS2	pgearr1	armwar	c	Powered Gear: Strategic Variant Armor Equipment (Japan 940916)
++CPS2	progear	-	-	Progear (Europe 010117)
++CPS2	progeara	progear	c	Progear (Asia 010117)
++CPS2	progearj	progear	c	Progear no Arashi (Japan 010117)
++CPS2	progearjbl	progear	cb	Progear no Arashi (Japan 010117) (decrypted bootleg)
++CPS2	progearjd	progear	cb	Progear no Arashi (Japan 010117 Phoenix Edition) (bootleg)
++CPS2	progearu	progear	c	Progear (USA 010117)
++CPS2	progearud	progear	cb	Progear (USA 010117 Phoenix Edition) (bootleg)
++CPS2	pzloop2	-	-	Puzz Loop 2 (Europe 010302)
++CPS2	pzloop2j	pzloop2	c	Puzz Loop 2 (Japan 010226)
++CPS2	pzloop2jd	pzloop2	cb	Puzz Loop 2 (Japan 010226 Phoenix Edition) (bootleg)
++CPS2	pzloop2jp	pzloop2	c	Puzz Loop 2 (Japan 010201 Publicity)
++CPS2	pzloop2jr1	pzloop2	c	Puzz Loop 2 (Japan 010205)
++CPS2	qndream	-	-	Quiz Nanairo Dreams: Nijiirochou no Kiseki (Japan 960826)
++CPS2	ringdest	-	-	Ring of Destruction: Slammasters II (Europe 940902)
++CPS2	ringdesta	ringdest	c	Ring of Destruction: Slammasters II (Asia 940831)
++CPS2	ringdestb	ringdest	c	Ring of Destruction: Slammasters II (Brazil 940902)
++CPS2	ringdesth	ringdest	c	Ring of Destruction: Slammasters II (Hispanic 940902)
++CPS2	ringdstd	ringdest	cb	Ring of Destruction: Slammasters II (Europe 940902 Phoenix Edition) (bootleg)
++CPS2	rmancp2j	megaman	c	Rockman: The Power Battle (CPS2, Japan 950922)
++CPS2	rockman2j	megaman2	c	Rockman 2: The Power Fighters (Japan 960708)
++CPS2	sf2prime	hsf2	ch	Street Fighter II': Prime (Ver 0.80, Hack)
++CPS2	sfa	-	-	Street Fighter Alpha: Warriors' Dreams (Europe 950727)
++CPS2	sfa2	-	-	Street Fighter Alpha 2 (Europe 960229)
++CPS2	sfa2ds	sfz2al	cb	Street Fighter Alpha 2 Dash (Europe, PS2 Backport RC7)
++CPS2	sfa2ex	sfz2al	ch	Street Fighter Alpha 2 EX (Hack, USA RC3)
++CPS2	sfa2gl	sfz2al	cb	Street Fighter Alpha 2 Gold (USA, PS2 Backport RC7)
++CPS2	sfa2re	sfa2	ch	Street Fighter Alpha 2 Restoration (Hack, USA RC2)
++CPS2	sfa2u	sfa2	c	Street Fighter Alpha 2 (USA 960430)
++CPS2	sfa2uhc	sfa2	ch	Street Fighter Alpha 2 - Unlock Hidden Characters (Hack By Yumeji)
++CPS2	sfa2ultra	sfa2	ch	Street Fighter Alpha 2 Ultra (Beta)
++CPS2	sfa2ur1	sfa2	c	Street Fighter Alpha 2 (USA 960306)
++CPS2	sfa3	-	-	Street Fighter Alpha 3 (Europe 980904)
++CPS2	sfa3b	sfa3	c	Street Fighter Alpha 3 (Brazil 980629)
++CPS2	sfa3br	sfa3	ch	Street Fighter Alpha 3 (Brasil 050513, v2.0, Hack)
++CPS2	sfa3ce	sfa3	c	Street Fighter Alpha 3: Challenger's Edition
++CPS2	sfa3h	sfa3	c	Street Fighter Alpha 3 (Hispanic 980904)
++CPS2	sfa3hr1	sfa3	c	Street Fighter Alpha 3 (Hispanic 980629)
++CPS2	sfa3re	sfa3	ch	Street Fighter Alpha 3 Restoration (Hack, USA RC3)
++CPS2	sfa3sp2	sfa3	ch	Street Fighter Alpha 3 (Hidden Character Full Version Fix ver. 2009-09-27, Hack)
++CPS2	sfa3u	sfa3	c	Street Fighter Alpha 3 (USA 980904)
++CPS2	sfa3ud	sfa3	cb	Street Fighter Alpha 3 (USA 980904 Phoenix Edition) (bootleg)
++CPS2	sfa3ur1	sfa3	c	Street Fighter Alpha 3 (USA 980629)
++CPS2	sfa3us	sfa3	c	Street Fighter Alpha 3 (USA 980616, SAMPLE Version)
++CPS2	sfa3xl	sfa3	ch	Street Fighter Alpha 3: Xiang Long Edition (Hack by pipi899, Ver.2009-05-10)
++CPS2	sfad	sfa	cb	Street Fighter Alpha: Warriors' Dreams (Europe 950727 Phoenix Edition) (bootleg)
++CPS2	sfar1	sfa	c	Street Fighter Alpha: Warriors' Dreams (Europe 950718)
++CPS2	sfar2	sfa	c	Street Fighter Alpha: Warriors' Dreams (Europe 950627)
++CPS2	sfar3	sfa	c	Street Fighter Alpha: Warriors' Dreams (Europe 950605)
++CPS2	sfare	sfa	ch	Street Fighter Alpha: Warriors' Dreams Restoration (Hack, USA RC1)
++CPS2	sfau	sfa	c	Street Fighter Alpha: Warriors' Dreams (USA 950627)
++CPS2	sfaud	sfa	cb	Street Fighter Alpha: Warriors' Dreams (USA 950727 Phoenix Edition) (bootleg)
++CPS2	sfz2a	sfa2	c	Street Fighter Zero 2 (Asia 960227)
++CPS2	sfz2ad	sfa2	cb	Street Fighter Zero 2 (Asia 960227 Phoenix Edition) (bootleg)
++CPS2	sfz2adl	sfz2al	ch	Street Fighter Zero 2 Alpha: Dragon Level (Hack by pipi899, Ver.2009-04-24)
++CPS2	sfz2al	-	-	Street Fighter Zero 2 Alpha (Asia 960826)
++CPS2	sfz2alb	sfz2al	c	Street Fighter Zero 2 Alpha (Brazil 960813)
++CPS2	sfz2ald	sfz2al	cb	Street Fighter Zero 2 Alpha (Asia 960826 Phoenix Edition) (bootleg)
++CPS2	sfz2aldash	sfz2al	ch	Street Fighter Zero 2 Alpha Dash / Gold (Hack, v1.2.1)
++CPS2	sfz2alh	sfz2al	c	Street Fighter Zero 2 Alpha (Hispanic 960813)
++CPS2	sfz2alj	sfz2al	c	Street Fighter Zero 2 Alpha (Japan 960805)
++CPS2	sfz2alr1	sfz2al	c	Street Fighter Zero 2 Alpha (Asia 960805)
++CPS2	sfz2alre	sfz2al	ch	Street Fighter Zero 2 Alpha (Hack, English Restoration RC2)
++CPS2	sfz2b	sfa2	c	Street Fighter Zero 2 (Brazil 960531)
++CPS2	sfz2br1	sfa2	c	Street Fighter Zero 2 (Brazil 960304)
++CPS2	sfz2dsa	sfz2al	cb	Street Fighter Zero 2 Dash (Asia, PS2 Backport RC7)
++CPS2	sfz2dsj	sfz2al	cb	Street Fighter Zero 2 Dash (Japan, PS2 Backport RC7)
++CPS2	sfz2exj	sfz2al	ch	Street Fighter Zero 2 EX (Hack, Japan RC3)
++CPS2	sfz2h	sfa2	c	Street Fighter Zero 2 (Hispanic 960304)
++CPS2	sfz2j	sfa2	c	Street Fighter Zero 2 (Japan 960430)
++CPS2	sfz2jd	sfa2	cb	Street Fighter Zero 2 (Japan 960227 Phoenix Edition) (bootleg)
++CPS2	sfz2jr1	sfa2	c	Street Fighter Zero 2 (Japan 960227)
++CPS2	sfz2n	sfa2	c	Street Fighter Zero 2 (Oceania 960229)
++CPS2	sfz2rea	sfa2	ch	Street Fighter Zero 2 Restoration (Hack, Asia RC2)
++CPS2	sfz2rej	sfa2	ch	Street Fighter Zero 2 Restoration (Hack, Japan RC1)
++CPS2	sfz3a	sfa3	c	Street Fighter Zero 3 (Asia 980904)
++CPS2	sfz3ar1	sfa3	c	Street Fighter Zero 3 (Asia 980701)
++CPS2	sfz3j	sfa3	c	Street Fighter Zero 3 (Japan 980904)
++CPS2	sfz3jr1	sfa3	c	Street Fighter Zero 3 (Japan 980727)
++CPS2	sfz3jr2	sfa3	c	Street Fighter Zero 3 (Japan 980629)
++CPS2	sfz3jr2d	sfa3	cb	Street Fighter Zero 3 (Japan 980629 Phoenix Edition) (bootleg)
++CPS2	sfz3mix	sfa3	ch	Street Fighter Zero 3 Mix v0.32
++CPS2	sfz3mix13	sfa3	ch	Street Fighter Zero 3 Mix v0.13
++CPS2	sfz3rej	sfa3	ch	Street Fighter Zero 3 Restoration (Hack, Japan RC3)
++CPS2	sfz3te	sfa3	ch	Street Fighter Zero 3: Training Edition v1.2 (Japan 980629)
++CPS2	sfza	sfa	c	Street Fighter Zero (Asia 950627)
++CPS2	sfzar1	sfa	c	Street Fighter Zero (Asia 950605)
++CPS2	sfzb	sfa	c	Street Fighter Zero (Brazil 951109)
++CPS2	sfzbr1	sfa	c	Street Fighter Zero (Brazil 950727)
++CPS2	sfzh	sfa	c	Street Fighter Zero (Hispanic 950718)
++CPS2	sfzhr1	sfa	c	Street Fighter Zero (Hispanic 950627)
++CPS2	sfzj	sfa	c	Street Fighter Zero (Japan 950727)
++CPS2	sfzjr1	sfa	c	Street Fighter Zero (Japan 950627)
++CPS2	sfzjr2	sfa	c	Street Fighter Zero (Japan 950605)
++CPS2	sfzrea	sfa	ch	Street Fighter Zero Restoration (Hack, Asia RC1)
++CPS2	sfzrej	sfa	ch	Street Fighter Zero Restoration (Hack, Japan RC1)
++CPS2	sgemf	-	-	Super Gem Fighter: Mini Mix (USA 970904)
++CPS2	sgemfa	sgemf	c	Super Gem Fighter: Mini Mix (Asia 970904)
++CPS2	sgemfd	sgemf	cb	Super Gem Fighter: Mini Mix (USA 970904 Phoenix Edition) (bootleg)
++CPS2	sgemfh	sgemf	c	Super Gem Fighter: Mini Mix (Hispanic 970904)
++CPS2	smbomb	ringdest	c	Super Muscle Bomber: The International Blowout (Japan 940831)
++CPS2	smbombr1	ringdest	c	Super Muscle Bomber: The International Blowout (Japan 940808)
++CPS2	spf2t	-	-	Super Puzzle Fighter II Turbo (Europe 960529)
++CPS2	spf2ta	spf2t	c	Super Puzzle Fighter II Turbo (Asia 960529)
++CPS2	spf2tb	spf2t	ch	Super Puzzle Fighter II Turbo (Boss Hack)(USA 960620)
++CPS2	spf2tcb	spf2t	ch	Super Puzzle Fighter II Turbo (Color Blind Hack, v1.1)
++CPS2	spf2td	spf2t	cb	Super Puzzle Fighter II Turbo (USA 960620 Phoenix Edition) (bootleg)
++CPS2	spf2th	spf2t	c	Super Puzzle Fighter II Turbo (Hispanic 960531)
++CPS2	spf2tu	spf2t	c	Super Puzzle Fighter II Turbo (USA 960620)
++CPS2	spf2xj	spf2t	c	Super Puzzle Fighter II X (Japan 960531)
++CPS2	spf2xjd	spf2t	cb	Super Puzzle Fighter II X (Japan 960531 Phoenix Edition) (bootleg)
++CPS2	spf2xpri	spf2t	ch	Super Puzzle Fighter 2 X': Balance Patch (Hack)
++CPS2	ssf2	-	-	Super Street Fighter II: The New Challengers (World 931005)
++CPS2	ssf2a	ssf2	c	Super Street Fighter II: The New Challengers (Asia 931005)
++CPS2	ssf2ar1	ssf2	c	Super Street Fighter II: The New Challengers (Asia 930914)
++CPS2	ssf2d	ssf2	cb	Super Street Fighter II: The New Challengers (World 930911 Phoenix Edition) (bootleg)
++CPS2	ssf2h	ssf2	c	Super Street Fighter II: The New Challengers (Hispanic 930911)
++CPS2	ssf2j	ssf2	c	Super Street Fighter II: The New Challengers (Japan 931005)
++CPS2	ssf2jr1	ssf2	c	Super Street Fighter II: The New Challengers (Japan 930911)
++CPS2	ssf2jr2	ssf2	c	Super Street Fighter II: The New Challengers (Japan 930910)
++CPS2	ssf2r1	ssf2	c	Super Street Fighter II: The New Challengers (World 930911)
++CPS2	ssf2t	-	-	Super Street Fighter II Turbo (World 940223)
++CPS2	ssf2ta	ssf2t	c	Super Street Fighter II Turbo (Asia 940223)
++CPS2	ssf2tad	ssf2t	cb	Super Street Fighter II Turbo (Asia 940223 Phoenix Edition) (bootleg)
++CPS2	ssf2tb	ssf2	c	Super Street Fighter II: The Tournament Battle (World 931119)
++CPS2	ssf2tba	ssf2	c	Super Street Fighter II: The Tournament Battle (Asia 931005)
++CPS2	ssf2tbd	ssf2	cb	Super Street Fighter II: The Tournament Battle (World 931119 Phoenix Edition) (bootleg)
++CPS2	ssf2tbh	ssf2	c	Super Street Fighter II: The Tournament Battle (Hispanic 931005)
++CPS2	ssf2tbj	ssf2	c	Super Street Fighter II: The Tournament Battle (Japan 931005)
++CPS2	ssf2tbj1	ssf2	c	Super Street Fighter II: The Tournament Battle (Japan 930911)
++CPS2	ssf2tbr1	ssf2	c	Super Street Fighter II: The Tournament Battle (World 930911)
++CPS2	ssf2tbu	ssf2	c	Super Street Fighter II: The Tournament Battle (USA 930911)
++CPS2	ssf2td	ssf2t	cb	Super Street Fighter II Turbo (World 940223 Phoenix Edition) (bootleg)
++CPS2	ssf2tdf	ssf2t	ch	Super Street Fighter II Turbo (Difficulty Fix, Hack)
++CPS2	ssf2tgmc	ssf2t	ch	Super Street Fighter II Turbo: Grand Master Challenge (Hack, English Restoration RC2)
++CPS2	ssf2th	ssf2t	c	Super Street Fighter II Turbo (Hispanic 940223)
++CPS2	ssf2tnl	ssf2t	ch	Super Street Fighter II Turbo New Legacy v0.9 (Beta) (Hack by Born2SPD)
++CPS2	ssf2ttag	ssf2t	ch	Super Street Fighter II Turbo Tag (Hack, V3)
++CPS2	ssf2tu	ssf2t	c	Super Street Fighter II Turbo (USA 940323)
++CPS2	ssf2tuc	ssf2t	ch	Super Street Fighter II EX: The Ultimate Championship (Hack, USA RC8)
++CPS2	ssf2tur1	ssf2t	c	Super Street Fighter II Turbo (USA 940223)
++CPS2	ssf2u	ssf2	c	Super Street Fighter II: The New Challengers (USA 930911)
++CPS2	ssf2ud	ssf2	cb	Super Street Fighter II: The New Challengers (USA 930911 Phoenix Edition) (bootleg)
++CPS2	ssf2us2	ssf2	cb	Super Street Fighter II: The New Challengers Super 2 (USA 930911)
++CPS2	ssf2xdced	ssf2t	ch	Super Street Fighter II X: Grand Master Challenge (Hack, Dreamcast Gouki RC1)
++CPS2	ssf2xj	ssf2t	c	Super Street Fighter II X: Grand Master Challenge (Japan 940311)
++CPS2	ssf2xjjs	ssf2t	ch	Super Street Fighter II X: Grand Master Challenge (Original Color HB / FGCH hack)
++CPS2	ssf2xjr1	ssf2t	c	Super Street Fighter II X: Grand Master Challenge (Japan 940223)
++CPS2	ssf2xjr1d	ssf2t	cb	Super Street Fighter II X: Grand Master Challenge (Japan 940223 Phoenix Edition) (bootleg)
++CPS2	ssf2xjr1r	ssf2t	c	Super Street Fighter II X: Grand Master Challenge (Japan 940223 rent version)
++CPS2	ssf2xjr1trn	ssf2t	ch	Super Street Fighter II X: GMC Trainer (Japan 940223)
++CPS2	ssf2xucj	ssf2t	ch	Super Street Fighter II EX: The Ultimate Championship (Hack, Japan RC8)
++CPS2	uecology	ecofghtr	c	Ultimate Ecology (Japan 931203)
++CPS2	vampj	dstlk	c	Vampire: The Night Warriors (Japan 940705)
++CPS2	vampja	dstlk	c	Vampire: The Night Warriors (Japan 940705 alt)
++CPS2	vampjbh	dstlk	ch	Vampire: The Night Warriors (Enable hidden characters ver. 2006-05-31, Hack)
++CPS2	vampjr1	dstlk	c	Vampire: The Night Warriors (Japan 940630)
++CPS2	vamprest	dstlk	ch	Darkstalkers: The Night Warriors (Hack, English Restoration RC1)
++CPS2	vhunt2	-	-	Vampire Hunter 2: Darkstalkers Revenge (Japan 970929)
++CPS2	vhunt2d	vhunt2	cb	Vampire Hunter 2: Darkstalkers Revenge (Japan 970913 Phoenix Edition) (bootleg)
++CPS2	vhunt2r1	vhunt2	c	Vampire Hunter 2: Darkstalkers Revenge (Japan 970913)
++CPS2	vhunt2te	vhunt2	ch	Night Warriors 2: Darkstalkers Revenge (Hack, English RC3)
++CPS2	vhuntj	nwarr	c	Vampire Hunter: Darkstalkers' Revenge (Japan 950316)
++CPS2	vhuntjr1	nwarr	c	Vampire Hunter: Darkstalkers' Revenge (Japan 950307)
++CPS2	vhuntjr1s	nwarr	c	Vampire Hunter: Darkstalkers' Revenge (Japan 950307 stop version)
++CPS2	vhuntjr2	nwarr	c	Vampire Hunter: Darkstalkers' Revenge (Japan 950302)
++CPS2	vsav	-	-	Vampire Savior: The Lord of Vampire (Europe 970519)
++CPS2	vsav2	-	-	Vampire Savior 2: The Lord of Vampire (Japan 970913)
++CPS2	vsav2d	vsav2	cb	Vampire Savior 2: The Lord of Vampire (Japan 970913 Phoenix Edition) (bootleg)
++CPS2	vsav2te	vsav2	ch	Vampire Savior 2: The Lord of Vampire (Hack, English RC3)
++CPS2	vsava	vsav	c	Vampire Savior: The Lord of Vampire (Asia 970519)
++CPS2	vsavb	vsav	c	Vampire Savior: The Lord of Vampire (Brazil 970519)
++CPS2	vsavd	vsav	cb	Vampire Savior: The Lord of Vampire (Europe 970519 Phoenix Edition) (bootleg)
++CPS2	vsavh	vsav	c	Vampire Savior: The Lord of Vampire (Hispanic 970519)
++CPS2	vsavj	vsav	c	Vampire Savior: The Lord of Vampire (Japan 970519)
++CPS2	vsavre	vsav	ch	Vampire Savior: The Lord of Vampire (Hack, English Restoration RC2)
++CPS2	vsavu	vsav	c	Vampire Savior: The Lord of Vampire (USA 970519)
++CPS2	xmcota	-	-	X-Men: Children of the Atom (Europe 950331)
++CPS2	xmcotaa	xmcota	c	X-Men: Children of the Atom (Asia 950105)
++CPS2	xmcotaar1	xmcota	c	X-Men: Children of the Atom (Asia 941219)
++CPS2	xmcotaar2	xmcota	c	X-Men: Children of the Atom (Asia 941217)
++CPS2	xmcotab	xmcota	c	X-Men: Children of the Atom (Brazil 950331)
++CPS2	xmcotabh	xmcota	ch	X-Men: Children of the Atom (Boss Hack)
++CPS2	xmcotah	xmcota	c	X-Men: Children of the Atom (Hispanic 950331)
++CPS2	xmcotahr1	xmcota	c	X-Men: Children of the Atom (Hispanic 950105)
++CPS2	xmcotaj	xmcota	c	X-Men: Children of the Atom (Japan 950105)
++CPS2	xmcotaj1	xmcota	c	X-Men: Children of the Atom (Japan 941222)
++CPS2	xmcotaj2	xmcota	c	X-Men: Children of the Atom (Japan 941219)
++CPS2	xmcotaj3	xmcota	c	X-Men: Children of the Atom (Japan 941217)
++CPS2	xmcotajr	xmcota	c	X-Men: Children of the Atom (Japan 941208 rent version)
++CPS2	xmcotar1	xmcota	c	X-Men: Children of the Atom (Europe 950105)
++CPS2	xmcotar1d	xmcota	cb	X-Men: Children of the Atom (Europe 950105 Phoenix Edition) (bootleg)
++CPS2	xmcotau	xmcota	c	X-Men: Children of the Atom (USA 950105)
++CPS2	xmvsf	-	-	X-Men Vs. Street Fighter (Europe 961004)
++CPS2	xmvsf3v3	xmvsf	ch	X-Men Vs. Street Fighter 3v3 + DHC (Hack, v1.1.0)
++CPS2	xmvsf3v3w	xmvsf	ch	X-Men Vs. Street Fighter 3v3 + DHC (Hack, v1.1.0, wide)
++CPS2	xmvsf6p	xmvsf	ch	X-Men Vs. Street Fighter 3v3 + DHC (Hack, v1.1.0, 6 players)
++CPS2	xmvsf6pw	xmvsf	ch	X-Men Vs. Street Fighter 3v3 + DHC (Hack, v1.1.0, 6 players, wide)
++CPS2	xmvsfa	xmvsf	c	X-Men Vs. Street Fighter (Asia 961023)
++CPS2	xmvsfar1	xmvsf	c	X-Men Vs. Street Fighter (Asia 961004)
++CPS2	xmvsfar2	xmvsf	c	X-Men Vs. Street Fighter (Asia 960919)
++CPS2	xmvsfar3	xmvsf	c	X-Men Vs. Street Fighter (Asia 960910)
++CPS2	xmvsfb	xmvsf	c	X-Men Vs. Street Fighter (Brazil 961023)
++CPS2	xmvsfcph	xmvsf	ch	X-Men Vs. Street Fighter (Coop, Hack)
++CPS2	xmvsfem	xmvsf	ch	X-Men Vs. Street Fighter (Easy Moves, Hack)
++CPS2	xmvsfh	xmvsf	c	X-Men Vs. Street Fighter (Hispanic 961004)
++CPS2	xmvsfj	xmvsf	c	X-Men Vs. Street Fighter (Japan 970113)
++CPS2	xmvsfjr1	xmvsf	c	X-Men Vs. Street Fighter (Japan 961023)
++CPS2	xmvsfjr2	xmvsf	c	X-Men Vs. Street Fighter (Japan 961004)
++CPS2	xmvsfjr3	xmvsf	c	X-Men Vs. Street Fighter (Japan 960910)
++CPS2	xmvsfjr4	xmvsf	c	X-Men Vs. Street Fighter (Japan 960909)
++CPS2	xmvsfr1	xmvsf	c	X-Men Vs. Street Fighter (Europe 960910)
++CPS2	xmvsfu	xmvsf	c	X-Men Vs. Street Fighter (USA 961023)
++CPS2	xmvsfu1d	xmvsf	cb	X-Men Vs. Street Fighter (USA 961004 Phoenix Edition) (bootleg)
++CPS2	xmvsfur1	xmvsf	c	X-Men Vs. Street Fighter (USA 961004)
++CPS2	xmvsfur2	xmvsf	c	X-Men Vs. Street Fighter (USA 960910)
++NEOGEO	19yy	-	h	19YY (Neo CD conversion, ADK World)
++NEOGEO	19yyo	19yy	ch	19YY (Neo CD conversion, ADK World)(Original release)
++NEOGEO	2020bb	-	-	2020 Super Baseball (set 1)
++NEOGEO	2020bba	2020bb	c	2020 Super Baseball (set 2)
++NEOGEO	2020bbcd	2020bb	ch	2020 Super Baseball (Neo CD conversion)
++NEOGEO	2020bbh	2020bb	c	2020 Super Baseball (set 3)
++NEOGEO	3countb	-	-	3 Count Bout / Fire Suplex (NGM-043 ~ NGH-043)
++NEOGEO	3countba	3countb	c	3 Count Bout / Fire Suplex (NGM-043)
++NEOGEO	4play	-	d	4 player input test
++NEOGEO	abyssali	-	d	Abyssal Infants (HB)
++NEOGEO	adkw	-	h	ADK World (Neo CD conversion)
++NEOGEO	alpham2	-	-	Alpha Mission II / ASO II - Last Guardian (NGM-007 ~ NGH-007)
++NEOGEO	alpham2p	alpham2	cp	Alpha Mission II / ASO II - Last Guardian (prototype)
++NEOGEO	altbeastng	-	d	Altered Beast - Neo Geo Conversion (HB)
++NEOGEO	amazoneo	-	vd	Soldier Girl Amazon Neo (HB)
++NEOGEO	androdun	-	-	Andro Dunos (NGM-049 ~ NGH-049)
++NEOGEO	aodk	-	-	Aggressors of Dark Kombat / Tsuukai GANGAN Koushinkyoku (ADM-008 ~ ADH-008)
++NEOGEO	aof	-	-	Art of Fighting / Ryuuko no Ken (NGM-044 ~ NGH-044)
++NEOGEO	aof2	-	-	Art of Fighting 2 / Ryuuko no Ken 2 (NGM-056)
++NEOGEO	aof2a	aof2	c	Art of Fighting 2 / Ryuuko no Ken 2 (NGH-056)
++NEOGEO	aof2bh	aof2	ch	Art of Fighting 2 / Ryuuko no Ken 2 (Enable hidden characters V2)
++NEOGEO	aof2bhs	aof2	ch	Art of Fighting 2 / Ryuuko no Ken 2 (Boss With Simple Attack Edition, Hack)
++NEOGEO	aof3	-	-	Art of Fighting 3 - The Path of the Warrior / Art of Fighting - Ryuuko no Ken Gaiden
++NEOGEO	aof3bh	aof3	ch	Art of Fighting 3 - The Path of the Warrior / Art of Fighting - Ryuuko no Ken Gaiden (Enable Hidden Characters V2)
++NEOGEO	aof3k	aof3	c	Art of Fighting 3 - The Path of the Warrior (Korean release)
++NEOGEO	aofbr	aof	ch	Art of Fighting / Ryuuko no Ken (Portuguese edition v1.0, Hack)
++NEOGEO	b2b	-	-	Bang Bang Busters (2010 NCI release)
++NEOGEO	b2b2	-	d	Bang Bang Busters 2 (HB, Demo 2)
++NEOGEO	badapple	-	d	Bad Apple (HB, Tech-Demo)
++NEOGEO	bakatono	-	-	Bakatonosama Mahjong Manyuuki (MOM-002 ~ MOH-002)
++NEOGEO	bangbead	-	-	Bang Bead
++NEOGEO	bangbedp	bangbead	cp	Bang Bead (Prototype?)
++NEOGEO	bdudes	-	d	Bad Dudes - Burger Edition (Demo Version)
++NEOGEO	beast	-	d	Shadow of the Beast (Neo Geo demo)
++NEOGEO	bjourney	-	-	Blue's Journey / Raguy (ALM-001 ~ ALH-001)
++NEOGEO	bjourneyh	bjourney	c	Blue's Journey / Raguy (ALH-001)
++NEOGEO	blazstar	-	-	Blazing Star
++NEOGEO	blazstarcm	blazstar	ch	Blazing Star (Stage Select Hack)
++NEOGEO	blueandr	-	d	Blue And Red - Fight The Robots! (HB, v1.7 NTSC)
++NEOGEO	bonusstage	-	d	Bonus Stage (HB)
++NEOGEO	bpanicdx	-	d	Block Panic DX (HB, ver. 20250101)
++NEOGEO	breakers	-	-	Breakers
++NEOGEO	breakrev	-	-	Breakers Revenge
++NEOGEO	breakrevbh	breakrev	ch	Breakers Revenge (Boss Hack)
++NEOGEO	brkrevext	breakrev	ch	Breakers Revenge (Extra Mode, Hack)
++NEOGEO	brkrevjq	breakrev	ch	Breakers Revenge (Enhanced, Hack)
++NEOGEO	bstars	-	-	Baseball Stars Professional (NGM-002)
++NEOGEO	bstars2	-	-	Baseball Stars 2
++NEOGEO	bstarsh	bstars	c	Baseball Stars Professional (NGH-002)
++NEOGEO	bubbleopen	-	d	Bubble Open (HB, Demo 1)
++NEOGEO	burningf	-	-	Burning Fight (NGM-018 ~ NGH-018)
++NEOGEO	burningfh	burningf	c	Burning Fight (NGH-018, US)
++NEOGEO	burningfp	burningf	cp	Burning Fight (prototype, older)
++NEOGEO	burningfpa	burningf	cp	Burning Fight (prototype, near final, ver 23.3, 910326)
++NEOGEO	burningfpb	burningf	cp	Burning Fight (prototype, newer, V07)
++NEOGEO	cabalng	-	d	Cabal - Neo Geo Conversion (HB)
++NEOGEO	cakefght	twinspri	ch	Cake Fighter (hack of Twinkle Star Sprites)
++NEOGEO	captainbarrel	-	d	Captain Barrel (HB)
++NEOGEO	cnbe	-	d	Codename - Blut Engel (HB, ver. 20060119)
++NEOGEO	cnbe2018	cnbe	cd	Codename - Blut Engel (HB, ver. 20180905)
++NEOGEO	cndi	-	d	Chip n Dale (FMV Demo)
++NEOGEO	columnsn	-	d	Columns - Neo Geo (HB)
++NEOGEO	cphd	-	d	Crouching Poney Hidden Dragon (HB, Demo)
++NEOGEO	crswd2bl	-	b	Crossed Swords 2 (bootleg of CD version)
++NEOGEO	crswd2blp	crswd2bl	cb	Crossed Swords 2 (bootleg of CD version, full CD audio v2)
++NEOGEO	crsword	-	-	Crossed Swords (ALM-002 ~ ALH-002)
++NEOGEO	ct2k3sa	kof2001	cb	Crouching Tiger Hidden Dragon 2003 Super Plus (hack of The King of Fighters 2001, alternate)
++NEOGEO	ct2k3sp	kof2001	cb	Crouching Tiger Hidden Dragon 2003 Super Plus (hack of The King of Fighters 2001)
++NEOGEO	cthd2003	kof2001	cb	Crouching Tiger Hidden Dragon 2003 (hack of The King of Fighters 2001)
++NEOGEO	cthd2k3a	kof2001	cb	Crouching Tiger Hidden Dragon 2003 (The King of Fighters 2001 bootleg, set 2)
++NEOGEO	ctomaday	-	-	Captain Tomaday
++NEOGEO	cyberlip	-	-	Cyber-Lip (NGM-010)
++NEOGEO	cyborgforce	-	d	Cyborg Force (HB)
++NEOGEO	diggerma	-	pd	Digger Man (prototype)
++NEOGEO	doomgeo	-	d	DoomGeo (HB, 8643a06)
++NEOGEO	doubldsp	doubledr	ch	Double Dragon (Special 2017, Hack)
++NEOGEO	doubled1	-	d	Double Dragon One (HB, Beta 3.2)
++NEOGEO	doubled1ed	doubled1	cd	Double Dragon One (HB, Early Demo)
++NEOGEO	doubledp	doubledr	ch	Double Dragon (Plus, Hack)
++NEOGEO	doubledr	-	-	Double Dragon (Neo-Geo)
++NEOGEO	doubledrbh	doubledr	ch	Double Dragon (Boss hack)
++NEOGEO	doubledt	doubledr	ch	Double Dragon (Optimized, Hack)
++NEOGEO	dragonsh	-	-	Dragon's Heaven (development board)
++NEOGEO	ducki	-	d	Duck Tales (FMV Demo)
++NEOGEO	dwi	-	d	DarkWing Duck (FMV Demo)
++NEOGEO	dwia	dwi	cd	DarkWing Duck (FMV Demo, alt)
++NEOGEO	eightman	-	-	Eight Man (NGM-025 ~ NGH-025)
++NEOGEO	eswatng	-	d	Cyber Police ESWAT - Neo Geo Conversion (HB)
++NEOGEO	fatfursp	-	-	Fatal Fury Special / Garou Densetsu Special (NGM-058 ~ NGH-058, set 1)
++NEOGEO	fatfurspa	fatfursp	c	Fatal Fury Special / Garou Densetsu Special (NGM-058 ~ NGH-058, set 2)
++NEOGEO	fatfury1	-	-	Fatal Fury - King of Fighters / Garou Densetsu - Shukumei no Tatakai (NGM-033 ~ NGH-033)
++NEOGEO	fatfury2	-	-	Fatal Fury 2 / Garou Densetsu 2 - Arata-naru Tatakai (NGM-047 ~ NGH-047)
++NEOGEO	fatfury2a	fatfury2	c	Fatal Fury 2 / Garou Densetsu 2 - arata-naru tatakai (NGM-047)
++NEOGEO	fatfury3	-	-	Fatal Fury 3 - Road to the Final Victory / Garou Densetsu 3 - Haruka-naru Tatakai (NGM-069 ~ NGH-069)
++NEOGEO	fatfury3a	fatfury3	c	Fatal Fury 3 - Road to the Final Victory / Garou Densetsu 3 - haruka-naru tatakai (NGM-069 ~ NGH-069) (alternate set)
++NEOGEO	fbfrenzy	-	-	Football Frenzy (NGM-034 ~ NGH-034)
++NEOGEO	ffurspbs	fatfursp	ch	Fatal Fury Special / Garou Densetsu Special (Optional Hidden Character Third Edition, Hack)
++NEOGEO	ffurspbt	fatfursp	ch	Fatal Fury Special / Garou Densetsu Special (BT Version PPX, Hack)
++NEOGEO	ffury1bs	fatfury1	ch	Fatal Fury - King of Fighters / Garou Densetsu - Shukumei no Tatakai (Boss, Hack)
++NEOGEO	ffury2es	fatfury2	ch	Fatal Fury 2 / Garou Densetsu 2 - Arata-naru Tatakai (Easy Special Attacks, Hack)
++NEOGEO	ffury3bs	fatfury3	ch	Fatal Fury 3 - Road to the Final Victory / Garou Densetsu 3 - Haruka-naru Tatakai (Ancient Battles Resurgence, Hack)
++NEOGEO	ffury3eh	fatfury3	ch	Fatal Fury 3 - Road to the Final Victory / Garou Densetsu 3 - Haruka-naru Tatakai (Add Char - Ultra kill style changed, Hack)
++NEOGEO	fightfev	-	-	Fight Fever / Wang Jung Wang (set 1)
++NEOGEO	fightfeva	fightfev	c	Fight Fever / Wang Jung Wang (set 2)
++NEOGEO	flapchck	-	d	Flappy Chicken (HB, ver. 20230430)
++NEOGEO	flipshot	-	-	Battle Flip Shot
++NEOGEO	foodfight	-	d	Food Fight - Neo Geo Conversion (HB)
++NEOGEO	freedoom	doomgeo	cd	Freedoom (HB, v0.13.0 8643a06)
++NEOGEO	froman2b	-	b	Idol Mahjong Final Romance 2 (Neo-Geo, bootleg of CD version)
++NEOGEO	froman2bp	froman2b	cb	Idol Mahjong Final Romance 2 (Neo-Geo, bootleg of CD version, full CD audio)
++NEOGEO	fswords	samsho3	c	Fighters Swords (Korean release of Samurai Shodown III)
++NEOGEO	galaxianng	-	vd	Galaxian - Neo Geo Conversion (HB, Beta2)
++NEOGEO	galaxyfg	-	-	Galaxy Fight - Universal Warriors
++NEOGEO	galaxyfg03	galaxyfg	ch	Galaxy Fight (Enhanced Version 2014)
++NEOGEO	ganryu	-	-	Ganryu / Musashi Ganryuki
++NEOGEO	garou	-	-	Garou - Mark of the Wolves (NGM-2530)
++NEOGEO	garoubl	garou	cb	Garou - Mark of the Wolves (bootleg)
++NEOGEO	garoubs	garou	ch	Garou - Mark of the Wolves (Enable hidden characters, Hack)
++NEOGEO	garouh	garou	c	Garou - Mark of the Wolves (NGM-2530 ~ NGH-2530)
++NEOGEO	garouha	garou	c	Garou - Mark of the Wolves (NGH-2530)
++NEOGEO	garoujq	garou	cp	Garou - Mark of the Wolves (Enhanced, Hack)
++NEOGEO	garoup	garou	cp	Garou - Mark of the Wolves (prototype)
++NEOGEO	ghostbi	-	d	Ghost Busters (FMV Demo)
++NEOGEO	ghostlop	-	p	Ghostlop (prototype)
++NEOGEO	gladmort	-	d	GladMort (HB)
++NEOGEO	gladmortcm	gladmort	cd	GladMort (Caravan Mode) (HB)
++NEOGEO	goalx3	-	-	Goal! Goal! Goal!
++NEOGEO	goldnaxeng	-	d	Golden Axe Neo Geo (HB)
++NEOGEO	gowcaiet	gowcaizr	ch	Voltage Fighter - Gowcaizer / Choujin Gakuen Gowcaizer (Eternal, Hack)
++NEOGEO	gowcaizr	-	-	Voltage Fighter - Gowcaizer / Choujin Gakuen Gowcaizer
++NEOGEO	gpilots	-	-	Ghost Pilots (NGM-020 ~ NGH-020)
++NEOGEO	gpilotsh	gpilots	c	Ghost Pilots (NGH-020, US)
++NEOGEO	gpilotsp	gpilots	cp	Ghost Pilots (prototype)
++NEOGEO	gururin	-	-	Gururin
++NEOGEO	halozero	-	d	Halo Zero (HB, Demo)
++NEOGEO	hangonng	-	d	Hang-On - Neo Geo Conversion (HB, v2.1)
++NEOGEO	horekidb3	-	vd	Kid no Hore Hore Daisakusen - Neo Geo Conversion (HB)
++NEOGEO	hypernoid	-	d	Hypernoid (HB, ver. 20220224)
++NEOGEO	inthehunt	-	d	In The Hunt (Demo Version)
++NEOGEO	ironclad	-	p	Choutetsu Brikin'ger / Iron Clad (prototype)
++NEOGEO	ironclado	ironclad	cbp	Choutetsu Brikin'ger / Iron Clad (prototype, bootleg)
++NEOGEO	irrmaze	-	-	The Irritating Maze / Ultra Denryu Iraira Bou
++NEOGEO	janshin	-	-	Janshin Densetsu - Quest of Jongmaster
++NEOGEO	jockeygp	-	-	Jockey Grand Prix (set 1)
++NEOGEO	jockeygpa	jockeygp	c	Jockey Grand Prix (set 2)
++NEOGEO	joyjoy	-	-	Puzzled / Joy Joy Kid (NGM-021 ~ NGH-021)
++NEOGEO	jurl	-	d	Jurl (HB, v0.3c)
++NEOGEO	kabukijq	kabukikl	ch	Far East of Eden - Kabuki Klash / Tengai Makyou - Shin Den (Enhanced, Hack)
++NEOGEO	kabukikl	-	-	Far East of Eden - Kabuki Klash / Tengai Makyou - Shin Den
++NEOGEO	kabukiklb	kabukikl	ch	Far East of Eden - Kabuki Klash / Tengai Makyou - Shin Den (Add hidden characters)
++NEOGEO	karnovng	-	d	Karnov Neo Geo (HB)
++NEOGEO	karnovr	-	-	Karnov's Revenge / Fighter's History Dynamite
++NEOGEO	karnovre	karnovr	ch	Karnov's Revenge / Fighter's History Dynamite - Revolution (Hack, v0.2)
++NEOGEO	kf10thep	kof2002	cb	The King of Fighters 10th Anniversary Extra Plus (bootleg of The King of Fighters 2002)
++NEOGEO	kf10thuo	kof2002	ch	The King of Fighters 10th Anniversary (Optimized 2020, Hack)
++NEOGEO	kf10thup	kof2002	ch	The King of Fighters 10th Anniversary (Optimized 2023, Hack)
++NEOGEO	kf2k1bh	kof2001	cb	The King of Fighters 2001 Boss Hack (bootleg / hack)
++NEOGEO	kf2k1pkz	kof2001	ch	The King of Fighters 2001 (PS2 Krizalid, Hack)
++NEOGEO	kf2k1pla	kof2001	cb	The King of Fighters 2001 Plus (set 2, bootleg / hack)
++NEOGEO	kf2k1pls	kof2001	cb	The King of Fighters 2001 Plus (set 1, bootleg / hack)
++NEOGEO	kf2k1ult	kof2001	ch	The King of Fighters 2001 (All Boss Plus, Hack)
++NEOGEO	kf2k23rd	kof2002	ch	The King of Fighters 2002 (3rd Strike of Orochi, Hack)
++NEOGEO	kf2k2mix	kof2002	ch	The King of Fighters 2002 (Climax, Hack)
++NEOGEO	kf2k2mp	kof2002	cb	The King of Fighters 2002 Magic Plus (bootleg, set 1)
++NEOGEO	kf2k2mp2	kof2002	cb	The King of Fighters 2002 Magic Plus II (bootleg)
++NEOGEO	kf2k2mp3	kof2002	ch	The King of Fighters 2002 Magic Plus III (Hack)
++NEOGEO	kf2k2mpl	kof2002	cb	The King of Fighters 2002 Magic Plus (bootleg, set 2)
++NEOGEO	kf2k2p17	kof2002	ch	The King of Fighters 2002 (Plus 2017, Hack)
++NEOGEO	kf2k2pl	kof2002	cb	The King of Fighters 2002 Plus (bootleg set 4)
++NEOGEO	kf2k2pla	kof2002	cb	The King of Fighters 2002 Plus (bootleg set 2)
++NEOGEO	kf2k2plb	kof2002	cb	The King of Fighters 2002 Plus (bootleg set 3)
++NEOGEO	kf2k2plc	kof2002	cb	The King of Fighters 2002 Super (bootleg)
++NEOGEO	kf2k2plh	kof2002	ch	The King of Fighters 2002 Plus (Hack)
++NEOGEO	kf2k2pls	kof2002	cb	The King of Fighters 2002 Plus (bootleg set 1)
++NEOGEO	kf2k2ps2re	kof2002	ch	The King of Fighters 2002 (PlayStation 2 Plus 2025 ver 1.0, Hack)
++NEOGEO	kf2k3bl	kof2003	cb	The King of Fighters 2003 (bootleg set 1)
++NEOGEO	kf2k3bla	kof2003	cb	The King of Fighters 2003 (bootleg set 2)
++NEOGEO	kf2k3p2s	kof2003	ch	The King of Fighters 2003 (PS2 Style Portraits, Hack)
++NEOGEO	kf2k3pcb	-	-	The King of Fighters 2003 (Japan, JAMMA PCB)
++NEOGEO	kf2k3pl	kof2003	cb	The King of Fighters 2004 Plus / Hero (bootleg of The King of Fighters 2003)
++NEOGEO	kf2k3ps2	kof2003	ch	The King of Fighters 2003 (PlayStation 2, Hack)
++NEOGEO	kf2k3upl	kof2003	cb	The King of Fighters 2004 Ultra Plus (bootleg of The King of Fighters 2003)
++NEOGEO	kf2k4pls	kof2002	cb	The King of Fighters Special Edition 2004 Plus (bootleg)
++NEOGEO	kf2k5uni	kof2002	cb	The King of Fighters 10th Anniversary 2005 Unique (bootleg of The King of Fighters 2002)
++NEOGEO	kizuna	-	-	Kizuna Encounter - Super Tag Battle / Fu'un Super Tag Battle
++NEOGEO	kizuna4p	kizuna	c	Kizuna Encounter - Super Tag Battle 4 Way Battle Version / Fu'un Super Tag Battle Special Version
++NEOGEO	knightsch	-	d	Knight's Chance (HB)
++NEOGEO	kof10th	kof2002	cb	The King of Fighters 10th Anniversary (bootleg of The King of Fighters 2002)
++NEOGEO	kof10thd	kof2002	ch	The King of Fighters 10th Anniversary (The King of Fighters 2002 bootleg / Fully Decrypted)
++NEOGEO	kof2000	-	-	The King of Fighters 2000 (NGM-2570 ~ NGH-2570)
++NEOGEO	kof2000bc	kof2000	ch	The King of Fighters 2000 (Imitate BC 14 System, Hack By Aillis)
++NEOGEO	kof2000n	kof2000	c	The King of Fighters 2000 (not encrypted)
++NEOGEO	kof2000t	kof2000	ch	The King of Fighters 2000 (Optimized, Hack)
++NEOGEO	kof2001	-	-	The King of Fighters 2001 (NGM-262?)
++NEOGEO	kof2001h	kof2001	c	The King of Fighters 2001 (NGH-2621)
++NEOGEO	kof2002	-	-	The King of Fighters 2002 (NGM-2650 ~ NGH-2650)
++NEOGEO	kof2002b	kof2002	cb	The King of Fighters 2002 (bootleg)
++NEOGEO	kof2002m	kof2002	ch	The King of Fighters 2002 (Mugen, Hack)
++NEOGEO	kof2002t	kof2002	c	The King of Fighters 2002 Plus (Optimised, Hack)
++NEOGEO	kof2003	-	-	The King of Fighters 2003 (NGM-2710, Export)
++NEOGEO	kof2003h	kof2003	c	The King of Fighters 2003 (NGH-2710)
++NEOGEO	kof2003t	kof2003	ch	The King of Fighters 2003 (Plus, Hack)
++NEOGEO	kof2k1bs	kof2001	ch	The King of Fighters 2001 (Boss, Hack)
++NEOGEO	kof2k1fd	kof2001	c	The King of Fighters 2001 (Fully Decrypted)
++NEOGEO	kof2k1rp	kof2001	ch	The King of Fighters 2001 (Remix Pro v1.02 Final, Hack)
++NEOGEO	kof2k1ru	kof2001	ch	The King of Fighters 2001 (Remix Ultra 2.3, Hack)
++NEOGEO	kof2k2br	kof2002	ch	The King of Fighters 2002 (Portuguese edition v2.0, Hack)
++NEOGEO	kof2k2fd	kof2002	c	The King of Fighters 2002 (Fully Decrypted)
++NEOGEO	kof2k2jq	kof2002	ch	The King of Fighters 2002 (Infinite Energy, Hack)
++NEOGEO	kof2k2ly	kof2002	c	The King of Fighters 2002 (Remix, Hack)
++NEOGEO	kof2k2omg	kof2002	ch	The King of Fighters 2002 (Omega v.0?)
++NEOGEO	kof2k2omg8	kof2002	ch	The King of Fighters 2002 (Omega v0.8)
++NEOGEO	kof2k2omg9	kof2002	ch	The King of Fighters 2002 (Omega v0.9)
++NEOGEO	kof2k2omg9b	kof2002	ch	The King of Fighters 2002 (Omega v0.9 beta)
++NEOGEO	kof2k2ru	kof2002	ch	The King of Fighters 2002 (Remix Ultra 3.5, Hack)
++NEOGEO	kof2k2ts	kof2002	c	The King of Fighters 2002 (Battle with Orochi, Hack)
++NEOGEO	kof2k3br	kof2003	c	The King of Fighters 2003 (Portuguese edition v1.0, Hack)
++NEOGEO	kof2k3fd	kof2003	c	The King of Fighters 2003 (Fully Decrypted)
++NEOGEO	kof2k4se	kof2002	cb	The King of Fighters Special Edition 2004 (bootleg of The King of Fighters 2002)
++NEOGEO	kof2kfd	kof2000	c	The King of Fighters 2000 (Fully Decrypted)
++NEOGEO	kof2kotc	kof2000	ch	The King of Fighters 2000 (OTC, Hack)
++NEOGEO	kof2kpls	kof2000	ch	The King of Fighters 2000 (Plus Blue, Hack)
++NEOGEO	kof2kps2	kof2000	ch	The King of Fighters 2000 (Playstation 2, Hack)
++NEOGEO	kof2ksp	kof2000	ch	The King of Fighters 2000 (Special, Hack)
++NEOGEO	kof2kxxx	kof2000	ch	The King of Fighters 2000 SP XXX (Hack, Ver. 2016-01-04)
++NEOGEO	kof94	-	-	The King of Fighters '94 (NGM-055 ~ NGH-055)
++NEOGEO	kof94br	kof94	ch	The King of Fighters '94 (Portuguese edition, Hack)
++NEOGEO	kof94bs	kof94	ch	The King of Fighters '94 (Boss, Hack)
++NEOGEO	kof94nr2	kof94	ch	The King of Fighters '94 (New Remix 2018 Rev.2, Hack)
++NEOGEO	kof94rz	kof94	ch	The King of Fighters '94 (Hack Boss Remixed)
++NEOGEO	kof94te	kof94	ch	The King of Fighters '94 (Team Edit Edition: KOF95 style portraits v1.4.2, Hack)
++NEOGEO	kof94tea	kof94	ch	The King of Fighters '94 (Team Edit Edition: KOF94 style portraits v1.4.2, Hack)
++NEOGEO	kof95	-	-	The King of Fighters '95 (NGM-084)
++NEOGEO	kof95a	kof95	c	The King of Fighters '95 (NGM-084, alt board)
++NEOGEO	kof95b	kof95	ch	The King of Fighters '95 (Enable Hidden Characters V.[?])
++NEOGEO	kof95bs	kof95	ch	The King of Fighters '95 (Boss, Hack)
++NEOGEO	kof95h	kof95	c	The King of Fighters '95 (NGH-084)
++NEOGEO	kof95jq	kof95	ch	The King of Fighters '95 (Infinite Energy, Hack)
++NEOGEO	kof95sp	kof95	ch	The King of Fighters '95 (Special 2017, Hack)
++NEOGEO	kof95sr3	kof95	ch	The King of Fighters '95 (Super Remix V3, Hack)
++NEOGEO	kof95t	kof95	ch	The King of Fighters '95 (Optimized, Hack)
++NEOGEO	kof96	-	-	The King of Fighters '96 (NGM-214)
++NEOGEO	kof96a	kof96	c	The King of Fighters '96 (bug fix revision)
++NEOGEO	kof96ae	kof96	ch	The King of Fighters '96 (Anniversary, Hack)
++NEOGEO	kof96cn	kof96	ch	The King of Fighters '96 (Chinese Edition, ver 1.0, Hack)
++NEOGEO	kof96ep	kof96	cb	The King of Fighters '96 (bootleg / hack)
++NEOGEO	kof96h	kof96	c	The King of Fighters '96 (NGH-214)
++NEOGEO	kof96pls	kof96	ch	The King of Fighters '96 (Plus, Hack)
++NEOGEO	kof96r	kof96	ch	The King of Fighters '96 (Revised, Hack)
++NEOGEO	kof96rp	kof96	ch	The King of Fighters '96 (Remix Plus 08 SP, Hack)
++NEOGEO	kof96rss	kof96	ch	The King of Fighters '96 (Remix Spring Special, Version 1.5, Hack)
++NEOGEO	kof97	-	-	The King of Fighters '97 (NGM-2320)
++NEOGEO	kof97ae	kof97	ch	The King of Fighters '97 (Anniversary, Hack)
++NEOGEO	kof97ae230625	kof97	ch	The King of Fighters '97 (Anniversary 2.3.0625, Hack)
++NEOGEO	kof97bs	kof97	ch	The King of Fighters '97 (Boss, Hack)
++NEOGEO	kof97bt	kof97	ch	The King of Fighters '97 (Balanced & Optimized, Hack)
++NEOGEO	kof97cb	kof97	ch	The King of Fighters '97 (Combo, Hack)
++NEOGEO	kof97cbt	kof97	ch	The King of Fighters '97 (Combo Training, Hack, Ver. 2018)
++NEOGEO	kof97ce	kof97	ch	The King of Fighters '97 (Champion  Edition, Hack)
++NEOGEO	kof97cn	kof97	ch	The King of Fighters '97 (10th Anniversary Chinese Edition, Hack)
++NEOGEO	kof97eb	kof97	ch	The King of Fighters '97 (Evolution & Balance, Hack)
++NEOGEO	kof97evf	kof97	ch	The King of Fighters '97 (Evolution FC2, Hack)
++NEOGEO	kof97evn	kof97	ch	The King of Fighters '97 (Evolution New, Hack)
++NEOGEO	kof97h	kof97	c	The King of Fighters '97 (NGH-2320)
++NEOGEO	kof97inv	kof97	ch	The King of Fighters '97 (Invincible Plus!, B2.1.2107, Hack)
++NEOGEO	kof97k	kof97	c	The King of Fighters '97 (Korean release)
++NEOGEO	kof97m	kof97	ch	The King of Fighters '97 (Dream Back, Hack)
++NEOGEO	kof97oro	kof97	cb	The King of Fighters '97 Chongchu Jianghu Plus 2003 (bootleg, set 1)
++NEOGEO	kof97pla	kof97	cb	The King of Fighters '97 Chongchu Jianghu Plus 2003 (bootleg, set 2)
++NEOGEO	kof97plc	kof97	ch	The King of Fighters '97 Plus (Enhanced, Hack)
++NEOGEO	kof97plh	kof97	ch	The King of Fighters '97 Plus (Hack)
++NEOGEO	kof97pls	kof97	cb	The King of Fighters '97 Plus (bootleg)
++NEOGEO	kof97pm	kof97	ch	The King of Fighters '97 (Practice Mode, Hack)
++NEOGEO	kof97ps	kof97	ch	The King of Fighters '97 (Imitation Playstation final improved version 2016-10-29)
++NEOGEO	kof97rc	kof97	ch	The King of Fighters '97 (Random Combo, Hack, Ver. 2010)
++NEOGEO	kof97rm	kof97	ch	The King of Fighters '97 (Randomized, Hack)
++NEOGEO	kof97sp	kof97	ch	The King of Fighters '97 (Special, Hack)
++NEOGEO	kof97st	kof97	ch	The King of Fighters '97 (Strengthen Innovation, Hack)
++NEOGEO	kof97t	kof97	ch	The King of Fighters '97 (Optimized, Hack)
++NEOGEO	kof97ts	kof97	ch	The King of Fighters '97 (Battle with Orochi, v1.2, Hack)
++NEOGEO	kof97ubp	kof97	ch	The King of Fighters '97 (Ultimate Battle Plus, Hack)
++NEOGEO	kof97xt	kof97	ch	The King of Fighters '97 (Final Battle, Hack)
++NEOGEO	kof98	-	-	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (NGM-2420)
++NEOGEO	kof98a	kof98	c	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (NGM-2420, alt board)
++NEOGEO	kof98ae	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Anniversary, Hack)
++NEOGEO	kof98bc2k2	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (BC Style 2002, Hack) (Unknown Author)
++NEOGEO	kof98bc2nd	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (BC 2nd Impact Edition, Hack, Ver.2020-07-29)
++NEOGEO	kof98bsc	kof98	ch	King of Fighters '98 - Dream Match Never Ends (Boss Chinese Edition, Hack)
++NEOGEO	kof98cb	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Combo, Hack)
++NEOGEO	kof98cp	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Combo Plus, Hack)
++NEOGEO	kof98eck	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Easy Combo Edition, Hack)
++NEOGEO	kof98evo	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Evolution, Hack)
++NEOGEO	kof98h	kof98	c	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (NGH-2420)
++NEOGEO	kof98k	kof98	c	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Korean board, set 1)
++NEOGEO	kof98ka	kof98	c	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Korean board, set 2)
++NEOGEO	kof98mix	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Unlimited, Hack)
++NEOGEO	kof98pfe	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Plus Final Edition, Hack)
++NEOGEO	kof98plc	kof98	ch	King of Fighters '98 - Dream Match Never Ends (Plus Chinese Edition, Hack)
++NEOGEO	kof98rat	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Ratio, Hack)
++NEOGEO	kof98ult	kof98	ch	The King of Fighters '98 - The Slugfest / King of Fighters '98 - Dream Match Never Ends (Ultimate Match, Hack)
++NEOGEO	kof99	-	-	The King of Fighters '99 - Millennium Battle (NGM-2510)
++NEOGEO	kof99ae	kof99	ch	The King of Fighters '99 - Millennium Battle (Anniversary, Hack)
++NEOGEO	kof99cb	kof99	ch	The King of Fighters '99 - Millennium Battle (Combo, Hack)
++NEOGEO	kof99e	kof99	c	The King of Fighters '99 - Millennium Battle (earlier)
++NEOGEO	kof99eur	kof99	ch	The King of Fighters '99 - Millennium Battle (Evolution Ultra Remix, Hack)
++NEOGEO	kof99fd	kof99	c	The King of Fighters '99 - Millennium Battle (Fully Decrypted)
++NEOGEO	kof99h	kof99	c	The King of Fighters '99 - Millennium Battle (NGH-2510)
++NEOGEO	kof99jh	kof99	ch	The King of Fighters '99 - Millennium Battle (Evolution, Hack)
++NEOGEO	kof99jq	kof99	ch	The King of Fighters '99 - Millennium Battle (Infinite Energy, Hack)
++NEOGEO	kof99k	kof99	c	The King of Fighters '99 - Millennium Battle (Korean release)
++NEOGEO	kof99ka	kof99	c	The King of Fighters '99 - Millennium Battle (Korean release, non-encrypted program)
++NEOGEO	kof99p	kof99	cp	The King of Fighters '99 - Millennium Battle (prototype)
++NEOGEO	kof99pls	kof99	ch	The King of Fighters '99 - Millennium Battle (Plus, Hack)
++NEOGEO	kof99rp	kof99	ch	The King of Fighters '99 - Millennium Battle (Remix Pro v2.01 Final, Hack)
++NEOGEO	kof99sk	kof99	ch	The King of Fighters '99 - Millennium Battle (LC+SK, Hack)
++NEOGEO	kof99sr	kof99	ch	The King of Fighters '99 - Millennium Battle (Summer Revolution, Hack)
++NEOGEO	kof99t	kof99	ch	The King of Fighters '99 - Millennium Battle (Optimized, Hack)
++NEOGEO	kog	kof97	cb	King of Gladiator (bootleg of The King of Fighters '97)
++NEOGEO	kogplus	kof97	cb	King of Gladiator Plus (The King of Fighters '97 bootleg)
++NEOGEO	kotm	-	-	King of the Monsters (set 1)
++NEOGEO	kotm2	-	-	King of the Monsters 2 - The Next Thing (NGM-039 ~ NGH-039)
++NEOGEO	kotm2a	kotm2	c	King of the Monsters 2 - The Next Thing (older)
++NEOGEO	kotm2p	kotm2	cp	King of the Monsters 2 - The Next Thing (prototype)
++NEOGEO	kotmh	kotm	c	King of the Monsters (set 2)
++NEOGEO	lans2004	shocktr2	cb	Lansquenet 2004 (bootleg of Shock Troopers - 2nd Squad)
++NEOGEO	lastbd2b	lastbld2	ch	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (Enable Hidden Characters V4)
++NEOGEO	lastbd2e	lastbld2	ch	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (Enhanced, Hack)
++NEOGEO	lastbd2i	lastbld2	ch	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (Infinite Energy, Hack)
++NEOGEO	lastbd2p	lastbld2	ch	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (Plus, Hack)
++NEOGEO	lastbd2t	lastbld2	ch	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (Team, Hack)
++NEOGEO	lastblad	-	-	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (NGM-2340)
++NEOGEO	lastblada	lastblad	c	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (NGM-2340, alt board)
++NEOGEO	lastbladh	lastblad	c	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (NGH-2340)
++NEOGEO	lastbld2	-	-	The Last Blade 2 / Bakumatsu Roman - Dai Ni Maku Gekka no Kenshi (NGM-2430 ~ NGH-2430)
++NEOGEO	lastbldi	lastblad	ch	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (Infinite Energy, Hack)
++NEOGEO	lastbldp	lastblad	ch	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (Plus, Hack)
++NEOGEO	lastblsp	lastblad	ch	The Last Blade / Bakumatsu Roman - Gekka no Kenshi (Special 2017 v2.5 FINAL, Hack)
++NEOGEO	lasthope	-	b	Last Hope (bootleg AES to MVS conversion, no coin support)
++NEOGEO	lasthopepb	lasthope	cbh	Last Hope - Pink Bullets (bootleg AES to MVS conversion, no coin support) (Hack)
++NEOGEO	lastsold	lastblad	c	The Last Soldier (Korean release of The Last Blade)
++NEOGEO	lbowling	-	-	League Bowling (NGM-019 ~ NGH-019)
++NEOGEO	legendos	-	-	Legend of Success Joe / Ashita no Joe Densetsu
++NEOGEO	lhcdb	-	h	Last Hope CD Beta (Neo CD conversion)
++NEOGEO	looptris	looptrsp	cd	Looptris (HB, v. 20211226)
++NEOGEO	looptrsp	-	d	Looptris Plus (HB, ver. 20221224)
++NEOGEO	lresort	-	-	Last Resort
++NEOGEO	lresortp	lresort	cp	Last Resort (prototype)
++NEOGEO	ltorb	-	d	Jonas Indiana and the Lost Temple of RA (HB, ver. 20050717)
++NEOGEO	magdrop2	-	-	Magical Drop II
++NEOGEO	magdrop3	-	-	Magical Drop III
++NEOGEO	magdrop3bh	magdrop3	ch	Magical Drop III (Secret Character Hack)
++NEOGEO	magdrop3te	magdrop3	ch	Magical Drop III Tournament Edition
++NEOGEO	maglord	-	-	Magician Lord (NGM-005)
++NEOGEO	maglordacfh	maglord	ch	Magician Lord - Again Changes from Hell (Hack, English v1.0.0)
++NEOGEO	maglordfacfh	maglord	ch	Magician Lord - Again Changes from Hell (Hack, French v1.0.0)
++NEOGEO	maglordh	maglord	c	Magician Lord (NGH-005)
++NEOGEO	mahretsu	-	-	Mahjong Kyo Retsuden (NGM-004 ~ NGH-004)
++NEOGEO	maiya	-	d	Maiya: Super Nature Girl (HB, v4)
++NEOGEO	marukodq	-	-	Chibi Maruko-chan: Maruko Deluxe Quiz
++NEOGEO	matrim	-	-	Matrimelee / Shin Gouketsuji Ichizoku Toukon (NGM-2660 ~ NGH-2660)
++NEOGEO	matrimbh	matrim	ch	Matrimelee ~ Shin Gouketsuji Ichizoku Toukon (Hack, Enable Hidden Characters V2)
++NEOGEO	matrimbl	matrim	cb	Matrimelee / Shin Gouketsuji Ichizoku Toukon (bootleg)
++NEOGEO	midnight	-	d	Midnight Wanderers: Quest for the Chariot (HB, Demo)
++NEOGEO	miexchng	-	-	Money Puzzle Exchanger / Money Idol Exchanger
++NEOGEO	minasan	-	-	Minasan no Okagesamadesu! Dai Sugoroku Taikai (MOM-001 ~ MOH-001)
++NEOGEO	moshougi	-	-	Shougi no Tatsujin - Master of Shougi
++NEOGEO	ms21v2	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (1v2 Mode, Hack)
++NEOGEO	ms31v2	mslug3	ch	Metal Slug 3 (1v2 Mode, Hack)
++NEOGEO	ms3dbpls	mslug3	ch	Metal Slug 3 (Double Enemy, Hack)
++NEOGEO	ms41v2	mslug4	ch	Metal Slug 4 (1v2 Mode, Hack)
++NEOGEO	ms4plus	mslug4	cb	Metal Slug 4 Plus (bootleg)
++NEOGEO	ms51v2	mslug5	ch	Metal Slug 5 (1v2 Mode, Hack)
++NEOGEO	ms5esr	mslug5	ch	Metal Slug 5 (Double Enemy, Hack)
++NEOGEO	ms5pcb	-	-	Metal Slug 5 (JAMMA PCB)
++NEOGEO	ms5plus	mslug5	cb	Metal Slug 5 Plus (bootleg)
++NEOGEO	ms5plush	mslug5	ch	Metal Slug 5 (Plus, Hack)
++NEOGEO	ms5sgf	mslug5	ch	Metal Slug 5 (Remake FC2, Hack)
++NEOGEO	mslug	-	-	Metal Slug - Super Vehicle-001
++NEOGEO	mslug1v2	mslug	ch	Metal Slug - Super Vehicle-001 (1v2 Mode, Hack)
++NEOGEO	mslug2	-	-	Metal Slug 2 - Super Vehicle-001/II (NGM-2410 ~ NGH-2410)
++NEOGEO	mslug2ct	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Survival, Hack)
++NEOGEO	mslug2dd	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Starlight, Hack)
++NEOGEO	mslug2dg	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Multifunction, Hack)
++NEOGEO	mslug2eg	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Extraction Green Turbo, Hack)
++NEOGEO	mslug2fm	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Friendly Fire FC2, Hack)
++NEOGEO	mslug2p	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Weapon Storage, Hack)
++NEOGEO	mslug2r	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II (Enemy Remix, Hack)
++NEOGEO	mslug2t	mslug2	ch	Metal Slug 2 Turbo (NGM-9410) (hack)
++NEOGEO	mslug2unity	mslug2	ch	Metal Slug 2 - Super Vehicle-001/II Unity (Added Timer Ver. 2021-01-22)
++NEOGEO	mslug3	-	-	Metal Slug 3 (NGM-2560)
++NEOGEO	mslug3a	mslug3	c	Metal Slug 3 (NGM-2560, earlier)
++NEOGEO	mslug3b6	mslug3	cb	Metal Slug 6 (bootleg of Metal Slug 3)
++NEOGEO	mslug3c	mslug3	ch	Metal Slug 3 (Enemy Remix, Hack)
++NEOGEO	mslug3cq	mslug3	ch	Metal Slug 3 (Legend, Hack)
++NEOGEO	mslug3cqi	mslug3	ch	Metal Slug 3 (Legendary Unlimited Fire v7.5, Hack)
++NEOGEO	mslug3cqt	mslug3	ch	Metal Slug 3 (Legend TD v6.0, Hack)
++NEOGEO	mslug3cqz	mslug3	ch	Metal Slug 3 (Legendary Journey v5.0, Hack)
++NEOGEO	mslug3dd	mslug3	ch	Metal Slug 3 (Starlight, Hack)
++NEOGEO	mslug3eb	mslug3	ch	Metal Slug 3 (Blue, Hack)
++NEOGEO	mslug3fd	mslug3	c	Metal Slug 3 (Fully Decrypted)
++NEOGEO	mslug3g	mslug3	ch	Metal Slug 3 (Multifunction, Hack)
++NEOGEO	mslug3gw	mslug3	ch	Metal Slug 3 (Onimusha Samanosuke, Hack)
++NEOGEO	mslug3h	mslug3	c	Metal Slug 3 (NGH-2560)
++NEOGEO	mslug3i	mslug3	ch	Metal Slug 3 (Firepower Enhance, Hack)
++NEOGEO	mslug3ki	mslug3	ch	Metal Slug 3 (Komorebi, Hack)
++NEOGEO	mslug3lw	mslug3	ch	Metal Slug 3 (Last Bullet Remix, Hack)
++NEOGEO	mslug3ps	mslug3	ch	Metal Slug 3 (Pigeon Slug, Hack)
++NEOGEO	mslug3sc	mslug3	ch	Metal Slug 3 (Survival, Hack)
++NEOGEO	mslug3sd	mslug3	ch	Metal Slug 3 (Shop, Hack)
++NEOGEO	mslug3se	mslug3	ch	Metal Slug 3 (Special, Hack)
++NEOGEO	mslug3unity	mslug3	ch	Metal Slug 3 Unity (Added Timer Ver. 2021-02-13)
++NEOGEO	mslug3v	mslug3	ch	Metal Slug 3 (Enhanced Violence, Hack)
++NEOGEO	mslug3x	-	h	Metal Slug 3X - Complete Collection (Hack)
++NEOGEO	mslug3zh	mslug3	ch	Metal Slug 3 (Vehicle Summon, Hack)
++NEOGEO	mslug4	-	-	Metal Slug 4 (NGM-2630)
++NEOGEO	mslug4a	mslug4	ch	Metal Slug 4 (20th Anniversary, Hack)
++NEOGEO	mslug4ar	mslug4	ch	Metal Slug 4 (Random Ammunition, Hack)
++NEOGEO	mslug4c	mslug4	ch	Metal Slug 4 (Enemy Remix, Hack)
++NEOGEO	mslug4cqi	mslug4	ch	Metal Slug 4 (Legendary Unlimited Fire v7.0, Hack)
++NEOGEO	mslug4dd	mslug4	ch	Metal Slug 4 (Starlight, Hack)
++NEOGEO	mslug4dg	mslug4	ch	Metal Slug 4 (Multifunction, Hack)
++NEOGEO	mslug4fd	mslug4	c	Metal Slug 4 (Fully Decrypted)
++NEOGEO	mslug4h	mslug4	c	Metal Slug 4 (NGH-2630)
++NEOGEO	mslug4ki	mslug4	ch	Metal Slug 4 (Komorebi, Hack)
++NEOGEO	mslug4lq	mslug4	ch	Metal Slug 4 (Last Bullet Remix - Without body armor, Hack)
++NEOGEO	mslug4lw	mslug4	ch	Metal Slug 4 (Last Bullet Remix, Hack)
++NEOGEO	mslug4q	mslug4	ch	Metal Slug 4 (The Longest Battle, Hack)
++NEOGEO	mslug4unity	mslug4	ch	Metal Slug 4 Unity (Added Timer Ver. 2021-01-30)
++NEOGEO	mslug5	-	-	Metal Slug 5 (NGM-2680)
++NEOGEO	mslug5ae	mslug5	ch	Metal Slug 5 (20th Anniversary, Hack)
++NEOGEO	mslug5ar	mslug5	ch	Metal Slug 5 (Random Ammunition, Hack)
++NEOGEO	mslug5b	mslug5	cb	Metal Slug 5 (bootleg, set 1)
++NEOGEO	mslug5b2	mslug5	cb	Metal Slug 5 (bootleg, set 2)
++NEOGEO	mslug5bs	mslug5	ch	Metal Slug 5 (Boss Battles, Hack)
++NEOGEO	mslug5c	mslug5	ch	Metal Slug 5 (Enemy Remix, Hack)
++NEOGEO	mslug5cqi	mslug5	ch	Metal Slug 5 (Legendary Unlimited Fire v7.5, Hack)
++NEOGEO	mslug5db	mslug5	ch	Metal Slug 5 (Enemy Enhance, Hack)
++NEOGEO	mslug5dd	mslug5	ch	Metal Slug 5 (Starlight, Hack)
++NEOGEO	mslug5dg	mslug5	ch	Metal Slug 5 (Multifunction, Hack)
++NEOGEO	mslug5es	mslug5	ch	Metal Slug 5 (The Longest Battle, Hack)
++NEOGEO	mslug5ex	mslug5	ch	Metal Slug 5 (Extend v1.2, Hack)
++NEOGEO	mslug5f	mslug5	ch	Metal Slug 5 (Fierce Battle, Hack)
++NEOGEO	mslug5fd	mslug5	c	Metal Slug 5 (Fully Decrypted)
++NEOGEO	mslug5h	mslug5	c	Metal Slug 5 (NGH-2680)
++NEOGEO	mslug5ki	mslug5	ch	Metal Slug 5 (Komorebi, Hack)
++NEOGEO	mslug5mg	mslug5	ch	Metal Slug 5 (Devil Enemy Remix, Hack)
++NEOGEO	mslug5nd	mslug5	c	Metal Slug 5 (Not Encrypted)
++NEOGEO	mslug5sc	mslug5	ch	Metal Slug 5 (Survival, Hack)
++NEOGEO	mslug5sg	mslug5	ch	Metal Slug 5 (Stone Turtle, Hack)
++NEOGEO	mslug5unity	mslug5	ch	Metal Slug 5 Unity (Added Timer Ver. 2021-04-23)
++NEOGEO	mslug5w	mslug5	ch	Metal Slug 5 (New Battle, Hack)
++NEOGEO	mslug5x	mslug5	ch	Metal Slug 5 (X, Hack)
++NEOGEO	mslug5zh	mslug5	ch	Metal Slug 5 (Vehicle Summon, Hack)
++NEOGEO	mslugdg	mslug	ch	Metal Slug - Super Vehicle-001 (Multifunction, Hack)
++NEOGEO	mslugdyf2	mslug	ch	Metal Slug - Super Vehicle-001 (Origins Item Random v2, Hack)
++NEOGEO	mslugfc1	mslug	ch	Metal Slug - Super Vehicle-001 (Random Item, Hack)
++NEOGEO	mslugfc2	mslug	ch	Metal Slug - Super Vehicle-001 (Random Item & Powerful Enemy Defense, Hack)
++NEOGEO	mslugfs	mslug	ch	Metal Slug - Super Vehicle-001 (Firepower Showdown, Hack)
++NEOGEO	mslugqy	mslug	ch	Metal Slug - Super Vehicle-001 (Origins, Hack)
++NEOGEO	mslugunity	mslug	ch	Metal Slug Unity (Added Timer Ver. 2021-02-05)
++NEOGEO	mslugx	-	-	Metal Slug X - Super Vehicle-001 (NGM-2500 ~ NGH-2500)
++NEOGEO	mslugx2r	mslugx	ch	Metal Slug X - Super Vehicle-001 (2R, Hack)
++NEOGEO	mslugxc1	mslugx	ch	Metal Slug X - Super Vehicle-001 (Multi Vehicle, Hack)
++NEOGEO	mslugxc2	mslugx	ch	Metal Slug X - Super Vehicle-001 (Enemy Remix, Hack)
++NEOGEO	mslugxcq	mslugx	ch	Metal Slug X - Super Vehicle-001 (Legend, Hack)
++NEOGEO	mslugxcqi	mslugx	ch	Metal Slug X - Super Vehicle-001 (Legendary Unlimited Fire v7.5, Hack)
++NEOGEO	mslugxdd	mslugx	ch	Metal Slug X - Super Vehicle-001 (Starlight, Hack)
++NEOGEO	mslugxdg	mslugx	ch	Metal Slug X - Super Vehicle-001 (Multifunction, Hack)
++NEOGEO	mslugxeb	mslugx	ch	Metal Slug X - Super Vehicle-001 (Blue, Hack)
++NEOGEO	mslugxif	mslugx	ch	Metal Slug X - Super Vehicle-001 (Infinite Firepower, Hack)
++NEOGEO	mslugxlb	mslugx	ch	Metal Slug X - Super Vehicle-001 (Extreme Space, Hack)
++NEOGEO	mslugxsc	mslugx	ch	Metal Slug X - Super Vehicle-001 (Survival, Hack)
++NEOGEO	mslugxsv	mslugx	ch	Metal Slug X - Super Vehicle-001 (Unbounded, Hack)
++NEOGEO	mslugxunity	mslugx	ch	Metal Slug X - Super Vehicle-001 Unity (Added Timer Ver. 2021-01-23)
++NEOGEO	mslugxxb	mslugx	ch	Metal Slug X - Super Vehicle-001 (Soldier Version, Hack)
++NEOGEO	mslugxxr	mslugx	ch	Metal Slug X - Super Vehicle-001 (Warriors, Hack)
++NEOGEO	msqyfc1	mslug	ch	Metal Slug - Super Vehicle-001 (Origins Item Random, Hack)
++NEOGEO	msx1v2	mslugx	ch	Metal Slug X - Super Vehicle-001 (1v2 Mode, Hack)
++NEOGEO	msx2r1v2	mslugx	ch	Metal Slug X - Super Vehicle-001 (2R 1v2 Mode, Hack)
++NEOGEO	msx2reb	mslugx	ch	Metal Slug X - Super Vehicle-001 (2R Blue, Hack)
++NEOGEO	msxsrf	mslugx	ch	Metal Slug X - Super Vehicle-001 (AzStar Soda Remix FC2, Hack)
++NEOGEO	mutnat	-	-	Mutation Nation (NGM-014 ~ NGH-014)
++NEOGEO	nam1975	-	-	NAM-1975 (NGM-001 ~ NGH-001)
++NEOGEO	nblktiger	-	d	Neo Black Tiger (HB, Demo)
++NEOGEO	ncombat	-	-	Ninja Combat (NGM-009)
++NEOGEO	ncombath	ncombat	c	Ninja Combat (NGH-009)
++NEOGEO	ncommand	-	-	Ninja Commando
++NEOGEO	neo2048	-	d	Neo 2048 (HB)
++NEOGEO	neo2500	-	d	Neo 2500 Demo
++NEOGEO	neo3ddmo	-	d	NeoGeo 3D! (HB, Demo)
++NEOGEO	neobombe	-	-	Neo Bomberman
++NEOGEO	neocstlv	-	d	Neo CastleVania (HB, Demo)
++NEOGEO	neocup98	-	-	Neo-Geo Cup '98 - The Road to the Victory
++NEOGEO	neodemo	-	d	Chaos Demo (Neo Geo)
++NEOGEO	neodrift	-	-	Neo Drift Out - New Technology
++NEOGEO	neogalag	-	d	Galaga Demo (HB, set 1)
++NEOGEO	neogalaga	neogalag	cd	Galaga Demo (HB, set 2)
++NEOGEO	neomrdo	-	-	Neo Mr. Do!
++NEOGEO	neonopon	-	d	Neo No Panepon (HB, beta)
++NEOGEO	neopang	-	d	Neo Pang (HB)
++NEOGEO	neopong	-	d	Neo Pong (HB, v1.1)
++NEOGEO	neoponga	neopong	cd	Neo Pong (HB, v1.0)
++NEOGEO	neoprimo	-	d	Primo (HB, Demo)
++NEOGEO	neotet	-	d	NeoGeo 2-Player Tetris (HB)
++NEOGEO	neothndr	-	d	Neo Thunder (HB)
++NEOGEO	neotris	-	d	NeoTRIS (HB, Free Beta 2, ver. 202009)
++NEOGEO	neoww2	-	d	WW2 - Arcade Development Project (HB, Demo)
++NEOGEO	ngcdtdd0	-	d	NeoGeo/CD Jump & Run Techdemo Dez 2020 (HB, ver. 20201212)
++NEOGEO	ngem2k	-	d	NGEM2K (HB, beta 2006-01-18)
++NEOGEO	ngfrog	-	d	Neo Frog Feast (HB)
++NEOGEO	ngftdemo	-	d	NGF Transparency (HB, Demo)
++NEOGEO	ngmontst	-	d	Monitor Test Patterns Tool (v1.3)
++NEOGEO	ninjamas	-	-	Ninja Master's - Haoh-ninpo-cho
++NEOGEO	ninjamasha	ninjamas	ch	Ninja Master's - Haoh-ninpo-cho (Plus)
++NEOGEO	nitd	-	-	Nightmare in the Dark
++NEOGEO	nitdbl	nitd	cb	Nightmare in the Dark (bootleg)
++NEOGEO	nsmb	-	d	Neo Super Mario Bros (HB, Demo v0.01)
++NEOGEO	overtop	-	-	Over Top
++NEOGEO	panicbom	-	-	Panic Bomber
++NEOGEO	pbobbl2n	-	-	Puzzle Bobble 2 / Bust-A-Move Again (Neo-Geo)
++NEOGEO	pbobblen	-	-	Puzzle Bobble / Bust-A-Move (Neo-Geo, NGM-083)
++NEOGEO	pbobblenb	pbobblen	cb	Puzzle Bobble / Bust-A-Move (Neo-Geo, bootleg)
++NEOGEO	pgoal	-	-	Pleasure Goal / Futsal - 5 on 5 Mini Soccer (NGM-219)
++NEOGEO	pnyaa	-	-	Pochi and Nyaa (Ver 2.02)
++NEOGEO	pnyaaa	pnyaa	c	Pochi and Nyaa (Ver 2.00)
++NEOGEO	poknight	-	d	Poker Night (HB)
++NEOGEO	popbounc	-	-	Pop 'n Bounce / Gapporin
++NEOGEO	preisle2	-	-	Prehistoric Isle 2
++NEOGEO	proneon	-	vd	Project Neon - Caravan Edition (HB, pre-alpha v0.4.19)
++NEOGEO	pspikes2	-	-	Power Spikes II (NGM-068)
++NEOGEO	pulstar	-	-	Pulstar
++NEOGEO	pulstara	pulstar	c	Pulstar (alternate board)
++NEOGEO	pulstarae	pulstar	ch	Pulstar Aegis (Hack)
++NEOGEO	puzzldpr	-	-	Puzzle De Pon! R!
++NEOGEO	puzzledp	-	-	Puzzle De Pon!
++NEOGEO	quizdai2	-	-	Quiz Meitantei Neo & Geo - Quiz Daisousa Sen part 2 (NGM-042 ~ NGH-042)
++NEOGEO	quizdais	-	-	Quiz Daisousa Sen - The Last Count Down (NGM-023 ~ NGH-023)
++NEOGEO	quizdaisk	quizdais	c	Quiz Salibtamjeong - The Last Count Down (Korean localized Quiz Daisousa Sen)
++NEOGEO	quizkof	-	-	Quiz King of Fighters (SAM-080 ~ SAH-080)
++NEOGEO	quizkofk	quizkof	c	Quiz King of Fighters (Korea)
++NEOGEO	ragnagrd	-	-	Ragnagard / Shin-Oh-Ken
++NEOGEO	rallych	trally	ch	Rally Chase (Neo CD conversion)
++NEOGEO	rbff1	-	-	Real Bout Fatal Fury / Real Bout Garou Densetsu (NGM-095 ~ NGH-095)
++NEOGEO	rbff1a	rbff1	c	Real Bout Fatal Fury / Real Bout Garou Densetsu (bug fix revision)
++NEOGEO	rbff1k	rbff1	c	Real Bout Fatal Fury / Real Bout Garou Densetsu (Korean release)
++NEOGEO	rbff1ka	rbff1	c	Real Bout Fatal Fury / Real Bout Garou Densetsu (Korean release, bug fix revision)
++NEOGEO	rbff2	-	-	Real Bout Fatal Fury 2 - The Newcomers / Real Bout Garou Densetsu 2 - The Newcomers (NGM-2400)
++NEOGEO	rbff2bs	rbff2	ch	Real Bout Fatal Fury 2 - The Newcomers / Real Bout Garou Densetsu 2 - The Newcomers (Secret Character, Hack)
++NEOGEO	rbff2h	rbff2	c	Real Bout Fatal Fury 2 - The Newcomers / Real Bout Garou Densetsu 2 - The Newcomers (NGH-2400)
++NEOGEO	rbff2k	rbff2	c	Real Bout Fatal Fury 2 - The Newcomers (Korean release)
++NEOGEO	rbffspbs	rbffspec	ch	Real Bout Fatal Fury Special / Real Bout Garou Densetsu Special (Boss, Hack)
++NEOGEO	rbffspec	-	-	Real Bout Fatal Fury Special / Real Bout Garou Densetsu Special
++NEOGEO	rbffspeck	rbffspec	c	Real Bout Fatal Fury Special / Real Bout Garou Densetsu Special (Korean release)
++NEOGEO	rickdangdx	-	d	Rick Dangerous DX (HB)
++NEOGEO	ridhero	-	-	Riding Hero (NGM-006 ~ NGH-006)
++NEOGEO	ridheroh	ridhero	c	Riding Hero (set 2)
++NEOGEO	roboarmy	-	-	Robo Army
++NEOGEO	roboarmya	roboarmy	c	Robo Army (NGM-032 ~ NGH-032)
++NEOGEO	robocopi	-	d	Robocop (FMV Demo)
++NEOGEO	robocopng	-	d	Robocop - Neo Geo Conversion (HB, Beta 9)
++NEOGEO	rotd	-	-	Rage of the Dragons (NGM-2640?)
++NEOGEO	rotdbr	rotd	ch	Rage of the Dragons (Portuguese edition v2.0, Hack)
++NEOGEO	rotddh	rotd	ch	Rage of the Dragons (Boss Hack)
++NEOGEO	rotdh	rotd	c	Rage of the Dragons (NGH-2640?)
++NEOGEO	s1945p	-	-	Strikers 1945 Plus
++NEOGEO	samsh2jq	samsho2	ch	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (Infinite Power, Hack)
++NEOGEO	samsh2sp	samsho2	ch	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (Special 2017, Hack)
++NEOGEO	samsh3bs	samsho3	c	Samurai Shodown III / Samurai Spirits - Zankurou Musouken (Boss, Hack)
++NEOGEO	samsh4bs	samsho4	ch	Samurai Shodown IV - Amakusa's Revenge / Samurai Spirits - Amakusa Kourin (Boss, Hack)
++NEOGEO	samsh4sp	samsho4	ch	Samurai Shodown IV - Amakusa's Revenge / Samurai Spirits - Amakusa Kourin (Special 2017, Hack)
++NEOGEO	samsh5bs	samsho5	ch	Samurai Shodown V / Samurai Spirits Zero (Boss, Hack)
++NEOGEO	samsh5fd	samsho5	c	Samurai Shodown V / Samurai Spirits Zero (Fully Decrypted)
++NEOGEO	samsh5fe	samsh5sp	ch	Samurai Shodown V Special / Samurai Spirits Zero Special (NGM-272) (NGH-272) (Final Edition, location test version)
++NEOGEO	samsh5pf	samsh5sp	ch	Samurai Shodown V Perfect / Samurai Spirits Zero Perfect (bootleg, hack)
++NEOGEO	samsh5sp	-	-	Samurai Shodown V Special / Samurai Spirits Zero Special (NGM-2720)
++NEOGEO	samsh5sph	samsh5sp	c	Samurai Shodown V Special / Samurai Spirits Zero Special (NGH-2720, 2nd release, less censored)
++NEOGEO	samsh5spho	samsh5sp	c	Samurai Shodown V Special / Samurai Spirits Zero Special (NGH-2720, 1st release, censored)
++NEOGEO	samsho	-	-	Samurai Shodown / Samurai Spirits (NGM-045)
++NEOGEO	samsho2	-	-	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (NGM-063 ~ NGH-063)
++NEOGEO	samsho2k	samsho2	c	Saulabi Spirits / Jin Saulabi Tu Hon (Korean release of Samurai Shodown II, set 1)
++NEOGEO	samsho2ka	samsho2	c	Saulabi Spirits / Jin Saulabi Tu Hon (Korean release of Samurai Shodown II, set 2)
++NEOGEO	samsho2pe	samsho2	ch	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (Perfect V. 2.9, Hack)
++NEOGEO	samsho2t	samsho2	ch	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (Optimized, Hack)
++NEOGEO	samsho3	-	-	Samurai Shodown III / Samurai Spirits - Zankurou Musouken (NGM-087)
++NEOGEO	samsho3en	samsho3	cb	Samurai Shodown III Enhanced (bootleg)
++NEOGEO	samsho3h	samsho3	c	Samurai Shodown III / Samurai Spirits - Zankurou Musouken (NGH-087)
++NEOGEO	samsho4	-	-	Samurai Shodown IV - Amakusa's Revenge / Samurai Spirits - Amakusa Kourin (NGM-222 ~ NGH-222)
++NEOGEO	samsho4k	samsho4	c	Paewang Jeonseol / Legend of a Warrior (Korean censored Samurai Shodown IV)
++NEOGEO	samsho5	-	-	Samurai Shodown V / Samurai Spirits Zero (NGM-2700, set 1)
++NEOGEO	samsho5a	samsho5	c	Samurai Shodown V / Samurai Spirits Zero (NGM-2700, set 2)
++NEOGEO	samsho5b	samsho5	cb	Samurai Shodown V / Samurai Spirits Zero (bootleg)
++NEOGEO	samsho5h	samsho5	c	Samurai Shodown V / Samurai Spirits Zero (NGH-2700)
++NEOGEO	samsho5x	samsho5	ch	Samurai Shodown V / Samurai Spirits Zero (hack of XBOX version)
++NEOGEO	samshoa	samsho	c	Samurai Shodown / Samurai Spirits (NGM-045, alt board)
++NEOGEO	samshobs	samsho	ch	Samurai Shodown / Samurai Spirits (Boss, Hack)
++NEOGEO	samshoh	samsho	c	Samurai Shodown / Samurai Spirits (NGH-045)
++NEOGEO	santaball	-	d	SantaBall - Christmas Tennis Game (HB)
++NEOGEO	savagere	-	-	Savage Reign / Fu'un Mokushiroku - Kakutou Sousei
++NEOGEO	savagereb	savagere	ch	Savage Reign / Fu'un Mokushiroku - Kakutou Sousei (Boss Hack)
++NEOGEO	savagerp	savagere	ch	Savage Reign / Fu'un Mokushiroku - Kakutou Sousei (Plus, Hack)
++NEOGEO	sbp	-	d	Super Bubble Pop
++NEOGEO	sdodgeb	-	-	Super Dodge Ball / Kunio no Nekketsu Toukyuu Densetsu
++NEOGEO	sdodgebh	sdodgeb	ch	Super Dodge Ball / Kunio no Nekketsu Toukyuu Densetsu (Secret Character Hack)
++NEOGEO	sengk3eb	sengoku3	ch	Sengoku 3 / Sengoku Densho 2001 (Green Blue, Hack)
++NEOGEO	sengk3fd	sengoku3	c	Sengoku 3 / Sengoku Densho 2001 (Fully Decrypted)
++NEOGEO	sengk3fs	sengoku3	ch	Sengoku 3 / Sengoku Densho 2001 (Demeanor, Hack)
++NEOGEO	sengok3i	sengoku3	ch	Sengoku 3 / Sengoku Densho 2001 (Infinite Power, Hack)
++NEOGEO	sengoku	-	-	Sengoku / Sengoku Denshou (NGM-017 ~ NGH-017)
++NEOGEO	sengoku2	-	-	Sengoku 2 / Sengoku Denshou 2
++NEOGEO	sengoku2rb	sengoku2	ch	Sengoku 2 / Sengoku Denshou 2 (Hack, Red Blood v1.18)
++NEOGEO	sengoku3	-	-	Sengoku 3 / Sengoku Densho 2001 (set 1)
++NEOGEO	sengoku3a	sengoku3	c	Sengoku 3 / Sengoku Densho 2001 (set 2)
++NEOGEO	sengoku3s	sengoku3	ch	Sengoku 3 / Sengoku Densho 2001 (Evolution 1.0, FCHT hack)
++NEOGEO	sengokuh	sengoku	c	Sengoku / Sengoku Denshou (NGH-017, US)
++NEOGEO	sgz	-	d	Shadow Gangs Zero (Backers Demo V1.0)
++NEOGEO	shinobing	-	d	Shinobi Neo Geo (HB, v1.1)
++NEOGEO	shocktr2	-	-	Shock Troopers - 2nd Squad
++NEOGEO	shocktro	-	-	Shock Troopers (set 1)
++NEOGEO	shocktroa	shocktro	c	Shock Troopers (set 2)
++NEOGEO	skylance	-	d	Sky Lance (HB, RC1)
++NEOGEO	smbneo	-	dw	Super Mario Bros. Neo (HB)
++NEOGEO	socbrawl	-	-	Soccer Brawl (NGM-031)
++NEOGEO	socbrawlh	socbrawl	c	Soccer Brawl (NGH-031)
++NEOGEO	sonicwi2	-	-	Aero Fighters 2 / Sonic Wings 2
++NEOGEO	sonicwi3	-	-	Aero Fighters 3 / Sonic Wings 3
++NEOGEO	spidermi	-	d	Spiderman (FMV Demo)
++NEOGEO	spinmast	-	-	Spin Master / Miracle Adventure
++NEOGEO	ss5spfd	samsh5sp	c	Samurai Shodown V Special / Samurai Spirits Zero Special (Fully Decrypted)
++NEOGEO	ssho2emb	samsho2	ch	Samurai Shodown II / Shin Samurai Spirits - Haohmaru Jigokuhen (Move Modeasy Special Attacks V4, Hack)
++NEOGEO	ssideki	-	-	Super Sidekicks / Tokuten Ou
++NEOGEO	ssideki2	-	-	Super Sidekicks 2 - The World Championship / Tokuten Ou 2 - Real Fight Football (NGM-061 ~ NGH-061)
++NEOGEO	ssideki3	-	-	Super Sidekicks 3 - The Next Glory / Tokuten Ou 3 - Eikou e no Chousen
++NEOGEO	ssideki4	-	-	The Ultimate 11 - The SNK Football Championship / Tokuten Ou - Honoo no Libero
++NEOGEO	stakwin	-	-	Stakes Winner / Stakes Winner - GI Kinzen Seiha e no Michi
++NEOGEO	stakwin2	-	-	Stakes Winner 2
++NEOGEO	strhoop	-	-	Street Hoop / Street Slam / Dunk Dream (DEM-004 ~ DEH-004)
++NEOGEO	superspy	-	-	The Super Spy (NGM-011 ~ NGH-011)
++NEOGEO	svc	-	-	SNK vs. Capcom - SVC Chaos (NGM-2690 ~ NGH-2690)
++NEOGEO	svcboot	svc	cb	SNK vs. Capcom - SVC Chaos (bootleg)
++NEOGEO	svcfd	svc	c	SNK vs. Capcom - SVC Chaos (Fully Decrypted)
++NEOGEO	svcpcb	-	-	SNK vs. Capcom - SVC Chaos (JAMMA PCB, NEO-MVH MVO PCB)
++NEOGEO	svcpcba	svcpcb	c	SNK vs. Capcom - SVC Chaos (JAMMA PCB, NEO-MVH MVOB PCB)
++NEOGEO	svcplus	svc	cb	SNK vs. Capcom - SVC Chaos Plus (bootleg set 1)
++NEOGEO	svcplusa	svc	cb	SNK vs. Capcom - SVC Chaos Plus (bootleg set 2)
++NEOGEO	svcsplse	svc	ch	SNK vs. Capcom - SVC Chaos Super Plus (Enhanced, Hack)
++NEOGEO	svcsplus	svc	cb	SNK vs. Capcom - SVC Chaos Super Plus (bootleg)
++NEOGEO	swsodan	-	d	Sword of Sodan (HB, Beta v0.5)
++NEOGEO	syscheck	-	d	Neo System Check (ver 1.0b)
++NEOGEO	teot	-	d	The Eye of Typhoon (HB, Beta 7 Version)
++NEOGEO	test240p	-	d	240p Test Suite (v1.0)
++NEOGEO	timesup	-	d	Time's UP! (HB)
++NEOGEO	timesupd	timesup	cd	Time's UP! (HB, Demo)
++NEOGEO	tmnti	-	d	Teenage Mutant Ninja Turtles (FMV Demo)
++NEOGEO	tmntia	tmnti	cd	Teenage Mutant Ninja Turtles (FMV Demo, alt)
++NEOGEO	tophuntr	-	-	Top Hunter - Roddy & Cathy (NGM-046)
++NEOGEO	tophuntrh	tophuntr	c	Top Hunter - Roddy & Cathy (NGH-046)
++NEOGEO	totc	-	-	Treasure of the Caribbean
++NEOGEO	tpgolf	-	-	Top Player's Golf (NGM-003 ~ NGH-003)
++NEOGEO	trally	-	-	Thrash Rally (ALM-003 ~ ALH-003)
++NEOGEO	turfmast	-	-	Neo Turf Masters / Big Tournament Golf
++NEOGEO	turfmastsc	turfmast	ch	Neo Turf Masters / Big Tournament Golf: Scotland Course (Hack, v1.10)
++NEOGEO	twinspri	-	-	Twinkle Star Sprites
++NEOGEO	twsoc96	-	-	Tecmo World Soccer '96
++NEOGEO	viewpoin	-	-	Viewpoint
++NEOGEO	viewpoinp	viewpoin	cp	Viewpoint (prototype)
++NEOGEO	violentv	-	d	Violent Vengeance: The Universe Hero (Beta 3.28, FEB 1 2026)
++NEOGEO	vliner	-	-	V-Liner (v0.7a)
++NEOGEO	vliner53	vliner	c	V-Liner (v0.53)
++NEOGEO	vliner54	vliner	c	V-Liner (v0.54)
++NEOGEO	vliner6e	vliner	c	V-Liner (v0.6e)
++NEOGEO	vliner7e	vliner	c	V-Liner (v0.7e)
++NEOGEO	vssmbneo	smbneo	cdw	Vs. Super Mario Bros. Neo (HB)
++NEOGEO	wakuw7jq	wakuwak7	ch	Waku Waku 7 (Enhanced, Hack)
++NEOGEO	wakuwak7	-	-	Waku Waku 7
++NEOGEO	wakuwak7bh	wakuwak7	ch	Waku Waku 7 (Boss Hack)
++NEOGEO	warriorman	-	d	Warrior Man (HB)
++NEOGEO	wh1	-	-	World Heroes (ALM-005)
++NEOGEO	wh1h	wh1	c	World Heroes (ALH-005)
++NEOGEO	wh1ha	wh1	c	World Heroes (set 3)
++NEOGEO	wh2	-	-	World Heroes 2 (ALM-006 ~ ALH-006)
++NEOGEO	wh2es	wh2	ch	World Heroes 2 (Easy Special Attacks, Hack)
++NEOGEO	wh2h	wh2	c	World Heroes 2 (ALH-006)
++NEOGEO	wh2j	-	-	World Heroes 2 Jet (ADM-007 ~ ADH-007)
++NEOGEO	wh2ja	wh2j	c	World Heroes 2 Jet (ADM-007)
++NEOGEO	wh2jes	wh2j	ch	World Heroes 2 Jet (Easy Special Attacks, Hack)
++NEOGEO	whp	-	-	World Heroes Perfect
++NEOGEO	whpjq	whp	ch	World Heroes Perfect (Enhanced, Hack)
++NEOGEO	wjammeb	wjammers	ch	Windjammers / Flying Power Disc (Endless Breeze, Hack, v1.2.0)
++NEOGEO	wjammers	-	-	Windjammers / Flying Power Disc
++NEOGEO	wolfn3d	-	d	Wolfenstein 3-D (HB, v1.2.0)
++NEOGEO	wrldrc32	-	d	World Racer 32Kb (HB, 251226)
++NEOGEO	xenocrisis	-	d	Xeno Crisis (HB)
++NEOGEO	xeviousng	-	vd	Xevious - Neo Geo Conversion (HB, Beta1)
++NEOGEO	yoyoshkn	-	d	Yo-Yo Shuriken (HB)
++NEOGEO	zedblade	-	-	Zed Blade / Operation Ragnarok
++NEOGEO	zetsuxeving	xeviousng	vcd	Zetsu Xevious - Neo Geo Conversion (HB)
++NEOGEO	zintrckb	-	b	Zintrick / Oshidashi Zentrix (bootleg of CD version)
++NEOGEO	zintrckbp	zintrckb	cb	Zintrick / Oshidashi Zentrix (bootleg of CD version, multi-V)
++NEOGEO	zintrkcd	zintrckb	ch	Zintrick / Oshidashi Zentrix (Neo CD conversion)
++NEOGEO	zupapa	-	-	Zupapa!
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 3bf879b..4039348 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -210,7 +210,10 @@ impl GameButton {
+             | Platform::Ps1
+             | Platform::Lynx
+             | Platform::Ws
+-            | Platform::S32x => &GameButton::ALL,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &GameButton::ALL,
+             Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 24c0f59..573771e 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -21,6 +21,7 @@ pub enum Core {
+     MednafenLynx,
+     MednafenNgp,
+     Picodrive,
++    Fbneo,
+ }
+ 
+ impl Core {
+@@ -41,6 +42,7 @@ impl Core {
+             Core::MednafenLynx => "mednafen_lynx",
+             Core::MednafenNgp => "mednafen_ngp",
+             Core::Picodrive => "picodrive",
++            Core::Fbneo => "fbneo",
+         }
+     }
+ 
+@@ -63,6 +65,7 @@ impl Core {
+             Core::MednafenLynx => "Beetle Lynx",
+             Core::MednafenNgp => "Beetle NeoPop",
+             Core::Picodrive => "PicoDrive",
++            Core::Fbneo => "FinalBurn Neo",
+         }
+     }
+ 
+@@ -81,6 +84,7 @@ impl Core {
+             "mednafen_lynx" => Some(Core::MednafenLynx),
+             "mednafen_ngp" => Some(Core::MednafenNgp),
+             "picodrive" => Some(Core::Picodrive),
++            "fbneo" => Some(Core::Fbneo),
+             _ => None,
+         }
+     }
+@@ -99,7 +103,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+@@ -115,7 +122,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+@@ -131,7 +141,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+@@ -147,7 +160,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::GenesisPlusGx => match platform {
+                 Platform::Gg | Platform::Sms | Platform::Md => true,
+@@ -161,7 +177,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::PcsxRearmed => match platform {
+                 Platform::Ps1 => true,
+@@ -177,7 +196,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::MednafenPceFast => match platform {
+                 Platform::Tg16 => true,
+@@ -193,7 +215,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::MednafenWswan => match platform {
+                 Platform::Ws => true,
+@@ -209,7 +234,10 @@ impl Core {
+                 | Platform::Tg16
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::MednafenLynx => match platform {
+                 Platform::Lynx => true,
+@@ -225,7 +253,10 @@ impl Core {
+                 | Platform::Tg16
+                 | Platform::Ws
+                 | Platform::Ngp
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::MednafenNgp => match platform {
+                 Platform::Ngp => true,
+@@ -241,7 +272,10 @@ impl Core {
+                 | Platform::Tg16
+                 | Platform::Ws
+                 | Platform::Lynx
+-                | Platform::S32x => false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+             Core::Picodrive => match platform {
+                 Platform::S32x => true,
+@@ -257,7 +291,27 @@ impl Core {
+                 | Platform::Tg16
+                 | Platform::Ws
+                 | Platform::Lynx
+-                | Platform::Ngp => false,
++                | Platform::Ngp
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
++            },
++            Core::Fbneo => match platform {
++                Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1
++                | Platform::Tg16
++                | Platform::Ws
++                | Platform::Lynx
++                | Platform::Ngp
++                | Platform::S32x => false,
+             },
+         }
+     }
+@@ -274,6 +328,7 @@ impl Core {
+             Platform::Lynx => Core::MednafenLynx,
+             Platform::Ngp => Core::MednafenNgp,
+             Platform::S32x => Core::Picodrive,
++            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => Core::Fbneo,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 9f62c93..c905ccc 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 13] = [
++    pub const EVERY: [Core; 14] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -16,6 +16,7 @@ impl Core {
+         Core::MednafenLynx,
+         Core::MednafenNgp,
+         Core::Picodrive,
++        Core::Fbneo,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -33,6 +34,7 @@ impl Core {
+             Core::MednafenLynx => "lynx",
+             Core::MednafenNgp => "ngp",
+             Core::Picodrive => "picodrive",
++            Core::Fbneo => "fbneo",
+         }
+     }
+ 
+@@ -48,6 +50,7 @@ impl Core {
+             Core::MednafenLynx => (Core::MednafenLynx, Core::MednafenLynx),
+             Core::MednafenNgp => (Core::MednafenNgp, Core::MednafenNgp),
+             Core::Picodrive => (Core::Picodrive, Core::Picodrive),
++            Core::Fbneo => (Core::Fbneo, Core::Fbneo),
+         }
+     }
+ 
+@@ -69,7 +72,10 @@ impl Core {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => (360, 240),
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => (360, 240),
+             },
+             Core::PcsxRearmed => (640, 480),
+             Core::MednafenPceFast => (360, 240),
+@@ -77,12 +83,33 @@ impl Core {
+             Core::MednafenLynx => (240, 160),
+             Core::MednafenNgp => (240, 160),
+             Core::Picodrive => (360, 240),
++            Core::Fbneo => match platform {
++                Platform::Cps1 | Platform::Cps2 => (432, 288),
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1
++                | Platform::Tg16
++                | Platform::Ws
++                | Platform::Lynx
++                | Platform::Ngp
++                | Platform::S32x
++                | Platform::NeoGeo => (360, 240),
++            },
+         }
+     }
+ 
+     pub fn game_canvas(self, platform: Platform, vertical: bool) -> (u32, u32) {
+         if platform == Platform::Ws && vertical {
+             (360, 240)
++        } else if platform.is_arcade() && vertical {
++            let long = platform.picture().0;
++            (long * 3 / 2, long)
+         } else {
+             self.canvas(platform)
+         }
+@@ -107,7 +134,8 @@ impl Core {
+             | Core::MednafenPceFast
+             | Core::MednafenWswan
+             | Core::MednafenNgp
+-            | Core::Picodrive => true,
++            | Core::Picodrive
++            | Core::Fbneo => true,
+         }
+     }
+ 
+@@ -124,7 +152,8 @@ impl Core {
+             | Core::MednafenWswan
+             | Core::MednafenLynx
+             | Core::MednafenNgp
+-            | Core::Picodrive => false,
++            | Core::Picodrive
++            | Core::Fbneo => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index b78aed4..aaa920d 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -1,3 +1,4 @@
++pub mod arcade;
+ mod atomic;
+ mod bindings;
+ mod bios_dump;
+@@ -45,8 +46,9 @@ pub use retro_shader::RetroShader;
+ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+-    read_sega_shaders, write_sega_shaders, SegaShaders, LYNX_SHADER_FILE, NGP_SHADER_FILE,
+-    PS1_SHADER_FILE, S32X_SHADER_FILE, SEGA_SHADERS_FILE, TG16_SHADER_FILE, WS_SHADER_FILE,
++    read_sega_shaders, write_sega_shaders, SegaShaders, CPS1_SHADER_FILE, CPS2_SHADER_FILE,
++    LYNX_SHADER_FILE, NEOGEO_SHADER_FILE, NGP_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE,
++    SEGA_SHADERS_FILE, TG16_SHADER_FILE, WS_SHADER_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 252bc45..ab3ea47 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -17,6 +17,9 @@ pub enum Platform {
+     Lynx,
+     Ngp,
+     S32x,
++    NeoGeo,
++    Cps1,
++    Cps2,
+ }
+ 
+ impl Platform {
+@@ -38,6 +41,9 @@ impl Platform {
+             Platform::Lynx => "Atari Lynx",
+             Platform::Ngp => "SNK Neo Geo Pocket",
+             Platform::S32x => "Sega 32X",
++            Platform::NeoGeo => "SNK Neo Geo",
++            Platform::Cps1 => "Capcom CPS-1",
++            Platform::Cps2 => "Capcom CPS-2",
+         }
+     }
+ 
+@@ -57,6 +63,9 @@ impl Platform {
+             Platform::Lynx => "Lynx",
+             Platform::Ngp => "NGP",
+             Platform::S32x => "32X",
++            Platform::NeoGeo => "NEOGEO",
++            Platform::Cps1 => "CPS1",
++            Platform::Cps2 => "CPS2",
+         }
+     }
+ 
+@@ -75,6 +84,7 @@ impl Platform {
+             Platform::Lynx => &["lnx", "lyx"],
+             Platform::Ngp => &["ngp", "ngc", "ngpc"],
+             Platform::S32x => &["32x", "bin"],
++            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => &["zip"],
+         }
+     }
+ 
+@@ -93,6 +103,8 @@ impl Platform {
+             Platform::Lynx => (160, 102),
+             Platform::Ngp => (160, 152),
+             Platform::S32x => (320, 224),
++            Platform::NeoGeo => (320, 224),
++            Platform::Cps1 | Platform::Cps2 => (384, 224),
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 02ad0c4..347604e 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -5,7 +5,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 14] = [
++    pub const SHELVES: [Platform; 17] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -20,6 +20,9 @@ impl Platform {
+         Platform::Lynx,
+         Platform::Ngp,
+         Platform::S32x,
++        Platform::NeoGeo,
++        Platform::Cps1,
++        Platform::Cps2,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -35,7 +38,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+             Platform::Gb | Platform::Gbc => true,
+         }
+     }
+@@ -48,7 +54,10 @@ impl Platform {
+             | Platform::Ps1
+             | Platform::Lynx
+             | Platform::Ws
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+             Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
+@@ -61,7 +70,14 @@ impl Platform {
+ 
+     pub fn passes_xy_through(self) -> bool {
+         match self {
+-            Platform::Snes | Platform::Md | Platform::Ps1 | Platform::Ws | Platform::S32x => true,
++            Platform::Snes
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Ws
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -89,7 +105,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+         }
+     }
+ 
+@@ -101,7 +120,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => true,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -127,7 +149,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => None,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => None,
+         }
+     }
+ 
+@@ -146,7 +171,10 @@ impl Platform {
+             | Platform::Tg16
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => true,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
+         }
+     }
+ 
+@@ -164,7 +192,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => (0, 0),
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => (0, 0),
+         }
+     }
+ 
+@@ -180,13 +211,16 @@ impl Platform {
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Lynx
+-            | Platform::S32x => &Shader::RETRO,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &Shader::RETRO,
+         }
+     }
+ 
+     pub fn follows_frame_width(self) -> bool {
+         match self {
+-            Platform::Md | Platform::Tg16 | Platform::S32x => true,
++            Platform::Md | Platform::Tg16 | Platform::S32x | Platform::NeoGeo => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -197,7 +231,9 @@ impl Platform {
+             | Platform::Ps1
+             | Platform::Ws
+             | Platform::Lynx
+-            | Platform::Ngp => false,
++            | Platform::Ngp
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+         }
+     }
+ 
+@@ -216,7 +252,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => true,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
+         }
+     }
+ 
+@@ -235,7 +274,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+         }
+     }
+ 
+@@ -254,7 +296,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+         }
+     }
+ 
+@@ -273,7 +318,10 @@ impl Platform {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => true,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
+         }
+     }
+ 
+@@ -292,7 +340,10 @@ impl Platform {
+             | Platform::Tg16
+             | Platform::Ws
+             | Platform::Ngp
+-            | Platform::S32x => None,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => None,
+         }
+     }
+ 
+@@ -311,6 +362,29 @@ impl Platform {
+             | Platform::Tg16
+             | Platform::Ws
+             | Platform::Lynx
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
++        }
++    }
++
++    pub fn is_arcade(self) -> bool {
++        match self {
++            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
++            Platform::Gba
++            | Platform::Gb
++            | Platform::Gbc
++            | Platform::Nes
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::Ps1
++            | Platform::Tg16
++            | Platform::Ws
++            | Platform::Lynx
++            | Platform::Ngp
+             | Platform::S32x => false,
+         }
+     }
+@@ -319,6 +393,9 @@ impl Platform {
+         self.accepts(path)
+             && match self {
+                 Platform::S32x => crate::s32x::admits(path),
++                Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
++                    crate::arcade::admits(self, path)
++                }
+                 Platform::Gba
+                 | Platform::Gb
+                 | Platform::Gbc
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index d405233..47b2b37 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -56,6 +56,7 @@ impl Cart {
+                     self.title = title;
+                 }
+             }
++            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {}
+         }
+     }
+ }
+@@ -121,7 +122,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
+             carts.push(Cart {
+                 platform,
+                 stem: stem.to_string(),
+-                title: String::new(),
++                title: crate::arcade::title(platform, stem),
+                 code: String::new(),
+                 shell: shells.get(&crate::cart_shell::key(stem)).copied(),
+                 label,
+@@ -131,7 +132,8 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
+     }
+     crate::ps1::tidy(root, &mut carts);
+     carts.sort_by(|a, b| {
+-        (a.platform as u8, sort_key(&a.stem)).cmp(&(b.platform as u8, sort_key(&b.stem)))
++        (a.platform as u8, sort_key(a.shelf_name()))
++            .cmp(&(b.platform as u8, sort_key(b.shelf_name())))
+     });
+     Ok(carts)
+ }
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index e80ea26..00b8fef 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -11,6 +11,9 @@ pub const WS_SHADER_FILE: &str = "ws_shader.txt";
+ pub const LYNX_SHADER_FILE: &str = "lynx_shader.txt";
+ pub const NGP_SHADER_FILE: &str = "ngp_shader.txt";
+ pub const S32X_SHADER_FILE: &str = "s32x_shader.txt";
++pub const NEOGEO_SHADER_FILE: &str = "neogeo_shader.txt";
++pub const CPS1_SHADER_FILE: &str = "cps1_shader.txt";
++pub const CPS2_SHADER_FILE: &str = "cps2_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -23,6 +26,9 @@ pub struct SegaShaders {
+     pub lynx: Shader,
+     pub ngp: Shader,
+     pub s32x: Shader,
++    pub neogeo: Shader,
++    pub cps1: Shader,
++    pub cps2: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -37,6 +43,9 @@ impl Default for SegaShaders {
+             lynx: Shader::Off,
+             ngp: Shader::Off,
+             s32x: Shader::Off,
++            neogeo: Shader::Off,
++            cps1: Shader::Off,
++            cps2: Shader::Off,
+         }
+     }
+ }
+@@ -51,6 +60,9 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+         LYNX_SHADER_FILE,
+         NGP_SHADER_FILE,
+         S32X_SHADER_FILE,
++        NEOGEO_SHADER_FILE,
++        CPS1_SHADER_FILE,
++        CPS2_SHADER_FILE,
+     ] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+@@ -64,6 +76,9 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (LYNX_SHADER_FILE, "lynx") => (&mut s.lynx, Platform::Lynx),
+                 (NGP_SHADER_FILE, "ngp") => (&mut s.ngp, Platform::Ngp),
+                 (S32X_SHADER_FILE, "s32x") => (&mut s.s32x, Platform::S32x),
++                (NEOGEO_SHADER_FILE, "neogeo") => (&mut s.neogeo, Platform::NeoGeo),
++                (CPS1_SHADER_FILE, "cps1") => (&mut s.cps1, Platform::Cps1),
++                (CPS2_SHADER_FILE, "cps2") => (&mut s.cps2, Platform::Cps2),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -99,7 +114,13 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let ngp = format!("ngp={}\n", s.ngp.name());
+     write_unless_unchanged(root, NGP_SHADER_FILE, &ngp, s.ngp == d.ngp)?;
+     let s32x = format!("s32x={}\n", s.s32x.name());
+-    write_unless_unchanged(root, S32X_SHADER_FILE, &s32x, s.s32x == d.s32x)
++    write_unless_unchanged(root, S32X_SHADER_FILE, &s32x, s.s32x == d.s32x)?;
++    let neogeo = format!("neogeo={}\n", s.neogeo.name());
++    write_unless_unchanged(root, NEOGEO_SHADER_FILE, &neogeo, s.neogeo == d.neogeo)?;
++    let cps1 = format!("cps1={}\n", s.cps1.name());
++    write_unless_unchanged(root, CPS1_SHADER_FILE, &cps1, s.cps1 == d.cps1)?;
++    let cps2 = format!("cps2={}\n", s.cps2.name());
++    write_unless_unchanged(root, CPS2_SHADER_FILE, &cps2, s.cps2 == d.cps2)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/arcade_platform.rs b/crates/slot-store/tests/arcade_platform.rs
+new file mode 100644
+index 0000000..98543cb
+--- /dev/null
++++ b/crates/slot-store/tests/arcade_platform.rs
+@@ -0,0 +1,195 @@
++mod common;
++
++use std::path::Path;
++
++use common::tmp_root;
++use slot_store::arcade::{has_neogeo_bios, set, zip_crcs, NEOGEO_BIOS_CRCS};
++use slot_store::{
++    read_sega_shaders, scan, sort_key, write_sega_shaders, Cart, Core, Platform, RetroShader,
++    SegaShaders, Shader, CPS1_SHADER_FILE, CPS2_SHADER_FILE, NEOGEO_SHADER_FILE,
++};
++
++fn put(root: &Path, shelf: &str, name: &str) {
++    let dir = root.join("Games").join(shelf);
++    std::fs::create_dir_all(&dir).expect("create dir");
++    std::fs::write(dir.join(name), b"PK\x05\x06").expect("write");
++}
++
++fn shelf(root: &Path, platform: Platform) -> Vec<Cart> {
++    scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == platform)
++        .collect()
++}
++
++fn stems(carts: &[Cart]) -> Vec<&str> {
++    carts.iter().map(|c| c.stem.as_str()).collect()
++}
++
++#[test]
++fn neo_geo_cps1_and_cps2_are_the_last_three_shelves_on_fbneo() {
++    assert_eq!(
++        Platform::SHELVES[Platform::SHELVES.len() - 3..],
++        [Platform::NeoGeo, Platform::Cps1, Platform::Cps2]
++    );
++    assert_eq!(Platform::ALL.len(), 3);
++    for (p, dir) in [
++        (Platform::NeoGeo, "NEOGEO"),
++        (Platform::Cps1, "CPS1"),
++        (Platform::Cps2, "CPS2"),
++    ] {
++        assert_eq!(p.dir_name(), dir);
++        assert_eq!(p.extensions(), &["zip"]);
++        assert_eq!(Core::default_for(p), Core::Fbneo);
++        assert!(Core::Fbneo.runs(p));
++        assert!(p.is_arcade());
++        assert_eq!(p.picker_cores(), None);
++        assert!(!p.owns_shoulders(), "six-button games need L1 and R1");
++        assert!(p.passes_xy_through());
++        assert!(p.rewinds());
++        assert_eq!(p.shader_choices(), &Shader::RETRO);
++    }
++    assert!(!Platform::Md.is_arcade());
++    assert_eq!(Core::parse("fbneo"), Some(Core::Fbneo));
++}
++
++#[test]
++fn a_set_lists_only_on_the_shelf_of_its_board() {
++    let d = tmp_root();
++    put(d.path(), "NEOGEO", "mslug.zip");
++    put(d.path(), "NEOGEO", "ffight.zip");
++    put(d.path(), "CPS1", "ffight.zip");
++    put(d.path(), "CPS1", "ddtod.zip");
++    put(d.path(), "CPS2", "ddtod.zip");
++    put(d.path(), "CPS2", "notaset.zip");
++    put(d.path(), "CPS2", "ssf2t.7z");
++    assert_eq!(stems(&shelf(d.path(), Platform::NeoGeo)), ["mslug"]);
++    assert_eq!(stems(&shelf(d.path(), Platform::Cps1)), ["ffight"]);
++    assert_eq!(stems(&shelf(d.path(), Platform::Cps2)), ["ddtod"]);
++}
++
++#[test]
++fn the_neo_geo_bios_set_is_never_a_game() {
++    let d = tmp_root();
++    put(d.path(), "NEOGEO", "neogeo.zip");
++    put(d.path(), "NEOGEO", "kof98.zip");
++    assert_eq!(stems(&shelf(d.path(), Platform::NeoGeo)), ["kof98"]);
++}
++
++#[test]
++fn a_set_is_named_by_its_full_title_and_sorted_by_it() {
++    let d = tmp_root();
++    put(d.path(), "CPS1", "ghouls.zip");
++    put(d.path(), "CPS1", "1941.zip");
++    put(d.path(), "CPS1", "ffight.zip");
++    let carts = shelf(d.path(), Platform::Cps1);
++    let names: Vec<&str> = carts.iter().map(Cart::shelf_name).collect();
++    assert_eq!(
++        names,
++        [
++            "1941: Counter Attack (World 900227)",
++            "Final Fight (World, set 1)",
++            "Ghouls'n Ghosts (World)",
++        ]
++    );
++    assert!(sort_key(names[1]) < sort_key(names[2]));
++}
++
++#[test]
++fn the_set_table_knows_parents_clones_and_which_boards_are_vertical() {
++    let one = set(Platform::Cps1, "1941").expect("1941");
++    assert!(one.vertical);
++    assert_eq!(one.parent, None);
++    let clone = set(Platform::Cps1, "1941j").expect("1941j");
++    assert_eq!(clone.parent, Some("1941"));
++    assert!(!set(Platform::Cps2, "ssf2t").expect("ssf2t").vertical);
++    assert!(set(Platform::Cps2, "19xx").expect("19xx").vertical);
++    assert_eq!(
++        set(Platform::NeoGeo, "MSLUG").map(|s| s.name),
++        Some("mslug")
++    );
++    assert_eq!(set(Platform::Cps1, "mslug"), None);
++}
++
++fn stored_zip(members: &[(&str, u32)]) -> Vec<u8> {
++    let mut out = Vec::new();
++    let mut central = Vec::new();
++    for (name, crc) in members {
++        let at = out.len() as u32;
++        out.extend(0x0403_4b50u32.to_le_bytes());
++        out.extend([20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
++        out.extend(crc.to_le_bytes());
++        out.extend([0u8; 8]);
++        out.extend((name.len() as u16).to_le_bytes());
++        out.extend([0, 0]);
++        out.extend(name.as_bytes());
++        central.extend(0x0201_4b50u32.to_le_bytes());
++        central.extend([20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
++        central.extend(crc.to_le_bytes());
++        central.extend([0u8; 8]);
++        central.extend((name.len() as u16).to_le_bytes());
++        central.extend([0u8; 12]);
++        central.extend(at.to_le_bytes());
++        central.extend(name.as_bytes());
++    }
++    let dir_at = out.len() as u32;
++    let n = members.len() as u16;
++    out.extend(&central);
++    out.extend(0x0605_4b50u32.to_le_bytes());
++    out.extend([0u8; 4]);
++    out.extend(n.to_le_bytes());
++    out.extend(n.to_le_bytes());
++    out.extend((central.len() as u32).to_le_bytes());
++    out.extend(dir_at.to_le_bytes());
++    out.extend([0u8; 2]);
++    out
++}
++
++#[test]
++fn the_zip_directory_gives_each_members_crc() {
++    let z = stored_zip(&[("a.bin", 0x1234_5678), ("b.bin", 0xdead_beef)]);
++    assert_eq!(zip_crcs(&z), Some(vec![0x1234_5678, 0xdead_beef]));
++    assert_eq!(zip_crcs(b"not a zip"), None);
++}
++
++#[test]
++fn the_neo_geo_bios_counts_only_with_the_four_files_fbneo_boots_by_crc_under_any_name() {
++    let d = tmp_root();
++    let bios = d.path().join("BIOS");
++    std::fs::create_dir_all(&bios).unwrap();
++    assert!(!has_neogeo_bios(&bios), "missing");
++    let renamed: Vec<(&str, u32)> = ["asia-s3.rom", "sm1.sm1", "sfix.sfix", "000-lo.lo"]
++        .into_iter()
++        .zip(NEOGEO_BIOS_CRCS)
++        .collect();
++    std::fs::write(bios.join("neogeo.zip"), stored_zip(&renamed)).unwrap();
++    assert!(has_neogeo_bios(&bios));
++    std::fs::write(bios.join("neogeo.zip"), stored_zip(&renamed[..3])).unwrap();
++    assert!(!has_neogeo_bios(&bios), "no 000-lo.lo");
++    std::fs::write(bios.join("neogeo.zip"), b"garbage").unwrap();
++    assert!(!has_neogeo_bios(&bios), "not a zip");
++}
++
++#[test]
++fn each_arcade_shelf_keeps_its_shader_in_its_own_file() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        neogeo: Shader::Retro(RetroShader::CrtPi),
++        cps1: Shader::Retro(RetroShader::Line),
++        cps2: Shader::Off,
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    let config = d.path().join("Config");
++    assert_eq!(
++        std::fs::read_to_string(config.join(NEOGEO_SHADER_FILE)).unwrap(),
++        "neogeo=crt-pi\n"
++    );
++    assert_eq!(
++        std::fs::read_to_string(config.join(CPS1_SHADER_FILE)).unwrap(),
++        "cps1=line\n"
++    );
++    assert!(!config.join(CPS2_SHADER_FILE).exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++}
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index 01830ac..3672617 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_thirteen() {
++fn the_pinned_core_list_stays_two_while_every_lists_fourteen() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 13);
++    assert_eq!(Core::EVERY.len(), 14);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/md_platform.rs b/crates/slot-store/tests/md_platform.rs
+index 9757354..77c2fd5 100644
+--- a/crates/slot-store/tests/md_platform.rs
++++ b/crates/slot-store/tests/md_platform.rs
+@@ -44,7 +44,10 @@ fn mega_drive_plays_like_snes_and_follows_the_frame_width() {
+     for platform in Platform::SHELVES {
+         assert_eq!(
+             platform.follows_frame_width(),
+-            matches!(platform, Platform::Md | Platform::Tg16 | Platform::S32x),
++            matches!(
++                platform,
++                Platform::Md | Platform::Tg16 | Platform::S32x | Platform::NeoGeo
++            ),
+             "{platform:?}"
+         );
+     }
+diff --git a/crates/slot-store/tests/s32x_platform.rs b/crates/slot-store/tests/s32x_platform.rs
+index 46d7d29..6ce20db 100644
+--- a/crates/slot-store/tests/s32x_platform.rs
++++ b/crates/slot-store/tests/s32x_platform.rs
+@@ -47,9 +47,9 @@ fn stems(carts: &[Cart]) -> Vec<&str> {
+ }
+ 
+ #[test]
+-fn the_32x_is_the_last_shelf_and_upstreams_list_stays_three() {
+-    assert_eq!(Platform::SHELVES.last(), Some(&Platform::S32x));
+-    assert_eq!(Platform::SHELVES.len(), 14);
++fn the_32x_shelf_follows_the_neo_geo_pocket_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES.get(13), Some(&Platform::S32x));
++    assert_eq!(Platform::SHELVES.get(12), Some(&Platform::Ngp));
+     assert_eq!(Platform::ALL.len(), 3);
+     assert_eq!(Platform::S32x.dir_name(), "32X");
+     assert_eq!(Platform::S32x.name(), "Sega 32X");
+@@ -168,7 +168,7 @@ fn the_32x_plays_like_the_mega_drive_and_answers_every_policy() {
+ #[test]
+ fn the_32x_runs_on_picodrive_alone_on_the_mega_drive_canvas() {
+     assert_eq!(Core::default_for(Platform::S32x), Core::Picodrive);
+-    assert_eq!(Core::EVERY.last(), Some(&Core::Picodrive));
++    assert_eq!(Core::EVERY.get(12), Some(&Core::Picodrive));
+     assert_eq!(Core::Picodrive.as_str(), "picodrive");
+     assert_eq!(Core::Picodrive.option_prefix(), "picodrive");
+     assert_eq!(Core::parse("picodrive"), Some(Core::Picodrive));
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index b074468..338a99a 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -26,6 +26,9 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         lynx: Shader::Off,
+         ngp: Shader::Off,
+         s32x: Shader::Off,
++        neogeo: Shader::Off,
++        cps1: Shader::Off,
++        cps2: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-store/tests/wswan_platform.rs b/crates/slot-store/tests/wswan_platform.rs
+index 6190e08..f7635f7 100644
+--- a/crates/slot-store/tests/wswan_platform.rs
++++ b/crates/slot-store/tests/wswan_platform.rs
+@@ -156,7 +156,10 @@ fn a_horizontal_cart_draws_on_the_gba_canvas_and_a_vertical_one_on_360_by_240()
+     assert_eq!(ws.game_canvas(Platform::Ws, true), (360, 240));
+     assert_eq!(ws.canvas_f32(Platform::Ws, true), (360.0, 240.0));
+     for core in Core::EVERY {
+-        for platform in Platform::SHELVES.into_iter().filter(|p| *p != Platform::Ws) {
++        for platform in Platform::SHELVES
++            .into_iter()
++            .filter(|p| *p != Platform::Ws && !p.is_arcade())
++        {
+             assert_eq!(
+                 core.game_canvas(platform, true),
+                 core.canvas(platform),
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 9f2a1ab..de6b0fc 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -99,7 +99,10 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::S32x => None,
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -189,7 +192,9 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+         Platform::Sms => (SEATED_W, SMS_SEATED_H),
+         Platform::Md => (SEATED_W, MD_SEATED_H),
+-        Platform::S32x => (SEATED_W, S32X_SEATED_H),
++        Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
++            (SEATED_W, S32X_SEATED_H)
++        }
+         Platform::Tg16 => (SEATED_W, SMS_SEATED_H),
+         Platform::Snes => (SEATED_W, SNES_SEATED_H),
+         Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
+@@ -207,7 +212,9 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+         Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
+         Platform::Sms => return retro_box(RetroShell::Sega(SegaShell::Sms)),
+         Platform::Md => return retro_box(RetroShell::Sega(SegaShell::MegaDrive)),
+-        Platform::S32x => return retro_box(RetroShell::S32x),
++        Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
++            return retro_box(RetroShell::S32x)
++        }
+         Platform::Tg16 => return retro_box(RetroShell::Hucard),
+         Platform::Snes => return retro_box(RetroShell::Snes(SnesShell::Snes)),
+         Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
+@@ -358,7 +365,7 @@ pub fn label_colour(title: &str) -> [u8; 3] {
+ }
+ 
+ pub fn label_text(cart: &Cart) -> String {
+-    clean_label(&cart.stem)
++    clean_label(cart.shelf_name())
+ }
+ 
+ pub fn clean_label(stem: &str) -> String {
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 64f88d8..5849376 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -240,7 +240,9 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+         Platform::Ws => Some(RetroShell::Ws(crate::ws_cart::shell_of(cart))),
+         Platform::Lynx => Some(RetroShell::Lynx),
+         Platform::Ngp => Some(RetroShell::Ngp),
+-        Platform::S32x => Some(RetroShell::S32x),
++        Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
++            Some(RetroShell::S32x)
++        }
+         Platform::Gba | Platform::Gb | Platform::Gbc => None,
+     }
+ }
+@@ -429,7 +431,10 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         | Platform::Md
+         | Platform::Ws
+         | Platform::Ngp
+-        | Platform::S32x => {
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+         Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => sh,
+diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
+index 08465a2..3b4d153 100644
+--- a/crates/slot-ui/src/shelf.rs
++++ b/crates/slot-ui/src/shelf.rs
+@@ -258,11 +258,11 @@ impl Shelf {
+ 
+     fn start_of_letter(&self, from: usize) -> usize {
+         let n = self.carts.len();
+-        let letter = slot_store::initial(&self.carts[from].stem);
++        let letter = slot_store::initial(self.carts[from].shelf_name());
+         let mut at = from;
+         for _ in 0..n {
+             let before = (at as i32 - 1).rem_euclid(n as i32) as usize;
+-            if slot_store::initial(&self.carts[before].stem) != letter {
++            if slot_store::initial(self.carts[before].shelf_name()) != letter {
+                 break;
+             }
+             at = before;
+@@ -276,11 +276,11 @@ impl Shelf {
+             return;
+         }
+         let wrap = |i: i32| i.rem_euclid(n as i32) as usize;
+-        let here = slot_store::initial(&self.carts[self.index].stem);
++        let here = slot_store::initial(self.carts[self.index].shelf_name());
+         if self
+             .carts
+             .iter()
+-            .all(|c| slot_store::initial(&c.stem) == here)
++            .all(|c| slot_store::initial(c.shelf_name()) == here)
+         {
+             return;
+         }
+@@ -289,7 +289,7 @@ impl Shelf {
+                 let mut at = self.index;
+                 for _ in 0..n {
+                     at = wrap(at as i32 + 1);
+-                    if slot_store::initial(&self.carts[at].stem) != here {
++                    if slot_store::initial(self.carts[at].shelf_name()) != here {
+                         break;
+                     }
+                 }
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index 3d3b196..e785963 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -100,7 +100,10 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::S32x => crate::retro_shell::plastic_for(cart),
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => crate::retro_shell::plastic_for(cart),
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index d12d007..aad470f 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 16e9978..1c4aff4 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1058,7 +1058,10 @@ impl App {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2,
+             ) => QuickRow::GbaBezel,
+             (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
+             (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
+@@ -1246,7 +1249,10 @@ impl App {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => Vec::new(),
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => Vec::new(),
+             Platform::Gb | Platform::Gbc => self
+                 .root()
+                 .map(|root| crate::bezel::list(root, platform))
+@@ -1279,7 +1285,10 @@ impl App {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => &mut self.state.bezel_gba,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &mut self.state.bezel_gba,
+             Platform::Gb => &mut self.state.bezel_gb,
+             Platform::Gbc => &mut self.state.bezel_gbc,
+         }
+@@ -1298,7 +1307,10 @@ impl App {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => &self.state.bezel_gba,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &self.state.bezel_gba,
+             Platform::Gb => &self.state.bezel_gb,
+             Platform::Gbc => &self.state.bezel_gbc,
+         };
+@@ -2233,6 +2245,9 @@ impl App {
+             Platform::Lynx => self.sega_shaders.lynx,
+             Platform::Ngp => self.sega_shaders.ngp,
+             Platform::S32x => self.sega_shaders.s32x,
++            Platform::NeoGeo => self.sega_shaders.neogeo,
++            Platform::Cps1 => self.sega_shaders.cps1,
++            Platform::Cps2 => self.sega_shaders.cps2,
+         }
+     }
+ 
+@@ -2271,7 +2286,10 @@ impl App {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => false,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
+         }
+     }
+ 
+@@ -3122,6 +3140,9 @@ impl App {
+             Platform::Lynx => (&mut self.sega_shaders.lynx, &Shader::RETRO[..]),
+             Platform::Ngp => (&mut self.sega_shaders.ngp, &Shader::GG[..]),
+             Platform::S32x => (&mut self.sega_shaders.s32x, &Shader::RETRO[..]),
++            Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
++            Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
++            Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -3186,7 +3207,10 @@ impl App {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x => return false,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => return false,
+             };
+             self.change_setting(row, true);
+             let said = match self.colour_correction() {
+@@ -3592,7 +3616,10 @@ impl App {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x => [0xe6, 0xe4, 0xda],
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => [0xe6, 0xe4, 0xda],
+         };
+         let k = (self.blank_s / BLANK_WARM_S).min(1.0);
+         let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
+@@ -3757,8 +3784,8 @@ impl App {
+             .cloned()
+             .collect();
+         carts.sort_by(|a, b| {
+-            (slot_store::sort_key(&a.stem), a.platform as u8)
+-                .cmp(&(slot_store::sort_key(&b.stem), b.platform as u8))
++            (slot_store::sort_key(a.shelf_name()), a.platform as u8)
++                .cmp(&(slot_store::sort_key(b.shelf_name()), b.platform as u8))
+         });
+         let index = self.shelves[FAVORITES_AT].1.index;
+         self.restock(FAVORITES_AT, carts);
+@@ -5782,7 +5809,10 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::S32x => 0,
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => 0,
+         Platform::Gb => 1,
+         Platform::Gbc => 2,
+     }
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index dae87d8..3de027d 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -200,7 +200,8 @@ pub fn colour_option(
+         | Core::MednafenWswan
+         | Core::MednafenLynx
+         | Core::MednafenNgp
+-        | Core::Picodrive => None,
++        | Core::Picodrive
++        | Core::Fbneo => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 38a5c34..449509d 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -92,7 +92,8 @@ pub fn answers_declared_defaults(which: Core) -> bool {
+         | Core::MednafenWswan
+         | Core::MednafenLynx
+         | Core::MednafenNgp
+-        | Core::Picodrive => false,
++        | Core::Picodrive
++        | Core::Fbneo => false,
+     }
+ }
+ 
+@@ -134,7 +135,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::MednafenWswan
+         | Core::MednafenLynx
+         | Core::MednafenNgp
+-        | Core::Picodrive => &[],
++        | Core::Picodrive
++        | Core::Fbneo => &[],
+     };
+     for key in overscan {
+         core.set_option(key, "0");
+@@ -153,6 +155,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         Core::MednafenLynx => &BEETLE_LYNX,
+         Core::MednafenNgp => &MEDNAFEN_NGP,
+         Core::Picodrive => &PICODRIVE,
++        Core::Fbneo => &[],
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+@@ -176,6 +179,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::MednafenWswan
+         | Core::MednafenLynx
+         | Core::MednafenNgp
+-        | Core::Picodrive => None,
++        | Core::Picodrive
++        | Core::Fbneo => None,
+     }
+ }
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index b581674..f2026f2 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -34,7 +34,12 @@ pub fn default_video_mode(platform: Platform) -> VideoMode {
+         | Platform::Lynx
+         | Platform::Ngp => VideoMode::Actual,
+         Platform::Nes | Platform::Snes | Platform::Tg16 => VideoMode::Crop,
+-        Platform::Sms | Platform::Md | Platform::S32x => VideoMode::Stretch,
++        Platform::Sms
++        | Platform::Md
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => VideoMode::Stretch,
+     }
+ }
+ 
+@@ -50,7 +55,14 @@ pub fn picture_choices(platform: Platform) -> &'static [VideoMode] {
+ 
+ pub fn offers_four_three(platform: Platform) -> bool {
+     match platform {
+-        Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::S32x => true,
++        Platform::Nes
++        | Platform::Snes
++        | Platform::Sms
++        | Platform::Md
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => true,
+         Platform::Gba
+         | Platform::Gb
+         | Platform::Gbc
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 9b75459..a327ae1 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -40,7 +40,10 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::S32x => {
++        | Platform::S32x
++        | Platform::NeoGeo
++        | Platform::Cps1
++        | Platform::Cps2 => {
+             let mut hidden = vec![QuickRow::ColourCorrection, QuickRow::Palette];
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
+@@ -65,6 +68,7 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 10] {
+             Platform::Lynx => 7,
+             Platform::Ngp => 8,
+             Platform::S32x => 9,
++            Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => continue,
+         };
+         seen[at] = true;
+     }
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 3f43b4f..57155bf 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 68] = [
++pub const DIRS: [&str; 80] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -21,6 +21,9 @@ pub const DIRS: [&str; 68] = [
+     "Games/Lynx",
+     "Games/NGP",
+     "Games/32X",
++    "Games/NEOGEO",
++    "Games/CPS1",
++    "Games/CPS2",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -37,6 +40,9 @@ pub const DIRS: [&str; 68] = [
+     "Labels/Lynx",
+     "Labels/NGP",
+     "Labels/32X",
++    "Labels/NEOGEO",
++    "Labels/CPS1",
++    "Labels/CPS2",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -52,6 +58,9 @@ pub const DIRS: [&str; 68] = [
+     "Saves/Lynx",
+     "Saves/NGP",
+     "Saves/32X",
++    "Saves/NEOGEO",
++    "Saves/CPS1",
++    "Saves/CPS2",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -67,6 +76,9 @@ pub const DIRS: [&str; 68] = [
+     "States/Lynx",
+     "States/NGP",
+     "States/32X",
++    "States/NEOGEO",
++    "States/CPS1",
++    "States/CPS2",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 30a80b7..e6dc76e 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -12,7 +12,10 @@ impl VideoMode {
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+-                | Platform::S32x,
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2,
+                 mode,
+             ) => mode.stepped(platform, true),
+             (
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index afd7766..85a88b9 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -29,7 +29,10 @@ pub fn pad_code(platform: Platform, vertical: bool) -> u8 {
+             | Platform::Tg16
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::S32x,
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2,
+             _,
+         ) => OFF,
+     }
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index 9f04276..d5c6cc6 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -72,7 +72,12 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+         let want: &[VideoMode] = match platform {
+             Platform::Nes | Platform::Snes => &[Crop, Stretch, Actual, FourThree],
+             Platform::Tg16 => &[Crop, Stretch, Actual],
+-            Platform::Sms | Platform::Md | Platform::S32x => &[Stretch, Actual, FourThree],
++            Platform::Sms
++            | Platform::Md
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &[Stretch, Actual, FourThree],
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
+index ffcd906..cf59e36 100644
+--- a/crates/slot/tests/four_three.rs
++++ b/crates/slot/tests/four_three.rs
+@@ -60,7 +60,14 @@ fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
+     for platform in Platform::SHELVES {
+         let tv = matches!(
+             platform,
+-            Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::S32x
++            Platform::Nes
++                | Platform::Snes
++                | Platform::Sms
++                | Platform::Md
++                | Platform::S32x
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2
+         );
+         assert_eq!(offers_four_three(platform), tv, "{platform:?}");
+         assert_eq!(
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index 12483b4..ac082d9 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive | Core::Fbneo => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 1624959..2371419 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -257,7 +257,9 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+     for platform in Platform::SHELVES {
+         let (from_actual, from_stretch, from_crop) = match platform {
+             Platform::Snes => (FourThree, Actual, Stretch),
+-            Platform::Md | Platform::S32x => (FourThree, Actual, Stretch),
++            Platform::Md | Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
++                (FourThree, Actual, Stretch)
++            }
+             Platform::Ps1 | Platform::Ngp | Platform::Ws | Platform::Lynx => {
+                 (Stretch, Actual, Stretch)
+             }
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 5da177d..f394f60 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -159,7 +159,12 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+             Platform::Gg | Platform::Ps1 | Platform::Ws | Platform::Lynx | Platform::Ngp => {
+                 &[Stretch, Actual]
+             }
+-            Platform::Sms | Platform::Md | Platform::S32x => &[Actual, FourThree, Stretch],
++            Platform::Sms
++            | Platform::Md
++            | Platform::S32x
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => &[Actual, FourThree, Stretch],
+             Platform::Gba | Platform::Gb | Platform::Gbc => &[],
+         };
+         for mode in walk {

@@ -1,0 +1,277 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 20 Oct 2026 12:45:17 +0400
+Subject: [PATCH] neogeo-bios
+
+FBNeo loads a Neo Geo set with no BIOS without an error and draws its
+640x480 missing-ROM page. Before a Neo Geo set is inserted, from the
+shelf or resumed at boot (both through App::insert), slot reads the zip
+directory of BIOS/neogeo.zip: unless it holds the four files the default
+MVS Asia/Europe ver. 6 BIOS boots with (sp-s3.sp1, sm1.sm1, sfix.sfix and
+000-lo.lo, matched by crc32 like FBNeo does, so asia-s3.rom counts), the
+set stays on the shelf with the refusal shake and the toast "Neo Geo
+needs BIOS/neogeo.zip". CPS1 and CPS2 need no BIOS. slot never ships or
+fetches the file. The toast is its own list after the Lynx toasts.
+---
+ crates/slot-ui/src/arcade_toast.rs |  26 +++++++
+ crates/slot-ui/src/lib.rs          |   2 +
+ crates/slot-ui/src/quick_retro.rs  |   1 +
+ crates/slot-ui/src/toast.rs        |   3 +
+ crates/slot/src/app.rs             |   3 +-
+ crates/slot/src/app/arcade_bios.rs |  23 +++++++
+ crates/slot/tests/arcade_bios.rs   | 105 +++++++++++++++++++++++++++++
+ 7 files changed, 162 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-ui/src/arcade_toast.rs
+ create mode 100644 crates/slot/src/app/arcade_bios.rs
+ create mode 100644 crates/slot/tests/arcade_bios.rs
+
+diff --git a/crates/slot-ui/src/arcade_toast.rs b/crates/slot-ui/src/arcade_toast.rs
+new file mode 100644
+index 0000000..3538861
+--- /dev/null
++++ b/crates/slot-ui/src/arcade_toast.rs
+@@ -0,0 +1,26 @@
++use crate::Toast;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum ArcadeToast {
++    NeedsNeoGeoBios,
++}
++
++impl ArcadeToast {
++    pub const ALL: [ArcadeToast; 1] = [ArcadeToast::NeedsNeoGeoBios];
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            ArcadeToast::NeedsNeoGeoBios => "Neo Geo needs BIOS/neogeo.zip",
++        }
++    }
++}
++
++impl Toast {
++    pub fn arcade_index(a: ArcadeToast) -> usize {
++        Toast::lynx_index(crate::LynxToast::ALL[0]) + crate::LynxToast::ALL.len() + a.index()
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 8f7e63e..be958e9 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -6,6 +6,7 @@ pub use bitmaps::{
+     link_port, link_port_light, slot_back, slot_back_light, slot_front, slot_front_light,
+     slot_plugged, slot_plugged_light, Mould, SLOT_H, SLOT_W,
+ };
++mod arcade_toast;
+ mod backdrop;
+ mod barcode;
+ mod battery;
+@@ -45,6 +46,7 @@ pub mod text;
+ mod toast;
+ mod ws_cart;
+ 
++pub use arcade_toast::ArcadeToast;
+ pub use backdrop::{
+     bezel_face, blur_background, default_background, default_game_bezel_face, draw_backdrop,
+     draw_ground, game_bezel_face, wallpaper_face,
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 5325ecb..4b51b17 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -104,6 +104,7 @@ impl Toast {
+             .chain([Toast::StartFailed])
+             .chain(crate::DiscToast::ALL.map(Toast::Disc))
+             .chain(crate::LynxToast::ALL.map(Toast::Lynx))
++            .chain(crate::ArcadeToast::ALL.map(Toast::Arcade))
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index 36b8cac..d01b655 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -32,6 +32,7 @@ pub enum Toast {
+     Battery(crate::BatteryToast),
+     StartFailed,
+     Lynx(crate::LynxToast),
++    Arcade(crate::ArcadeToast),
+ }
+ 
+ impl Toast {
+@@ -71,6 +72,7 @@ impl Toast {
+             Toast::Battery(b) => Toast::battery_index(b),
+             Toast::StartFailed => Toast::start_failed_index(),
+             Toast::Lynx(l) => Toast::lynx_index(l),
++            Toast::Arcade(a) => Toast::arcade_index(a),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -120,6 +122,7 @@ impl Toast {
+             Toast::Battery(b) => b.text(),
+             Toast::StartFailed => "Last start failed",
+             Toast::Lynx(l) => l.text(),
++            Toast::Arcade(a) => a.text(),
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 9ad2aa9..4855aa4 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,3 +1,4 @@
++mod arcade_bios;
+ mod battery_warn;
+ mod fast_scroll;
+ mod lynx_bios;
+@@ -4841,7 +4842,7 @@ impl App {
+         }) else {
+             return;
+         };
+-        if !self.lynx_bios_allows(platform) {
++        if !self.lynx_bios_allows(platform) || !self.neogeo_bios_allows(platform) {
+             return;
+         }
+         eprintln!(
+diff --git a/crates/slot/src/app/arcade_bios.rs b/crates/slot/src/app/arcade_bios.rs
+new file mode 100644
+index 0000000..5e3bae2
+--- /dev/null
++++ b/crates/slot/src/app/arcade_bios.rs
+@@ -0,0 +1,23 @@
++use slot_store::Platform;
++use slot_ui::{ArcadeToast, Toast};
++
++use super::App;
++
++impl App {
++    pub(super) fn neogeo_bios_allows(&mut self, platform: Platform) -> bool {
++        if platform != Platform::NeoGeo {
++            return true;
++        }
++        let Some(root) = self.root.as_deref() else {
++            return true;
++        };
++        if slot_store::arcade::has_neogeo_bios(&crate::root::bios_dir(root)) {
++            return true;
++        }
++        eprintln!("slot: neogeo: no usable BIOS/neogeo.zip, not launching");
++        self.hud
++            .toast(Toast::Arcade(ArcadeToast::NeedsNeoGeoBios), self.now());
++        self.refuse();
++        false
++    }
++}
+diff --git a/crates/slot/tests/arcade_bios.rs b/crates/slot/tests/arcade_bios.rs
+new file mode 100644
+index 0000000..c3062e1
+--- /dev/null
++++ b/crates/slot/tests/arcade_bios.rs
+@@ -0,0 +1,105 @@
++// Neo Geo sets need BIOS/neogeo.zip, which slot never ships or fetches (ADR 0097). Without it FBNeo
++// loads the set and shows its missing-ROM page, so slot checks before the cart is inserted.
++mod arcade_common;
++mod common;
++mod core_common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::{write_slot_state, Platform, SlotState};
++use slot_ui::{ArcadeToast, LynxToast, Toast};
++use tempfile::TempDir;
++
++fn card(shelf: &str, set: &str, bios: bool) -> TempDir {
++    let d = tmp_root_with_carts(&[]);
++    let dir = d.path().join("Games").join(shelf);
++    std::fs::create_dir_all(&dir).unwrap();
++    std::fs::write(dir.join(format!("{set}.zip")), b"PK\x05\x06").unwrap();
++    if bios {
++        arcade_common::install_neogeo_bios(d.path());
++    }
++    d
++}
++
++fn boot_on(root: &Path, cart: Option<(&str, Platform)>) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            cart: cart.map(|(c, _)| c.to_string()),
++            cart_platform: cart.map(|(_, p)| p),
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn insert(a: &mut App) {
++    a.apply(Action::GbaDown(Btn::A));
++    a.apply(Action::GbaUp(Btn::A));
++    for _ in 0..10 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn inserting(a: &App) -> bool {
++    matches!(a.phase(), Phase::Inserting { .. } | Phase::Playing { .. })
++}
++
++#[test]
++fn without_the_neo_geo_bios_a_neo_geo_set_stays_on_the_shelf_with_a_toast() {
++    let d = card("NEOGEO", "mslug", false);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Arcade(ArcadeToast::NeedsNeoGeoBios)));
++    assert_eq!(
++        Toast::Arcade(ArcadeToast::NeedsNeoGeoBios).text(),
++        "Neo Geo needs BIOS/neogeo.zip"
++    );
++}
++
++#[test]
++fn a_neo_geo_set_resumed_at_boot_is_checked_too() {
++    let d = card("NEOGEO", "mslug", false);
++    let a = boot_on(d.path(), Some(("mslug", Platform::NeoGeo)));
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Arcade(ArcadeToast::NeedsNeoGeoBios)));
++}
++
++#[test]
++fn with_the_bios_a_neo_geo_set_launches_with_no_toast() {
++    let d = card("NEOGEO", "mslug", true);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn cps_sets_need_no_bios() {
++    for (shelf, set) in [("CPS1", "ffight"), ("CPS2", "ssf2t")] {
++        let d = card(shelf, set, false);
++        let mut a = boot_on(d.path(), None);
++        insert(&mut a);
++        assert!(inserting(&a), "{shelf} {:?}", a.phase());
++        assert_eq!(a.toast(), None);
++    }
++}
++
++#[test]
++fn the_arcade_toast_uploads_in_its_own_place_after_the_lynx_ones() {
++    let every = Toast::every();
++    for t in ArcadeToast::ALL {
++        let t = Toast::Arcade(t);
++        assert_eq!(every.get(t.index()), Some(&t), "{t:?}");
++    }
++    assert_eq!(
++        Toast::Arcade(ArcadeToast::ALL[0]).index(),
++        Toast::Lynx(LynxToast::ALL[LynxToast::ALL.len() - 1]).index() + 1
++    );
++}
