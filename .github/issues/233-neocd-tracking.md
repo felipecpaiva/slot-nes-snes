@@ -8,11 +8,11 @@ depends_on: [222-segacd-tracking]
 ---
 
 ## Why
-The maintainer asked for the Neo Geo CD as its own platform, holding only his CD-exclusive games: Crossed Swords II and the English translation of Shinsetsu Samurai Spirits - Bushidou Retsuden (Samurai Shodown RPG). A new core, NeoCD (libretro/neocd_libretro, LGPL-3.0 with a non-commercial Z80 core); one shelf `Games/NEOCD`; the player's own CDZ, Front Loader or Top Loader BIOS checked, never shipped (ADR 0106).
+The maintainer asked for the Neo Geo CD as its own platform, holding only his CD-exclusive games: Crossed Swords II and the English translation of Shinsetsu Samurai Spirits - Bushidou Retsuden (Samurai Shodown RPG). A new core, NeoCD (libretro/neocd_libretro, LGPL-3.0 with a non-commercial Z80 core); one shelf `Games/NEOCD`; the player's own CDZ, Front Loader or Top Loader BIOS checked, never shipped (ADR 0107).
 
 ## Scope
 Child work, in merge order:
-- [x] 1. Decision record: ADR 0106 and these issues.
+- [x] 1. Decision record: ADR 0107 and these issues.
 - [x] 2. 234-neocd-core-build and the core half of the tests (patch 0147)
 - [x] 3. 235-platform-neocd (patch 0148)
 - [x] 4. 236-neocd-bios (patch 0149)
@@ -39,4 +39,4 @@ Child work, in merge order:
 Issue 238.
 
 ## References
-- ADR 0106; docs/cart-art/NEOCD.md; ADR 0099 (the Neo Geo shelf), ADR 0104 (the CD precedent)
+- ADR 0107; docs/cart-art/NEOCD.md; ADR 0099 (the Neo Geo shelf), ADR 0104 (the CD precedent)

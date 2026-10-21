@@ -16,21 +16,21 @@ in the General labels, named site (k), approved by the maintainer on
 2026-10-20.
 ---
  crates/slot-ui/src/lib.rs            |   2 +
- crates/slot-ui/src/quick_menu.rs     |  25 +++-
+ crates/slot-ui/src/quick_menu.rs     |  25 ++-
  crates/slot-ui/src/quick_retro.rs    |   2 +
  crates/slot-ui/src/screen_order.rs   |  23 +++
  crates/slot-ui/tests/quick_menu.rs   |   1 +
  crates/slot-ui/tests/retro_faces.rs  |   8 +-
  crates/slot/src/app.rs               |  11 +-
  crates/slot/src/app/shelf_order.rs   |  37 ++++-
- crates/slot/src/shelf_order.rs       |  65 ++++++++
- crates/slot/tests/shelf_order_row.rs | 215 +++++++++++++++++++++++++++
- 10 files changed, 373 insertions(+), 16 deletions(-)
+ crates/slot/src/shelf_order.rs       |  68 +++++++++
+ crates/slot/tests/shelf_order_row.rs | 219 +++++++++++++++++++++++++++
+ 10 files changed, 380 insertions(+), 16 deletions(-)
  create mode 100644 crates/slot-ui/src/screen_order.rs
  create mode 100644 crates/slot/tests/shelf_order_row.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 4c989e6..921e701 100644
+index 267f32d..3bb380f 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
 @@ -36,6 +36,7 @@ mod retro_face;
@@ -41,7 +41,7 @@ index 4c989e6..921e701 100644
  mod shelf;
  mod shell;
  mod silhouette;
-@@ -117,6 +118,7 @@ pub use retro_shell::{
+@@ -118,6 +119,7 @@ pub use retro_shell::{
      NES_GREY, NES_TITLES, NGP_GREY, RETRO_BLACK, S32X_BLACK, SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK,
      SNES_GREY, SNES_TITLES, VB_GREY, WSC_CLEAR, WS_BLACK,
  };
@@ -50,10 +50,10 @@ index 4c989e6..921e701 100644
  pub use shell::{
      gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index a525fcf..e7ba0f0 100644
+index 86ad66f..d9e2b79 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -159,10 +159,11 @@ pub enum QuickRow {
+@@ -168,10 +168,11 @@ pub enum QuickRow {
      ScreenCps2,
      Cps2Picture,
      Cps2Rotation,
@@ -61,12 +61,12 @@ index a525fcf..e7ba0f0 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 149] = [
-+    pub const ALL: [QuickRow; 150] = [
+-    pub const ALL: [QuickRow; 157] = [
++    pub const ALL: [QuickRow; 158] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -312,6 +313,7 @@ impl QuickRow {
+@@ -329,6 +330,7 @@ impl QuickRow {
          QuickRow::ScreenCps2,
          QuickRow::Cps2Picture,
          QuickRow::Cps2Rotation,
@@ -74,7 +74,7 @@ index a525fcf..e7ba0f0 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -322,12 +324,13 @@ impl QuickRow {
+@@ -339,12 +341,13 @@ impl QuickRow {
          QuickRow::About,
      ];
  
@@ -89,16 +89,16 @@ index a525fcf..e7ba0f0 100644
          QuickRow::Cpu,
          QuickRow::LidOff,
          QuickRow::DateTime,
-@@ -471,7 +474,7 @@ impl QuickRow {
+@@ -497,7 +500,7 @@ impl QuickRow {
              | QuickRow::ScreenVb
              | QuickRow::ScreenNeoGeo
              | QuickRow::ScreenCps1
 -            | QuickRow::ScreenCps2 => &QuickRow::SCREEN,
 +            | QuickRow::ScreenCps2 => crate::screen_page(),
+             QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
+             QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
              QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-                 &QuickRow::SCREEN_GBA
-             }
-@@ -496,7 +499,8 @@ impl QuickRow {
+@@ -524,7 +527,8 @@ impl QuickRow {
              | QuickRow::Recents
              | QuickRow::ShowTitles
              | QuickRow::LidOff
@@ -108,7 +108,7 @@ index a525fcf..e7ba0f0 100644
              QuickRow::ControlsShelf | QuickRow::Shortcuts | QuickRow::ControlsInGame => {
                  &QuickRow::CONTROL_PAGES
              }
-@@ -653,7 +657,7 @@ impl QuickRow {
+@@ -682,7 +686,7 @@ impl QuickRow {
              &QuickRow::MAIN[..],
              &QuickRow::PLAY,
              &QuickRow::SETTINGS,
@@ -117,7 +117,7 @@ index a525fcf..e7ba0f0 100644
              &QuickRow::CONTROL_PAGES,
          ]
          .contains(&self.page())
-@@ -661,7 +665,7 @@ impl QuickRow {
+@@ -690,7 +694,7 @@ impl QuickRow {
  
      pub fn child(self) -> Option<QuickRow> {
          match self {
@@ -126,7 +126,7 @@ index a525fcf..e7ba0f0 100644
              QuickRow::Game => Some(QuickRow::GAME[0]),
              QuickRow::Settings => Some(QuickRow::SETTINGS[0]),
              QuickRow::PlayScreen => Some(QuickRow::PLAY_SCREEN[0]),
-@@ -842,6 +846,7 @@ impl QuickRow {
+@@ -878,6 +882,7 @@ impl QuickRow {
              | QuickRow::A7800PalSpeed => "PAL Speed",
              QuickRow::SmsRegion => "Region",
              QuickRow::Cpu => "CPU",
@@ -134,7 +134,7 @@ index a525fcf..e7ba0f0 100644
              QuickRow::WsRefresh => "Refresh",
              QuickRow::LynxSpeed => "Lynx Speed",
              QuickRow::LynxFlip => "Flip Right Carts",
-@@ -1021,6 +1026,8 @@ pub enum QuickValue {
+@@ -1071,6 +1076,8 @@ pub enum QuickValue {
      Buttons,
      Upright,
      Turned,
@@ -143,7 +143,7 @@ index a525fcf..e7ba0f0 100644
  }
  
  impl QuickValue {
-@@ -1096,6 +1103,8 @@ impl QuickValue {
+@@ -1169,6 +1176,8 @@ impl QuickValue {
              QuickValue::Buttons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 31,
              QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 32,
              QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
@@ -152,7 +152,7 @@ index a525fcf..e7ba0f0 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1160,6 +1169,8 @@ impl QuickValue {
+@@ -1243,6 +1252,8 @@ impl QuickValue {
              QuickValue::Buttons => "ABXY",
              QuickValue::Upright => "Upright",
              QuickValue::Turned => "Turned",
@@ -161,10 +161,10 @@ index a525fcf..e7ba0f0 100644
          }
      }
  
-@@ -1623,7 +1634,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
-         &QuickRow::CONTROLS[..],
+@@ -1787,7 +1798,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
          &QuickRow::SHORTCUTS,
          &QuickRow::GENERAL,
+         &QuickRow::PLAY_SCREEN,
 -        &QuickRow::SCREEN,
 +        crate::screen_page(),
      ]
@@ -213,7 +213,7 @@ index 0000000..46fdd3b
 +    SCREEN_PAGE.with(|p| p.set(rows));
 +}
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index d442be4..d47895c 100644
+index cac2103..397b275 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
 @@ -89,6 +89,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
@@ -258,10 +258,10 @@ index 4062ab6..a85dfb6 100644
      );
      for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index d8460ce..4381119 100644
+index a0fa26d..88730cf 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -463,6 +463,7 @@ pub struct App {
+@@ -475,6 +475,7 @@ pub struct App {
      ws_native: bool,
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
@@ -269,7 +269,7 @@ index d8460ce..4381119 100644
      s32x_speed: crate::s32x_speed::S32xSpeed,
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
-@@ -657,6 +658,7 @@ impl App {
+@@ -673,6 +674,7 @@ impl App {
              ws_native: false,
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
@@ -277,7 +277,7 @@ index d8460ce..4381119 100644
              s32x_speed: crate::s32x_speed::S32xSpeed::default(),
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
-@@ -674,7 +676,7 @@ impl App {
+@@ -690,7 +692,7 @@ impl App {
          let carts = scan(root).unwrap_or_default();
          crate::boot_time::mark("scan");
          let mut app = App::new(carts);
@@ -286,7 +286,7 @@ index d8460ce..4381119 100644
          app.root = Some(root.to_path_buf());
          app.state = read_slot_state(root);
          app.carousel = read_carousel(root);
-@@ -1157,6 +1159,7 @@ impl App {
+@@ -1186,6 +1188,7 @@ impl App {
              QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
@@ -294,7 +294,7 @@ index d8460ce..4381119 100644
              QuickRow::S32xRenderer | QuickRow::S32xSoundRate => self.s32x_speed.quick_value(row),
              QuickRow::A2600LeftDifficulty
              | QuickRow::A2600RightDifficulty
-@@ -2929,6 +2932,7 @@ impl App {
+@@ -3061,6 +3064,7 @@ impl App {
              | QuickRow::Ps1PalSpeed
              | QuickRow::SmsRegion
              | QuickRow::Cpu
@@ -302,7 +302,7 @@ index d8460ce..4381119 100644
              | QuickRow::Tg16Shader
              | QuickRow::Tg16Picture
              | QuickRow::WsRefresh
-@@ -3031,6 +3035,10 @@ impl App {
+@@ -3163,6 +3167,10 @@ impl App {
              }
              return;
          }
@@ -313,7 +313,7 @@ index d8460ce..4381119 100644
          if row == QuickRow::Cpu {
              self.cpu_mode = self.cpu_mode.flipped();
              if let Some(root) = &self.root {
-@@ -3172,6 +3180,7 @@ impl App {
+@@ -3321,6 +3329,7 @@ impl App {
              | QuickRow::LynxFlip
              | QuickRow::SmsRegion
              | QuickRow::Cpu
@@ -378,7 +378,7 @@ index 7d86fb0..cd249c9 100644
      }
  }
 diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
-index 850f95c..264be97 100644
+index 850f95c..a78bf6a 100644
 --- a/crates/slot/src/shelf_order.rs
 +++ b/crates/slot/src/shelf_order.rs
 @@ -1,6 +1,10 @@
@@ -392,7 +392,7 @@ index 850f95c..264be97 100644
  
  pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
  
-@@ -46,6 +50,42 @@ impl ShelfOrder {
+@@ -46,6 +50,45 @@ impl ShelfOrder {
          }
      }
  
@@ -423,10 +423,13 @@ index 850f95c..264be97 100644
 +        match self {
 +            ShelfOrder::Classic => &QuickRow::SCREEN,
 +            ShelfOrder::ReleaseYear => RELEASE_YEAR.get_or_init(|| {
-+                ShelfOrder::ReleaseYear
-+                    .platforms()
-+                    .into_iter()
-+                    .map(screen_row)
++                std::iter::once(QuickRow::ScreenGeneral)
++                    .chain(
++                        ShelfOrder::ReleaseYear
++                            .platforms()
++                            .into_iter()
++                            .map(screen_row),
++                    )
 +                    .collect()
 +            }),
 +        }
@@ -435,7 +438,7 @@ index 850f95c..264be97 100644
      pub fn read(root: &Path) -> ShelfOrder {
          let Some(line) = ini::value(root, SHELF_ORDER_FILE, KEY) else {
              return ShelfOrder::Classic;
-@@ -81,3 +121,28 @@ pub fn released(platform: Platform) -> Option<(u16, u8, u8)> {
+@@ -81,3 +124,28 @@ pub fn released(platform: Platform) -> Option<(u16, u8, u8)> {
      }
      found
  }
@@ -466,10 +469,10 @@ index 850f95c..264be97 100644
 +}
 diff --git a/crates/slot/tests/shelf_order_row.rs b/crates/slot/tests/shelf_order_row.rs
 new file mode 100644
-index 0000000..ae696f7
+index 0000000..6a8f135
 --- /dev/null
 +++ b/crates/slot/tests/shelf_order_row.rs
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,219 @@
 +mod common;
 +
 +use std::path::Path;
@@ -508,8 +511,7 @@ index 0000000..ae696f7
 +}
 +
 +fn press(a: &mut App, btn: Btn) {
-+    a.apply(Action::GbaDown(btn));
-+    a.apply(Action::GbaUp(btn));
++    common::through(a, btn);
 +    for _ in 0..120 {
 +        a.update(1.0 / 60.0);
 +    }
@@ -636,10 +638,13 @@ index 0000000..ae696f7
 +
 +#[test]
 +fn the_screen_rows_in_release_year_are_the_shelf_order_platforms() {
-+    let rows: Vec<QuickRow> = ShelfOrder::ReleaseYear
-+        .platforms()
-+        .into_iter()
-+        .map(screen_row)
++    let rows: Vec<QuickRow> = std::iter::once(QuickRow::ScreenGeneral)
++        .chain(
++            ShelfOrder::ReleaseYear
++                .platforms()
++                .into_iter()
++                .map(screen_row),
++        )
 +        .collect();
 +    assert_eq!(ShelfOrder::ReleaseYear.screen_rows(), rows);
 +    assert_eq!(ShelfOrder::Classic.screen_rows(), QuickRow::SCREEN);
@@ -652,6 +657,7 @@ index 0000000..ae696f7
 +    assert_eq!(
 +        screen_page_walk(&mut a),
 +        [
++            QuickRow::ScreenGeneral,
 +            QuickRow::ScreenGba,
 +            QuickRow::ScreenGbc,
 +            QuickRow::ScreenGb,
@@ -670,6 +676,7 @@ index 0000000..ae696f7
 +    let mut a = boot(d.path());
 +    flip_shelf_order(&mut a);
 +    let want = [
++        QuickRow::ScreenGeneral,
 +        QuickRow::ScreenNes,
 +        QuickRow::ScreenGb,
 +        QuickRow::ScreenGg,
@@ -683,5 +690,5 @@ index 0000000..ae696f7
 +    let mut a = boot(d.path());
 +    assert_eq!(screen_page_walk(&mut a), want);
 +    flip_shelf_order(&mut a);
-+    assert_eq!(screen_page_walk(&mut a)[0], QuickRow::ScreenGba);
++    assert_eq!(screen_page_walk(&mut a)[1], QuickRow::ScreenGba);
 +}

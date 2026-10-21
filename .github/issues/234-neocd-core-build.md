@@ -37,4 +37,4 @@ Neo Geo CD discs need a core slot does not ship. NeoCD reads CHD, offers the thr
 Issue 238.
 
 ## References
-- ADR 0106
+- ADR 0107

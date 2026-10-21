@@ -1,6 +1,7 @@
 #!/bin/sh
 # libretro/neocd_libretro (NeoCD, Neo Geo CD discs): the shared steps are in cores/lib.sh. LGPL-3.0 with
-# BSD, MIT, zlib and public-domain parts vendored under deps/ and src/3rdparty/, see LICENSING.md (ADR 0105).
+# MIT and public-domain parts under deps/ and src/3rdparty/, and a non-commercial Z80 core, see LICENSING.md
+# (ADR 0107).
 # The makefile is the repo root Makefile and names the output neocd_libretro.<ext>.
 core=neocd repo=neocd_libretro makefile= subdir=
 # HAVE_CDROM=0: the unix platform turns on physical CD drive access on Linux (the pcsx_rearmed

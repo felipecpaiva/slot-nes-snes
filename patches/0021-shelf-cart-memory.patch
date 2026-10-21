@@ -11,17 +11,17 @@ Subject: [PATCH] shelf-cart-memory
  crates/slot-ui/src/shelf.rs            |   4 +
  crates/slot/src/app.rs                 |  69 +++++++++
  crates/slot/src/state_writer.rs        |  36 ++++-
- crates/slot/tests/shelf_cart_memory.rs | 192 +++++++++++++++++++++++++
- 8 files changed, 388 insertions(+), 9 deletions(-)
+ crates/slot/tests/shelf_cart_memory.rs | 191 +++++++++++++++++++++++++
+ 8 files changed, 387 insertions(+), 9 deletions(-)
  create mode 100644 crates/slot-store/src/shelf_carts.rs
  create mode 100644 crates/slot-store/tests/shelf_carts.rs
  create mode 100644 crates/slot/tests/shelf_cart_memory.rs
 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index e7a1c9a..9186f41 100644
+index e5d93de..c552943 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -14,6 +14,7 @@ mod platform_policy;
+@@ -21,6 +21,7 @@ mod platform_policy;
  mod retro_shader;
  mod ring;
  mod scan;
@@ -29,7 +29,7 @@ index e7a1c9a..9186f41 100644
  mod slot_state;
  pub mod snes;
  mod stamp;
-@@ -35,6 +36,7 @@ pub use platform::Platform;
+@@ -42,6 +43,7 @@ pub use platform::Platform;
  pub use retro_shader::RetroShader;
  pub use ring::{StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
@@ -76,10 +76,10 @@ index 0000000..882578d
 +    atomic_write(&path, text.as_bytes())
 +}
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 1c58216..2825892 100644
+index 8ecd8ac..d288638 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -373,7 +373,7 @@ fn state_path(root: &Path) -> PathBuf {
+@@ -390,7 +390,7 @@ fn state_path(root: &Path) -> PathBuf {
  const RECENTS_FILE: &str = "recents.txt";
  const FAVORITES_FILE: &str = "favorites.txt";
  
@@ -88,7 +88,7 @@ index 1c58216..2825892 100644
      root.join("Config").join(name)
  }
  
-@@ -616,11 +616,11 @@ fn parse(text: &str) -> Option<SlotState> {
+@@ -633,11 +633,11 @@ fn parse(text: &str) -> Option<SlotState> {
      })
  }
  
@@ -180,10 +180,10 @@ index c23df04..f6f6e16 100644
          let Some((by, due, fired)) = self.held else {
              return;
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 64e8ca6..2422348 100644
+index 9fc0c8e..88f8dda 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -441,6 +441,8 @@ pub struct App {
+@@ -453,6 +453,8 @@ pub struct App {
      powering_off: bool,
      radio: Box<dyn RadioJobs>,
      state_writer: crate::state_writer::StateWriter,
@@ -192,7 +192,7 @@ index 64e8ca6..2422348 100644
  }
  
  const FACE_AHEAD: i32 = 8;
-@@ -615,6 +617,8 @@ impl App {
+@@ -631,6 +633,8 @@ impl App {
              battery: None,
              last_led: None,
              powering_off: false,
@@ -201,7 +201,7 @@ index 64e8ca6..2422348 100644
          }
      }
  
-@@ -629,8 +633,12 @@ impl App {
+@@ -645,8 +649,12 @@ impl App {
          app.carousel = read_carousel(root);
          app.shortcuts = read_shortcuts(root);
          app.controls = read_controls(root);
@@ -214,7 +214,7 @@ index 64e8ca6..2422348 100644
          if let Some((at, i)) = app.remembered_seat() {
              app.shelf_at = at;
              app.shelves[at].1.select(i);
-@@ -808,9 +816,68 @@ impl App {
+@@ -824,9 +832,68 @@ impl App {
              stem: cart.stem.clone(),
          });
          self.state.shelf = Some(self.shelves[self.shelf_at].0.key());
@@ -283,7 +283,7 @@ index 64e8ca6..2422348 100644
      fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
          self.shelves
              .iter()
-@@ -3180,6 +3247,7 @@ impl App {
+@@ -3380,6 +3447,7 @@ impl App {
      fn timers(&mut self) {
          self.play_hold();
          self.repeat_held_dir();
@@ -291,7 +291,7 @@ index 64e8ca6..2422348 100644
          let offer = self.undo_label();
          if let Some(p) = &mut self.polaroids {
              p.set_undo(offer);
-@@ -3330,6 +3398,7 @@ impl App {
+@@ -3531,6 +3599,7 @@ impl App {
              return;
          }
          let old = self.shelves[at].1.restock(carts);
@@ -389,10 +389,10 @@ index 40564e4..c2ba7fd 100644
 +}
 diff --git a/crates/slot/tests/shelf_cart_memory.rs b/crates/slot/tests/shelf_cart_memory.rs
 new file mode 100644
-index 0000000..821ffea
+index 0000000..bbc6c01
 --- /dev/null
 +++ b/crates/slot/tests/shelf_cart_memory.rs
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,191 @@
 +mod common;
 +
 +use std::path::Path;
@@ -433,8 +433,7 @@ index 0000000..821ffea
 +}
 +
 +fn press(a: &mut App, btn: Btn) {
-+    a.apply(Action::GbaDown(btn));
-+    a.apply(Action::GbaUp(btn));
++    common::through(a, btn);
 +    settle(a);
 +}
 +

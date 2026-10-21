@@ -26,11 +26,11 @@ lands.
  crates/slot-store/src/lib.rs                 |   5 +-
  crates/slot-store/src/pico8.rs               | 111 ++++++++++++
  crates/slot-store/src/platform.rs            |   5 +
- crates/slot-store/src/platform_policy.rs     |  31 +++-
+ crates/slot-store/src/platform_policy.rs     |  30 +++-
  crates/slot-store/src/scan.rs                |   1 +
  crates/slot-store/src/sega_shader.rs         |   9 +-
  crates/slot-store/tests/core_pairs.rs        |   4 +-
- crates/slot-store/tests/pico8_platform.rs    | 178 +++++++++++++++++++
+ crates/slot-store/tests/pico8_platform.rs    | 177 +++++++++++++++++++
  crates/slot-store/tests/sega_shader_state.rs |   1 +
  crates/slot-ui/src/cart.rs                   |   5 +-
  crates/slot-ui/src/quick_menu.rs             |  23 ++-
@@ -62,23 +62,23 @@ lands.
  crates/slot/tests/shelf_order.rs             |  11 +-
  crates/slot/tests/snes_select.rs             |   9 +-
  crates/slot/tests/system_picture.rs          |   3 +-
- 42 files changed, 807 insertions(+), 57 deletions(-)
+ 42 files changed, 805 insertions(+), 57 deletions(-)
  create mode 100644 crates/slot-store/src/pico8.rs
  create mode 100644 crates/slot-store/tests/pico8_platform.rs
  create mode 100644 crates/slot/tests/pico8_screen.rs
  create mode 100644 crates/slot/tests/pico8_seat.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index dfa7ce7..fa2494f 100644
+index a2693a9..ff10ed6 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -224,7 +224,8 @@ impl GameButton {
+@@ -265,7 +265,8 @@ impl GameButton {
              | Platform::Tg16
              | Platform::Ngp
              | Platform::A2600
--            | Platform::A7800 => &GameButton::ALL[..8],
+-            | Platform::A7800 => &GameButton::GAME_BOY,
 +            | Platform::A7800
-+            | Platform::Pico8 => &GameButton::ALL[..8],
++            | Platform::Pico8 => &GameButton::GAME_BOY,
          }
      }
  
@@ -354,10 +354,10 @@ index 5fc1bbb..c9a81aa 100644
          }
      }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 57fd9a0..3c7c816 100644
+index 40dbb18..1d0d231 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -14,6 +14,7 @@ pub mod ini;
+@@ -21,6 +21,7 @@ pub mod ini;
  pub mod lynx;
  pub mod nes;
  pub mod ngp;
@@ -365,7 +365,7 @@ index 57fd9a0..3c7c816 100644
  mod platform;
  mod platform_policy;
  pub mod ps1;
-@@ -49,8 +50,8 @@ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+@@ -56,8 +57,8 @@ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
  pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
      CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
@@ -538,7 +538,7 @@ index e3f5f40..72d5633 100644
              Platform::Cps1 | Platform::Cps2 => (384, 224),
          }
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 2e46eef..e83b3e4 100644
+index 231ca38..c6db17c 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -5,7 +5,7 @@ use crate::platform::Platform;
@@ -586,15 +586,7 @@ index 2e46eef..e83b3e4 100644
          }
      }
  
-@@ -126,6 +130,7 @@ impl Platform {
-             | Platform::A2600
-             | Platform::A7800
-             | Platform::Vb
-+            | Platform::Pico8
-             | Platform::NeoGeo
-             | Platform::Cps1
-             | Platform::Cps2 => false,
-@@ -142,6 +147,7 @@ impl Platform {
+@@ -116,6 +120,7 @@ impl Platform {
              | Platform::Ngp
              | Platform::S32x
              | Platform::Vb
@@ -602,7 +594,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => true,
-@@ -177,6 +183,7 @@ impl Platform {
+@@ -151,6 +156,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -610,7 +602,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2
-@@ -204,6 +211,7 @@ impl Platform {
+@@ -178,6 +184,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -618,7 +610,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => true,
-@@ -228,6 +236,7 @@ impl Platform {
+@@ -202,6 +209,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -626,7 +618,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => (0, 0),
-@@ -251,6 +260,7 @@ impl Platform {
+@@ -225,6 +233,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -634,7 +626,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => &Shader::RETRO,
-@@ -275,6 +285,7 @@ impl Platform {
+@@ -249,6 +258,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -642,7 +634,7 @@ index 2e46eef..e83b3e4 100644
              | Platform::Cps1
              | Platform::Cps2 => false,
          }
-@@ -282,7 +293,8 @@ impl Platform {
+@@ -256,7 +266,8 @@ impl Platform {
  
      pub fn rewinds(self) -> bool {
          match self {
@@ -652,6 +644,14 @@ index 2e46eef..e83b3e4 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
+@@ -300,6 +311,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
 @@ -326,6 +338,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
@@ -667,7 +667,7 @@ index 2e46eef..e83b3e4 100644
 +            | Platform::Pico8
              | Platform::NeoGeo
              | Platform::Cps1
-             | Platform::Cps2 => false,
+             | Platform::Cps2 => true,
 @@ -378,6 +392,7 @@ impl Platform {
              | Platform::A2600
              | Platform::A7800
@@ -675,16 +675,8 @@ index 2e46eef..e83b3e4 100644
 +            | Platform::Pico8
              | Platform::NeoGeo
              | Platform::Cps1
-             | Platform::Cps2 => true,
-@@ -404,6 +419,7 @@ impl Platform {
-             | Platform::A2600
-             | Platform::A7800
-             | Platform::Vb
-+            | Platform::Pico8
-             | Platform::NeoGeo
-             | Platform::Cps1
              | Platform::Cps2 => None,
-@@ -432,7 +448,8 @@ impl Platform {
+@@ -406,7 +421,8 @@ impl Platform {
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2
@@ -694,7 +686,7 @@ index 2e46eef..e83b3e4 100644
          }
      }
  
-@@ -456,7 +473,8 @@ impl Platform {
+@@ -430,7 +446,8 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -704,7 +696,7 @@ index 2e46eef..e83b3e4 100644
          }
      }
  
-@@ -467,6 +485,7 @@ impl Platform {
+@@ -441,6 +458,7 @@ impl Platform {
                  Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
                      crate::arcade::admits(self, path)
                  }
@@ -797,10 +789,10 @@ index d3e64de..e8ca483 100644
          Some((Core::Fceumm, Core::Nestopia))
 diff --git a/crates/slot-store/tests/pico8_platform.rs b/crates/slot-store/tests/pico8_platform.rs
 new file mode 100644
-index 0000000..7fb3ce2
+index 0000000..440acfb
 --- /dev/null
 +++ b/crates/slot-store/tests/pico8_platform.rs
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,177 @@
 +mod common;
 +
 +use std::path::{Path, PathBuf};
@@ -906,7 +898,6 @@ index 0000000..7fb3ce2
 +    assert!(p.owns_shoulders());
 +    assert!(p.owns_triggers());
 +    assert!(!p.passes_xy_through());
-+    assert!(!p.turbo_on_xy());
 +    assert!(p.select_x_toggles_picture());
 +    assert!(p.stretch_crops_height());
 +    assert!(!p.rewinds());
@@ -1022,10 +1013,10 @@ index 61f1b4b..69020ea 100644
          Platform::Cps1 => return retro_box(RetroShell::Cps1),
          Platform::Cps2 => return retro_box(RetroShell::Cps2),
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index b1b142c..d06207a 100644
+index a7f65d2..a2b5fed 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -163,10 +163,13 @@ pub enum QuickRow {
+@@ -172,10 +172,13 @@ pub enum QuickRow {
      FdsShader,
      ScreenFds,
      FdsPicture,
@@ -1035,12 +1026,12 @@ index b1b142c..d06207a 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 153] = [
-+    pub const ALL: [QuickRow; 156] = [
+-    pub const ALL: [QuickRow; 161] = [
++    pub const ALL: [QuickRow; 164] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -320,6 +323,9 @@ impl QuickRow {
+@@ -337,6 +340,9 @@ impl QuickRow {
          QuickRow::FdsShader,
          QuickRow::ScreenFds,
          QuickRow::FdsPicture,
@@ -1050,34 +1041,34 @@ index b1b142c..d06207a 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -383,7 +389,7 @@ impl QuickRow {
-         QuickRow::ScRewind,
+@@ -403,7 +409,7 @@ impl QuickRow {
+         QuickRow::ScPictureNext,
      ];
  
--    pub const SCREEN: [QuickRow; 21] = [
-+    pub const SCREEN: [QuickRow; 22] = [
+-    pub const SCREEN: [QuickRow; 22] = [
++    pub const SCREEN: [QuickRow; 23] = [
+         QuickRow::ScreenGeneral,
          QuickRow::ScreenGba,
          QuickRow::ScreenGbc,
-         QuickRow::ScreenGb,
-@@ -405,6 +411,7 @@ impl QuickRow {
+@@ -426,6 +432,7 @@ impl QuickRow {
          QuickRow::ScreenCps1,
          QuickRow::ScreenCps2,
          QuickRow::ScreenFds,
 +        QuickRow::ScreenPico8,
      ];
  
-     pub const SCREEN_GBA: [QuickRow; 3] = [
-@@ -482,7 +489,8 @@ impl QuickRow {
+     pub const SCREEN_GENERAL: [QuickRow; 2] = [QuickRow::Brightness, QuickRow::BlueLight];
+@@ -508,7 +515,8 @@ impl QuickRow {
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
              | QuickRow::ScreenCps1
 -            | QuickRow::ScreenCps2 => crate::screen_page(),
 +            | QuickRow::ScreenCps2
 +            | QuickRow::ScreenPico8 => crate::screen_page(),
+             QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
+             QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
              QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-                 &QuickRow::SCREEN_GBA
-             }
-@@ -570,6 +578,7 @@ impl QuickRow {
+@@ -598,6 +606,7 @@ impl QuickRow {
              | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
              QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
@@ -1085,7 +1076,7 @@ index b1b142c..d06207a 100644
              QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
                  &QuickRow::SCREEN_CPS1
              }
-@@ -644,6 +653,7 @@ impl QuickRow {
+@@ -673,6 +682,7 @@ impl QuickRow {
              | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
              QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
@@ -1093,7 +1084,7 @@ index b1b142c..d06207a 100644
              QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
                  Some(QuickRow::ScreenCps1)
              }
-@@ -707,6 +717,7 @@ impl QuickRow {
+@@ -737,6 +747,7 @@ impl QuickRow {
              QuickRow::ScreenFds => Some(QuickRow::SCREEN_FDS[0]),
              QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
              QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
@@ -1101,7 +1092,7 @@ index b1b142c..d06207a 100644
              _ => None,
          }
      }
-@@ -818,6 +829,7 @@ impl QuickRow {
+@@ -854,6 +865,7 @@ impl QuickRow {
              | QuickRow::FdsShader
              | QuickRow::Cps1Shader
              | QuickRow::Cps2Shader => "Shader",
@@ -1109,7 +1100,7 @@ index b1b142c..d06207a 100644
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
-@@ -834,6 +846,7 @@ impl QuickRow {
+@@ -870,6 +882,7 @@ impl QuickRow {
              QuickRow::ScreenFds => "FDS",
              QuickRow::ScreenCps1 => "CPS1",
              QuickRow::ScreenCps2 => "CPS2",
@@ -1117,7 +1108,7 @@ index b1b142c..d06207a 100644
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -851,7 +864,8 @@ impl QuickRow {
+@@ -887,7 +900,8 @@ impl QuickRow {
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
              | QuickRow::Cps1Picture
@@ -1127,7 +1118,7 @@ index b1b142c..d06207a 100644
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -919,6 +933,7 @@ impl QuickRow {
+@@ -956,6 +970,7 @@ impl QuickRow {
                  | QuickRow::ScreenNeoGeo
                  | QuickRow::ScreenCps1
                  | QuickRow::ScreenCps2
@@ -1196,32 +1187,32 @@ index bb95180..f5d4edd 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index 71b8149..d02f1e5 100644
+index 47b060c..8e196d9 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
 @@ -105,7 +105,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
--        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS"]
-+        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8"]
+-        ["General", "Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS"]
++        ["General", "Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8"]
      );
      assert_eq!(
-         QuickRow::SCREEN_GBA.map(QuickRow::label),
-@@ -153,7 +153,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             QuickRow::Shortcuts,
+         QuickRow::SCREEN_GENERAL.map(QuickRow::label),
+@@ -158,7 +158,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              QuickRow::Controls,
              QuickRow::ControlsShelf,
--            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds
-+            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8
+             QuickRow::ControlsInGame,
+-            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds
++            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8
          ]
      );
      for page in [
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 17f3a66..00ee70d 100644
+index 942dfaf..64a9f71 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1067,6 +1067,7 @@ impl App {
+@@ -1086,6 +1086,7 @@ impl App {
              (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
              (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
              (QuickRow::Shader, Platform::Fds) => QuickRow::FdsShader,
@@ -1229,7 +1220,7 @@ index 17f3a66..00ee70d 100644
              (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
              (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
-@@ -1133,6 +1134,7 @@ impl App {
+@@ -1162,6 +1163,7 @@ impl App {
              QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
              QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
              QuickRow::FdsShader => Some(shader_value(self.sega_shaders.fds)),
@@ -1237,7 +1228,7 @@ index 17f3a66..00ee70d 100644
              QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
              QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
              QuickRow::NesPicture
-@@ -1151,6 +1153,7 @@ impl App {
+@@ -1180,6 +1182,7 @@ impl App {
              | QuickRow::VbPicture
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
@@ -1245,7 +1236,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::Cps1Picture
              | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
              QuickRow::NesPalSpeed
-@@ -1237,6 +1240,7 @@ impl App {
+@@ -1267,6 +1270,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1253,7 +1244,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2
              | QuickRow::GbBezel
-@@ -1317,6 +1321,7 @@ impl App {
+@@ -1350,6 +1354,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1261,7 +1252,7 @@ index 17f3a66..00ee70d 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => Vec::new(),
-@@ -1357,6 +1362,7 @@ impl App {
+@@ -1390,6 +1395,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1269,7 +1260,7 @@ index 17f3a66..00ee70d 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => &mut self.state.bezel_gba,
-@@ -1383,6 +1389,7 @@ impl App {
+@@ -1416,6 +1422,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1277,7 +1268,7 @@ index 17f3a66..00ee70d 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => &self.state.bezel_gba,
-@@ -2330,6 +2337,7 @@ impl App {
+@@ -2416,6 +2423,7 @@ impl App {
              Platform::A2600 => self.sega_shaders.a2600,
              Platform::A7800 => self.sega_shaders.a7800,
              Platform::Vb => self.sega_shaders.vb,
@@ -1285,7 +1276,7 @@ index 17f3a66..00ee70d 100644
              Platform::NeoGeo => self.sega_shaders.neogeo,
              Platform::Cps1 => self.sega_shaders.cps1,
              Platform::Cps2 => self.sega_shaders.cps2,
-@@ -2388,6 +2396,7 @@ impl App {
+@@ -2474,6 +2482,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1293,7 +1284,7 @@ index 17f3a66..00ee70d 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => false,
-@@ -2858,6 +2867,7 @@ impl App {
+@@ -2983,6 +2992,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1301,7 +1292,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2 => {
                  if let Some(row) = row.child() {
-@@ -2981,7 +2991,9 @@ impl App {
+@@ -3113,7 +3123,9 @@ impl App {
              | QuickRow::FdsShader
              | QuickRow::NeoGeoShader
              | QuickRow::FdsPicture
@@ -1311,7 +1302,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::Cps1Shader
              | QuickRow::Cps1Picture
              | QuickRow::Cps1Rotation
-@@ -3178,6 +3190,7 @@ impl App {
+@@ -3327,6 +3339,7 @@ impl App {
              | QuickRow::VbShader
              | QuickRow::FdsShader
              | QuickRow::NeoGeoShader
@@ -1319,7 +1310,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::Cps1Shader
              | QuickRow::Cps2Shader => return,
              QuickRow::NesPicture
-@@ -3219,6 +3232,7 @@ impl App {
+@@ -3368,6 +3381,7 @@ impl App {
              | QuickRow::A7800Bios
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
@@ -1327,7 +1318,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::Cps1Picture
              | QuickRow::Cps1Rotation
              | QuickRow::Cps2Picture
-@@ -3263,6 +3277,7 @@ impl App {
+@@ -3418,6 +3432,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1335,7 +1326,7 @@ index 17f3a66..00ee70d 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2
              | QuickRow::GbBezel
-@@ -3333,6 +3348,7 @@ impl App {
+@@ -3491,6 +3506,7 @@ impl App {
              Platform::A2600 => (&mut self.sega_shaders.a2600, &Shader::RETRO[..]),
              Platform::A7800 => (&mut self.sega_shaders.a7800, &Shader::RETRO[..]),
              Platform::Vb => (&mut self.sega_shaders.vb, &Shader::RETRO[..]),
@@ -1343,7 +1334,7 @@ index 17f3a66..00ee70d 100644
              Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
              Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
              Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
-@@ -3406,6 +3422,7 @@ impl App {
+@@ -3564,6 +3580,7 @@ impl App {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -1351,7 +1342,7 @@ index 17f3a66..00ee70d 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => return false,
-@@ -3819,6 +3836,7 @@ impl App {
+@@ -4019,6 +4036,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1359,7 +1350,7 @@ index 17f3a66..00ee70d 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => [0xe6, 0xe4, 0xda],
-@@ -6019,6 +6037,7 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -6269,6 +6287,7 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::A2600
          | Platform::A7800
          | Platform::Vb
@@ -1394,7 +1385,7 @@ index 675d521..67b9cfd 100644
              | Platform::Cps1
              | Platform::Cps2 => None,
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 7bf4095..3778777 100644
+index add94b6..1bb96f1 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -208,6 +208,7 @@ pub fn colour_option(
@@ -1592,7 +1583,7 @@ index af67546..c466b3f 100644
          .iter()
          .zip(systems)
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 190574e..8c609f0 100644
+index eb27c89..8f8b9bd 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
@@ -1636,7 +1627,7 @@ index 190574e..8c609f0 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
-index d9ca1da..9363465 100644
+index b66a214..c80343f 100644
 --- a/crates/slot/src/shelf_order.rs
 +++ b/crates/slot/src/shelf_order.rs
 @@ -10,7 +10,7 @@ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
@@ -1656,7 +1647,7 @@ index d9ca1da..9363465 100644
  ];
  
  #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-@@ -142,6 +143,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+@@ -145,6 +146,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
          Platform::A2600 => QuickRow::ScreenA2600,
          Platform::A7800 => QuickRow::ScreenA7800,
          Platform::Vb => QuickRow::ScreenVb,
@@ -1665,10 +1656,10 @@ index d9ca1da..9363465 100644
          Platform::Fds => QuickRow::ScreenFds,
          Platform::Cps1 => QuickRow::ScreenCps1,
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
-index 42b098e..4834e2f 100644
+index ca0f33a..23a2d82 100644
 --- a/crates/slot/src/snes_input.rs
 +++ b/crates/slot/src/snes_input.rs
-@@ -16,7 +16,8 @@ impl VideoMode {
+@@ -17,7 +17,8 @@ impl VideoMode {
                  | Platform::Vb
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -1693,7 +1684,7 @@ index d782c05..4af8f48 100644
          ) => OFF,
      }
 diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
-index 9ba0aa4..eafdb3c 100644
+index f9f96b4..02840c9 100644
 --- a/crates/slot/tests/crop_overscan.rs
 +++ b/crates/slot/tests/crop_overscan.rs
 @@ -88,7 +88,8 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
@@ -1707,7 +1698,7 @@ index 9ba0aa4..eafdb3c 100644
          assert_eq!(picture_choices(platform), want, "{platform:?}");
      }
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index d5a929b..e243b73 100644
+index e97ddcc..54663fd 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
@@ -2057,10 +2048,10 @@ index ec204a6..b12e1f6 100644
          let root = common::tmp_root_with_real_carts(&[]);
          let mut nes = b"NES\x1a\x02\x01".to_vec();
 diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
-index 257c950..86b3c91 100644
+index e18ba4c..b95a650 100644
 --- a/crates/slot/tests/sega_quick_shader.rs
 +++ b/crates/slot/tests/sega_quick_shader.rs
-@@ -92,10 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+@@ -98,10 +98,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
  #[test]
  fn every_card_mix_hides_exactly_the_absent_systems() {
      use slot::retro_quick::hidden_on_shelf;
@@ -2075,7 +2066,7 @@ index 257c950..86b3c91 100644
          let hidden = hidden_on_shelf(systems);
          assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
          assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
-@@ -115,6 +115,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+@@ -121,6 +121,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
          assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[14]);
          assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[15]);
          assert_eq!(hidden.contains(&QuickRow::ScreenFds), !systems[16]);
@@ -2084,10 +2075,10 @@ index 257c950..86b3c91 100644
  }
  
 diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
-index cca5482..caf984d 100644
+index 82f1250..37ff380 100644
 --- a/crates/slot/tests/shelf_order.rs
 +++ b/crates/slot/tests/shelf_order.rs
-@@ -9,7 +9,7 @@ use slot_input::{Action, Btn};
+@@ -9,7 +9,7 @@ use slot_input::Btn;
  use slot_store::{write_slot_state, Platform, Recent, SlotState};
  use tempfile::TempDir;
  
@@ -2104,7 +2095,7 @@ index cca5482..caf984d 100644
  ];
  
  fn card(order: Option<&str>) -> TempDir {
-@@ -125,7 +126,7 @@ fn every_shelf_platform_has_exactly_one_release_date() {
+@@ -124,7 +125,7 @@ fn every_shelf_platform_has_exactly_one_release_date() {
  }
  
  #[test]
@@ -2113,7 +2104,7 @@ index cca5482..caf984d 100644
      assert_eq!(ShelfOrder::ReleaseYear.platforms(), RELEASE_YEAR);
      assert_eq!(ShelfOrder::Classic.platforms(), Platform::SHELVES);
  }
-@@ -137,7 +138,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+@@ -136,7 +137,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
      assert_eq!(a.shelf_platform_name(), Some("Recents"));
      let mut want = names(Platform::SHELVES);
      want.push("Recents");
@@ -2122,7 +2113,7 @@ index cca5482..caf984d 100644
  }
  
  #[test]
-@@ -147,7 +148,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+@@ -146,7 +147,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
      assert_eq!(a.shelf_platform_name(), Some("Recents"));
      let mut want = names(RELEASE_YEAR);
      want.push("Recents");
@@ -2131,7 +2122,7 @@ index cca5482..caf984d 100644
  }
  
  #[test]
-@@ -156,7 +157,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+@@ -155,7 +156,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
      let mut a = boot_with(d.path(), SlotState::default());
      let mut want = names(RELEASE_YEAR.into_iter().rev());
      want.push("Recents");
@@ -2141,7 +2132,7 @@ index cca5482..caf984d 100644
  
  #[test]
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index b2f5210..1c4e8d4 100644
+index a5b76bb..5b4a9ce 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -260,9 +260,12 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {

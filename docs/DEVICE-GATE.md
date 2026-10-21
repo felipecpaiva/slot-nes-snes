@@ -553,7 +553,7 @@ Pending. Needs the player's own `BIOS/bios_CD_U.bin`, `bios_CD_E.bin` and `bios_
 | Final Fight CD | 1 | | | | | | | many audio tracks |
 | Night Trap | 2 | | | | | | | FMV, disc swap |
 
-## Neo Geo CD (issue 238, ADR 0106)
+## Neo Geo CD (issue 238, ADR 0107)
 
 Pending. BIOS required, the model the Neo Geo CD section's BIOS row names, in `BIOS/neocd/` on the main card:
 `neocd.bin` (CDZ, the default; md5 f39572af7584cb5b3f70ae8cc848aba2), `front-sp1.bin` (md5

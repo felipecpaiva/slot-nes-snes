@@ -34,4 +34,4 @@ NeoCD boots its incomplete built-in BIOS without a word when none is found, and 
 Issue 238.
 
 ## References
-- ADR 0106; ADR 0104 (the check shape)
+- ADR 0107; ADR 0104 (the check shape)

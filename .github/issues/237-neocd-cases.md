@@ -32,4 +32,4 @@ Neo Geo CD games shipped in the standard jewel case, Japanese releases with a sp
 Issue 238.
 
 ## References
-- ADR 0106; ADR 0069; ADR 0104
+- ADR 0107; ADR 0069; ADR 0104

@@ -10,7 +10,9 @@ cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rea
 # Games/ folders the zip may hold.
 games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX PCECD SEGACD NEOCD"
 # Folders that ship empty, the user's own data lives there.
-empty="Config Saves States Labels BIOS Wallpapers"
+empty="Config Saves States BIOS"
+# Folders that ship only upstream's README.txt on the sizes and formats they take (v1.8.0, #122).
+readme="Labels Wallpapers Bezels"
 
 usage() {
 	echo "usage: $0 ZIP" >&2
@@ -74,11 +76,15 @@ lic="$sys/licenses"
 find "$d" -type l | while read -r l; do echo "zip-check: symlink in zip: ${l#"$d"/}" >&2; done
 [ -z "$(find "$d" -type l)" ] || failed=1
 
-for dir in System $empty $(for g in $games; do echo "Games/$g"; done); do
+for dir in System $empty $readme $(for g in $games; do echo "Games/$g"; done); do
 	[ -d "$d/$dir" ] || bad "$dir/ is missing"
 done
 for dir in $empty; do
 	[ -z "$(find "$d/$dir" ! -type d 2>/dev/null)" ] || bad "$dir/ must hold no files: $(find "$d/$dir" ! -type d | sed "s|^$d/||" | tr '\n' ' ')"
+done
+for dir in $readme; do
+	[ "$(find "$d/$dir" ! -type d 2>/dev/null)" = "$d/$dir/README.txt" ] || bad "$dir/ must hold only README.txt: $(find "$d/$dir" ! -type d | sed "s|^$d/||" | tr '\n' ' ')"
+	cmp -s "$d/$dir/README.txt" "$root/build/slot/card/$dir/README.txt" || bad "$dir/README.txt is not upstream's card/$dir/README.txt"
 done
 for g in "$d"/Games/*; do
 	[ -e "$g" ] || continue

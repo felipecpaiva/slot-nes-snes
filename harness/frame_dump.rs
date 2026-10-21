@@ -284,7 +284,7 @@ impl CompositeRig {
         frontend.drive_emulator();
         let before = framebuffers(&surface);
         compositor.fit(window);
-        compositor.begin_frame(slot_gfx::Layout::Framed);
+        compositor.begin_frame();
         compositor.end_frame(window);
         let made: Vec<u32> = framebuffers(&surface)
             .into_iter()
@@ -774,7 +774,7 @@ impl<R: Rig> Run<R> {
         self.wait(4);
         self.tap(Btn::A, 6);
         self.wait(10);
-        for _ in 0..platform {
+        for _ in 0..platform + 1 {
             self.tap(Btn::Down, 6);
             self.wait(4);
         }

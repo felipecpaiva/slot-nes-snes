@@ -1,4 +1,4 @@
-# 0106. Bring the Neo Geo CD into scope on pinned NeoCD, a disc shelf of its own with a BIOS model row
+# 0107. Bring the Neo Geo CD into scope on pinned NeoCD, a disc shelf of its own with a BIOS model row
 
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-21
@@ -93,7 +93,9 @@ Two cores could run it:
 - **Policy: the Neo Geo shelf's.** NeoCD's own map: A, B, C and D on B, A, Y and X; SELECT is the CD pad's
   Select and START its Start (no coin on a Neo Geo CD); L1 is B+C. So L1 and R1 belong to the game
   (`owns_shoulders` false), X and Y pass through, the picture toggle is SELECT+X, and L2 and R2 stay slot's
-  rewind and fast-forward keys (`owns_triggers`), as on the Neo Geo shelf (ADR 0099). The 360x240 canvas,
+  rewind and fast-forward keys (`owns_triggers`), as on the Neo Geo shelf (ADR 0099). On slot v1.8.0 (ADR 0106) that
+  means: upstream's Turbo A and Turbo B rows stay off X and Y and are hidden in game (`xy_to_game`), and
+  the flip is the Picture Next shortcut, SELECT+X by default. The 360x240 canvas,
   following the 304-wide frame.
 - **Saves: the `.sav`, per game.** `Saves/NEOCD/<stem>.sav`, the 8 KB backup RAM through `SAVE_RAM`, which
   slot loads over whatever the core read. A game with no `.sav` yet gets a blank 8 KB backup RAM

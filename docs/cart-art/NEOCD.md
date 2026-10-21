@@ -1,4 +1,4 @@
-# Neo Geo CD jewel case (ADR 0106)
+# Neo Geo CD jewel case (ADR 0107)
 
 Same rules as [PS1.md](PS1.md): every value cites a page opened on 2026-10-21, or says that nothing was
 found. The Neo Geo CD shelf draws the PlayStation's jewel case and disc unchanged, as the PC Engine CD

@@ -41,10 +41,10 @@ stopped and the resume state, which carries the flash, is the copy.
  create mode 100644 crates/slot/tests/ngp_flash.rs
 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 0148b1d..e100dc8 100644
+index e7cb54d..1e81036 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -279,4 +279,22 @@ impl Platform {
+@@ -261,4 +261,22 @@ impl Platform {
              | Platform::Ngp => None,
          }
      }
@@ -68,7 +68,7 @@ index 0148b1d..e100dc8 100644
 +    }
  }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 3e6e4ce..4ab999e 100644
+index bf2ce27..f98ec66 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -97,7 +97,7 @@ fn open_named(
@@ -81,7 +81,7 @@ index 3e6e4ce..4ab999e 100644
          if !path.exists() {
              continue;
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index baad802..b41491f 100644
+index fc4659e..3bf8f57 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -117,6 +117,7 @@ struct Shared {
@@ -92,7 +92,7 @@ index baad802..b41491f 100644
  }
  
  #[derive(Default)]
-@@ -192,6 +193,7 @@ impl EmuHandle {
+@@ -200,6 +201,7 @@ impl EmuHandle {
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
              disc_event: Mutex::new(None),
@@ -100,7 +100,7 @@ index baad802..b41491f 100644
          });
          let (tx, rx) = channel();
          let worker = Worker {
-@@ -439,6 +441,10 @@ impl EmuHandle {
+@@ -447,6 +449,10 @@ impl EmuHandle {
          self.shared.disc_event.lock().ok()?.take()
      }
  
@@ -111,7 +111,7 @@ index baad802..b41491f 100644
      pub fn snapshot(&self) -> EmuSnapshot {
          EmuSnapshot {
              cmds: self.cmds.clone(),
-@@ -984,6 +990,8 @@ impl Worker {
+@@ -994,6 +1000,8 @@ impl Worker {
          if dropped > 0 || starved > 0 || crate::session::trace() {
              eprintln!("slot: audio: {dropped} samples dropped, {starved} starved");
          }
@@ -120,7 +120,7 @@ index baad802..b41491f 100644
      }
  
      fn apply(
-@@ -1026,6 +1034,9 @@ impl Worker {
+@@ -1036,6 +1044,9 @@ impl Worker {
                  Err(e) => eprintln!("slot: refresh: {e}"),
              },
              Cmd::Sav(reply) => {
@@ -131,10 +131,10 @@ index baad802..b41491f 100644
              }
              Cmd::Thumb(reply) => {
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index dcb5af5..cf8c558 100644
+index cae34f3..82509e1 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -39,6 +39,7 @@ pub mod link_screen;
+@@ -46,6 +46,7 @@ pub mod link_screen;
  pub mod link_start;
  pub mod link_state;
  pub mod lynx_turn;
@@ -334,26 +334,29 @@ index 0000000..ba6057b
 +    }
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index c89e650..b133df5 100644
+index aaf0760..5ce85cc 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -545,6 +545,7 @@ impl Session {
-                     .then(|| persist::read_resume(&root, platform, core, &stem))
-                     .flatten();
+@@ -558,6 +558,7 @@ impl Session {
+                     false => persist::read_resume(&root, platform, core, &stem),
+                 };
                  launch("resume state read");
 +                crate::ngp_flash::stage(&root, platform, &rom);
                  let palette = crate::core::palette_for(chosen, platform, &rom, player);
                  let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
                  crate::ws_load::prepare(opened.core.as_mut(), platform, vertical, native);
-@@ -596,10 +597,12 @@ impl Session {
-         self.app.set_named_core(loaded.opened.named);
-         let ring = self.sink.ring();
-         let (core, rom, sav, resume) = (loaded.opened.core, loaded.rom, loaded.sav, loaded.resume);
+@@ -617,6 +618,7 @@ impl Session {
+             sav.flatten(),
+             resume.flatten(),
+         );
 +        let flash = crate::ngp_flash::seat(&self.root, loaded.platform, &rom);
          let emu = match loaded.player.filter(|_| loaded.platform == Platform::Gba) {
              Some(p) => EmuHandle::spawn_linked(core, rom, ring, sav, resume, p),
              None => EmuHandle::spawn(core, rom, ring, sav, resume),
-         };
+@@ -628,6 +630,7 @@ impl Session {
+             emu.refuse_resume();
+         }
+         self.app.set_resume_unread(resume_unread);
 +        emu.keep_flash(flash);
          emu.set_volume(self.app.output_volume());
          emu.set_driven(self.driven);

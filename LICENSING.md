@@ -772,7 +772,7 @@ under MIT, and the libraries it lists with their terms.
 
 Checked at commit `b1e04c738cb48a1dae0574b8877f6a116d270ca1` of libretro/neocd_libretro (its master on
 2026-10-03), the commit `SLOT_PIN` pins as `neocd_commit`, archive sha256 `neocd_tarball_sha256`. It is built
-by `cores/neocd/build.sh` for the Neo Geo CD shelf (ADR 0106), with `HAVE_CDROM=0 USE_LTO=0`, and ships from
+by `cores/neocd/build.sh` for the Neo Geo CD shelf (ADR 0107), with `HAVE_CDROM=0 USE_LTO=0`, and ships from
 the platform patch (0148) in `dist:device`, checked by `zip-check.sh`. `cores/neocd/glibc-2.17.h` is the only
 build input not in the archive; it is in this repository. No NeoCD source file is changed. The exact source
 ships with the core as `neocd-src.tar.gz`, with `neocd-src.meta` recording its commit and sha256.
@@ -814,7 +814,7 @@ What is compiled into `neocd_libretro.so` (the sources of `Makefile.common` at t
   is off because it drops those bindings. It needs only `libc`, `libm` and `libpthread` at GLIBC_2.17, which
   `task core:device:neocd` checks.
 - No BIOS is shipped or fetched. The player's own `BIOS/neocd/neocd.bin`, `front-sp1.bin` or `top-sp1.bin`
-  is checked before a disc starts (ADR 0106). NeoCD's built-in high-level BIOS is compiled in but slot never
+  is checked before a disc starts (ADR 0107). NeoCD's built-in high-level BIOS is compiled in but slot never
   lets it run a disc.
 
 The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across the

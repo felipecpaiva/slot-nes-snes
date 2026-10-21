@@ -181,7 +181,7 @@ SYSTEMS = {
     # PS1. .chd, .cue, .m3u and .iso, as slot scans; libretro-thumbnails "Sega - Mega-CD - Sega CD" has
     # Named_Logos (451, checked 2026-10-21).
     "SEGACD": ("segacd", {".chd", ".cue", ".m3u", ".iso"}, [], 20),
-    # Neo Geo CD discs (ADR 0106): ScreenScraper id 70 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper
+    # Neo Geo CD discs (ADR 0107): ScreenScraper id 70 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper
     # 290d2c0, row "neogeocd,70,54,4956"). The Redump dat (libretro-database metadat/redump "SNK - Neo Geo CD")
     # lists only each disc's data track, which a CHD does not expose, and a translated disc has no Redump
     # entry at all, so a disc goes by name (--by-name), as the Sega CD: the cover and the disc scan. .cue and

@@ -35,4 +35,4 @@ Every system gets its own shelf, Screen section and saves.
 Issue 238.
 
 ## References
-- ADR 0106; ADR 0099
+- ADR 0107; ADR 0099

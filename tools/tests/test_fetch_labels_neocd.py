@@ -1,4 +1,4 @@
-"""tools/fetch-labels.py for the Neo Geo CD (ADR 0106), offline: the system entry, discs by name with the cover
+"""tools/fetch-labels.py for the Neo Geo CD (ADR 0107), offline: the system entry, discs by name with the cover
 and the disc scan, and no disc hashed.
 
     python3 -m unittest tools/tests/test_fetch_labels_neocd.py

@@ -94,7 +94,7 @@ First release anywhere, from each platform's English Wikipedia article (read 202
 | SNES (Super Famicom) | 21 November 1990 | Japan | [Super Nintendo Entertainment System](https://en.wikipedia.org/wiki/Super_Nintendo_Entertainment_System) |
 | Sega CD (Mega-CD) | 12 December 1991 (added with ADR 0105, read 2026-10-21) | Japan | [Sega CD](https://en.wikipedia.org/wiki/Sega_CD) |
 | CPS2 | 10 September 1993 (Super Street Fighter II) | Japan | [CP System II](https://en.wikipedia.org/wiki/CP_System_II) |
-| Neo Geo CD | 9 September 1994 (added with ADR 0106, read 2026-10-21) | Japan | [Neo Geo CD](https://en.wikipedia.org/wiki/Neo_Geo_CD) |
+| Neo Geo CD | 9 September 1994 (added with ADR 0107, read 2026-10-21) | Japan | [Neo Geo CD](https://en.wikipedia.org/wiki/Neo_Geo_CD) |
 | Sega 32X | 21 November 1994 | North America | [32X](https://en.wikipedia.org/wiki/32X) |
 | PlayStation | 3 December 1994 | Japan | [PlayStation (console)](https://en.wikipedia.org/wiki/PlayStation_(console)) |
 | Virtual Boy | 21 July 1995 | Japan | [Virtual Boy](https://en.wikipedia.org/wiki/Virtual_Boy) |

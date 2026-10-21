@@ -23,7 +23,7 @@ No host number is a device number. NeoCD's 68000 is the C Musashi core, and the 
 ## Edge cases
 | Case | Expected handling |
 |---|---|
-| A frame budget miss in play | try the Front or Top Loader, then a CPU governor note; amend ADR 0106 |
+| A frame budget miss in play | try the Front or Top Loader, then a CPU governor note; amend ADR 0107 |
 
 ## Acceptance
 - [ ] Both titles pass or have a recorded row.
@@ -32,4 +32,4 @@ No host number is a device number. NeoCD's 68000 is the C Musashi core, and the 
 This issue is the device check.
 
 ## References
-- ADR 0106
+- ADR 0107

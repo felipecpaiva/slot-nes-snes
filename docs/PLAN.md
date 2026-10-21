@@ -1,7 +1,8 @@
-# slot NES/SNES: patch set over pinned slot main 1b20432, phased build plan (RG34XXSP reference)
+# slot NES/SNES: patch set over pinned slot v1.8.0, phased build plan (RG34XXSP reference)
 
 > Built against slot v1.6.0 (`9d7c795`), rebased onto v1.7.0 (`34ac380`) on 2026-10-15 (ADR 0038) and
-> onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083).
+> onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083) and onto v1.8.0 (`0ceac65`)
+> on 2026-10-21 (ADR 0106).
 > Version numbers below follow `SLOT_PIN`; the phase history is unchanged.
 
 ## Plan changelog
@@ -26,7 +27,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 14 | Spec (Who it's NOT for), Phase 20 | PC Engine SuperGrafx in the patch set on Beetle SuperGrafx (patches 0131 to 0134, ADR 0103), device gate (issue 214) pending |
 | 15 | Spec (Who it's NOT for), Phase 21 | PC Engine CD in the patch set on the shipped Beetle PCE Fast built with CHD (patches 0135 to 0138, ADR 0104), device gate (issue 221) pending |
 | 16 | Spec (Who it's NOT for), Phase 22 | Sega CD / Mega-CD in the patch set on the shipped Genesis Plus GX (patches 0139 to 0146, ADR 0105), device gate (issue 232) pending |
-| 17 | Spec (Who it's NOT for), Phase 23 | Neo Geo CD in the patch set on NeoCD (patches 0147 to 0150, ADR 0106), device gate (issue 238) pending |
+| 17 | Spec (Who it's NOT for), Phase 23 | Neo Geo CD in the patch set on NeoCD (patches 0147 to 0150, ADR 0107), device gate (issue 238) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -67,7 +68,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101), PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped), the PC Engine SuperGrafx (Phase 20, ADR 0103), PC Engine CD discs (Phase 21, ADR 0104; the System Card is never shipped) Sega CD (Phase 22, ADR 0105) and Neo Geo CD discs (Phase 23, ADR 0106, on NeoCD; the BIOS is never shipped) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101), PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped), the PC Engine SuperGrafx (Phase 20, ADR 0103), PC Engine CD discs (Phase 21, ADR 0104; the System Card is never shipped) Sega CD (Phase 22, ADR 0105) and Neo Geo CD discs (Phase 23, ADR 0107, on NeoCD; the BIOS is never shipped) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -694,14 +695,14 @@ discs; one shelf `Games/SEGACD` for `.chd`, `.cue`, `.iso` and `.m3u`; the playe
 
 ### Phase 23: Neo Geo CD (in the patch set, device gate pending)
 
-Tracking issue 233, children 234 to 238, ADR 0106. A new core, NeoCD (`neocd`) pinned at `b1e04c7`, LGPL-3.0
+Tracking issue 233, children 234 to 238, ADR 0107. A new core, NeoCD (`neocd`) pinned at `b1e04c7`, LGPL-3.0
 with a non-commercial Z80 core; one shelf `Games/NEOCD` for `.cue` and `.chd`, holding the maintainer's two
 CD-only games; the player's own `neocd.bin`, `front-sp1.bin` or `top-sp1.bin` in `BIOS/neocd/` checked,
 never shipped. Patches 0147 to 0150.
 
 | Step | Issue | Content |
 |---|---|---|
-| 1 | done | ADR 0106 and the issues |
+| 1 | done | ADR 0107 and the issues |
 | 2 | 234, done (0147) | The core pinned and built (`HAVE_CDROM=0 USE_LTO=0`, GLIBC_2.17), its licences; the core tests |
 | 3 | 235, done (0148) | `Platform::Neocd`, `Core::Neocd`, the Neo Geo shelf's input, the options, backup RAM per game, no rewind, Shader and Picture, `RELEASED` 1994-09-09 |
 | 4 | 236, done (0149) | The BIOS row (CDZ, Front Loader, Top Loader) and the model's file checked before a disc starts |

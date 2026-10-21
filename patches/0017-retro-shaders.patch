@@ -361,7 +361,7 @@ index 0000000..639059f
 +"#;
 diff --git a/crates/slot-gfx/tests/retro_pipeline.rs b/crates/slot-gfx/tests/retro_pipeline.rs
 new file mode 100644
-index 0000000..00c2934
+index 0000000..2f3387f
 --- /dev/null
 +++ b/crates/slot-gfx/tests/retro_pipeline.rs
 @@ -0,0 +1,85 @@
@@ -400,7 +400,7 @@ index 0000000..00c2934
 +    c.set_game_canvas(w, h);
 +    c.set_screen_effect(effect);
 +    c.set_screen_power(1.0);
-+    c.begin_frame(slot_gfx::Layout::Framed);
++    c.begin_frame();
 +    c.upload_game(&source(w as usize, h as usize));
 +    c.draw_game();
 +    c.read_frame()
@@ -451,10 +451,10 @@ index 0000000..00c2934
 +    assert!(RETRO.iter().all(|e| e.mode() == 0.0));
 +}
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index b77666e..e7a1c9a 100644
+index 49d1015..e5d93de 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -11,6 +11,7 @@ pub mod ini;
+@@ -18,6 +18,7 @@ pub mod ini;
  pub mod nes;
  mod platform;
  mod platform_policy;
@@ -462,8 +462,8 @@ index b77666e..e7a1c9a 100644
  mod ring;
  mod scan;
  mod slot_state;
-@@ -31,6 +32,7 @@ pub use core::{
- pub use gb_palette::GbPalette;
+@@ -38,6 +39,7 @@ pub use core::{
+ pub use gb_palette::{GbColors, GbPalette};
  pub use gba::{header_clean, header_code, header_title, header_title_code};
  pub use platform::Platform;
 +pub use retro_shader::RetroShader;
@@ -542,10 +542,10 @@ index 0000000..33db154
 +    ];
 +}
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 569180f..1c58216 100644
+index c1f1073..8ecd8ac 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -277,12 +277,12 @@ pub enum Shader {
+@@ -294,12 +294,12 @@ pub enum Shader {
      Grid,
      Dot,
      Simpletex,
@@ -559,7 +559,7 @@ index 569180f..1c58216 100644
  
      pub fn name(self) -> &'static str {
          match self {
-@@ -291,6 +291,7 @@ impl Shader {
+@@ -308,6 +308,7 @@ impl Shader {
              Shader::Grid => "grid",
              Shader::Dot => "dot",
              Shader::Simpletex => "simpletex",
@@ -567,7 +567,7 @@ index 569180f..1c58216 100644
          }
      }
  
-@@ -304,6 +305,7 @@ impl Shader {
+@@ -321,6 +322,7 @@ impl Shader {
          ]
          .into_iter()
          .find(|s| s.name() == name)
@@ -703,18 +703,18 @@ index 0000000..3000082
 +    assert_eq!(back.shader_snes, Shader::Off);
 +}
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 7eef425..094709b 100644
+index f18d465..999abc7 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -590,6 +590,7 @@ pub enum QuickValue {
-     Min10,
-     Min15,
-     Min30,
+@@ -645,6 +645,7 @@ pub enum QuickValue {
+     Level7,
+     Level8,
+     Level9,
 +    Retro(slot_store::RetroShader),
  }
  
  impl QuickValue {
-@@ -629,7 +630,10 @@ impl QuickValue {
+@@ -707,7 +708,10 @@ impl QuickValue {
      ];
  
      pub fn index(self) -> usize {
@@ -726,10 +726,10 @@ index 7eef425..094709b 100644
      }
  
      pub fn text(self) -> &'static str {
-@@ -657,6 +661,7 @@ impl QuickValue {
-             QuickValue::Min10 => "10 min",
-             QuickValue::Min15 => "15 min",
-             QuickValue::Min30 => "30 min",
+@@ -745,6 +749,7 @@ impl QuickValue {
+             QuickValue::Level7 => "7",
+             QuickValue::Level8 => "8",
+             QuickValue::Level9 => "9",
 +            QuickValue::Retro(s) => s.label(),
          }
      }
@@ -770,29 +770,29 @@ index a8efab0..d16f48d 100644
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index f4a8fe0..0992c2f 100644
+index e8fd9bb..1d1ca0f 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -27,6 +27,7 @@ pub enum Toast {
-     CardRepaired,
+@@ -29,6 +29,7 @@ pub enum Toast {
      CardRepairFailed,
-     Palette(GbPalette),
+     Palette(GbColors),
+     Duplicate(QuickRow),
 +    Retro(slot_store::RetroShader),
  }
  
  impl Toast {
-@@ -61,6 +62,7 @@ impl Toast {
-     pub fn index(self) -> usize {
-         match self {
-             Toast::Palette(p) => Self::FIXED.len() + p.index(),
-+            Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+@@ -70,6 +71,7 @@ impl Toast {
+                     + GbColors::all().count()
+                     + bound_rows().position(|r| r == row).unwrap_or(0)
+             }
++            Toast::Retro(s) => Toast::all().len() + s.index(),
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -105,6 +107,7 @@ impl Toast {
-             Toast::CardRepaired => "SD card repaired",
+@@ -137,6 +139,7 @@ impl Toast {
              Toast::CardRepairFailed => "Card repair failed",
              Toast::Palette(p) => p.label(),
+             Toast::Duplicate(_) => "",
 +            Toast::Retro(s) => s.toast(),
          }
      }
@@ -850,10 +850,10 @@ index 0000000..43ac034
 +    }
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 64e0149..64e8ca6 100644
+index 8012b87..9fc0c8e 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -2708,6 +2708,7 @@ impl App {
+@@ -2866,6 +2866,7 @@ impl App {
              Shader::Grid => Toast::ShaderGrid,
              Shader::Dot => Toast::ShaderDot,
              Shader::Simpletex => Toast::ShaderSimpletex,
@@ -861,7 +861,7 @@ index 64e0149..64e8ca6 100644
          };
          self.persist();
          self.hud.toast(said, self.now());
-@@ -5246,6 +5247,7 @@ fn shader_value(shader: Shader) -> QuickValue {
+@@ -5496,6 +5497,7 @@ fn shader_value(shader: Shader) -> QuickValue {
          Shader::Grid => QuickValue::Grid,
          Shader::Dot => QuickValue::Dot,
          Shader::Simpletex => QuickValue::Simpletex,
@@ -870,10 +870,10 @@ index 64e0149..64e8ca6 100644
  }
  
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 197e3a6..de1c232 100644
+index 4f3b9d2..f1523fb 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -538,6 +538,7 @@ impl Frontend {
+@@ -542,6 +542,7 @@ impl Frontend {
              slot_store::Shader::Grid => ScreenEffect::Grid,
              slot_store::Shader::Dot => ScreenEffect::Dot,
              slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
@@ -881,7 +881,7 @@ index 197e3a6..de1c232 100644
          });
          compositor.set_shake(self.session.app().screen_shake());
          compositor.set_screen_power(self.session.app().screen_power());
-@@ -840,7 +841,7 @@ impl UiFaces {
+@@ -849,7 +850,7 @@ impl UiFaces {
                  .map(|r| [false, true].map(|lit| quick_label_face(*r, lit)))
                  .collect(),
              quick_pointer: quick_pointer_face(),
@@ -890,7 +890,7 @@ index 197e3a6..de1c232 100644
                  .iter()
                  .map(|v| [false, true].map(|lit| quick_value_face(v.text(), lit)))
                  .collect(),
-@@ -871,7 +872,7 @@ impl UiFaces {
+@@ -880,7 +881,7 @@ impl UiFaces {
                  .iter()
                  .map(|f| menu_face(f.line()))
                  .collect(),
@@ -954,7 +954,7 @@ index af31e57..fcb3715 100644
          ever & (ButtonMask::A | ButtonMask::B),
          0,
 diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
-index 3bb10b8..55a4753 100644
+index 2cd65a6..72d7a4b 100644
 --- a/crates/slot/tests/quick_retro_shader.rs
 +++ b/crates/slot/tests/quick_retro_shader.rs
 @@ -3,7 +3,7 @@ mod common;
@@ -966,7 +966,7 @@ index 3bb10b8..55a4753 100644
  use slot_ui::{QuickRow, QuickValue};
  use tempfile::TempDir;
  
-@@ -78,21 +78,37 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
+@@ -77,21 +77,37 @@ fn stepping_the_shader_row_cycles_retro_and_the_card_remembers_it() {
          let (root, mut app) = on_shelf(platform);
          open_screen(&mut app);
          let mut seen = vec![];
