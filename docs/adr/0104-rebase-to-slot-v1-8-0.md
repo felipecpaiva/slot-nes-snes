@@ -39,7 +39,7 @@ the new patch, so both mGBA builds are rebuilt. The bare v1.8.0 suite passes in 
 
 ## Decision
 
-Re-apply all 130 patches by intent onto a fresh v1.8.0 tree with `git cherry-pick`, fold fixes into
+Re-apply all 130 patches (134 with the SuperGrafx) by intent onto a fresh v1.8.0 tree with `git cherry-pick`, fold fixes into
 the patch that owns the line with `--fixup` and `rebase --autosquash`, and keep their numbers. No
 patch is dropped whole: none of them is in 1.8.0. One policy is dropped (`turbo_on_xy`), the input
 patches move onto the control table, and the rest port with context fixes.
@@ -48,9 +48,9 @@ patches move onto the control table, and the rest port with context fixes.
 
 | Ours | Before | Now |
 |---|---|---|
-| SELECT+X picture flip (SNES, MD, PS1, WS, Lynx, NGP, 32X, VB, arcade, PICO-8) | a special case in `Gestures::down` (`video_mode_chord`) | a new Shortcuts row, **Picture Next**, default SELECT+X (`Shortcut::PictureNext`, `QuickRow::ScPictureNext`, appended). It shows on Controls > Shortcuts, can be moved to any chord upstream allows, and takes part in the clash warnings. Its entry is dropped from the gesture table while a system without the flip plays (`snes_input::keep_applicable`), so SELECT+X on GBA, GB, GBC and the others sends exactly what upstream sends (`select_x_gba.rs` re-derived from the unpatched tree) |
+| SELECT+X picture flip (SNES, MD, PS1, WS, Lynx, NGP, 32X, VB, arcade, PICO-8, SuperGrafx with 6 Buttons) | a special case in `Gestures::down` (`video_mode_chord`) | a new Shortcuts row, **Picture Next**, default SELECT+X (`Shortcut::PictureNext`, `QuickRow::ScPictureNext`, appended). It shows on Controls > Shortcuts, can be moved to any chord upstream allows, and takes part in the clash warnings. Its entry is dropped from the gesture table while a system without the flip plays (`snes_input::keep_applicable`, told by `App::picture_chord`, which also answers yes for a seated six-button SuperGrafx), so SELECT+X on GBA, GB, GBC and the others sends exactly what upstream sends (`select_x_gba.rs` re-derived from the unpatched tree) |
 | SELECT+L2 swaps the PS1 disc and flips the FDS disk | `ps1_chord` in `Gestures::down` remapped `PalettePrev` while `disc_chord` was set | `keep_applicable` turns the Palette Back entry into `DiscNext` while PS1 or FDS plays. The swap follows Palette Back wherever the user moves it, single or chord. No row of its own: as a row it would share Palette Back's default and show a clash triangle on every fresh card, and the two never apply to the same system (no palettes on PS1 or FDS). `gesture/ps1.rs` loses the disc chord; `slot-input/tests/ps1_gesture.rs` loses its two chord tests, which move to `slot/tests/disc_chords.rs` |
-| X and Y pass through as the console's X and Y (SNES, MD, PS1, WS, 32X, Atari, VB, arcade) | `raw_buttons` | kept, and on these systems `mask_with_triggers` removes the Turbo A and Turbo B bindings before it builds the mask (`game_buttons`), so moving Turbo A to another button never sends the console's X from it, and the in-game Controls page hides the two turbo rows there (`in_game_hidden`) |
+| X and Y pass through as the console's X and Y (SNES, MD, PS1, WS, 32X, Atari, VB, arcade, SuperGrafx with 6 Buttons) | `raw_buttons` | kept, and on these systems `Pad::mask_with` (renamed from `mask_with_triggers`, it takes the seated X/Y flag `App::xy_to_game` instead of the platform) removes the Turbo A and Turbo B bindings before it builds the mask (`game_buttons`), so moving Turbo A to another button never sends the console's X from it, and the in-game Controls page hides the two turbo rows there (`in_game_hidden`) |
 
 Not ported, with the reason:
 
@@ -68,8 +68,11 @@ Not ported, with the reason:
 - `Platform::turbo_on_xy` (TurboGrafx-16, patch 0061): X and Y reached the core raw only so slot's
   turbo could pulse I and II. Upstream's Turbo A and Turbo B rows do this for every system that does
   not pass X and Y through, and can be remapped. The policy, its use in `raw_buttons` and its test
-  lines are removed (0061, 0091, 0100, 0103, 0120, 0128). NES, FDS, GG, SMS, Lynx, NGP, PICO-8 and
+  lines are removed (0061, 0091, 0100, 0103, 0120, 0128, and the SuperGrafx patches 0132). NES, FDS, GG, SMS, Lynx, NGP, PICO-8 and
   TG16 gain Turbo A and B on X and Y (they had none since 1b20432).
+- The SuperGrafx (merged from main as 0131 to 0134 during this rebase, ADR 0103) ports onto the
+  same paths: its 2-button pad uses upstream's Turbo A and B, its 6-button pad passes X and Y
+  through and gets the picture chord through `xy_to_game` and `picture_chord`.
 - The "lost GBA turbo on X and Y" upstream-first candidate of ADR 0083: fixed upstream (#127).
 
 ### Context fixes worth naming

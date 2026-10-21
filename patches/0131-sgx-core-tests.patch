@@ -1,0 +1,239 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:52:31 +0400
+Subject: [PATCH] sgx-core-tests
+
+Beetle SuperGrafx (mednafen_supergrafx) on the generic libretro host,
+before any SuperGrafx platform code exists. The TurboGrafx-16 synthetic
+HuCard boots with no BIOS, loads by path, runs at 59.82 fps with 44.1
+kHz sound and paints 256x240 on the 360x240 canvas once the scanline
+options are answered; unanswered, 243 lines are halved. Its state round
+trips and every card gets the 2 KB HUBM backup RAM.
+
+A .sgx file runs as a SuperGrafx (32 KB of work RAM). A .pce card the
+core's CRC table does not list, as Darius Alpha is not, runs as a PC
+Engine (8 KB) with sgx_forcesgx disabled and as a SuperGrafx with it
+enabled, so the platform answers it.
+---
+ crates/slot/tests/sgx_common/mod.rs |  33 ++++++
+ crates/slot/tests/sgx_core.rs       | 171 ++++++++++++++++++++++++++++
+ 2 files changed, 204 insertions(+)
+ create mode 100644 crates/slot/tests/sgx_common/mod.rs
+ create mode 100644 crates/slot/tests/sgx_core.rs
+
+diff --git a/crates/slot/tests/sgx_common/mod.rs b/crates/slot/tests/sgx_common/mod.rs
+new file mode 100644
+index 0000000..738e6d0
+--- /dev/null
++++ b/crates/slot/tests/sgx_common/mod.rs
+@@ -0,0 +1,33 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++use crate::tg16_common::hucard_bytes;
++
++pub const SGX_RAM: usize = 0x8000;
++pub const PCE_RAM: usize = 0x2000;
++
++pub fn supergrafx() -> Option<PathBuf> {
++    require_core("mednafen_supergrafx")
++}
++
++pub fn card(dir: &Path, stem: &str, ext: &str) -> PathBuf {
++    std::fs::create_dir_all(dir).unwrap();
++    let path = dir.join(format!("{stem}.{ext}"));
++    std::fs::write(&path, hucard_bytes(false)).unwrap();
++    path
++}
++
++pub fn work_ram_size(dylib: &Path) -> usize {
++    // SAFETY: the dylib is already loaded by the core under test, so this only takes another handle on
++    // it, and retro_get_memory_size takes a plain id and returns a size.
++    unsafe {
++        let lib = libloading::Library::new(dylib).expect("reopen Beetle SuperGrafx");
++        let size: libloading::Symbol<unsafe extern "C" fn(u32) -> usize> = lib
++            .get(b"retro_get_memory_size")
++            .expect("retro_get_memory_size");
++        size(2)
++    }
++}
+diff --git a/crates/slot/tests/sgx_core.rs b/crates/slot/tests/sgx_core.rs
+new file mode 100644
+index 0000000..6ce1e4a
+--- /dev/null
++++ b/crates/slot/tests/sgx_core.rs
+@@ -0,0 +1,171 @@
++// Beetle SuperGrafx (PC Engine SuperGrafx HuCards) on the generic libretro host, before any SuperGrafx
++// platform code exists (ADR 0101). The synthetic HuCard is the TurboGrafx-16 one (tg16_common, ADR 0091):
++// one 8 KB bank that paints the backdrop and overscan red, then spins. The core runs a card as a
++// SuperGrafx (32 KB of work RAM, the second VDC and the VPC) only for a .sgx file, a CRC in its own table
++// (mednafen/pce_fast/pce.cpp sgx_table, which has Darius Plus and the five SuperGrafx cards but not Darius
++// Alpha) or sgx_forcesgx, so the platform answers sgx_forcesgx. The core declares that option "disabled"
++// but its own setting starts true (mednafen/settings.cpp), so an unanswered option is not "disabled".
++mod common;
++mod core_common;
++mod sgx_common;
++mod tg16_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use sgx_common::{card, supergrafx, work_ram_size, PCE_RAM, SGX_RAM};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use tg16_common::RED_BGRX;
++
++const CANVAS: (usize, usize) = (360, 240);
++const PICTURE_W: usize = 256;
++const LEFT: usize = (CANVAS.0 - PICTURE_W) / 2;
++
++fn core(root: &Path, options: &[(&str, &str)]) -> Option<(LibretroCore, std::path::PathBuf)> {
++    let dylib = supergrafx()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open Beetle SuperGrafx");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    for (key, value) in options {
++        core.set_option(key, value);
++    }
++    Some((core, dylib))
++}
++
++const LINES: [(&str, &str); 2] = [("sgx_initial_scanline", "3"), ("sgx_last_scanline", "242")];
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++fn assert_red_picture(video: &[u8], rows: std::ops::Range<usize>) {
++    assert_eq!(video.len(), CANVAS.0 * CANVAS.1 * 4);
++    for y in 0..CANVAS.1 {
++        for x in 0..CANVAS.0 {
++            let at = (y * CANVAS.0 + x) * 4;
++            let px = &video[at..at + 3];
++            if (LEFT..LEFT + PICTURE_W).contains(&x) && rows.contains(&y) {
++                assert_eq!(px, RED_BGRX, "({x}, {y})");
++            } else {
++                assert_eq!(px, [0, 0, 0], "({x}, {y})");
++            }
++        }
++    }
++}
++
++#[test]
++fn a_supergrafx_card_boots_with_no_bios_and_fills_the_360_by_240_canvas_height_with_256_by_240() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, _)) = core(d.path(), &LINES) else {
++        return;
++    };
++    assert!(core.needs_full_path());
++    core.load(&card(d.path(), "Paint", "sgx"))
++        .expect("Beetle SuperGrafx refused the card");
++    play(&mut core, 30);
++    let av = core.av_info();
++    assert!((59.8..59.85).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    assert_eq!(core.frame_width(), 256);
++    assert_red_picture(core.video_xrgb8888(), 0..240);
++}
++
++#[test]
++fn unanswered_scanline_options_draw_243_lines_which_the_240_line_canvas_halves() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, _)) = core(d.path(), &[]) else {
++        return;
++    };
++    core.load(&card(d.path(), "Paint", "sgx")).unwrap();
++    play(&mut core, 30);
++    assert_red_picture(core.video_xrgb8888(), 59..180);
++}
++
++#[test]
++fn a_sgx_file_runs_as_a_supergrafx_with_32_kb_of_work_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, dylib)) = core(d.path(), &LINES) else {
++        return;
++    };
++    core.load(&card(d.path(), "Paint", "sgx")).unwrap();
++    play(&mut core, 2);
++    assert_eq!(work_ram_size(&dylib), SGX_RAM);
++}
++
++fn work_ram_of_a_pce_card(root: &Path, forcesgx: Option<&str>) -> Option<usize> {
++    let mut options = LINES.to_vec();
++    options.extend(forcesgx.map(|v| ("sgx_forcesgx", v)));
++    let (mut core, dylib) = core(root, &options)?;
++    core.load(&card(root, "Paint", "pce")).unwrap();
++    play(&mut core, 30);
++    assert_red_picture(core.video_xrgb8888(), 0..240);
++    Some(work_ram_size(&dylib))
++}
++
++#[test]
++fn a_pce_card_outside_the_cores_table_runs_as_a_pc_engine_when_sgx_forcesgx_is_disabled() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(ram) = work_ram_of_a_pce_card(d.path(), Some("disabled")) else {
++        return;
++    };
++    assert_eq!(ram, PCE_RAM);
++}
++
++#[test]
++fn a_pce_card_outside_the_cores_table_runs_as_a_supergrafx_when_sgx_forcesgx_is_enabled() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(ram) = work_ram_of_a_pce_card(d.path(), Some("enabled")) else {
++        return;
++    };
++    assert_eq!(ram, SGX_RAM);
++}
++
++#[test]
++fn a_supergrafx_state_round_trips() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, _)) = core(d.path(), &LINES) else {
++        return;
++    };
++    core.load(&card(d.path(), "Paint", "sgx")).unwrap();
++    play(&mut core, 5);
++    let state = core.serialize().expect("no state");
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn every_card_gets_a_2_kb_formatted_backup_ram_as_save_ram_that_loads_back() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, _)) = core(d.path(), &LINES) else {
++        return;
++    };
++    core.load(&card(d.path(), "Paint", "sgx")).unwrap();
++    play(&mut core, 5);
++    let bram = core.save_ram().expect("no save RAM");
++    assert_eq!(bram.len(), 2048);
++    assert_eq!(&bram[..8], b"HUBM\x00\x88\x10\x80");
++    assert!(bram[8..].iter().all(|&b| b == 0));
++
++    let mut marked = bram.clone();
++    marked[0x10] = 0x5a;
++    core.load_save_ram(&marked).unwrap();
++    play(&mut core, 5);
++    assert_eq!(core.save_ram().unwrap(), marked);
++}

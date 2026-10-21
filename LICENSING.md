@@ -756,6 +756,60 @@ under MIT, and the libraries it lists with their terms.
   `libm.so.6` at GLIBC_2.17 or older, which `task core:device:fake08` checks.
 - No BIOS is shipped or needed; PICO-8 carts are the player's own.
 
+## Beetle SuperGrafx (PC Engine SuperGrafx)
+
+Checked at commit `9c11dcd213a79d57d2c86313971631af801f2cdc` of libretro/beetle-supergrafx-libretro, the
+commit `SLOT_PIN` pins as `mednafen_supergrafx_commit` (tarball sha256 `mednafen_supergrafx_tarball_sha256`).
+It is built by `cores/mednafen_supergrafx/build.sh` for the SuperGrafx shelf (ADR 0103) and ships from the
+platform patch (0132) in `dist:device`, checked by `zip-check.sh`. `dist-device.sh` copies these from
+`licenses/` into the release:
+
+- `mednafen_supergrafx-GPL-2.0.txt`, the root `COPYING` of that source, copied verbatim and whole (the GPL
+  version 2 text; byte-equal to Beetle PCE Fast's).
+- `mednafen_supergrafx-tremor-BSD.txt`, `mednafen/tremor/COPYING` verbatim: the Xiph.org BSD licence of the
+  Tremor Vorbis decoder, which the makefile always links (CD audio), so the binary carries its notice.
+- `mednafen_supergrafx-headerless-files.txt`, the files with no licence text in their first 60 lines.
+
+The exact source ships with the core as `mednafen_supergrafx-src.tar.gz`, with `mednafen_supergrafx-src.meta`
+recording its sha256.
+
+**The combined core we ship is GPL-3.0-or-later.** Every licensed file permits it, as below.
+
+- It is Mednafen's pce_fast with the SuperGrafx hardware added ("Mednafen - Multi-system Emulator", GPL), the
+  Beetle PCE Fast tree. The sound buffer is Shay Green's Blip_Buffer.
+- Scope of the counts: the 116 `.c`, `.h` and `.cpp` files under `mednafen/` plus `libretro.cpp`,
+  `libretro_core_options.h` and `libretro_core_options_intl.h` at the root, 119 files.
+  - 47 say "any later version": 45 are GPL-2.0-or-later (`libretro.cpp` among them, whose Mednafen block
+    starts at line 636), `mednafen/sound/Blip_Buffer.cpp` is LGPL-2.1-or-later, and
+    `mednafen/msvc_compat.h` is GPL-3.0-or-later (RetroArch's, compiled only for MSVC).
+  - The 31 files of `mednafen/tremor/` are Xiph.org BSD ("governed by a BSD-style source license included
+    with this source", the licence file above).
+  - No file says version 2 only.
+  - Command, run in the unpacked source root: `{ find mednafen -type f \( -name '*.c' -o -name '*.h' -o
+    -name '*.cpp' \); ls *.cpp *.h; } | xargs grep -l -i 'any later version' | wc -l`.
+- **Headerless files, a judgement.** 42 of the 119 have no licence text in their first 60 lines, listed in
+  `licenses/mednafen_supergrafx-headerless-files.txt` with the command. `libretro.cpp` is on the list because
+  its GPL-2.0-or-later block is past line 60; the two core option headers mention a licence only in option
+  text; the other 39 have no licence text anywhere. We treat them as covered by `COPYING`. That is a
+  judgement, not a quote.
+- There is no `deps/` folder at this pin. The CHD reader is libretro-common's rchd with its codecs, **not
+  compiled** because the build sets `HAVE_CHD=0` (the makefile's default is 1); they ship only inside the
+  source tarball.
+- `libretro-common/` carries the RetroArch team's MIT text in 82 of its 83 `.c` and `.h` files; the other,
+  `vfs/vfs_implementation_smb.h`, is not compiled. Every object linked from it by the pinned build is MIT:
+  `streams/file_stream`, `file_stream_transforms`, `file/file_path`, `file_path_io`, `retro_dirent`,
+  `lists/string_list`, `dir_list`, `compat/compat_strl`, `compat_snprintf`, `compat_posix_string`,
+  `fopen_utf8`, `compat_strcasestr`, `encodings/encoding_utf`, `encoding_crc32`, `features/features_cpu`,
+  `vfs/vfs_implementation`, `memmap/memalign`, `string/stdstring`, `rstrtod` and `time/rtime`.
+- Every one of those terms permits combining with a GPL-3.0-or-later program.
+- The core is C++ and the makefile adds `-lrt`. The device build links `-static-libstdc++ -static-libgcc
+  -Wl,--as-needed` and binds `powf` to `GLIBC_2.17` (`cores/mednafen_supergrafx/glibc-2.17.h`); it needs
+  only GLIBC_2.17 symbols, which `task core:device:mednafen_supergrafx` checks.
+- No BIOS is shipped or needed for HuCards. CD system cards are out of scope.
+
+The build recipe is the Beetle PCE Fast one (ADR 0091, credited there to nelynes/slotPlus 92b7022, GPL-3.0).
+The SuperGrafx options, `sgx_forcesgx` and the link flags are ours.
+
 ## NES and SNES screen shaders
 
 Patch `0017-retro-shaders` adds four NES and SNES screen shaders, ported from the libretro shader

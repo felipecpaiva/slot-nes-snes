@@ -119,4 +119,5 @@ the patch set looks the way it does.
 | [0100](0100-shelf-order-option.md) | Offer a Shelf order option in Config/shelf_order.txt: Classic (the default, the order systems were added) or Release year (first release anywhere, oldest first, one dated row per platform) | Accepted | 2026-10-20 |
 | [0101](0101-famicom-disk-system-on-fceumm.md) | Bring the Famicom Disk System into scope on the shipped fceumm, a disk shelf of its own | Accepted. Amends 0002; closes issue 33 | 2026-10-21 |
 | [0102](0102-pico8-on-fake08.md) | Bring PICO-8 carts into scope on pinned FAKE-08, a shelf of their own, no states | Accepted. Amends 0002 | 2026-10-21 |
+| [0103](0103-supergrafx-on-beetle-supergrafx.md) | Bring the PC Engine SuperGrafx into scope on pinned Beetle SuperGrafx, a shelf of its own beside an unchanged TurboGrafx-16 | Accepted. Amends 0002 and 0091 | 2026-10-21 |
 | [0104](0104-rebase-to-slot-v1-8-0.md) | Rebase the patch set onto slot v1.8.0 and put our chords in its control table | Accepted | 2026-10-21 |

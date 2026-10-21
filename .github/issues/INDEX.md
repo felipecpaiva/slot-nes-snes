@@ -180,3 +180,10 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [206](206-pico8-carts.md) | Draw the PICO-8 cart and take its label from the cart itself | 19 | ui-art | feature | S | 205-platform-pico8 |
 | [207](207-pico8-tests.md) | Test PICO-8 with generated text and PNG carts, and GBA after PICO-8 | 19 | tests | test | S | 204-pico8-core-build |
 | [208](208-pico8-device-gate.md) | PICO-8 device gate on the RG34XXSP | 19 | device | chore | S | 205-platform-pico8, 206-pico8-carts |
+| [209](209-sgx-tracking.md) | PC Engine SuperGrafx: Beetle SuperGrafx, a shelf of its own beside the TurboGrafx-16 | 20 | device | tracking | L | 203-pico8-tracking |
+| [210](210-sgx-core-build.md) | Build Beetle SuperGrafx from a pinned commit for host and device without CD images and record its licence | 20 | cores | feature | S | 209-sgx-tracking |
+| [211](211-platform-sgx.md) | Add Platform::Sgx with its options, Screen section, saves and the TurboGrafx-16 pad | 20 | platform | feature | M | 210-sgx-core-build |
+| [212](212-sgx-carts.md) | Draw the Super HuCard and fetch SuperGrafx labels | 20 | ui-art | feature | M | 211-platform-sgx |
+| [213](213-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 20 | tests | test | S | 210-sgx-core-build |
+| [214](214-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 20 | device | chore | S | 211-platform-sgx, 212-sgx-carts |
+| [215](215-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 20 | input | feature | M | 211-platform-sgx |
