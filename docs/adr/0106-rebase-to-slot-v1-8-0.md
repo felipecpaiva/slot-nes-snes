@@ -1,4 +1,4 @@
-# 0105. Rebase the patch set onto slot v1.8.0 and put our chords in its control table
+# 0106. Rebase the patch set onto slot v1.8.0 and put our chords in its control table
 
 - Status: Accepted
 - Date: 2026-10-21
@@ -39,7 +39,7 @@ the new patch, so both mGBA builds are rebuilt. The bare v1.8.0 suite passes in 
 
 ## Decision
 
-Re-apply all 130 patches (138 with the SuperGrafx and the PC Engine CD) by intent onto a fresh v1.8.0 tree with `git cherry-pick`, fold fixes into
+Re-apply all 130 patches (146 with the SuperGrafx, PC Engine CD and Sega CD) by intent onto a fresh v1.8.0 tree with `git cherry-pick`, fold fixes into
 the patch that owns the line with `--fixup` and `rebase --autosquash`, and keep their numbers. No
 patch is dropped whole: none of them is in 1.8.0. One policy is dropped (`turbo_on_xy`), the input
 patches move onto the control table, and the rest port with context fixes.
@@ -70,6 +70,8 @@ Not ported, with the reason:
   not pass X and Y through, and can be remapped. The policy, its use in `raw_buttons` and its test
   lines are removed (0061, 0091, 0100, 0103, 0120, 0128, and the SuperGrafx and PC Engine CD patches 0132 and 0136). NES, FDS, GG, SMS, Lynx, NGP, PICO-8 and
   TG16 gain Turbo A and B on X and Y (they had none since 1b20432).
+- The Sega CD (merged from main as 0139 to 0146, ADR 0105) ports with only its `turbo_on_xy` test
+  line dropped; its disc swap rides the same Palette Back entry (`swaps_discs`).
 - The PC Engine CD (merged from main as 0135 to 0138, ADR 0104) uses upstream's Turbo A and B like
   the TurboGrafx-16; its `turbo_on_xy` arm and test lines go, and its Screen index moves by one.
 - The SuperGrafx (merged from main as 0131 to 0134 during this rebase, ADR 0103) ports onto the

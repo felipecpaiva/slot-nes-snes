@@ -193,3 +193,14 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [219](219-pcecd-bios.md) | Check BIOS/syscard3.pce before a PC Engine CD starts | 21 | platform | feature | S | 218-platform-pcecd |
 | [220](220-pcecd-cases.md) | Draw PC Engine CDs in the jewel case with their disc, and fetch covers and disc scans | 21 | ui-art | feature | S | 218-platform-pcecd |
 | [221](221-pcecd-device-gate.md) | PC Engine CD device gate on the RG34XXSP | 21 | device | chore | S | 218-platform-pcecd, 219-pcecd-bios, 220-pcecd-cases |
+| [222](222-segacd-tracking.md) | Sega CD / Mega-CD on Genesis Plus GX, the disc half of the Mega Drive | 22 | device | tracking | L | 53-platform-md, 56-ps1-tracking, 216-pcecd-tracking |
+| [223](223-platform-segacd.md) | Add Platform::SegaCd with its own shelf, disc scan and explicit policy | 22 | platform | feature | M | 222-segacd-tracking |
+| [224](224-segacd-bios-check.md) | Check the region's Sega CD BIOS before a launch and toast instead of a black screen | 22 | platform | feature | S | 223-platform-segacd |
+| [225](225-segacd-options.md) | Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache | 22 | cores | feature | S | 223-platform-segacd |
+| [226](226-segacd-canvas-screen.md) | Give Sega CD the Mega Drive canvas and its own Screen section | 22 | video | feature | S | 225-segacd-options |
+| [227](227-segacd-backup-ram.md) | Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload | 22 | platform | feature | M | 225-segacd-options |
+| [228](228-segacd-discs.md) | Swap Sega CD discs, remember the disc, record it in states | 22 | platform | feature | S | 223-platform-segacd |
+| [229](229-segacd-input.md) | Hand the Mega Drive 3 and 6 button pad to Sega CD games | 22 | input | feature | S | 223-platform-segacd |
+| [230](230-segacd-tests.md) | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | 22 | tests | test | S | 222-segacd-tracking |
+| [231](231-segacd-cases.md) | Draw Sega CD games as jewel cases and fetch their covers | 22 | ui-art | feature | M | 223-platform-segacd |
+| [232](232-segacd-device-gate.md) | Sega CD device gate on the RG34XXSP | 22 | device | chore | S | 224-segacd-bios-check, 227-segacd-backup-ram, 228-segacd-discs, 231-segacd-cases |

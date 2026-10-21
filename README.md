@@ -4,7 +4,7 @@ More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic
 NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
 TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
 Atari 2600 and 7800, Virtual Boy, the Neo Geo, CPS1 and CPS2 arcade boards, PICO-8 carts, the PC Engine SuperGrafx,
-and PC Engine CD-ROM² and TurboGrafx-CD discs, beside slot's own
+PC Engine CD-ROM² and TurboGrafx-CD discs, and Sega CD / Mega-CD, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -17,7 +17,7 @@ GBA, GB and GBC stay byte-identical to upstream.
 >
 > **Please do not report bugs from this patch set to slot's tracker.** Open them here.
 
-The pinned base is slot v1.8.0 (`0ceac65`, `SLOT_PIN`, ADR 0105).
+The pinned base is slot v1.8.0 (`0ceac65`, `SLOT_PIN`, ADR 0106).
 Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20432-ns.1` came before).
 
 ## Systems
@@ -46,6 +46,7 @@ Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20
 | PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device gate pending |
 | PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
 | PC Engine CD, TurboGrafx-CD | `Games/PCECD` | `.chd`, `.cue`, `.ccd` | Beetle PCE Fast | **required**, your own `syscard3.pce` (System Card 3.0) | device gate pending |
+| Sega CD, Mega-CD | `Games/SEGACD` | `.chd`, `.cue`, `.iso`, `.m3u` | Genesis Plus GX | **required**, your own `bios_CD_U.bin`, `bios_CD_E.bin`, `bios_CD_J.bin` | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -63,6 +64,12 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
 - **Famicom Disk System:** required. `BIOS/disksys.rom`, 8192 bytes. Without it the disk stays on
   the shelf and slot says "FDS needs BIOS/disksys.rom". An 8 KB file that is not the known dump
   (crc32 5e607dcf) still launches, with a one-time toast.
+- **Sega CD, Mega-CD:** required, one per region: `BIOS/bios_CD_U.bin` (USA), `bios_CD_E.bin`
+  (Europe), `bios_CD_J.bin` (Japan), 131072 bytes each. slot reads the disc's region from the file
+  name tag, then from the disc itself for a `.cue` or `.iso`, else USA, so keep the region tag in a
+  `.chd` name. Without the file the disc stays on the shelf and slot says "Sega CD needs
+  BIOS/bios_CD_U.bin" (or E, J). A 128 KB file that is not a known dump still launches, with a
+  one-time toast.
 - **Atari 7800:** optional and off by default. With the BIOS row On (7800 Screen section), ProSystem
   loads `BIOS/7800 BIOS (U).rom` (`(E)` for a PAL cart) and shows the Atari logo before a signed game;
   an unsigned cart (homebrew) does not boot with it. Off hides the file from the core.
@@ -170,6 +177,19 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   Actual and 4:3. A disc is drawn in its jewel case with its cover, a Japanese disc with the paper spine
   strip, and the disc slides out into the slot when it starts. Discs are large, so `Games/PCECD` is a
   good folder for the Expansion Card.
+- **Sega CD, Mega-CD** has its own shelf, `Games/SEGACD`, on Genesis Plus GX, the Mega Drive core. It
+  plays like the Mega Drive: the six-button pad, SELECT+X for the picture, Stretch following the 256
+  or 320 wide frame, PAL Speed for European discs, CD audio, rewind and fast-forward. A game of
+  several discs is one game: discs named `(Disc 1)`, `(Disc 2)` become one, SELECT+L2 swaps to the
+  next disc, and the disc in play is remembered and kept in save states. The game's saves live in the
+  console's backup RAM, which Genesis Plus GX writes itself and a save state does not hold. slot keeps
+  it as `Saves/SEGACD/<game>.brm`, one file per game (a set's file is named after the set), checks it
+  before the core reads it, and writes it atomically at every lid close, POWER tap, autosave and eject.
+  A damaged file is kept aside as `<game>.brm-refused` and the game starts with blank backup RAM. A
+  `scd_U.brm` from another frontend is not imported: rename it `<game>.brm` for the game it belongs
+  to. On the shelf every game is a jewel case with its cover, its disc inside (US, European and
+  Japanese styles, the Japanese with its spine card, a double case for a set); covers and disc scans
+  come by name (`--only SEGACD --by-name`). Sega CD discs fit the Expansion Card well (below).
 
 ### The Screen page
 
@@ -178,8 +198,8 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
-| PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
+| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
+| PAL Speed | NES, SNES, Master System, Mega Drive, Sega CD, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
 | Refresh | WonderSwan | 60 Hz, 75 Hz |
@@ -248,6 +268,10 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - PC Engine CD: one disc per game (Beetle PCE Fast cannot change discs, so no `.m3u`), System Card 3.0
   only (no Games Express). The device gate (issue 221) is still open, including whether the CD audio
   keeps time from a CHD with large hunks.
+- Sega CD: the backup RAM is written by reloading the disc for an instant (serialize, load, restore),
+  because the core keeps it outside save states. Its cost on the device is a device-gate item (issue
+  232); if it is too slow at lid close, that flush moves to eject, autosave and the quick menu. A
+  `.chd` with no region tag is taken as a US disc. Up to 4 discs a game.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few
@@ -321,6 +345,7 @@ per line. `#` starts a comment:
 ```
 # Systems on the Expansion Card
 PS1
+SEGACD
 ```
 
 - **Without the Expansion Card** the base card's own folders show, as before. A listed system's shelf

@@ -31,7 +31,7 @@ echo "format: checking files we add or change (edition $edition):"
 echo "$files" | sed 's/^/  /'
 cd "$ours"
 # rustfmt also walks the modules a file declares, so a changed lib.rs reaches upstream files we never
-# touch; upstream v1.8.0's sticker.rs is not rustfmt clean (ADR 0105). Only our files fail the check.
+# touch; upstream v1.8.0's sticker.rs is not rustfmt clean (ADR 0106). Only our files fail the check.
 out="$(echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --check --edition "$edition" 2>&1 || true)"
 bad="$(printf '%s\n' "$out" | sed -n "s|^Diff in $ours/\(.*\):[0-9]*:\$|\1|p" | sort -u | while read -r f; do
 	printf '%s\n' "$files" | grep -Fx -- "$f" || true

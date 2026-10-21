@@ -512,6 +512,47 @@ is `docs/rom-library/best-copy/pcecd-adds.tsv` (workspace). Then fetch covers an
 | Garou Densetsu Special | | | | | | Arcade CD-ROM², needs the Arcade Card |
 | Dungeon Explorer II | | | | | | |
 
+## Sega CD (issue 232, ADR 0105)
+
+Pending. Needs the player's own `BIOS/bios_CD_U.bin`, `bios_CD_E.bin` and `bios_CD_J.bin` on the main card
+(131072 bytes each; crc32 9f6f6276 or c6d10268, 529ac15a, 9d2da8f2). No new core: Genesis Plus GX is already in
+`System/`. The discs go on the Expansion Card (ADR 0098): copy the staged `Games/SEGACD` from
+`/Volumes/B3Tb/Emulation/_staging/segacd/` (workspace `docs/rom-library/best-copy/segacd-adds.tsv`) into
+`Games/SEGACD` on `EXPANSION`, run `dot_clean -m /Volumes/EXPANSION`, and add the line `SEGACD` to
+`Config/expansion.txt` on the main card. Then fetch the labels
+(`task labels:fetch -- --device --only SEGACD --by-name --logo-fallback`).
+
+1. Speed: `task bench:device CORE=genesis_plus_gx ROM_ON_DEVICE=/mnt/sdcard/Games/SEGACD/<disc>.chd` with
+   `ARGS="--frames 3000 --warmup 900 --repeats 3"`, for Sonic CD and an FMV title (Night Trap). The budget
+   at 59.92 fps is 16.7 ms; the estimate is 4 to 6 ms (Mega Drive is 3.3 ms).
+2. Shelf: the Sega CD shelf lists every game once (a set as one game, its discs hidden), each a jewel case
+   with its cover and the right style (US, EU, JP with the spine card, double case for a set); it sits
+   after the SNES in Release Year order. Insert: the case opens and the disc slides in.
+3. Boot: each game shows the Sega CD BIOS logo, then the game. A European disc runs at 49.70 Hz with PAL
+   Speed Native.
+4. Speed in play: Sonic CD, Lunar: The Silver Star, Snatcher and Final Fight CD for 10 minutes each under
+   `SLOT_TRACE`; `starved` and `dropped` stay 0, CD audio plays without crackle, FMV keeps time.
+5. Controls: the six-button pad laid out as on the Mega Drive shelf (SELECT is MODE); in Final Fight CD
+   every button the game's controls page names responds; SELECT+X picture, L2 rewind, R2 fast-forward.
+6. Backup RAM: save in Lunar, close the lid; `Saves/SEGACD/Lunar - The Silver Star (USA).brm` is 8192
+   bytes. Pull the battery, boot: the save is there, resuming and starting fresh. Record the
+   `slot: segacd bram: reload took` line from `SLOT_TRACE` at lid close, eject and autosave, warm and
+   after `echo 3 > /proc/sys/vm/drop_caches`. Bar: under 100 ms warm at lid close, under 250 ms at eject,
+   one frame at autosave (ADR 0105; over the bar, amend it).
+7. Discs: Night Trap: SELECT+L2 swaps to disc 2 with the banner, eject, reinsert: disc 2 is in; a state
+   taken on disc 2 loads on disc 2 after a fresh start.
+8. Missing BIOS: rename `BIOS/bios_CD_U.bin`; a US game shows "Sega CD needs BIOS/bios_CD_U.bin" and stays
+   on the shelf. Put it back.
+9. Expansion Card out: the Sega CD shelf is empty, nothing else changes; back in, it returns.
+
+| Title | Discs | bench:device ms/frame | Reload ms (lid, eject, autosave) | Save | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|---|
+| Sonic CD | 1 | | | | | | | heavy scaling, CD audio |
+| Lunar: The Silver Star | 1 | | | | | | | backup RAM saves |
+| Snatcher | 1 | | | | | | | adventure, backup RAM |
+| Final Fight CD | 1 | | | | | | | many audio tracks |
+| Night Trap | 2 | | | | | | | FMV, disc swap |
+
 ## Shelf order (ADR 0100)
 
 Checks that Release year reorders the shelves on the device and that the choice survives a restart.
