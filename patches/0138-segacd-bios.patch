@@ -1,0 +1,560 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:21:47 +0400
+Subject: [PATCH] segacd-bios
+
+Before a Sega CD disc starts slot checks the BIOS of the disc's region:
+BIOS/bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin, 131072 bytes, with a
+crc32 slot knows. US: 9f6f6276 (md5 854b9150240a198070150e4566ae1290,
+the dump the Genesis Plus GX doc lists) or c6d10268 (md5
+2efd74e3232ff260e371b99f84024f7f, the row in libretro-database
+dat/System.dat); Europe 529ac15a and Japan 9d2da8f2 (both System.dat).
+The region comes from the file name tags, then the byte at 0x20b of a
+.cue or .iso data track (0x64 Europe, 0xa1 Japan, anything else USA,
+the core's own get_region), then USA, because reading a .chd needs a
+hunk decode. A missing file or the wrong size keeps the disc on the
+shelf with "Sega CD needs BIOS/bios_CD_U.bin" (E, J), because the core
+refuses the disc without it. Another 128 KB file launches with one
+"bios_CD_U.bin is not a known dump" toast a session: the core checks
+nothing in the file, so a junk BIOS would otherwise be a black screen
+with no word. A disc resumed at boot is checked the same way. The six
+toasts upload after the FDS ones.
+---
+ crates/slot-store/src/lib.rs       |   1 +
+ crates/slot-store/src/ps1.rs       |   2 +-
+ crates/slot-store/src/segacd.rs    |  69 +++++++++++
+ crates/slot-ui/src/lib.rs          |   6 +-
+ crates/slot-ui/src/ps1_case.rs     |   6 +
+ crates/slot-ui/src/quick_retro.rs  |   1 +
+ crates/slot-ui/src/segacd_toast.rs |  41 +++++++
+ crates/slot-ui/src/toast.rs        |   3 +
+ crates/slot/src/app.rs             |   4 +
+ crates/slot/src/app/segacd_bios.rs |  41 +++++++
+ crates/slot/tests/ps1_discs.rs     |   1 +
+ crates/slot/tests/segacd_bios.rs   | 187 +++++++++++++++++++++++++++++
+ 12 files changed, 359 insertions(+), 3 deletions(-)
+ create mode 100644 crates/slot-store/src/segacd.rs
+ create mode 100644 crates/slot-ui/src/segacd_toast.rs
+ create mode 100644 crates/slot/src/app/segacd_bios.rs
+ create mode 100644 crates/slot/tests/segacd_bios.rs
+
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 72287bd..bf449a2 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -24,6 +24,7 @@ pub mod s32x;
+ mod scan;
+ pub mod sega;
+ mod sega_shader;
++pub mod segacd;
+ mod shelf_carts;
+ mod slot_state;
+ pub mod snes;
+diff --git a/crates/slot-store/src/ps1.rs b/crates/slot-store/src/ps1.rs
+index b3d675c..c7e69b9 100644
+--- a/crates/slot-store/src/ps1.rs
++++ b/crates/slot-store/src/ps1.rs
+@@ -232,7 +232,7 @@ pub fn serial_region(serial: &str) -> Option<DiscRegion> {
+     }
+ }
+ 
+-fn first_track(cue: &Path) -> Option<PathBuf> {
++pub(crate) fn first_track(cue: &Path) -> Option<PathBuf> {
+     let text = std::fs::read_to_string(cue).ok()?;
+     let line = text
+         .lines()
+diff --git a/crates/slot-store/src/segacd.rs b/crates/slot-store/src/segacd.rs
+new file mode 100644
+index 0000000..25db6d1
+--- /dev/null
++++ b/crates/slot-store/src/segacd.rs
+@@ -0,0 +1,69 @@
++use std::fs::File;
++use std::io::{Read, Seek, SeekFrom};
++use std::path::Path;
++
++use crate::lynx::{crc32, Bios};
++use crate::ps1::{first_track, playlist, DiscRegion};
++
++pub const BIOS_BYTES: usize = 131072;
++const REGION_BYTE: u64 = 0x20b;
++const RAW_DATA: u64 = 16;
++const SYNC: [u8; 12] = [
++    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0,
++];
++
++pub fn bios_file(region: DiscRegion) -> &'static str {
++    match region {
++        DiscRegion::Us => "bios_CD_U.bin",
++        DiscRegion::Eu => "bios_CD_E.bin",
++        DiscRegion::Jp => "bios_CD_J.bin",
++    }
++}
++
++fn known_crcs(region: DiscRegion) -> &'static [u32] {
++    match region {
++        DiscRegion::Us => &[0x9f6f_6276, 0xc6d1_0268],
++        DiscRegion::Eu => &[0x529a_c15a],
++        DiscRegion::Jp => &[0x9d2d_a8f2],
++    }
++}
++
++pub fn bios(bios_dir: &Path, region: DiscRegion) -> Bios {
++    match std::fs::read(bios_dir.join(bios_file(region))) {
++        Ok(bytes) => bios_of(&bytes, region),
++        Err(_) => Bios::Missing,
++    }
++}
++
++pub fn bios_of(bytes: &[u8], region: DiscRegion) -> Bios {
++    match bytes.len() {
++        BIOS_BYTES if known_crcs(region).contains(&crc32(bytes)) => Bios::Known,
++        BIOS_BYTES => Bios::Unknown,
++        _ => Bios::Missing,
++    }
++}
++
++pub fn disc_region(disc: &Path) -> Option<DiscRegion> {
++    let ext = disc.extension()?.to_str()?.to_ascii_lowercase();
++    match ext.as_str() {
++        "m3u" => disc_region(playlist(disc)?.first()?),
++        "cue" => region_of_track(&first_track(disc)?),
++        "iso" | "bin" => region_of_track(disc),
++        _ => None,
++    }
++}
++
++fn region_of_track(path: &Path) -> Option<DiscRegion> {
++    let mut file = File::open(path).ok()?;
++    let mut sync = [0u8; 12];
++    file.read_exact(&mut sync).ok()?;
++    let at = if sync == SYNC { RAW_DATA } else { 0 } + REGION_BYTE;
++    let mut byte = [0u8; 1];
++    file.seek(SeekFrom::Start(at)).ok()?;
++    file.read_exact(&mut byte).ok()?;
++    Some(match byte[0] {
++        0x64 => DiscRegion::Eu,
++        0xa1 => DiscRegion::Jp,
++        _ => DiscRegion::Us,
++    })
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index fb3dfc2..168dc9f 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -38,6 +38,7 @@ mod retro_mould;
+ mod retro_shadows;
+ mod retro_shell;
+ mod screen_order;
++mod segacd_toast;
+ mod shelf;
+ mod shell;
+ mod silhouette;
+@@ -96,8 +97,8 @@ pub use plate::{
+ pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
+ pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
+ pub use ps1_case::{
+-    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
+-    DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
++    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, sega_cd_region,
++    tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
+ };
+ pub use quick_menu::{
+     core_button_legends, draw_menu_ground, link_button_legends, prompt_legends, quick_caret_face,
+@@ -121,6 +122,7 @@ pub use retro_shell::{
+     SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK, SNES_GREY, SNES_TITLES, VB_GREY, WSC_CLEAR, WS_BLACK,
+ };
+ pub use screen_order::{screen_page, set_screen_page};
++pub use segacd_toast::SegaCdToast;
+ pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
+ pub use shell::{
+     gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
+diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
+index 98fc5b6..83aac63 100644
+--- a/crates/slot-ui/src/ps1_case.rs
++++ b/crates/slot-ui/src/ps1_case.rs
+@@ -175,3 +175,9 @@ fn overlay(base: u8, colour: u8) -> u8 {
+     };
+     out.clamp(0, 255) as u8
+ }
++
++pub fn sega_cd_region(rom: &Path, stem: &str) -> DiscRegion {
++    tag_region(stem)
++        .or_else(|| slot_store::segacd::disc_region(rom))
++        .unwrap_or(DiscRegion::Us)
++}
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 0a8e1e3..1886b4d 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -156,6 +156,7 @@ impl Toast {
+             .chain(crate::LynxToast::ALL.map(Toast::Lynx))
+             .chain(crate::ArcadeToast::ALL.map(Toast::Arcade))
+             .chain(crate::FdsToast::ALL.map(Toast::Fds))
++            .chain(crate::SegaCdToast::ALL.map(Toast::SegaCd))
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/src/segacd_toast.rs b/crates/slot-ui/src/segacd_toast.rs
+new file mode 100644
+index 0000000..4df5fdf
+--- /dev/null
++++ b/crates/slot-ui/src/segacd_toast.rs
+@@ -0,0 +1,41 @@
++use slot_store::ps1::DiscRegion;
++
++use crate::Toast;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum SegaCdToast {
++    NeedsBios(DiscRegion),
++    UnknownBios(DiscRegion),
++}
++
++impl SegaCdToast {
++    pub const ALL: [SegaCdToast; 6] = [
++        SegaCdToast::NeedsBios(DiscRegion::Us),
++        SegaCdToast::NeedsBios(DiscRegion::Eu),
++        SegaCdToast::NeedsBios(DiscRegion::Jp),
++        SegaCdToast::UnknownBios(DiscRegion::Us),
++        SegaCdToast::UnknownBios(DiscRegion::Eu),
++        SegaCdToast::UnknownBios(DiscRegion::Jp),
++    ];
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            SegaCdToast::NeedsBios(DiscRegion::Us) => "Sega CD needs BIOS/bios_CD_U.bin",
++            SegaCdToast::NeedsBios(DiscRegion::Eu) => "Sega CD needs BIOS/bios_CD_E.bin",
++            SegaCdToast::NeedsBios(DiscRegion::Jp) => "Sega CD needs BIOS/bios_CD_J.bin",
++            SegaCdToast::UnknownBios(DiscRegion::Us) => "bios_CD_U.bin is not a known dump",
++            SegaCdToast::UnknownBios(DiscRegion::Eu) => "bios_CD_E.bin is not a known dump",
++            SegaCdToast::UnknownBios(DiscRegion::Jp) => "bios_CD_J.bin is not a known dump",
++        }
++    }
++}
++
++impl Toast {
++    pub fn segacd_index(s: SegaCdToast) -> usize {
++        Toast::fds_index(crate::FdsToast::ALL[0]) + crate::FdsToast::ALL.len() + s.index()
++    }
++}
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index 4f93ffb..05a7ed1 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -34,6 +34,7 @@ pub enum Toast {
+     Lynx(crate::LynxToast),
+     Arcade(crate::ArcadeToast),
+     Fds(crate::FdsToast),
++    SegaCd(crate::SegaCdToast),
+ }
+ 
+ impl Toast {
+@@ -75,6 +76,7 @@ impl Toast {
+             Toast::Lynx(l) => Toast::lynx_index(l),
+             Toast::Arcade(a) => Toast::arcade_index(a),
+             Toast::Fds(f) => Toast::fds_index(f),
++            Toast::SegaCd(s) => Toast::segacd_index(s),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -126,6 +128,7 @@ impl Toast {
+             Toast::Lynx(l) => l.text(),
+             Toast::Arcade(a) => a.text(),
+             Toast::Fds(f) => f.text(),
++            Toast::SegaCd(s) => s.text(),
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 4d347ca..d3cc8f1 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -5,6 +5,7 @@ mod fast_scroll;
+ mod fds_bios;
+ mod lynx_bios;
+ mod ps1_discs;
++mod segacd_bios;
+ mod shelf_order;
+ mod silent_start;
+ mod start_guard;
+@@ -451,6 +452,7 @@ pub struct App {
+     battery_warned: Option<u8>,
+     lynx_bios_warned: bool,
+     fds_bios_warned: bool,
++    segacd_bios_warned: bool,
+     lynx_flip: bool,
+     last_led: Option<LedState>,
+     powering_off: bool,
+@@ -651,6 +653,7 @@ impl App {
+             battery_warned: None,
+             lynx_bios_warned: false,
+             fds_bios_warned: false,
++            segacd_bios_warned: false,
+             lynx_flip: true,
+             last_led: None,
+             powering_off: false,
+@@ -5075,6 +5078,7 @@ impl App {
+         if !self.lynx_bios_allows(platform)
+             || !self.neogeo_bios_allows(platform)
+             || !self.fds_bios_allows(platform)
++            || !self.segacd_bios_allows(platform)
+         {
+             return;
+         }
+diff --git a/crates/slot/src/app/segacd_bios.rs b/crates/slot/src/app/segacd_bios.rs
+new file mode 100644
+index 0000000..b47d173
+--- /dev/null
++++ b/crates/slot/src/app/segacd_bios.rs
+@@ -0,0 +1,41 @@
++use slot_store::lynx::Bios;
++use slot_store::segacd::{bios, bios_file};
++use slot_store::Platform;
++use slot_ui::{SegaCdToast, Toast};
++
++use super::App;
++
++impl App {
++    pub(super) fn segacd_bios_allows(&mut self, platform: Platform) -> bool {
++        if platform != Platform::SegaCd {
++            return true;
++        }
++        let Some(root) = self.root.as_deref() else {
++            return true;
++        };
++        let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
++            return true;
++        };
++        let region = slot_ui::sega_cd_region(&cart.rom, &cart.stem);
++        let file = bios_file(region);
++        match bios(&crate::root::bios_dir(root), region) {
++            Bios::Known => true,
++            Bios::Unknown => {
++                if !self.segacd_bios_warned {
++                    self.segacd_bios_warned = true;
++                    eprintln!("slot: segacd: BIOS/{file} is not a known dump, launching");
++                    self.hud
++                        .toast(Toast::SegaCd(SegaCdToast::UnknownBios(region)), self.now());
++                }
++                true
++            }
++            Bios::Missing => {
++                eprintln!("slot: segacd: no usable BIOS/{file}, not launching");
++                self.hud
++                    .toast(Toast::SegaCd(SegaCdToast::NeedsBios(region)), self.now());
++                self.refuse();
++                false
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
+index 185037d..0c3f811 100644
+--- a/crates/slot/tests/ps1_discs.rs
++++ b/crates/slot/tests/ps1_discs.rs
+@@ -221,6 +221,7 @@ fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
+                 - slot_ui::LynxToast::ALL.len()
+                 - slot_ui::ArcadeToast::ALL.len()
+                 - slot_ui::FdsToast::ALL.len()
++                - slot_ui::SegaCdToast::ALL.len()
+                 + i
+         );
+     }
+diff --git a/crates/slot/tests/segacd_bios.rs b/crates/slot/tests/segacd_bios.rs
+new file mode 100644
+index 0000000..f105c74
+--- /dev/null
++++ b/crates/slot/tests/segacd_bios.rs
+@@ -0,0 +1,187 @@
++// Sega CD needs the BIOS of the disc's region in BIOS/, which slot never ships or fetches (ADR 0104).
++// Genesis Plus GX opens bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin by the disc's region byte at
++// 0x20b and checks nothing in it, so slot checks the file before the disc is inserted.
++mod common;
++mod core_common;
++mod segacd_common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use segacd_common::{cue_disc, dummy_bios, iso_disc, put_bios, real_bios, EU, JP, US};
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::lynx::Bios;
++use slot_store::ps1::DiscRegion;
++use slot_store::segacd::{bios, bios_file, bios_of, disc_region, BIOS_BYTES};
++use slot_store::{write_slot_state, Platform, SlotState};
++use slot_ui::{sega_cd_region, FdsToast, SegaCdToast, Toast};
++use tempfile::TempDir;
++
++fn card(disc: &str, region: u8, bios: &[(&str, &[u8])]) -> TempDir {
++    let d = tmp_root_with_carts(&[]);
++    iso_disc(&d.path().join("Games/SEGACD"), disc, region);
++    for (file, bytes) in bios {
++        put_bios(d.path(), file, bytes);
++    }
++    d
++}
++
++fn boot_on(root: &Path, cart: Option<&str>) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            cart: cart.map(str::to_string),
++            cart_platform: cart.map(|_| Platform::SegaCd),
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn insert(a: &mut App) {
++    a.apply(Action::GbaDown(Btn::A));
++    a.apply(Action::GbaUp(Btn::A));
++    for _ in 0..10 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn inserting(a: &App) -> bool {
++    matches!(a.phase(), Phase::Inserting { .. } | Phase::Playing { .. })
++}
++
++#[test]
++fn each_region_has_its_own_bios_file() {
++    assert_eq!(bios_file(DiscRegion::Us), "bios_CD_U.bin");
++    assert_eq!(bios_file(DiscRegion::Eu), "bios_CD_E.bin");
++    assert_eq!(bios_file(DiscRegion::Jp), "bios_CD_J.bin");
++}
++
++#[test]
++fn the_check_reads_missing_short_long_and_unknown_files() {
++    let d = tempfile::tempdir().unwrap();
++    assert_eq!(bios(d.path(), DiscRegion::Us), Bios::Missing);
++    for (bytes, want) in [
++        (vec![], Bios::Missing),
++        (vec![0u8; 65536], Bios::Missing),
++        (vec![0u8; BIOS_BYTES + 1], Bios::Missing),
++        (vec![0u8; BIOS_BYTES], Bios::Unknown),
++    ] {
++        std::fs::write(d.path().join("bios_CD_U.bin"), &bytes).unwrap();
++        assert_eq!(
++            bios(d.path(), DiscRegion::Us),
++            want,
++            "{} bytes",
++            bytes.len()
++        );
++    }
++    assert_eq!(bios(d.path(), DiscRegion::Eu), Bios::Missing);
++}
++
++#[test]
++fn the_maintainers_own_us_bios_is_a_known_dump_and_not_a_european_one() {
++    let Some(b) = real_bios() else {
++        return;
++    };
++    assert_eq!(bios_of(&b, DiscRegion::Us), Bios::Known);
++    assert_eq!(bios_of(&b, DiscRegion::Eu), Bios::Unknown);
++}
++
++#[test]
++fn the_region_comes_from_the_name_then_the_byte_at_0x20b_then_usa() {
++    let d = tempfile::tempdir().unwrap();
++    let eu = iso_disc(d.path(), "Untagged EU", EU);
++    let jp = cue_disc(d.path(), "Untagged JP", JP);
++    let us = iso_disc(d.path(), "Untagged US", US);
++    assert_eq!(disc_region(&eu), Some(DiscRegion::Eu));
++    assert_eq!(disc_region(&jp), Some(DiscRegion::Jp));
++    assert_eq!(disc_region(&us), Some(DiscRegion::Us));
++    assert_eq!(sega_cd_region(&eu, "Untagged EU"), DiscRegion::Eu);
++    assert_eq!(sega_cd_region(&eu, "Sol-Feace (USA)"), DiscRegion::Us);
++    assert_eq!(
++        sega_cd_region(&us, "Lunar - Eternal Blue (Japan) (En)"),
++        DiscRegion::Jp
++    );
++    let chd = d.path().join("Popful Mail.chd");
++    std::fs::write(&chd, [0u8; 64]).unwrap();
++    assert_eq!(disc_region(&chd), None);
++    assert_eq!(sega_cd_region(&chd, "Popful Mail"), DiscRegion::Us);
++    let m3u = d.path().join("Two.m3u");
++    std::fs::write(&m3u, "Untagged JP.cue\n").unwrap();
++    assert_eq!(disc_region(&m3u), Some(DiscRegion::Jp));
++}
++
++#[test]
++fn with_no_bios_a_disc_stays_on_the_shelf_with_a_toast_naming_its_file() {
++    let d = card("Sonic CD (USA)", US, &[]);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    let toast = Toast::SegaCd(SegaCdToast::NeedsBios(DiscRegion::Us));
++    assert_eq!(a.toast(), Some(toast));
++    assert_eq!(toast.text(), "Sega CD needs BIOS/bios_CD_U.bin");
++}
++
++#[test]
++fn a_european_disc_needs_the_european_bios_even_with_the_us_one_present() {
++    let us = dummy_bios();
++    let d = card("Sonic CD (Europe)", EU, &[("bios_CD_U.bin", &us)]);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(
++        a.toast(),
++        Some(Toast::SegaCd(SegaCdToast::NeedsBios(DiscRegion::Eu)))
++    );
++}
++
++#[test]
++fn a_disc_resumed_at_boot_is_checked_too() {
++    let d = card("Sonic CD (Japan)", JP, &[("bios_CD_J.bin", &[0u8; 100])]);
++    let a = boot_on(d.path(), Some("Sonic CD (Japan)"));
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(
++        a.toast(),
++        Some(Toast::SegaCd(SegaCdToast::NeedsBios(DiscRegion::Jp)))
++    );
++}
++
++#[test]
++fn an_unknown_bios_launches_and_says_so() {
++    let d = card("Sonic CD (USA)", US, &[("bios_CD_U.bin", &dummy_bios())]);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(
++        a.toast(),
++        Some(Toast::SegaCd(SegaCdToast::UnknownBios(DiscRegion::Us)))
++    );
++}
++
++#[test]
++fn a_known_bios_launches_with_no_toast() {
++    let Some(b) = real_bios() else {
++        return;
++    };
++    let d = card("Sonic CD (USA)", US, &[("bios_CD_U.bin", &b)]);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn the_sega_cd_toasts_upload_in_their_own_place_after_the_fds_ones() {
++    let every = Toast::every();
++    for s in SegaCdToast::ALL {
++        let t = Toast::SegaCd(s);
++        assert_eq!(every.get(t.index()), Some(&t), "{s:?}");
++    }
++    assert_eq!(
++        Toast::SegaCd(SegaCdToast::ALL[0]).index(),
++        Toast::Fds(FdsToast::ALL[FdsToast::ALL.len() - 1]).index() + 1
++    );
++}

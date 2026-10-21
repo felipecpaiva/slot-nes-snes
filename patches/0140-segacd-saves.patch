@@ -1,0 +1,692 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:45:17 +0400
+Subject: [PATCH] segacd-saves
+
+Sega CD saves live in the console's 8 KB internal backup RAM, which
+Genesis Plus GX keeps itself: no SAVE_RAM, not in the memory maps, not
+in a state, read from <save dir>/<stem>.brm at load and written only at
+unload, truncated in place. So a power cut lost every save since the
+last clean eject, resume or not. Sega CD now takes the Neo Geo Pocket
+flash design (ADR 0094), with no state backstop:
+
+- the core's save dir is Saves/SEGACD/.core;
+- before load slot stages the published Saves/SEGACD/<stem>.brm there,
+  if it is exactly 8192 bytes and ends with the format footer
+  (SEGA_CD_ROM, RAM_CARTRIDGE___), the check the core makes before it
+  formats a fresh RAM over a file; any other file is moved aside to
+  <stem>.brm-refused and logged;
+- after unload slot publishes the core's file with a temp, fsync and
+  rename, never a torn one and never an unchanged one;
+- at a lid close, a POWER tap, battery critical, the 60 s autosave and
+  an eject slot flushes by reload: serialize, load the disc again (the
+  core writes the .brm), publish, unserialize. A game of several discs
+  stays on its disc through the state's disc trailer. The reload took
+  well under a frame on the host for a synthetic disc; the device time
+  is a device-gate item.
+
+The stem is the content's, so a set's backup RAM is named after its
+playlist. The NGP flash keeps its paths and files.
+---
+ crates/slot-store/src/platform_policy.rs   |   3 +-
+ crates/slot-store/tests/segacd_platform.rs |   2 +-
+ crates/slot/src/ngp_flash.rs               | 125 +++++---
+ crates/slot/tests/ngp_flash.rs             |   5 +-
+ crates/slot/tests/segacd_saves.rs          | 343 +++++++++++++++++++++
+ 5 files changed, 437 insertions(+), 41 deletions(-)
+ create mode 100644 crates/slot/tests/segacd_saves.rs
+
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 26d944a..c24152d 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -460,7 +460,7 @@ impl Platform {
+ 
+     pub fn flashes_on_unload(self) -> bool {
+         match self {
+-            Platform::Ngp => true,
++            Platform::Ngp | Platform::SegaCd => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -470,7 +470,6 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::SegaCd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+diff --git a/crates/slot-store/tests/segacd_platform.rs b/crates/slot-store/tests/segacd_platform.rs
+index 68f24b8..efb2eb8 100644
+--- a/crates/slot-store/tests/segacd_platform.rs
++++ b/crates/slot-store/tests/segacd_platform.rs
+@@ -86,7 +86,7 @@ fn sega_cd_plays_like_the_mega_drive_and_answers_every_policy() {
+     assert!(!p.fills_canvas());
+     assert!(p.swaps_discs());
+     assert_eq!(p.actual_scale(), None);
+-    assert!(!p.flashes_on_unload());
++    assert!(p.flashes_on_unload());
+     assert!(!p.is_arcade());
+     assert_eq!(p.picker_cores(), None);
+     assert_eq!(p.picture(), (320, 224));
+diff --git a/crates/slot/src/ngp_flash.rs b/crates/slot/src/ngp_flash.rs
+index a062d51..264b572 100644
+--- a/crates/slot/src/ngp_flash.rs
++++ b/crates/slot/src/ngp_flash.rs
+@@ -11,17 +11,33 @@ const MAX_BLOCKS: u16 = 256;
+ const FILE_HEADER: usize = 8;
+ const BLOCK_HEADER: usize = 8;
+ const STAGING: &str = ".core";
+-const REFUSED: &str = "flash-refused";
++const BRAM_BYTES: usize = 0x2000;
++const BRAM_FORMAT: &[u8; 32] = b"SEGA_CD_ROM\x00\x01\x00\x00\x00RAM_CARTRIDGE___";
+ 
+ pub struct Seat {
+     root: PathBuf,
++    platform: Platform,
+     stem: String,
+     rom: PathBuf,
+ }
+ 
++fn tag(platform: Platform) -> &'static str {
++    match platform {
++        Platform::SegaCd => "segacd bram",
++        _ => "ngp flash",
++    }
++}
++
++fn ext(platform: Platform) -> &'static str {
++    match platform {
++        Platform::SegaCd => "brm",
++        _ => "flash",
++    }
++}
++
+ pub fn core_save_dir(root: &Path, platform: Platform) -> PathBuf {
+     match platform.flashes_on_unload() {
+-        true => staging_dir(root),
++        true => staging_dir(root, platform),
+         // fake-08 keeps cartdata in <save dir>/cdata/<key>.p8d.txt (ADR 0102): Saves/PICO8/cdata.
+         false if platform == Platform::Pico8 => {
+             crate::root::saves_dir(root).join(platform.dir_name())
+@@ -31,29 +47,53 @@ pub fn core_save_dir(root: &Path, platform: Platform) -> PathBuf {
+ }
+ 
+ pub fn flash_path(root: &Path, stem: &str) -> PathBuf {
+-    platform_dir(root).join(format!("{stem}.flash"))
++    save_path(root, Platform::Ngp, stem)
+ }
+ 
+ pub fn staged_path(root: &Path, stem: &str) -> PathBuf {
+-    staging_dir(root).join(format!("{stem}.flash"))
++    staged(root, Platform::Ngp, stem)
+ }
+ 
+ pub fn refused_path(root: &Path, stem: &str) -> PathBuf {
+-    platform_dir(root).join(format!("{stem}.{REFUSED}"))
++    refused(root, Platform::Ngp, stem)
++}
++
++pub fn save_path(root: &Path, platform: Platform, stem: &str) -> PathBuf {
++    platform_dir(root, platform).join(format!("{stem}.{}", ext(platform)))
++}
++
++pub fn staged(root: &Path, platform: Platform, stem: &str) -> PathBuf {
++    staging_dir(root, platform).join(format!("{stem}.{}", ext(platform)))
++}
++
++pub fn refused(root: &Path, platform: Platform, stem: &str) -> PathBuf {
++    platform_dir(root, platform).join(format!("{stem}.{}-refused", ext(platform)))
+ }
+ 
+-fn platform_dir(root: &Path) -> PathBuf {
+-    crate::root::saves_dir(root).join(Platform::Ngp.dir_name())
++fn platform_dir(root: &Path, platform: Platform) -> PathBuf {
++    crate::root::saves_dir(root).join(platform.dir_name())
+ }
+ 
+-fn staging_dir(root: &Path) -> PathBuf {
+-    platform_dir(root).join(STAGING)
++fn staging_dir(root: &Path, platform: Platform) -> PathBuf {
++    platform_dir(root, platform).join(STAGING)
+ }
+ 
+ fn stem_of(rom: &Path) -> Option<&str> {
+     rom.file_stem().and_then(|s| s.to_str())
+ }
+ 
++pub fn valid_for(platform: Platform, bytes: &[u8]) -> bool {
++    match platform {
++        Platform::SegaCd => valid_bram(bytes),
++        _ => valid(bytes),
++    }
++}
++
++pub fn valid_bram(bytes: &[u8]) -> bool {
++    bytes.len() == BRAM_BYTES
++        && bytes.get(BRAM_BYTES - BRAM_FORMAT.len()..) == Some(&BRAM_FORMAT[..])
++}
++
+ pub fn valid(bytes: &[u8]) -> bool {
+     let Some(head) = bytes.get(..FILE_HEADER) else {
+         return false;
+@@ -78,67 +118,73 @@ pub fn stage(root: &Path, platform: Platform, rom: &Path) {
+     let Some(stem) = stem_of(rom).filter(|_| platform.flashes_on_unload()) else {
+         return;
+     };
+-    if let Err(e) = std::fs::create_dir_all(staging_dir(root)) {
+-        eprintln!("slot: ngp flash: {e}");
++    let tag = tag(platform);
++    if let Err(e) = std::fs::create_dir_all(staging_dir(root, platform)) {
++        eprintln!("slot: {tag}: {e}");
+     }
+-    let flash = flash_path(root, stem);
++    let flash = save_path(root, platform, stem);
+     let old = crate::root::saves_dir(root).join(format!("{stem}.flash"));
+-    if !flash.exists() && old.exists() {
++    if platform == Platform::Ngp && !flash.exists() && old.exists() {
+         match std::fs::rename(&old, &flash) {
+             Ok(()) => eprintln!(
+-                "slot: ngp flash: moved {} to {}",
++                "slot: {tag}: moved {} to {}",
+                 old.display(),
+                 flash.display()
+             ),
+-            Err(e) => eprintln!("slot: ngp flash: could not move {}: {e}", old.display()),
++            Err(e) => eprintln!("slot: {tag}: could not move {}: {e}", old.display()),
+         }
+     }
+-    let staged = staged_path(root, stem);
++    let staged = staged(root, platform, stem);
+     match std::fs::remove_file(&staged) {
+         Err(e) if e.kind() != ErrorKind::NotFound => {
+-            eprintln!("slot: ngp flash: could not clear {}: {e}", staged.display());
++            eprintln!("slot: {tag}: could not clear {}: {e}", staged.display());
+         }
+         _ => {}
+     }
+     let Ok(bytes) = std::fs::read(&flash) else {
+         return;
+     };
+-    if !valid(&bytes) {
+-        let aside = refused_path(root, stem);
++    if !valid_for(platform, &bytes) {
++        let aside = refused(root, platform, stem);
+         match std::fs::rename(&flash, &aside) {
+             Ok(()) => eprintln!(
+-                "slot: ngp flash: {} is torn, moved it to {} and started with blank flash",
++                "slot: {tag}: {} is torn, moved it to {} and started with a blank one",
+                 flash.display(),
+                 aside.display()
+             ),
+-            Err(e) => eprintln!(
+-                "slot: ngp flash: {} is torn and stays: {e}",
+-                flash.display()
+-            ),
++            Err(e) => eprintln!("slot: {tag}: {} is torn and stays: {e}", flash.display()),
+         }
+         return;
+     }
+     if let Err(e) = std::fs::write(&staged, &bytes) {
+-        eprintln!("slot: ngp flash: could not stage {}: {e}", staged.display());
++        eprintln!("slot: {tag}: could not stage {}: {e}", staged.display());
+     }
+ }
+ 
+ pub fn publish(root: &Path, stem: &str) -> std::io::Result<bool> {
+-    let staged = match std::fs::read(staged_path(root, stem)) {
++    publish_for(root, Platform::Ngp, stem)
++}
++
++pub fn publish_for(root: &Path, platform: Platform, stem: &str) -> std::io::Result<bool> {
++    let tag = tag(platform);
++    let staged = match std::fs::read(staged(root, platform, stem)) {
+         Ok(bytes) => bytes,
+         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
+         Err(e) => return Err(e),
+     };
+-    if !valid(&staged) {
+-        eprintln!("slot: ngp flash: the core left a torn {stem}.flash, keeping the published one");
++    if !valid_for(platform, &staged) {
++        eprintln!(
++            "slot: {tag}: the core left a torn {stem}.{}, keeping the published one",
++            ext(platform)
++        );
+         return Ok(false);
+     }
+-    let flash = flash_path(root, stem);
++    let flash = save_path(root, platform, stem);
+     if std::fs::read(&flash).is_ok_and(|old| old == staged) {
+         return Ok(false);
+     }
+     atomic_write(&flash, &staged)?;
+-    eprintln!("slot: ngp flash: published {}", flash.display());
++    eprintln!("slot: {tag}: published {}", flash.display());
+     Ok(true)
+ }
+ 
+@@ -146,6 +192,7 @@ pub fn seat(root: &Path, platform: Platform, rom: &Path) -> Option<Seat> {
+     let stem = stem_of(rom).filter(|_| platform.flashes_on_unload())?;
+     Some(Seat {
+         root: root.to_path_buf(),
++        platform,
+         stem: stem.to_owned(),
+         rom: rom.to_path_buf(),
+     })
+@@ -162,19 +209,25 @@ pub fn flush(seat: &Mutex<Option<Seat>>, core: &mut dyn RetroCore) -> bool {
+     let Some(seat) = guard.as_ref() else {
+         return true;
+     };
++    let tag = tag(seat.platform);
+     let started = Instant::now();
+     let reloaded = reload(core, &seat.rom);
+     if let Err(e) = &reloaded {
+-        eprintln!("slot: ngp flash: reload failed, the resume state keeps the flash: {e}");
++        match seat.platform {
++            Platform::SegaCd => {
++                eprintln!("slot: {tag}: reload failed, the last published one stays: {e}")
++            }
++            _ => eprintln!("slot: {tag}: reload failed, the resume state keeps the flash: {e}"),
++        }
+     }
+     if crate::session::trace() {
+         eprintln!(
+-            "slot: ngp flash: reload took {:.2} ms",
++            "slot: {tag}: reload took {:.2} ms",
+             started.elapsed().as_secs_f64() * 1000.0
+         );
+     }
+-    if let Err(e) = publish(&seat.root, &seat.stem) {
+-        eprintln!("slot: ngp flash: {e}");
++    if let Err(e) = publish_for(&seat.root, seat.platform, &seat.stem) {
++        eprintln!("slot: {tag}: {e}");
+     }
+     reloaded.is_ok()
+ }
+@@ -182,8 +235,8 @@ pub fn flush(seat: &Mutex<Option<Seat>>, core: &mut dyn RetroCore) -> bool {
+ pub fn published_after_unload(seat: &Mutex<Option<Seat>>) {
+     let guard = seat.lock().unwrap_or_else(|e| e.into_inner());
+     if let Some(seat) = guard.as_ref() {
+-        if let Err(e) = publish(&seat.root, &seat.stem) {
+-            eprintln!("slot: ngp flash: {e}");
++        if let Err(e) = publish_for(&seat.root, seat.platform, &seat.stem) {
++            eprintln!("slot: {}: {e}", tag(seat.platform));
+         }
+     }
+ }
+diff --git a/crates/slot/tests/ngp_flash.rs b/crates/slot/tests/ngp_flash.rs
+index 3c61cf9..aea9a6f 100644
+--- a/crates/slot/tests/ngp_flash.rs
++++ b/crates/slot/tests/ngp_flash.rs
+@@ -120,18 +120,19 @@ fn a_torn_or_foreign_flash_file_fails_the_check() {
+ }
+ 
+ #[test]
+-fn only_the_neogeo_pocket_core_gets_a_staging_save_dir() {
++fn only_the_neogeo_pocket_and_sega_cd_cores_get_a_staging_save_dir() {
+     let root = Path::new("/card");
+     for platform in Platform::SHELVES {
+         let want = match platform {
+             Platform::Ngp => root.join("Saves/NGP/.core"),
++            Platform::SegaCd => root.join("Saves/SEGACD/.core"),
+             Platform::Pico8 => root.join("Saves/PICO8"),
+             _ => root.join("Saves"),
+         };
+         assert_eq!(core_save_dir(root, platform), want, "{platform:?}");
+         assert_eq!(
+             platform.flashes_on_unload(),
+-            platform == Platform::Ngp,
++            matches!(platform, Platform::Ngp | Platform::SegaCd),
+             "{platform:?}"
+         );
+     }
+diff --git a/crates/slot/tests/segacd_saves.rs b/crates/slot/tests/segacd_saves.rs
+new file mode 100644
+index 0000000..818dc2d
+--- /dev/null
++++ b/crates/slot/tests/segacd_saves.rs
+@@ -0,0 +1,343 @@
++// Sega CD backup RAM (ADR 0104). Genesis Plus GX keeps the 8 KB internal backup RAM itself: it reads
++// <save dir>/<stem>.brm at load and writes it, truncating, only at unload, and a state does not carry
++// it. slot hands the core Saves/SEGACD/.core as its save dir, stages the published
++// Saves/SEGACD/<stem>.brm there before load, publishes what the core wrote with a temp, fsync and
++// rename, and flushes a running game by serialize, reload and unserialize (the NGP design, ADR 0094).
++// The dummy BIOS never runs a game, but the core formats a fresh backup RAM and writes it on the first
++// unload, which is the write these tests follow.
++mod common;
++mod core_common;
++mod real_seat;
++mod segacd_common;
++
++use std::path::Path;
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use segacd_common::{
++    assert_formatted_bram, dummy_bios, genesis_plus_gx, iso_disc, put_bios, BRAM_LEN, US,
++};
++use slot::app::Phase;
++use slot::core::{apply_core_options, dylib_name};
++use slot::ngp_flash::{core_save_dir, publish_for, refused, save_path, stage, staged, valid_for};
++use slot::session::Session;
++use slot_input::Action;
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++const STEM: &str = "Lunar - The Silver Star (USA)";
++const P: Platform = Platform::SegaCd;
++
++fn bram(mark: u8) -> Vec<u8> {
++    let mut b = vec![0u8; BRAM_LEN];
++    b[0] = mark;
++    b[BRAM_LEN - 0x40..BRAM_LEN - 0x35].copy_from_slice(b"___________");
++    b[BRAM_LEN - 0x20..].copy_from_slice(b"SEGA_CD_ROM\x00\x01\x00\x00\x00RAM_CARTRIDGE___");
++    b
++}
++
++fn card() -> Option<TempDir> {
++    let dylib = genesis_plus_gx()?;
++    let root = common::tmp_root_with_real_carts(&[]);
++    iso_disc(&root.path().join("Games/SEGACD"), STEM, US);
++    iso_disc(&root.path().join("Games/SEGACD"), "Zzz", US);
++    put_bios(root.path(), "bios_CD_U.bin", &dummy_bios());
++    std::os::unix::fs::symlink(
++        std::fs::canonicalize(dylib).expect("core path"),
++        root.path()
++            .join("System")
++            .join(dylib_name(Core::GenesisPlusGx)),
++    )
++    .expect("link core");
++    common::clocked(root.path());
++    Some(root)
++}
++
++fn seated() -> Option<(TempDir, Session)> {
++    let root = card()?;
++    let session = real_seat::play(root.path(), true);
++    Some((root, session))
++}
++
++fn wait_for(session: &mut Session, what: &str, done: impl Fn(&Session) -> bool) {
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while !done(session) {
++        assert!(Instant::now() < deadline, "{what}");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(2));
++    }
++}
++
++fn still_playing(session: &mut Session) {
++    let before = session.frames_published();
++    wait_for(session, "the game stopped after the flush", |s| {
++        s.frames_published() > before + 5
++    });
++}
++
++#[test]
++fn sega_cd_and_the_neo_geo_pocket_are_the_only_cores_with_a_staging_save_dir() {
++    let root = Path::new("/card");
++    assert_eq!(core_save_dir(root, P), root.join("Saves/SEGACD/.core"));
++    assert_eq!(core_save_dir(root, Platform::Md), root.join("Saves"));
++    assert_eq!(
++        save_path(root, P, STEM),
++        root.join(format!("Saves/SEGACD/{STEM}.brm"))
++    );
++    assert_eq!(
++        refused(root, P, STEM),
++        root.join(format!("Saves/SEGACD/{STEM}.brm-refused"))
++    );
++}
++
++#[test]
++fn a_backup_ram_file_is_good_only_at_8_kb_with_the_format_footer() {
++    assert!(valid_for(P, &bram(7)));
++    assert!(!valid_for(P, &bram(7)[..BRAM_LEN - 1]), "short");
++    assert!(!valid_for(P, &[bram(7), vec![0]].concat()), "long");
++    assert!(!valid_for(P, &[]), "empty");
++    let mut wrong = bram(7);
++    wrong[BRAM_LEN - 1] = b'X';
++    assert!(!valid_for(P, &wrong), "a damaged footer");
++    assert!(
++        !valid_for(Platform::Ngp, &bram(7)),
++        "the NGP check is its own"
++    );
++}
++
++#[test]
++fn a_good_file_is_staged_and_a_torn_one_is_moved_aside() {
++    let root = tempfile::tempdir().expect("tempdir");
++    let rom = root.path().join(format!("Games/SEGACD/{STEM}.chd"));
++    std::fs::create_dir_all(save_path(root.path(), P, STEM).parent().expect("dir")).expect("dir");
++    std::fs::write(save_path(root.path(), P, STEM), bram(3)).expect("write");
++    stage(root.path(), P, &rom);
++    assert_eq!(
++        std::fs::read(staged(root.path(), P, STEM)).ok(),
++        Some(bram(3))
++    );
++    let torn = bram(4)[..100].to_vec();
++    std::fs::write(save_path(root.path(), P, STEM), &torn).expect("write");
++    stage(root.path(), P, &rom);
++    assert!(!save_path(root.path(), P, STEM).exists());
++    assert!(!staged(root.path(), P, STEM).exists());
++    assert_eq!(
++        std::fs::read(refused(root.path(), P, STEM)).ok(),
++        Some(torn)
++    );
++}
++
++#[test]
++fn a_torn_staged_file_is_never_published_over_a_good_one() {
++    let root = tempfile::tempdir().expect("tempdir");
++    std::fs::create_dir_all(staged(root.path(), P, STEM).parent().expect("dir")).expect("dir");
++    std::fs::write(save_path(root.path(), P, STEM), bram(5)).expect("write");
++    std::fs::write(staged(root.path(), P, STEM), &bram(6)[..4000]).expect("write");
++    assert!(!publish_for(root.path(), P, STEM).expect("publish"));
++    assert_eq!(
++        std::fs::read(save_path(root.path(), P, STEM)).ok(),
++        Some(bram(5))
++    );
++    std::fs::write(staged(root.path(), P, STEM), bram(6)).expect("write");
++    assert!(publish_for(root.path(), P, STEM).expect("publish"));
++    assert_eq!(
++        std::fs::read(save_path(root.path(), P, STEM)).ok(),
++        Some(bram(6))
++    );
++}
++
++#[test]
++fn a_lid_close_mid_game_puts_the_backup_ram_in_saves_segacd() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated() else {
++        return;
++    };
++    let path = save_path(root.path(), P, STEM);
++    assert!(!path.exists());
++    session.app_mut().apply(Action::LidClose);
++    assert_formatted_bram(&path);
++    assert!(!root.path().join("Saves/scd_U.brm").exists());
++    session.app_mut().apply(Action::LidOpen);
++    still_playing(&mut session);
++}
++
++#[test]
++fn the_autosave_puts_the_backup_ram_in_saves_segacd_and_the_game_carries_on() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated() else {
++        return;
++    };
++    let now = session.app().now();
++    session.app_mut().tick_ms(now + 61_000);
++    session.app_mut().settle_saves();
++    assert_formatted_bram(&save_path(root.path(), P, STEM));
++    still_playing(&mut session);
++}
++
++#[test]
++fn an_eject_publishes_the_backup_ram_atomically() {
++    let _g = core_lock();
++    let Some((root, mut session)) = seated() else {
++        return;
++    };
++    let path = save_path(root.path(), P, STEM);
++    let stop = Arc::new(AtomicBool::new(false));
++    let watcher = {
++        let (path, stop) = (path.clone(), stop.clone());
++        std::thread::spawn(move || {
++            let mut seen = Vec::new();
++            while !stop.load(Ordering::Relaxed) {
++                if let Ok(bytes) = std::fs::read(&path) {
++                    if !valid_for(P, &bytes) {
++                        seen.push(bytes.len());
++                    }
++                }
++            }
++            seen
++        })
++    };
++    session.app_mut().apply(Action::Eject);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "{:?}",
++        session.app().phase()
++    );
++    wait_for(&mut session, "the core never stopped", |s| {
++        s.emu().is_none()
++    });
++    stop.store(true, Ordering::Relaxed);
++    assert_eq!(watcher.join().expect("watcher"), Vec::<usize>::new());
++    assert_formatted_bram(&path);
++}
++
++#[test]
++fn a_saved_backup_ram_is_handed_back_to_the_core_and_kept_as_it_was() {
++    let _g = core_lock();
++    let Some(root) = card() else {
++        return;
++    };
++    let path = save_path(root.path(), P, STEM);
++    std::fs::create_dir_all(path.parent().expect("dir")).expect("dir");
++    std::fs::write(&path, bram(9)).expect("plant a save");
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(
++        std::fs::read(staged(root.path(), P, STEM)).ok(),
++        Some(bram(9))
++    );
++    session.app_mut().apply(Action::LidClose);
++    drop(session);
++    assert_eq!(std::fs::read(&path).ok(), Some(bram(9)));
++}
++
++#[test]
++fn a_torn_backup_ram_on_the_card_boots_the_game_and_is_kept_aside() {
++    let _g = core_lock();
++    let Some(root) = card() else {
++        return;
++    };
++    let path = save_path(root.path(), P, STEM);
++    std::fs::create_dir_all(path.parent().expect("dir")).expect("dir");
++    let torn = bram(9)[..512].to_vec();
++    std::fs::write(&path, &torn).expect("write");
++    let mut session = real_seat::play(root.path(), true);
++    still_playing(&mut session);
++    drop(session);
++    assert_eq!(
++        std::fs::read(refused(root.path(), P, STEM)).ok(),
++        Some(torn)
++    );
++    assert_formatted_bram(&path);
++}
++
++#[test]
++fn quitting_with_the_game_in_publishes_the_backup_ram_the_core_wrote_on_unload() {
++    let _g = core_lock();
++    let Some((root, session)) = seated() else {
++        return;
++    };
++    drop(session);
++    assert_formatted_bram(&staged(root.path(), P, STEM));
++    assert_formatted_bram(&save_path(root.path(), P, STEM));
++}
++
++#[test]
++fn a_flush_by_reload_keeps_the_game_where_it_was_and_writes_the_backup_ram() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = tempfile::tempdir().expect("tempdir");
++    put_bios(d.path(), "bios_CD_U.bin", &dummy_bios());
++    let saves = core_save_dir(d.path(), P);
++    std::fs::create_dir_all(&saves).expect("dirs");
++    let rom = iso_disc(d.path(), STEM, US);
++    let mut core =
++        LibretroCore::open_with(&dylib, &slot::root::bios_dir(d.path()), &saves).expect("open");
++    apply_core_options(
++        &mut core,
++        Core::GenesisPlusGx,
++        P,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core.load(&rom).expect("load");
++    for _ in 0..30 {
++        core.run_frame(ButtonMask::default());
++    }
++    let mut once = core.serialize().expect("state");
++    core.unserialize(&once).expect("round trip");
++    once = core.serialize().expect("state");
++    let mut fastest = Duration::MAX;
++    for _ in 0..5 {
++        let started = Instant::now();
++        slot::ngp_flash::reload(&mut core, &rom).expect("reload");
++        fastest = fastest.min(started.elapsed());
++    }
++    println!("flush by reload: {:.2} ms", fastest.as_secs_f64() * 1000.0);
++    assert_eq!(core.serialize().expect("state"), once);
++    assert_formatted_bram(&saves.join(format!("{STEM}.brm")));
++    assert!(fastest < Duration::from_micros(16_600), "{fastest:?}");
++}
++
++#[test]
++fn a_flush_on_disc_two_of_a_set_stays_on_disc_two_and_names_the_backup_ram_after_the_set() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = tempfile::tempdir().expect("tempdir");
++    put_bios(d.path(), "bios_CD_U.bin", &dummy_bios());
++    let saves = core_save_dir(d.path(), P);
++    std::fs::create_dir_all(&saves).expect("dirs");
++    iso_disc(d.path(), "Night Trap (USA) (Disc 1)", US);
++    iso_disc(d.path(), "Night Trap (USA) (Disc 2)", US);
++    let m3u = d.path().join("Night Trap (USA).m3u");
++    std::fs::write(
++        &m3u,
++        "Night Trap (USA) (Disc 1).iso\nNight Trap (USA) (Disc 2).iso\n",
++    )
++    .expect("write the playlist");
++    let mut core =
++        LibretroCore::open_with(&dylib, &slot::root::bios_dir(d.path()), &saves).expect("open");
++    core.use_disc_drive();
++    apply_core_options(
++        &mut core,
++        Core::GenesisPlusGx,
++        P,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core.load(&m3u).expect("load");
++    core.next_disc();
++    core.run_frame(ButtonMask::default());
++    slot::ngp_flash::reload(&mut core, &m3u).expect("reload");
++    assert_eq!(core.disc_index(), 1);
++    assert_formatted_bram(&saves.join("Night Trap (USA).brm"));
++}

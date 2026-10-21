@@ -64,7 +64,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101), PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped) and the PC Engine SuperGrafx (Phase 20, ADR 0103) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101), PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped) the PC Engine SuperGrafx (Phase 20, ADR 0103) and Sega CD (Phase 21, ADR 0104) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -526,8 +526,8 @@ BIOS, no core picker. Patches 0080 to 0087 on upstream main 1b20432; flash durab
 Tracking issue 143, children 144 to 152, ADR 0096. One core, PicoDrive (`picodrive`) pinned at
 `1890c29` with its emu2413, dr_libs and libpicofe submodules as their own pinned tarballs, one shelf
 `Games/32X` for `.32x` and `.bin` with a 32X header, no BIOS, no core picker. Mega Drive is untouched.
-Patches 0090 to 0097 on upstream main 1b20432. (Phases 13 and 14 are the Sega CD and Atari groundwork
-on their own branches.)
+Patches 0090 to 0097 on upstream main 1b20432. (Phases 13 and 14 were the Sega CD and Atari groundwork
+on their own branches; Sega CD shipped as Phase 21.)
 
 | Step | Issue | Content |
 |---|---|---|
@@ -653,6 +653,26 @@ as a SuperGrafx (`sgx_forcesgx`). The TurboGrafx-16 shelf is unchanged. Patches 
 | 5 | 212, done (0133) | The Super HuCard, labels for ScreenScraper id 105 |
 | 6 | 214 | Device gate: Daimakaimura, 1941, Aldynes, Battle Ace, Granzort, Darius Plus, Darius Alpha |
 | 7 | 200, done (0134) | Pad row: 2 Buttons or the 6-button Avenue Pad; a GBA game after it equals a GBA only run |
+
+### Phase 21: Sega CD / Mega-CD (in the patch set, device gate pending)
+
+Tracking issue 216, children 217 to 226, ADR 0104 (the groundwork's ADR "0094", issues 113 to 122 and
+patch 0057, renumbered). No new core: Genesis Plus GX, already shipped for the Mega Drive, plays the
+discs; one shelf `Games/SEGACD` for `.chd`, `.cue`, `.iso` and `.m3u`; the player's own
+`bios_CD_U.bin`, `bios_CD_E.bin` and `bios_CD_J.bin` checked, never shipped. Patches 0135 to 0142.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0104 and the issues |
+| 2 | 224, core half done (0135) | Synthetic discs on the real core with a dummy BIOS: load, region, timing, backup RAM, m3u joining |
+| 3 | 217, 219, done (0136) | `Platform::SegaCd`, the Mega Drive policy and canvas, `RELEASED` 1991-12-12; per-game backup RAM and no precache for a disc only, the RAM cart option unanswered |
+| 4 | 220, done (0137) | Screen section: Shader, Picture (Stretch, Actual, 4:3), PAL Speed; no Region row |
+| 5 | 218, done (0138) | The region's BIOS checked by size and crc32 before a disc starts |
+| 6 | 222, done (0139) | Relative playlists, SELECT+L2 swap, the remembered disc swapped in after load, the PS1 trailer |
+| 7 | 221, done (0140) | Backup RAM staged, checked and published in `Saves/SEGACD`, flushed by reload (the NGP flash design) |
+| 8 | 223, 224, done (0141) | The Mega Drive pad; a GBA game after a swapped disc equals a GBA only run; resume |
+| 9 | 225, done (0142) | The PS1 jewel case, labels by name for ScreenScraper id 20 |
+| 10 | 226 | Device gate, including the reload time at lid close |
 
 ### Phase 6+: deferred (non-blocking)
 

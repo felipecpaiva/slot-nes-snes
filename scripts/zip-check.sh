@@ -8,7 +8,7 @@ read_pin
 
 cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx"
 # Games/ folders the zip may hold.
-games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX"
+games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX SEGACD"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States Labels BIOS Wallpapers"
 

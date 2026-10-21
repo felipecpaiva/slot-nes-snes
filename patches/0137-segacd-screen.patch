@@ -1,0 +1,635 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:16:32 +0400
+Subject: [PATCH] segacd-screen
+
+Sega CD gets its own Screen section, listed after the SuperGrafx and
+shown only when the card holds discs. It has the Mega Drive rows.
+Shader walks Off and the retro list into Config/segacd_shader.txt; the
+in-game Shader row and the shader shortcut walk the same list. Picture
+is the Mega Drive picture, Stretch by default, then Actual and 4:3,
+stored as segacd in Config/picture.txt, and Stretch follows the live
+256 or 320 frame width. PAL Speed plays a European disc at its own
+49.70 fps (Native) or at the panel rate (Panel), stored as segacd in
+Config/pal_speed.txt. There is no Region row: the core opens the BIOS
+the disc's region byte names, and a forced region would boot a disc
+under a BIOS slot did not check. None of the rows touches the Mega
+Drive choices.
+---
+ crates/slot-ui/src/quick_menu.rs       |  31 ++++-
+ crates/slot-ui/src/quick_retro.rs      |   5 +
+ crates/slot-ui/tests/quick_menu.rs     |   4 +-
+ crates/slot/src/app.rs                 |  13 ++
+ crates/slot/src/pal_speed.rs           |   7 +-
+ crates/slot/src/platform_video.rs      |   5 +-
+ crates/slot/src/retro_quick.rs         |  13 +-
+ crates/slot/src/shelf_order.rs         |   3 +-
+ crates/slot/tests/sega_quick_shader.rs |   7 +-
+ crates/slot/tests/segacd_screen.rs     | 158 +++++++++++++++++++++++++
+ 10 files changed, 225 insertions(+), 21 deletions(-)
+ create mode 100644 crates/slot/tests/segacd_screen.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 2a4eb1c..25df30e 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -170,10 +170,14 @@ pub enum QuickRow {
+     ScreenSgx,
+     SgxPicture,
+     SgxPad,
++    SegaCdShader,
++    ScreenSegaCd,
++    SegaCdPicture,
++    SegaCdPalSpeed,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 160] = [
++    pub const ALL: [QuickRow; 164] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -334,6 +338,10 @@ impl QuickRow {
+         QuickRow::ScreenSgx,
+         QuickRow::SgxPicture,
+         QuickRow::SgxPad,
++        QuickRow::SegaCdShader,
++        QuickRow::ScreenSegaCd,
++        QuickRow::SegaCdPicture,
++        QuickRow::SegaCdPalSpeed,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -397,7 +405,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 23] = [
++    pub const SCREEN: [QuickRow; 24] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -421,6 +429,7 @@ impl QuickRow {
+         QuickRow::ScreenFds,
+         QuickRow::ScreenPico8,
+         QuickRow::ScreenSgx,
++        QuickRow::ScreenSegaCd,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -489,6 +498,7 @@ impl QuickRow {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
++            | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
+@@ -596,6 +606,9 @@ impl QuickRow {
+                 &QuickRow::SCREEN_CPS2
+             }
+             QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => &QuickRow::SCREEN_SGX,
++            QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
++                &QuickRow::SCREEN_SEGACD
++            }
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -674,6 +687,9 @@ impl QuickRow {
+             QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => {
+                 Some(QuickRow::ScreenSgx)
+             }
++            QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
++                Some(QuickRow::ScreenSegaCd)
++            }
+             _ => None,
+         }
+     }
+@@ -733,6 +749,7 @@ impl QuickRow {
+             QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
+             QuickRow::ScreenPico8 => Some(QuickRow::SCREEN_PICO8[0]),
+             QuickRow::ScreenSgx => Some(QuickRow::SCREEN_SGX[0]),
++            QuickRow::ScreenSegaCd => Some(QuickRow::SCREEN_SEGACD[0]),
+             _ => None,
+         }
+     }
+@@ -845,7 +862,7 @@ impl QuickRow {
+             | QuickRow::Cps1Shader
+             | QuickRow::Cps2Shader => "Shader",
+             QuickRow::Pico8Shader => "Shader",
+-            QuickRow::SgxShader => "Shader",
++            QuickRow::SgxShader | QuickRow::SegaCdShader => "Shader",
+             QuickRow::SgxPad => "Pad",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+@@ -865,6 +882,7 @@ impl QuickRow {
+             QuickRow::ScreenCps2 => "CPS2",
+             QuickRow::ScreenPico8 => "PICO-8",
+             QuickRow::ScreenSgx => "SuperGrafx",
++            QuickRow::ScreenSegaCd => "Sega CD",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -884,7 +902,8 @@ impl QuickRow {
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps2Picture
+             | QuickRow::Pico8Picture
+-            | QuickRow::SgxPicture => "Picture",
++            | QuickRow::SgxPicture
++            | QuickRow::SegaCdPicture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -892,7 +911,8 @@ impl QuickRow {
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::S32xPalSpeed
+             | QuickRow::A2600PalSpeed
+-            | QuickRow::A7800PalSpeed => "PAL Speed",
++            | QuickRow::A7800PalSpeed
++            | QuickRow::SegaCdPalSpeed => "PAL Speed",
+             QuickRow::SmsRegion => "Region",
+             QuickRow::Cpu => "CPU",
+             QuickRow::ShelfOrder => "Shelf Order",
+@@ -942,6 +962,7 @@ impl QuickRow {
+                 | QuickRow::ScreenPs1
+                 | QuickRow::ScreenTg16
+                 | QuickRow::ScreenSgx
++                | QuickRow::ScreenSegaCd
+                 | QuickRow::ScreenWs
+                 | QuickRow::ScreenLynx
+                 | QuickRow::ScreenNgp
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 26d1533..0a8e1e3 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -85,6 +85,11 @@ impl QuickRow {
+     ];
+     pub const SCREEN_SGX: [QuickRow; 3] =
+         [QuickRow::SgxShader, QuickRow::SgxPicture, QuickRow::SgxPad];
++    pub const SCREEN_SEGACD: [QuickRow; 3] = [
++        QuickRow::SegaCdShader,
++        QuickRow::SegaCdPicture,
++        QuickRow::SegaCdPalSpeed,
++    ];
+ }
+ 
+ impl QuickValue {
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 37d3953..d1948fd 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -105,7 +105,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8", "SuperGrafx"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8", "SuperGrafx", "Sega CD"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -153,7 +153,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8, QuickRow::ScreenSgx
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8, QuickRow::ScreenSgx, QuickRow::ScreenSegaCd
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 94005d6..4d347ca 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1074,6 +1074,7 @@ impl App {
+             (QuickRow::Shader, Platform::Fds) => QuickRow::FdsShader,
+             (QuickRow::Shader, Platform::Pico8) => QuickRow::Pico8Shader,
+             (QuickRow::Shader, Platform::Sgx) => QuickRow::SgxShader,
++            (QuickRow::Shader, Platform::SegaCd) => QuickRow::SegaCdShader,
+             (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
+             (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+@@ -1143,6 +1144,7 @@ impl App {
+             QuickRow::FdsShader => Some(shader_value(self.sega_shaders.fds)),
+             QuickRow::Pico8Shader => Some(shader_value(self.sega_shaders.pico8)),
+             QuickRow::SgxShader => Some(shader_value(self.sega_shaders.sgx)),
++            QuickRow::SegaCdShader => Some(shader_value(self.sega_shaders.segacd)),
+             QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
+             QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
+             QuickRow::NesPicture
+@@ -1153,6 +1155,7 @@ impl App {
+             | QuickRow::Ps1Picture
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
++            | QuickRow::SegaCdPicture
+             | QuickRow::WsPicture
+             | QuickRow::LynxPicture
+             | QuickRow::NgpPicture
+@@ -1169,6 +1172,7 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
++            | QuickRow::SegaCdPalSpeed
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::LynxSpeed
+             | QuickRow::S32xPalSpeed
+@@ -1242,6 +1246,7 @@ impl App {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
++            | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
+@@ -2888,6 +2893,7 @@ impl App {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
++            | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
+@@ -2983,14 +2989,17 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
++            | QuickRow::SegaCdPalSpeed
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::SmsRegion
+             | QuickRow::Cpu
+             | QuickRow::ShelfOrder
+             | QuickRow::Tg16Shader
+             | QuickRow::SgxShader
++            | QuickRow::SegaCdShader
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
++            | QuickRow::SegaCdPicture
+             | QuickRow::WsRefresh
+             | QuickRow::LynxShader
+             | QuickRow::LynxPicture
+@@ -3220,6 +3229,7 @@ impl App {
+             | QuickRow::Ps1Shader
+             | QuickRow::Tg16Shader
+             | QuickRow::SgxShader
++            | QuickRow::SegaCdShader
+             | QuickRow::WsShader
+             | QuickRow::LynxShader
+             | QuickRow::NgpShader
+@@ -3242,6 +3252,7 @@ impl App {
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+             | QuickRow::MdPalSpeed
++            | QuickRow::SegaCdPalSpeed
+             | QuickRow::Ps1PalSpeed
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip
+@@ -3251,6 +3262,7 @@ impl App {
+             | QuickRow::WsRefresh
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
++            | QuickRow::SegaCdPicture
+             | QuickRow::NgpPicture
+             | QuickRow::S32xPicture
+             | QuickRow::S32xPalSpeed
+@@ -3308,6 +3320,7 @@ impl App {
+             | QuickRow::ScreenPs1
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
++            | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
+diff --git a/crates/slot/src/pal_speed.rs b/crates/slot/src/pal_speed.rs
+index bb8f2fb..6bc6bf8 100644
+--- a/crates/slot/src/pal_speed.rs
++++ b/crates/slot/src/pal_speed.rs
+@@ -7,7 +7,7 @@ use crate::card_log::CardWrites;
+ 
+ pub const PAL_SPEED_FILE: &str = "Config/pal_speed.txt";
+ 
+-pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 10] = [
++pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 11] = [
+     (QuickRow::NesPalSpeed, Platform::Nes),
+     (QuickRow::SnesPalSpeed, Platform::Snes),
+     (QuickRow::SmsPalSpeed, Platform::Sms),
+@@ -18,6 +18,7 @@ pub const PAL_SPEED_ROWS: [(QuickRow, Platform); 10] = [
+     (QuickRow::A2600PalSpeed, Platform::A2600),
+     (QuickRow::A7800PalSpeed, Platform::A7800),
+     (QuickRow::VbSpeed, Platform::Vb),
++    (QuickRow::SegaCdPalSpeed, Platform::SegaCd),
+ ];
+ 
+ fn key(platform: Platform) -> String {
+@@ -43,11 +44,11 @@ pub fn quick_value(native: bool) -> QuickValue {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct PalSpeeds([bool; 10]);
++pub struct PalSpeeds([bool; 11]);
+ 
+ impl Default for PalSpeeds {
+     fn default() -> Self {
+-        PalSpeeds([true; 10])
++        PalSpeeds([true; 11])
+     }
+ }
+ 
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index d08bd3e..3c651d2 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 20] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 21] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -30,6 +30,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 20] = [
+     (QuickRow::FdsPicture, Platform::Fds),
+     (QuickRow::Pico8Picture, Platform::Pico8),
+     (QuickRow::SgxPicture, Platform::Sgx),
++    (QuickRow::SegaCdPicture, Platform::SegaCd),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+@@ -208,7 +209,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 20]);
++pub struct SystemPictures([VideoMode; 21]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 273b097..31264a4 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -28,6 +28,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::FdsShader => (&mut shaders.fds, Platform::Fds),
+         QuickRow::Pico8Shader => (&mut shaders.pico8, Platform::Pico8),
+         QuickRow::SgxShader => (&mut shaders.sgx, Platform::Sgx),
++        QuickRow::SegaCdShader => (&mut shaders.segacd, Platform::SegaCd),
+         QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
+         QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
+         _ => return false,
+@@ -73,15 +74,15 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 19] {
+-    let mut seen = [false; 19];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 20] {
++    let mut seen = [false; 20];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+             Platform::Nes | Platform::Snes => 0,
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+-            Platform::Md | Platform::SegaCd => 3,
++            Platform::Md => 3,
+             Platform::Ps1 => 4,
+             Platform::Tg16 => 5,
+             Platform::Ws => 6,
+@@ -97,13 +98,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 19] {
+             Platform::Fds => 16,
+             Platform::Pico8 => 17,
+             Platform::Sgx => 18,
++            Platform::SegaCd => 19,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 19] = [
++const SYSTEM_ROWS: [&[QuickRow]; 20] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -123,9 +125,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 19] = [
+     &[QuickRow::ScreenFds],
+     &[QuickRow::ScreenPico8],
+     &[QuickRow::ScreenSgx],
++    &[QuickRow::ScreenSegaCd],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 19]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 20]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index cb5a2d6..8a355a0 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -135,7 +135,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::Snes => QuickRow::ScreenSnes,
+         Platform::Gg => QuickRow::ScreenGg,
+         Platform::Sms => QuickRow::ScreenSms,
+-        Platform::Md | Platform::SegaCd => QuickRow::ScreenMd,
++        Platform::Md => QuickRow::ScreenMd,
+         Platform::Ps1 => QuickRow::ScreenPs1,
+         Platform::Tg16 => QuickRow::ScreenTg16,
+         Platform::Ws => QuickRow::ScreenWs,
+@@ -147,6 +147,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::Vb => QuickRow::ScreenVb,
+         Platform::Pico8 => QuickRow::ScreenPico8,
+         Platform::Sgx => QuickRow::ScreenSgx,
++        Platform::SegaCd => QuickRow::ScreenSegaCd,
+         Platform::NeoGeo => QuickRow::ScreenNeoGeo,
+         Platform::Fds => QuickRow::ScreenFds,
+         Platform::Cps1 => QuickRow::ScreenCps1,
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index 20fc2e1..c2919ec 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,10 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 19]).is_empty());
+-    for key in 0..1u32 << 19 {
++    assert!(hidden_on_shelf([true; 20]).is_empty());
++    for key in 0..1u32 << 20 {
+         let systems = [
+-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
++            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+         ]
+         .map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+@@ -119,6 +119,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenFds), !systems[16]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenPico8), !systems[17]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSgx), !systems[18]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenSegaCd), !systems[19]);
+     }
+ }
+ 
+diff --git a/crates/slot/tests/segacd_screen.rs b/crates/slot/tests/segacd_screen.rs
+new file mode 100644
+index 0000000..438957d
+--- /dev/null
++++ b/crates/slot/tests/segacd_screen.rs
+@@ -0,0 +1,158 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::pal_speed::PAL_SPEED_FILE;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::{source_rect, VideoMode};
++use slot_input::{Action, Btn};
++use slot_store::{read_sega_shaders, Core, Platform, Shader, SEGACD_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_disc() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(
++        root.path().join("Games/SEGACD/Sonic CD (USA).chd"),
++        [0u8; 16],
++    )
++    .expect("write disc");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_segacd(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenSegaCd.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenSegaCd));
++    press(app, Btn::A);
++}
++
++#[test]
++fn sega_cd_follows_the_supergrafx_with_the_mega_drive_rows() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenSegaCd));
++    assert_eq!(QuickRow::ScreenSegaCd.label(), "Sega CD");
++    assert!(QuickRow::ScreenSegaCd.opens());
++    assert_eq!(QuickRow::ScreenSegaCd.child(), Some(QuickRow::SegaCdShader));
++    assert_eq!(
++        QuickRow::SCREEN_SEGACD.map(QuickRow::label),
++        QuickRow::SCREEN_MD.map(QuickRow::label)
++    );
++    assert_eq!(
++        QuickRow::SCREEN_SEGACD.map(QuickRow::label),
++        ["Shader", "Picture", "PAL Speed"]
++    );
++    for row in QuickRow::SCREEN_SEGACD {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenSegaCd));
++    }
++}
++
++#[test]
++fn the_sega_cd_row_shows_only_on_a_card_with_discs() {
++    let (_root, mut app) = card_with_a_disc();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenSegaCd));
++    assert!(app.hidden_rows().contains(&QuickRow::ScreenMd));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let without = boot(root.path());
++    assert!(without.hidden_rows().contains(&QuickRow::ScreenSegaCd));
++    open_segacd(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::SegaCdShader));
++}
++
++#[test]
++fn the_picture_is_the_mega_drive_picture_with_four_three_and_its_own_line() {
++    assert_eq!(
++        default_video_mode(Platform::SegaCd),
++        default_video_mode(Platform::Md)
++    );
++    assert_eq!(
++        picture_choices(Platform::SegaCd),
++        picture_choices(Platform::Md)
++    );
++    assert!(picture_choices(Platform::SegaCd).contains(&VideoMode::FourThree));
++    let canvas = Core::GenesisPlusGx.canvas(Platform::SegaCd);
++    for frame in [(256, 224), (320, 224)] {
++        for mode in picture_choices(Platform::SegaCd) {
++            assert_eq!(
++                source_rect(Platform::SegaCd, frame, canvas, *mode),
++                source_rect(Platform::Md, frame, canvas, *mode),
++                "{mode:?} {frame:?}"
++            );
++        }
++    }
++    let (root, mut app) = card_with_a_disc();
++    open_segacd(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::SegaCdPicture));
++    let first = app.quick_value(QuickRow::SegaCdPicture);
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_ne!(app.quick_value(QuickRow::SegaCdPicture), first);
++    assert_ne!(
++        system_picture(root.path(), Platform::SegaCd),
++        default_video_mode(Platform::SegaCd)
++    );
++    assert_eq!(
++        system_picture(root.path(), Platform::Md),
++        default_video_mode(Platform::Md)
++    );
++    let text = std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt");
++    assert!(text.starts_with("segacd = "), "{text:?}");
++}
++
++#[test]
++fn pal_speed_is_sega_cds_own_and_leaves_the_mega_drive_native() {
++    let (root, mut app) = card_with_a_disc();
++    open_segacd(&mut app);
++    press(&mut app, Btn::Down);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::SegaCdPalSpeed));
++    assert_eq!(
++        app.quick_value(QuickRow::SegaCdPalSpeed),
++        Some(QuickValue::Native)
++    );
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        app.quick_value(QuickRow::SegaCdPalSpeed),
++        Some(QuickValue::Panel)
++    );
++    assert_eq!(
++        app.quick_value(QuickRow::MdPalSpeed),
++        Some(QuickValue::Native)
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PAL_SPEED_FILE)).ok(),
++        Some("segacd = panel\n".to_string())
++    );
++}
++
++#[test]
++fn the_sega_cd_shader_walks_the_retro_list_into_its_own_file_and_leaves_the_mega_drive_alone() {
++    let (root, mut app) = card_with_a_disc();
++    open_segacd(&mut app);
++    assert_eq!(
++        app.quick_value(QuickRow::SegaCdShader),
++        Some(QuickValue::Off)
++    );
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(read_sega_shaders(root.path()).segacd);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(SEGACD_SHADER_FILE).exists());
++    assert_eq!(read_sega_shaders(root.path()).md, Shader::Off);
++}

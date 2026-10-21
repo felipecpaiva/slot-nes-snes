@@ -187,3 +187,14 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [213](213-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 20 | tests | test | S | 210-sgx-core-build |
 | [214](214-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 20 | device | chore | S | 211-platform-sgx, 212-sgx-carts |
 | [215](215-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 20 | input | feature | M | 211-platform-sgx |
+| [216](216-segacd-tracking.md) | Sega CD / Mega-CD on Genesis Plus GX, the disc half of the Mega Drive | 21 | device | tracking | L | 53-platform-md, 56-ps1-tracking, 209-sgx-tracking |
+| [217](217-platform-segacd.md) | Add Platform::SegaCd with its own shelf, disc scan and explicit policy | 21 | platform | feature | M | 216-segacd-tracking |
+| [218](218-segacd-bios-check.md) | Check the region's Sega CD BIOS before a launch and toast instead of a black screen | 21 | platform | feature | S | 217-platform-segacd |
+| [219](219-segacd-options.md) | Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache | 21 | cores | feature | S | 217-platform-segacd |
+| [220](220-segacd-canvas-screen.md) | Give Sega CD the Mega Drive canvas and its own Screen section | 21 | video | feature | S | 219-segacd-options |
+| [221](221-segacd-backup-ram.md) | Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload | 21 | platform | feature | M | 219-segacd-options |
+| [222](222-segacd-discs.md) | Swap Sega CD discs, remember the disc, record it in states | 21 | platform | feature | S | 217-platform-segacd |
+| [223](223-segacd-input.md) | Hand the Mega Drive 3 and 6 button pad to Sega CD games | 21 | input | feature | S | 217-platform-segacd |
+| [224](224-segacd-tests.md) | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | 21 | tests | test | S | 216-segacd-tracking |
+| [225](225-segacd-cases.md) | Draw Sega CD games as jewel cases and fetch their covers | 21 | ui-art | feature | M | 217-platform-segacd |
+| [226](226-segacd-device-gate.md) | Sega CD device gate on the RG34XXSP | 21 | device | chore | S | 218-segacd-bios-check, 221-segacd-backup-ram, 222-segacd-discs, 225-segacd-cases |

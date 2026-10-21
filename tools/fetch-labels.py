@@ -168,6 +168,12 @@ SYSTEMS = {
     # under the PC Engine 31 (ss_id). .sgx and .pce, as slot scans (ADR 0103); libretro-thumbnails has
     # NEC - PC Engine SuperGrafx Named_Logos for all five (checked 2026-10-21).
     "SGX": ("supergrafx", {".sgx", ".pce"}, ["NEC - PC Engine SuperGrafx", "NEC - PC Engine - TurboGrafx 16"], 105),
+    # Sega CD / Mega-CD discs (ADR 0104): no No-Intro dat (Redump "Sega - Mega CD & Sega CD"), ScreenScraper id
+    # 20 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper 290d2c0, row "segacd,20,20,21"). A .chd has no
+    # CRC any dat or ScreenScraper indexes, so a disc goes by name (--by-name): the cover and the disc scan, as
+    # PS1. .chd, .cue, .m3u and .iso, as slot scans; libretro-thumbnails "Sega - Mega-CD - Sega CD" has
+    # Named_Logos (451, checked 2026-10-21).
+    "SEGACD": ("segacd", {".chd", ".cue", ".m3u", ".iso"}, [], 20),
 }
 ARCADE = {"NEOGEO", "CPS1", "CPS2"}
 # ScreenScraper media for an arcade set, in order: the cart label scan when it has one (a Neo Geo cart), else
@@ -187,6 +193,8 @@ MEDIA = {"SMS": "box-2D"}
 LABEL = "support-texture"
 # PlayStation: (ScreenScraper media type, folder under Labels/PS1) for the case cover and the disc (ADR 0069)
 PS1_MEDIA = (("box-2D", ""), ("support-2D", "disc"))
+# the disc systems take PS1_MEDIA, and their libretro-thumbnails folder when they have no dat
+DISC_SYSTEMS = {"PS1": "Sony - PlayStation", "SEGACD": "Sega - Mega-CD - Sega CD"}
 # slot's own plastic for a cart with no per-title colour (patch 0012), so a line only sets the outline
 SHELL_COLOUR = {"famicom": "7a7a7a", "sfc": "949696", "megadrive": "26242a"}
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -547,7 +555,7 @@ class ScreenScraper:
         falls back to the front box (box-2D, the ROM's region, then wor, us, eu, jp); a wheel or logo never.
         Cached by type and game id. None when the game's media list was needed and not asked."""
         d, out = os.path.join(self.ctx.cache, "ss", system, "name"), {}
-        for kind in [k for k, _ in PS1_MEDIA] if system == "PS1" else [MEDIA.get(system, LABEL)]:
+        for kind in [k for k, _ in PS1_MEDIA] if system in DISC_SYSTEMS else [MEDIA.get(system, LABEL)]:
             out[kind] = None
             for t, order in [(kind, None)] + ([("box-2D", ("wor", "us", "eu", "jp"))] if kind == LABEL else []):
                 png, none = os.path.join(d, t, gid + ".png"), os.path.join(d, t, gid + ".none")
@@ -1214,7 +1222,7 @@ def is_hack(stem):
 def logo_index(ctx, system):
     """{title_key: [names]} of libretro-thumbnails Named_Logos for system, {} when it has none. libretro writes
     & (and : / ? and the like) as _, so a name with _ is also keyed with & read back."""
-    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or [DISC_SYSTEMS[system]])[0]
     text = cached_text(ctx, f"logos/{dat}.html", LOGOS + urllib.parse.quote(dat) + "/Named_Logos/", 30 * DAY,
                        optional=True)
     index = {}
@@ -1243,7 +1251,7 @@ def logo_png(ctx, system, name):
         return slurp(p)
     if ctx.dry:
         return b""
-    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or ["Sony - PlayStation"])[0]
+    dat = ARCADE_THUMBS if system in ARCADE else (SYSTEMS[system][2] or [DISC_SYSTEMS[system]])[0]
     status, body = fetch(ctx, LOGOS + urllib.parse.quote(f"{dat}/Named_Logos/{name}.png"))
     if status != 200 or not body.startswith(PNG):
         return None
@@ -1281,7 +1289,7 @@ def sibling_png(ctx, system, sub, fname, root, args):
         return None
     stem = os.path.splitext(fname)[0]
     rom = ctx.lib.get(nfc(stem))
-    if rom and not sub and system != "PS1":
+    if rom and not sub and system not in DISC_SYSTEMS:
         crc = resolve(system, rom, ctx.dat, ctx.art)
         kind = MEDIA.get(system, LABEL)
         for p in ([os.path.join(ctx.cache, "art", ctx.art[crc])] if crc in ctx.art else []) + \
@@ -1329,7 +1337,7 @@ def by_name(ctx, system, left, root, args):
     with no label scan), then a ScreenScraper search by name. subs: the Labels sub-folders still missing
     ('' and, for PS1, 'disc'). Each ROM gets one outcome line and report row; --suggest rows for the rest."""
     stats, asked = ctx.stats, [0]
-    pairs = {kind: sub for kind, sub in PS1_MEDIA} if system == "PS1" else {MEDIA.get(system, LABEL): ""}
+    pairs = {kind: sub for kind, sub in PS1_MEDIA} if system in DISC_SYSTEMS else {MEDIA.get(system, LABEL): ""}
     sysid = SYSTEMS[system][3]
     cur, logos = {}, []
 
@@ -1762,6 +1770,23 @@ def process_ps1(ctx, roms, have, have_disc, out, args):
     return left
 
 
+def discs_by_name(ctx, roms, have, have_disc, args):
+    """Sega CD games for the name pass: every game missing its cover or disc scan (--force: every game)."""
+    left = []
+    for stem, _ in ps1_games(roms):
+        if args.only_stem and nfc(stem) != nfc(args.only_stem):
+            continue
+        subs = [sub for sub, got in (("", f"{stem}.png".lower() in have), ("disc", f"{stem}.png".lower() in have_disc))
+                if args.force or not got]
+        if not subs:
+            ctx.stats["skipped"] += 1
+            continue
+        left.append((stem, subs, None))
+    if left and not args.by_name:
+        print(f"  SEGACD: {len(left)} games go by name only, rerun with --by-name")
+    return left
+
+
 def summary(ctx, args):
     s = ctx.stats
     print("\n" + ("DRY RUN, nothing written. " if ctx.dry else "") + "Summary")
@@ -1807,7 +1832,7 @@ def run(args, ctx):
             if dev:
                 names = dev.names(f"{args.sd}/Games/{system}")
                 have_list = dev.names(f"{args.sd}/Labels/{system}")
-                disc_list = dev.names(f"{args.sd}/Labels/{system}/disc") if system == "PS1" else []
+                disc_list = dev.names(f"{args.sd}/Labels/{system}/disc") if system in DISC_SYSTEMS else []
                 lib, bad = scan_library(args.library, system)
                 stems, roms = {}, []
                 for n in names:
@@ -1839,7 +1864,7 @@ def run(args, ctx):
                 have_list = os.listdir(os.path.join(args.card, "Labels", system)) \
                     if os.path.isdir(os.path.join(args.card, "Labels", system)) else []
                 disc_dir = os.path.join(args.card, "Labels", system, "disc")
-                disc_list = os.listdir(disc_dir) if system == "PS1" and os.path.isdir(disc_dir) else []
+                disc_list = os.listdir(disc_dir) if system in DISC_SYSTEMS and os.path.isdir(disc_dir) else []
                 print(f"{system}: {len(roms)} ROMs on the card")
                 lib = {}
             have = {n.lower() for n in have_list}
@@ -1849,6 +1874,8 @@ def run(args, ctx):
                     ctx.sib.setdefault(title_key(n[:-4], system), []).append(n)
             if system == "PS1":
                 left = process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
+            elif system == "SEGACD":
+                left = discs_by_name(ctx, roms, have, {n.lower() for n in disc_list}, args)
             elif system == "PICO8":
                 left = process_pico8(ctx, roms, have, root, args)
             elif system in ARCADE:
@@ -1903,7 +1930,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8, SGX) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8, SGX, SEGACD) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
