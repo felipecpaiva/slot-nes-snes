@@ -33,7 +33,7 @@ check_cores() {
 		vendor/pcsx_rearmed-src.tar.gz vendor/pcsx_rearmed-src.meta licenses/pcsx_rearmed-GPL-2.0.txt \
 		vendor/mednafen_pce_fast_libretro.so vendor/mednafen_pce_fast_libretro.so.meta \
 		vendor/mednafen_pce_fast-src.tar.gz vendor/mednafen_pce_fast-src.meta licenses/mednafen_pce_fast-GPL-2.0.txt \
-		licenses/mednafen_pce_fast-tremor-BSD.txt licenses/mednafen_pce_fast-headerless-files.txt \
+		licenses/mednafen_pce_fast-tremor-BSD.txt licenses/mednafen_pce_fast-headerless-files.txt licenses/mednafen_pce_fast-chd-notices.txt \
 		vendor/mednafen_wswan_libretro.so vendor/mednafen_wswan_libretro.so.meta \
 		vendor/mednafen_wswan-src.tar.gz vendor/mednafen_wswan-src.meta licenses/mednafen_wswan-GPL-2.0.txt \
 		licenses/mednafen_wswan-headerless-files.txt \

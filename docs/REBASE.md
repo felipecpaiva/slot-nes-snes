@@ -81,7 +81,7 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
 - main 1b20432 (ADR 0083): upstream's remapping builds the game mask only from its 10 `GameButton`s,
   so buttons our systems need beyond them (X, Y, L2, R2) went dead without a compile error. After a
   release that touches input, run every system's input tests before resolving the next conflict.
-- v1.8.0 (ADR 0104): new upstream `GameButton`s (Turbo A and B) set `ButtonMask::X` and `Y`, which
+- v1.8.0 (ADR 0105): new upstream `GameButton`s (Turbo A and B) set `ButtonMask::X` and `Y`, which
   our X/Y pass-through systems read as the console's X and Y, so check every mask path after a
   release that adds game buttons. Per-system chords now go through the control table as entries
   (`snes_input::keep_applicable`); a release that reshapes `Gestures::down` needs no chord port.

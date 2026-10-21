@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run upstream's card tests (its test:card list) in build/slot. A test that fails twice there is run in
 # build/slot-upstream: it gates only when the unpatched tree passes it. v1.8.0's test-coresave.sh fails
-# in both trees on macOS, where sh keeps CMDLINE set by an earlier `CMDLINE=... run` (ADR 0104).
+# in both trees on macOS, where sh keeps CMDLINE set by an earlier `CMDLINE=... run` (ADR 0105).
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

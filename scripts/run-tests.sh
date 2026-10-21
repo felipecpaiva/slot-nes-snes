@@ -62,7 +62,7 @@ fi
 # passes in both trees here, so it runs in both trees too: CI shows whether upstream fails it the same way.
 # Upstream's render_native.rs (v1.8.0, 9d2bc24) compares exact bezel pixels on a 640x480 panel; it
 # passes in both trees here and failed one test on the macOS runner (run 39573607904), so it runs in
-# both trees too and gates only a failure the unpatched tree does not share (ADR 0104).
+# both trees too and gates only a failure the unpatched tree does not share (ADR 0105).
 both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native"
 [ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native"
 up="$(dirname "$1")/slot-upstream"

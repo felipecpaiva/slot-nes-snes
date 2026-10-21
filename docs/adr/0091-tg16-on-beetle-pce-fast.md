@@ -123,3 +123,12 @@ the places where the base changed what the plan assumed:
   contacts painted like the PS1 obi strip. libretro-thumbnails has no `Named_Logos` for
   `NEC - PC Engine - TurboGrafx 16` (checked 2026-10-19, 404), so the Logo Only fallback uses the
   ScreenScraper wheel alone.
+
+## Amended by ADR 0104 (2026-10-21)
+
+PC Engine CD discs are in scope on this core, on a shelf of their own (`Games/PCECD`); the TurboGrafx-16
+shelf stays `.pce` only. The build sets `HAVE_CHD=1`, so libchdr, lzma, zstd, zlib and dr_flac are in
+the binary (notices in `licenses/mednafen_pce_fast-chd-notices.txt`), and the macOS build adds
+`-Dfdopen=fdopen` through `host_cflags`. The option list answers `pce_fast_cdbios` "System Card 3" and
+`pce_fast_cdimagecache` disabled for both shelves; a HuCard never reads them. The "HuCards only" bullet
+and the `HAVE_CHD=0` bullet above describe this core up to ADR 0103.

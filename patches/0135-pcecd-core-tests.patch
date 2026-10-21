@@ -1,0 +1,274 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 10:54:04 +0400
+Subject: [PATCH] pcecd-core-tests
+
+Beetle PCE Fast, built with HAVE_CHD=1 now, takes PC Engine CD-ROM2 discs
+on the generic libretro host before any platform code exists: a
+generated cue and bin (an audio track, then the data track) boots the
+System Card in BIOS/syscard3.pce, which the core maps like a 256 KB
+HuCard, and the tests' card paints the 256x240 picture red. Without the
+card the disc does not load; a card with a 512-byte copier header boots
+the same, because the core skips it. A CD keeps the 2 KB HUBM backup RAM
+as save RAM, and its state (415 KB with the CD drive, ADPCM and Super
+System Card RAM) round-trips. The core binary carries the CHD reader. A
+real System Card and disc are read from SLOT_PCECD_BIOS and
+SLOT_PCECD_DISC when set.
+---
+ crates/slot/tests/pcecd_common/mod.rs |  60 +++++++++
+ crates/slot/tests/pcecd_core.rs       | 179 ++++++++++++++++++++++++++
+ 2 files changed, 239 insertions(+)
+ create mode 100644 crates/slot/tests/pcecd_common/mod.rs
+ create mode 100644 crates/slot/tests/pcecd_core.rs
+
+diff --git a/crates/slot/tests/pcecd_common/mod.rs b/crates/slot/tests/pcecd_common/mod.rs
+new file mode 100644
+index 0000000..10f9d5c
+--- /dev/null
++++ b/crates/slot/tests/pcecd_common/mod.rs
+@@ -0,0 +1,60 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++pub const CARD_BYTES: usize = 262_144;
++pub const CARD_CRC32: u32 = 0x6d9a_73ef;
++
++pub fn pce_fast() -> Option<PathBuf> {
++    crate::core_common::require_core("mednafen_pce_fast")
++}
++
++pub fn placeholder_card() -> Vec<u8> {
++    let mut card = crate::tg16_common::hucard_bytes(false);
++    card.resize(CARD_BYTES, 0);
++    card
++}
++
++pub fn put_card(root: &Path, card: &[u8]) {
++    let dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&dir).expect("bios dir");
++    std::fs::write(dir.join("syscard3.pce"), card).expect("write system card");
++}
++
++pub fn disc(dir: &Path, stem: &str) -> PathBuf {
++    std::fs::create_dir_all(dir).expect("disc dir");
++    std::fs::write(dir.join(format!("{stem}.bin")), vec![0u8; 2352 * 300]).expect("write bin");
++    let cue = dir.join(format!("{stem}.cue"));
++    std::fs::write(
++        &cue,
++        format!(
++            "FILE \"{stem}.bin\" BINARY\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n  TRACK 02 MODE1/2352\n    INDEX 01 00:02:00\n"
++        ),
++    )
++    .expect("write cue");
++    cue
++}
++
++pub fn real_card() -> Option<Vec<u8>> {
++    let Some(path) = std::env::var_os("SLOT_PCECD_BIOS") else {
++        eprintln!("skipping: no System Card, set SLOT_PCECD_BIOS to a syscard3.pce (262144 bytes, crc32 6d9a73ef)");
++        return None;
++    };
++    let bytes = std::fs::read(&path).unwrap_or_default();
++    if bytes.len() != CARD_BYTES || slot_store::lynx::crc32(&bytes) != CARD_CRC32 {
++        eprintln!(
++            "skipping: SLOT_PCECD_BIOS {} is not System Card 3.0",
++            Path::new(&path).display()
++        );
++        return None;
++    }
++    Some(bytes)
++}
++
++pub fn real_disc() -> Option<PathBuf> {
++    let Some(path) = std::env::var_os("SLOT_PCECD_DISC") else {
++        eprintln!("skipping: no PC Engine CD, set SLOT_PCECD_DISC to a .chd or .cue you own");
++        return None;
++    };
++    Some(PathBuf::from(path))
++}
+diff --git a/crates/slot/tests/pcecd_core.rs b/crates/slot/tests/pcecd_core.rs
+new file mode 100644
+index 0000000..127cae0
+--- /dev/null
++++ b/crates/slot/tests/pcecd_core.rs
+@@ -0,0 +1,179 @@
++// Beetle PCE Fast runs PC Engine CD-ROM² discs (ADR 0104) on the core slot already ships for HuCards
++// (ADR 0091). A CD boots the System Card in BIOS/ (`pce_fast_cdbios`, "System Card 3" is syscard3.pce),
++// which libretro.c HuCLoadCD maps over banks 0 to 0x3F like a 256 KB HuCard. The tests' card is the
++// TurboGrafx-16 paint program (tg16_common) padded to 256 KB: the reset vector lands on it, so the
++// picture turns red once the core has taken the disc and the card. The disc is a generated cue and bin,
++// an audio track then a data track, the PC Engine CD layout. Tests that need the real System Card and a
++// real disc read SLOT_PCECD_BIOS and SLOT_PCECD_DISC and print a skip without them.
++mod common;
++mod core_common;
++mod pcecd_common;
++mod tg16_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use pcecd_common::{disc, placeholder_card, put_card, real_card, real_disc, CARD_BYTES};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++use tg16_common::RED_BGRX;
++
++const CANVAS: (usize, usize) = (360, 240);
++const PICTURE_W: usize = 256;
++const LEFT: usize = (CANVAS.0 - PICTURE_W) / 2;
++
++fn opened(root: &Path) -> Option<(LibretroCore, std::path::PathBuf)> {
++    let dylib = pcecd_common::pce_fast()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    std::fs::create_dir_all(slot::root::bios_dir(root)).unwrap();
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open Beetle PCE Fast");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    core.set_option("pce_fast_initial_scanline", "3");
++    core.set_option("pce_fast_last_scanline", "242");
++    core.set_option("pce_fast_cdbios", "System Card 3");
++    Some((core, dylib))
++}
++
++fn booted(root: &Path, card: &[u8]) -> Option<LibretroCore> {
++    put_card(root, card);
++    let (mut core, _) = opened(root)?;
++    core.load(&disc(&root.join("Games/PCECD"), "Disc"))
++        .expect("Beetle PCE Fast refused the disc");
++    play(&mut core, 30);
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++fn all_red(video: &[u8]) -> bool {
++    (0..CANVAS.1).all(|y| {
++        (LEFT..LEFT + PICTURE_W).all(|x| {
++            let at = (y * CANVAS.0 + x) * 4;
++            video[at..at + 3] == RED_BGRX
++        })
++    })
++}
++
++#[test]
++fn a_cd_boots_its_system_card_and_fills_the_canvas_height_with_256_by_240() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = booted(d.path(), &placeholder_card()) else {
++        return;
++    };
++    let av = core.av_info();
++    assert!((59.8..59.85).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    assert!(!core.take_audio().is_empty(), "no sound came out");
++    assert_eq!(core.frame_width(), 256);
++    assert!(all_red(core.video_xrgb8888()));
++}
++
++#[test]
++fn without_a_system_card_the_disc_does_not_load() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some((mut core, _)) = opened(d.path()) else {
++        return;
++    };
++    assert!(core
++        .load(&disc(&d.path().join("Games/PCECD"), "Disc"))
++        .is_err());
++}
++
++#[test]
++fn a_system_card_with_a_512_byte_copier_header_boots_the_same() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let mut headered = vec![0u8; 512];
++    headered.extend(placeholder_card());
++    let Some(core) = booted(d.path(), &headered) else {
++        return;
++    };
++    assert!(all_red(core.video_xrgb8888()));
++}
++
++#[test]
++fn a_cd_gets_the_2_kb_formatted_backup_ram_as_save_ram_that_loads_back() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = booted(d.path(), &placeholder_card()) else {
++        return;
++    };
++    let bram = core.save_ram().expect("no save RAM");
++    assert_eq!(bram.len(), 2048);
++    assert_eq!(&bram[..8], b"HUBM\x00\x88\x10\x80");
++
++    let mut marked = bram.clone();
++    marked[0x10] = 0x5a;
++    core.load_save_ram(&marked).unwrap();
++    play(&mut core, 5);
++    assert_eq!(core.save_ram().unwrap(), marked);
++}
++
++#[test]
++fn a_cd_state_round_trips_and_carries_the_cd_and_arcade_card_ram() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = booted(d.path(), &placeholder_card()) else {
++        return;
++    };
++    let state = core.serialize().expect("no state");
++    eprintln!("cd state: {} bytes", state.len());
++    assert!(
++        (CARD_BYTES..4 * 1024 * 1024).contains(&state.len()),
++        "{} bytes",
++        state.len()
++    );
++    play(&mut core, 10);
++    core.unserialize(&state)
++        .expect("the state would not load back");
++    assert_eq!(core.serialize().unwrap(), state);
++}
++
++#[test]
++fn the_core_is_built_to_read_chd() {
++    let Some(dylib) = pcecd_common::pce_fast() else {
++        return;
++    };
++    let bytes = std::fs::read(dylib).unwrap();
++    let needle = b"chd_load '%s' hunkbytes";
++    assert!(
++        bytes.windows(needle.len()).any(|w| w == needle),
++        "the core has no CHD reader: cores/mednafen_pce_fast/build.sh must keep HAVE_CHD=1"
++    );
++}
++
++#[test]
++fn the_real_system_card_starts_a_real_disc_with_picture_and_sound() {
++    let _g = core_lock();
++    let (Some(card), Some(game)) = (real_card(), real_disc()) else {
++        return;
++    };
++    let d = tempfile::tempdir().unwrap();
++    put_card(d.path(), &card);
++    let Some((mut core, _)) = opened(d.path()) else {
++        return;
++    };
++    core.load(&game).expect("the real disc did not load");
++    let mut lit = false;
++    let mut loud = false;
++    for _ in 0..30 {
++        play(&mut core, 60);
++        lit |= core
++            .video_xrgb8888()
++            .chunks_exact(4)
++            .any(|p| p[..3] != [0, 0, 0]);
++        loud |= core.take_audio().iter().any(|s| *s != 0);
++    }
++    assert!(lit, "30 seconds of black");
++    assert!(loud, "30 seconds of silence");
++}

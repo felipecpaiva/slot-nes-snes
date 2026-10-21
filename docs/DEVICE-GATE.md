@@ -475,6 +475,43 @@ SGX folders. Then fetch the missing labels
 | Darius Plus | | | | | | | PC-SG mark, detected by CRC |
 | Darius Alpha | | | | | | | not in the core's table, needs sgx_forcesgx |
 
+## PC Engine CD (issue 221, ADR 0104)
+
+Pending. BIOS required: copy `syscard3.pce` (262,144 bytes, md5 38179df8f4ac870017db21ebcbf53114) to
+`BIOS/`. The discs go on the Expansion Card (ADR 0098): copy the staged CHDs into `Games/PCECD` on the
+Expansion Card (`/mnt/expansion/Games/PCECD` on the device), add the line `PCECD` to `Config/expansion.txt`
+on the main card, and power cycle so `System/expansion.sh` binds it. The list, with sizes and data SHA1s,
+is `docs/rom-library/best-copy/pcecd-adds.tsv` (workspace). Then fetch covers and disc scans
+(`task labels:fetch -- --device --library <library> --only PCECD --by-name --logo-fallback`).
+
+1. BIOS: with `BIOS/syscard3.pce` renamed away a disc stays on the shelf with "PC Engine CD needs
+   BIOS/syscard3.pce"; with the headered 262,656-byte copy it starts with no toast.
+2. Boot: Rondo of Blood, Ys Book I and II and Gate of Thunder reach their title screens through the
+   System Card; Garou Densetsu Special (Arcade CD-ROM², the Arcade Card) reaches its fights.
+3. CD audio: the Ys Book I and II opening and the Rondo of Blood intro play without a tick or a gap every
+   few seconds (the CHD hunk is 200 sectors, about 2.7 s of 1x audio, decoded in the emulation thread).
+   If it ticks, restage that disc with chdman's default hunk size and compare.
+4. Speed in play: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0 and no missed frames
+   past the first window, during CD audio, ADPCM speech (Ys cut scenes) and disc loads.
+5. Picture: Crop by default; the Picture row walks Stretch, Actual, 4:3 and back; L1 and R1 change it in
+   game; the TurboGrafx-16 shelf keeps its own.
+6. Controls: B is II, A is I, START is Run; SELECT and START soft reset; X and Y fire turbo; L2 rewinds,
+   R2 fast-forwards (note the speed, and that CD audio keeps up or drops).
+7. States and rewind: save and load a state in a CD audio scene; rewind 10 seconds; eject and power cycle
+   resume the disc.
+8. Saves: Ys Book I and II saves to the backup RAM; `Saves/PCECD/<stem>.sav` (2 KB, `HUBM`) is written on
+   eject and the save loads on the next start.
+9. Shelf: each disc is a jewel case with its cover, a Japanese disc with the spine strip; on insert the
+   case opens and the disc goes into the slot.
+
+| Title | Starved / dropped | CD audio | FF speed | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|
+| Akumajou Dracula X - Chi no Rondo | | | | | | Super CD-ROM², the intro has CD audio |
+| Ys Book I & II | | | | | | CD audio and ADPCM speech, backup RAM saves |
+| Gate of Thunder | | | | | | shooter, CD audio throughout |
+| Garou Densetsu Special | | | | | | Arcade CD-ROM², needs the Arcade Card |
+| Dungeon Explorer II | | | | | | |
+
 ## Shelf order (ADR 0100)
 
 Checks that Release year reorders the shelves on the device and that the choice survives a restart.

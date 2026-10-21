@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:16:43 +0400
+Subject: [PATCH] pcecd-carts
+
+A PC Engine CD game is drawn as a CD jewel case, the same object the
+PlayStation shelf draws (ADR 0069): one 142 x 125 mm three-piece case, the
+front cover from Labels/PCECD/<stem>.png in the square well, and on insert
+the case opens and the disc, printed from Labels/PCECD/disc/<stem>.png,
+goes into the slot. A disc tagged (Japan) wears the paper spine strip
+(obi) that Japanese discs, games included, carry over the left side of the
+case; every other disc wears the plain case. The region comes from the
+file name tags only: a PC Engine disc has no SYSTEM.CNF serial, and no
+playlist turns one into a double case. The disc art path falls back to
+the cart's own shelf folder instead of the PlayStation one.
+---
+ crates/slot-ui/src/lib.rs          |  2 +-
+ crates/slot-ui/src/ps1_case.rs     | 12 +++-
+ crates/slot-ui/src/retro_cart.rs   |  2 +-
+ crates/slot-ui/tests/pcecd_case.rs | 89 ++++++++++++++++++++++++++++++
+ 4 files changed, 101 insertions(+), 4 deletions(-)
+ create mode 100644 crates/slot-ui/tests/pcecd_case.rs
+
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 755d27a..6541e22 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -98,7 +98,7 @@ pub use plate::{
+ pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
+ pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
+ pub use ps1_case::{
+-    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
++    cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
+     DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
+ };
+ pub use quick_menu::{
+diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
+index 98fc5b6..80b5d4f 100644
+--- a/crates/slot-ui/src/ps1_case.rs
++++ b/crates/slot-ui/src/ps1_case.rs
+@@ -20,7 +20,7 @@ const NEUTRAL: u8 = 128;
+ const TITLE_BOX: (u32, u32, u32, u32) = (80, 52, 200, 70);
+ 
+ pub fn has_disc(cart: &Cart) -> bool {
+-    cart.platform == Platform::Ps1
++    matches!(cart.platform, Platform::Ps1 | Platform::Pcecd)
+ }
+ 
+ pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
+@@ -48,6 +48,14 @@ pub fn read_case(rom: &Path, stem: &str) -> Ps1Case {
+     }
+ }
+ 
++pub fn cd_case(stem: &str) -> Ps1Case {
++    match tag_region(stem) {
++        Some(DiscRegion::Us) | None => Ps1Case::Us,
++        Some(DiscRegion::Eu) => Ps1Case::Eu,
++        Some(DiscRegion::Jp) => Ps1Case::Jp,
++    }
++}
++
+ pub fn tag_region(stem: &str) -> Option<DiscRegion> {
+     label_tags(stem)
+         .iter()
+@@ -71,7 +79,7 @@ pub fn disc_art_path(cart: &Cart) -> Option<PathBuf> {
+                 .find(|a| a.ends_with("Games") || a.ends_with("Config"))?
+                 .parent()?
+                 .join("Labels")
+-                .join(Platform::Ps1.dir_name())
++                .join(cart.platform.dir_name())
+                 .join("disc")
+                 .join(file),
+         ),
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 4161a20..426b689 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -273,7 +273,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+         )),
+         Platform::Ps1 => Some(RetroShell::Ps1(crate::ps1_case::case_of(cart))),
+         Platform::Tg16 => Some(RetroShell::Hucard),
+-        Platform::Pcecd => Some(RetroShell::Ps1(Ps1Case::Us)),
++        Platform::Pcecd => Some(RetroShell::Ps1(crate::ps1_case::cd_case(&cart.stem))),
+         Platform::Ws => Some(RetroShell::Ws(crate::ws_cart::shell_of(cart))),
+         Platform::Lynx => Some(RetroShell::Lynx),
+         Platform::Ngp => Some(RetroShell::Ngp),
+diff --git a/crates/slot-ui/tests/pcecd_case.rs b/crates/slot-ui/tests/pcecd_case.rs
+new file mode 100644
+index 0000000..0964f95
+--- /dev/null
++++ b/crates/slot-ui/tests/pcecd_case.rs
+@@ -0,0 +1,89 @@
++use std::path::PathBuf;
++
++use slot_store::{Cart, Platform};
++use slot_ui::{
++    cart_box, cart_interior, cd_case, disc_art_path, retro_shell_of, seated_box, shows_interior,
++    Ps1Case, RetroShell, DISC_PX,
++};
++
++fn disc(stem: &str, label: Option<PathBuf>) -> Cart {
++    Cart {
++        platform: Platform::Pcecd,
++        stem: stem.into(),
++        rom: format!("/card/Games/PCECD/{stem}.chd").into(),
++        label,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++#[test]
++fn a_pc_engine_cd_sits_in_the_playstations_jewel_case_box() {
++    assert_eq!(cart_box(Platform::Pcecd), cart_box(Platform::Ps1));
++    assert_eq!(seated_box(Platform::Pcecd), seated_box(Platform::Ps1));
++}
++
++#[test]
++fn a_japanese_disc_wears_the_spine_strip_and_a_us_disc_the_plain_case() {
++    for (stem, want) in [
++        ("Akumajou Dracula X - Chi no Rondo (Japan)", Ps1Case::Jp),
++        ("Ys IV - The Dawn of Ys (Japan) (En)", Ps1Case::Jp),
++        ("Ys Book I & II (USA)", Ps1Case::Us),
++        ("Homebrew Demo", Ps1Case::Us),
++    ] {
++        assert_eq!(cd_case(stem), want, "{stem}");
++        assert_eq!(
++            retro_shell_of(&disc(stem, None)),
++            Some(RetroShell::Ps1(want)),
++            "{stem}"
++        );
++    }
++}
++
++#[test]
++fn a_cd_never_reads_a_playstation_serial_or_turns_into_a_double_case() {
++    let d = tempfile::tempdir().unwrap();
++    let m3u = d.path().join("Two (USA).m3u");
++    std::fs::write(&m3u, "a.cue\nb.cue\n").unwrap();
++    let cart = Cart {
++        rom: m3u,
++        ..disc("Two (USA)", None)
++    };
++    assert_eq!(retro_shell_of(&cart), Some(RetroShell::Ps1(Ps1Case::Us)));
++}
++
++#[test]
++fn the_disc_comes_out_of_the_case_with_its_scan_in_the_cd_disc_folder() {
++    let cart = disc("Gate of Thunder (Japan)", None);
++    assert!(shows_interior(&cart));
++    let face = cart_interior(&cart);
++    assert_eq!((face.w, face.h), (DISC_PX, DISC_PX));
++    assert_eq!(
++        disc_art_path(&cart),
++        Some(PathBuf::from(
++            "/card/Labels/PCECD/disc/Gate of Thunder (Japan).png"
++        ))
++    );
++    let labelled = disc(
++        "Lords of Thunder (USA)",
++        Some("/card/Labels/PCECD/Lords of Thunder (USA).png".into()),
++    );
++    assert_eq!(
++        disc_art_path(&labelled),
++        Some(PathBuf::from(
++            "/card/Labels/PCECD/disc/Lords of Thunder (USA).png"
++        ))
++    );
++}
++
++#[test]
++fn a_turbografx_hucard_still_carries_no_disc() {
++    let card = Cart {
++        platform: Platform::Tg16,
++        rom: "/card/Games/TG16/Bonk.pce".into(),
++        ..disc("Bonk", None)
++    };
++    assert!(!shows_interior(&card));
++    assert_eq!(retro_shell_of(&card), Some(RetroShell::Hucard));
++}
