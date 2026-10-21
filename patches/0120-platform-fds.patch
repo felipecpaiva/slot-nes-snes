@@ -1,0 +1,1090 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:48:04 +0400
+Subject: [PATCH] platform-fds
+
+The Famicom Disk System gets one shelf, Games/FDS, on fceumm alone.
+Platform::Fds is appended to SHELVES; Core::EVERY and upstream's ALL
+lists stay as they are. Disks are .fds files, titled by their stem.
+Every policy method answers the Disk System explicitly and the same as
+the NES: L1 and R1 stay slot's (the disk control drives the core's own
+L and R, patch fds-disk), L2 and R2 stay slot's rewind and fast-forward,
+no core picker (Nestopia never runs a disk), the NES overscan crop,
+rewind on. The 256x240 picture uses fceumm's 360x240 canvas, Crop by
+default. Its shader is stored in Config/fds_shader.txt and offers the
+retro list. Saves/FDS, States/FDS and Labels/FDS are made at boot. The
+release year order puts it after the Master System (21 February 1986).
+The shelf shows the Famicom cart until the disk lands.
+---
+ crates/slot-store/src/bindings.rs            |   1 +
+ crates/slot-store/src/core.rs                |  17 ++-
+ crates/slot-store/src/core_policy.rs         |   2 +
+ crates/slot-store/src/lib.rs                 |   6 +-
+ crates/slot-store/src/platform.rs            |   6 +-
+ crates/slot-store/src/platform_policy.rs     |  24 +++-
+ crates/slot-store/src/scan.rs                |   1 +
+ crates/slot-store/src/sega_shader.rs         |   9 +-
+ crates/slot-store/tests/arcade_platform.rs   |   4 +-
+ crates/slot-store/tests/fds_platform.rs      | 125 +++++++++++++++++++
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-ui/src/cart.rs                   |   6 +-
+ crates/slot-ui/src/retro_cart.rs             |   4 +-
+ crates/slot-ui/src/shell.rs                  |   3 +-
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot/src/app.rs                       |  10 ++
+ crates/slot/src/arcade_turn.rs               |   1 +
+ crates/slot/src/atari_switches.rs            |   1 +
+ crates/slot/src/platform_video.rs            |   3 +-
+ crates/slot/src/retro_quick.rs               |   5 +-
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/shelf_order.rs               |   5 +-
+ crates/slot/src/snes_input.rs                |   1 +
+ crates/slot/src/ws_input.rs                  |   1 +
+ crates/slot/tests/crop_overscan.rs           |   2 +-
+ crates/slot/tests/four_three.rs              |   1 +
+ crates/slot/tests/shelf_order.rs             |   9 +-
+ crates/slot/tests/snes_select.rs             |   1 +
+ crates/slot/tests/system_picture.rs          |   2 +-
+ 29 files changed, 231 insertions(+), 28 deletions(-)
+ create mode 100644 crates/slot-store/tests/fds_platform.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 23a429a..dfa7ce7 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -218,6 +218,7 @@ impl GameButton {
+             Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 74c8ec7..4d128c2 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -106,6 +106,7 @@ impl Core {
+             Core::Mgba => match platform {
+                 Platform::Gba | Platform::Gb | Platform::Gbc => true,
+                 Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -128,6 +129,7 @@ impl Core {
+                 Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -147,6 +149,7 @@ impl Core {
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
++                Platform::Fds => self == Core::Fceumm,
+                 Platform::Gba
+                 | Platform::Gb
+                 | Platform::Gbc
+@@ -173,6 +176,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Md
+@@ -195,6 +199,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Ps1
+                 | Platform::Tg16
+@@ -215,6 +220,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -237,6 +243,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -259,6 +266,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -281,6 +289,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -303,6 +312,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -325,6 +335,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -347,6 +358,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -369,6 +381,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -391,6 +404,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -413,6 +427,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -433,7 +448,7 @@ impl Core {
+     pub fn default_for(platform: Platform) -> Core {
+         match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
+-            Platform::Nes => Core::Fceumm,
++            Platform::Nes | Platform::Fds => Core::Fceumm,
+             Platform::Snes => Core::Snes9x,
+             Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
+             Platform::Ps1 => Core::PcsxRearmed,
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 62ebbf6..5fc1bbb 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -73,6 +73,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Sms
+                 | Platform::Md
+@@ -104,6 +105,7 @@ impl Core {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 545c4a5..a8c0544 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -47,9 +47,9 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+     read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
+-    CPS1_SHADER_FILE, CPS2_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE, NGP_SHADER_FILE,
+-    PS1_SHADER_FILE, S32X_SHADER_FILE, SEGA_SHADERS_FILE, TG16_SHADER_FILE, VB_SHADER_FILE,
+-    WS_SHADER_FILE,
++    CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
++    NGP_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE, SEGA_SHADERS_FILE, TG16_SHADER_FILE,
++    VB_SHADER_FILE, WS_SHADER_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 25bb12d..e3f5f40 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -23,6 +23,7 @@ pub enum Platform {
+     NeoGeo,
+     Cps1,
+     Cps2,
++    Fds,
+ }
+ 
+ impl Platform {
+@@ -50,6 +51,7 @@ impl Platform {
+             Platform::NeoGeo => "SNK Neo Geo",
+             Platform::Cps1 => "Capcom CPS-1",
+             Platform::Cps2 => "Capcom CPS-2",
++            Platform::Fds => "Nintendo Famicom Disk System",
+         }
+     }
+ 
+@@ -75,6 +77,7 @@ impl Platform {
+             Platform::NeoGeo => "NEOGEO",
+             Platform::Cps1 => "CPS1",
+             Platform::Cps2 => "CPS2",
++            Platform::Fds => "FDS",
+         }
+     }
+ 
+@@ -97,6 +100,7 @@ impl Platform {
+             Platform::A7800 => &["a78"],
+             Platform::Vb => &["vb", "vboy"],
+             Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => &["zip"],
++            Platform::Fds => &["fds"],
+         }
+     }
+ 
+@@ -104,7 +108,7 @@ impl Platform {
+         match self {
+             Platform::Gba => (240, 160),
+             Platform::Gb | Platform::Gbc => (160, 144),
+-            Platform::Nes => (256, 240),
++            Platform::Nes | Platform::Fds => (256, 240),
+             Platform::Snes => (256, 224),
+             Platform::Gg => (160, 144),
+             Platform::Sms => (256, 192),
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 333635d..2e46eef 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -5,7 +5,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 20] = [
++    pub const SHELVES: [Platform; 21] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -26,12 +26,14 @@ impl Platform {
+         Platform::NeoGeo,
+         Platform::Cps1,
+         Platform::Cps2,
++        Platform::Fds,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+         match self {
+             Platform::Gba
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -68,6 +70,7 @@ impl Platform {
+             Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+@@ -94,6 +97,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+@@ -109,6 +113,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -144,6 +149,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+@@ -173,7 +179,8 @@ impl Platform {
+             | Platform::Vb
+             | Platform::NeoGeo
+             | Platform::Cps1
+-            | Platform::Cps2 => None,
++            | Platform::Cps2
++            | Platform::Fds => None,
+         }
+     }
+ 
+@@ -186,6 +193,7 @@ impl Platform {
+             | Platform::Ps1
+             | Platform::Ws => false,
+             Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Sms
+             | Platform::Md
+@@ -204,7 +212,7 @@ impl Platform {
+ 
+     pub fn overscan(self) -> (u32, u32) {
+         match self {
+-            Platform::Nes => (8, 8),
++            Platform::Nes | Platform::Fds => (8, 8),
+             Platform::Snes | Platform::Tg16 => (0, 8),
+             Platform::Gba
+             | Platform::Gb
+@@ -232,6 +240,7 @@ impl Platform {
+             Platform::Gb | Platform::Gbc => &Shader::GB,
+             Platform::Gg | Platform::Ws | Platform::Ngp => &Shader::GG,
+             Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Sms
+             | Platform::Md
+@@ -255,6 +264,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -277,6 +287,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -302,6 +313,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -327,6 +339,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -352,6 +365,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -377,6 +391,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -402,6 +417,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -427,6 +443,7 @@ impl Platform {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -454,6 +471,7 @@ impl Platform {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 0fd25de..eb4eb8d 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -31,6 +31,7 @@ impl Cart {
+                 }
+             }
+             Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index 2469b43..71d5028 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -17,6 +17,7 @@ pub const VB_SHADER_FILE: &str = "vb_shader.txt";
+ pub const NEOGEO_SHADER_FILE: &str = "neogeo_shader.txt";
+ pub const CPS1_SHADER_FILE: &str = "cps1_shader.txt";
+ pub const CPS2_SHADER_FILE: &str = "cps2_shader.txt";
++pub const FDS_SHADER_FILE: &str = "fds_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -35,6 +36,7 @@ pub struct SegaShaders {
+     pub neogeo: Shader,
+     pub cps1: Shader,
+     pub cps2: Shader,
++    pub fds: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -55,6 +57,7 @@ impl Default for SegaShaders {
+             neogeo: Shader::Off,
+             cps1: Shader::Off,
+             cps2: Shader::Off,
++            fds: Shader::Off,
+         }
+     }
+ }
+@@ -75,6 +78,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+         NEOGEO_SHADER_FILE,
+         CPS1_SHADER_FILE,
+         CPS2_SHADER_FILE,
++        FDS_SHADER_FILE,
+     ] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+@@ -94,6 +98,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (NEOGEO_SHADER_FILE, "neogeo") => (&mut s.neogeo, Platform::NeoGeo),
+                 (CPS1_SHADER_FILE, "cps1") => (&mut s.cps1, Platform::Cps1),
+                 (CPS2_SHADER_FILE, "cps2") => (&mut s.cps2, Platform::Cps2),
++                (FDS_SHADER_FILE, "fds") => (&mut s.fds, Platform::Fds),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -141,7 +146,9 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let cps1 = format!("cps1={}\n", s.cps1.name());
+     write_unless_unchanged(root, CPS1_SHADER_FILE, &cps1, s.cps1 == d.cps1)?;
+     let cps2 = format!("cps2={}\n", s.cps2.name());
+-    write_unless_unchanged(root, CPS2_SHADER_FILE, &cps2, s.cps2 == d.cps2)
++    write_unless_unchanged(root, CPS2_SHADER_FILE, &cps2, s.cps2 == d.cps2)?;
++    let fds = format!("fds={}\n", s.fds.name());
++    write_unless_unchanged(root, FDS_SHADER_FILE, &fds, s.fds == d.fds)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/arcade_platform.rs b/crates/slot-store/tests/arcade_platform.rs
+index 98543cb..80e4e9b 100644
+--- a/crates/slot-store/tests/arcade_platform.rs
++++ b/crates/slot-store/tests/arcade_platform.rs
+@@ -28,9 +28,9 @@ fn stems(carts: &[Cart]) -> Vec<&str> {
+ }
+ 
+ #[test]
+-fn neo_geo_cps1_and_cps2_are_the_last_three_shelves_on_fbneo() {
++fn neo_geo_cps1_and_cps2_follow_the_virtual_boy_on_fbneo() {
+     assert_eq!(
+-        Platform::SHELVES[Platform::SHELVES.len() - 3..],
++        Platform::SHELVES[17..20],
+         [Platform::NeoGeo, Platform::Cps1, Platform::Cps2]
+     );
+     assert_eq!(Platform::ALL.len(), 3);
+diff --git a/crates/slot-store/tests/fds_platform.rs b/crates/slot-store/tests/fds_platform.rs
+new file mode 100644
+index 0000000..4f81286
+--- /dev/null
++++ b/crates/slot-store/tests/fds_platform.rs
+@@ -0,0 +1,125 @@
++mod common;
++
++use std::path::{Path, PathBuf};
++
++use common::tmp_root;
++use slot_store::{
++    read_sega_shaders, read_slot_state, scan, write_sega_shaders, write_slot_state, Cart, Core,
++    Platform, RetroShader, SegaShaders, Shader, SlotState, FDS_SHADER_FILE,
++};
++
++fn put(root: &Path, dir: &str, name: &str) -> PathBuf {
++    let dir = root.join(dir);
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let p = dir.join(name);
++    std::fs::write(&p, [0u8; 16]).expect("write");
++    p
++}
++
++fn on(root: &Path, platform: Platform) -> Vec<Cart> {
++    scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == platform)
++        .collect()
++}
++
++#[test]
++fn the_disk_system_follows_cps2_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES[20], Platform::Fds);
++    assert_eq!(Platform::SHELVES[19], Platform::Cps2);
++    assert_eq!(Platform::ALL.len(), 3);
++    assert_eq!(Platform::Fds.dir_name(), "FDS");
++    assert_eq!(Platform::Fds.name(), "Nintendo Famicom Disk System");
++}
++
++#[test]
++fn an_fds_file_lands_on_the_disk_shelf_and_never_on_the_nes_shelf() {
++    let d = tmp_root();
++    put(d.path(), "Games/FDS", "Nazo no Murasamejou (Japan).fds");
++    put(d.path(), "Games/FDS", "Esper Dream (Japan).FDS");
++    put(d.path(), "Games/FDS", "._Deep Dungeon (Japan).fds");
++    put(d.path(), "Games/FDS", "Metroid (Japan).nes");
++    put(d.path(), "Games/NES", "Zelda no Densetsu (Japan).fds");
++    let mut carts = on(d.path(), Platform::Fds);
++    let stems: Vec<&str> = carts.iter().map(|c| c.stem.as_str()).collect();
++    assert_eq!(
++        stems,
++        ["Esper Dream (Japan)", "Nazo no Murasamejou (Japan)"]
++    );
++    for c in &mut carts {
++        c.read_header();
++        assert!(c.title.is_empty(), "{} took a header title", c.stem);
++    }
++    assert!(on(d.path(), Platform::Nes).is_empty());
++}
++
++#[test]
++fn the_disk_system_plays_like_the_nes_and_answers_every_policy() {
++    let p = Platform::Fds;
++    assert!(p.owns_shoulders());
++    assert!(p.owns_triggers());
++    assert!(!p.passes_xy_through());
++    assert!(!p.turbo_on_xy());
++    assert!(!p.select_x_toggles_picture());
++    assert!(p.stretch_crops_height());
++    assert_eq!(p.overscan(), (8, 8));
++    assert!(!p.follows_frame_width());
++    assert!(!p.has_gb_palettes());
++    assert!(p.rewinds());
++    assert!(!p.fills_canvas());
++    assert!(!p.swaps_discs());
++    assert_eq!(p.actual_scale(), None);
++    assert!(!p.flashes_on_unload());
++    assert!(!p.is_arcade());
++    assert_eq!(p.picker_cores(), None);
++    assert_eq!(p.picture(), (256, 240));
++    assert_eq!(p.shader_choices(), &Shader::RETRO);
++    assert_eq!(p.extensions(), ["fds"]);
++}
++
++#[test]
++fn the_disk_system_runs_on_fceumm_alone_on_the_nes_canvas() {
++    assert_eq!(Core::default_for(Platform::Fds), Core::Fceumm);
++    assert_eq!(
++        Core::Fceumm.canvas(Platform::Fds),
++        Core::Fceumm.canvas(Platform::Nes)
++    );
++    for core in Core::EVERY {
++        assert_eq!(core.runs(Platform::Fds), core == Core::Fceumm, "{core:?}");
++    }
++    assert!(Core::Fceumm.runs(Platform::Nes));
++    assert!(Core::Nestopia.runs(Platform::Nes));
++}
++
++#[test]
++fn a_disk_system_game_resumes_as_a_disk_system_game() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Nazo no Murasamejou (Japan)".into()),
++        cart_platform: Some(Platform::Fds),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    assert!(text.lines().any(|l| l == "cart_platform=fds"), "{text:?}");
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn the_disk_system_shader_lives_in_its_own_file_and_leaves_the_nes_alone() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        fds: Shader::Retro(RetroShader::CrtPi),
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config").join(FDS_SHADER_FILE)).expect("read"),
++        "fds=crt-pi\n"
++    );
++    assert!(!d.path().join("Config/sega_shaders.txt").exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++    assert_eq!(read_slot_state(d.path()).shader_nes, Shader::Off);
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index e34ca8f..86aeed2 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -32,6 +32,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         neogeo: Shader::Off,
+         cps1: Shader::Off,
+         cps2: Shader::Off,
++        fds: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 4bbfe0b..2018452 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -106,7 +106,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Vb
+         | Platform::NeoGeo
+         | Platform::Cps1
+-        | Platform::Cps2 => None,
++        | Platform::Cps2
++        | Platform::Fds => None,
+         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
+             Some(Outline::Notched) => GbShell::Notched,
+             Some(Outline::Rounded) => GbShell::Rounded,
+@@ -192,7 +193,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+         Platform::Lynx => (SEATED_W, LYNX_SEATED_H),
+         Platform::Ws => (SEATED_W, WS_SEATED_H),
+         Platform::Ps1 => (SEATED_W, PS1_SEATED_H),
+-        Platform::Nes => (SEATED_W, NES_SEATED_H),
++        Platform::Nes | Platform::Fds => (SEATED_W, NES_SEATED_H),
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+         Platform::Sms => (SEATED_W, SMS_SEATED_H),
+         Platform::Md => (SEATED_W, MD_SEATED_H),
+@@ -216,6 +217,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+         Platform::Ngp => return retro_box(RetroShell::Ngp),
+         Platform::Ps1 => return retro_box(RetroShell::Ps1(Ps1Case::Us)),
+         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
++        Platform::Fds => return retro_box(RetroShell::Nes(NesShell::Famicom)),
+         Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
+         Platform::Sms => return retro_box(RetroShell::Sega(SegaShell::Sms)),
+         Platform::Md => return retro_box(RetroShell::Sega(SegaShell::MegaDrive)),
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 31fc9de..1313394 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -271,6 +271,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+         Platform::NeoGeo => Some(RetroShell::NeoGeo),
+         Platform::Cps1 => Some(RetroShell::Cps1),
+         Platform::Cps2 => Some(RetroShell::Cps2),
++        Platform::Fds => Some(RetroShell::Nes(NesShell::Famicom)),
+         Platform::Gba | Platform::Gb | Platform::Gbc => None,
+     }
+ }
+@@ -509,7 +510,8 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         | Platform::S32x
+         | Platform::A2600
+         | Platform::A7800
+-        | Platform::Vb => {
++        | Platform::Vb
++        | Platform::Fds => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+         Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => sh,
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index ca50ff8..6eb39a7 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -106,7 +106,8 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::Vb
+         | Platform::NeoGeo
+         | Platform::Cps1
+-        | Platform::Cps2 => crate::retro_shell::plastic_for(cart),
++        | Platform::Cps2
++        | Platform::Fds => crate::retro_shell::plastic_for(cart),
+     }
+ }
+ 
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index c964fb5..bb95180 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Fds => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 4381119..dfc7d27 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1072,6 +1072,7 @@ impl App {
+                 QuickRow::Bezel,
+                 Platform::Gba
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -1295,6 +1296,7 @@ impl App {
+         match platform {
+             Platform::Gba
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -1334,6 +1336,7 @@ impl App {
+         match platform {
+             Platform::Gba
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -1359,6 +1362,7 @@ impl App {
+         let pick = match platform {
+             Platform::Gba
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -2322,6 +2326,7 @@ impl App {
+             Platform::NeoGeo => self.sega_shaders.neogeo,
+             Platform::Cps1 => self.sega_shaders.cps1,
+             Platform::Cps2 => self.sega_shaders.cps2,
++            Platform::Fds => self.sega_shaders.fds,
+         }
+     }
+ 
+@@ -2362,6 +2367,7 @@ impl App {
+             Platform::Gb => self.state.colour_correction_gb,
+             Platform::Gbc => self.state.colour_correction_gbc,
+             Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -3317,6 +3323,7 @@ impl App {
+             Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
+             Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
+             Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
++            Platform::Fds => (&mut self.sega_shaders.fds, &Shader::RETRO[..]),
+         };
+         *shader = shader.step(choices, right);
+         let said = match *shader {
+@@ -3372,6 +3379,7 @@ impl App {
+                 Platform::Gb => QuickRow::GbColourCorrection,
+                 Platform::Gbc => QuickRow::GbcColourCorrection,
+                 Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Gg
+                 | Platform::Sms
+@@ -3784,6 +3792,7 @@ impl App {
+             Platform::Gba
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+@@ -5980,6 +5989,7 @@ fn bezel_slot(platform: Platform) -> usize {
+     match platform {
+         Platform::Gba
+         | Platform::Nes
++        | Platform::Fds
+         | Platform::Snes
+         | Platform::Gg
+         | Platform::Sms
+diff --git a/crates/slot/src/arcade_turn.rs b/crates/slot/src/arcade_turn.rs
+index b07fb9c..fe3c5bd 100644
+--- a/crates/slot/src/arcade_turn.rs
++++ b/crates/slot/src/arcade_turn.rs
+@@ -61,6 +61,7 @@ fn key(platform: Platform) -> Option<&'static str> {
+         | Platform::Gb
+         | Platform::Gbc
+         | Platform::Nes
++        | Platform::Fds
+         | Platform::Snes
+         | Platform::Gg
+         | Platform::Sms
+diff --git a/crates/slot/src/atari_switches.rs b/crates/slot/src/atari_switches.rs
+index 61545e0..675d521 100644
+--- a/crates/slot/src/atari_switches.rs
++++ b/crates/slot/src/atari_switches.rs
+@@ -155,6 +155,7 @@ impl AtariSwitches {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 8d715d7..60a3787 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -40,7 +40,7 @@ pub fn default_video_mode(platform: Platform) -> VideoMode {
+         | Platform::Lynx
+         | Platform::Ngp
+         | Platform::Vb => VideoMode::Actual,
+-        Platform::Nes | Platform::Snes | Platform::Tg16 => VideoMode::Crop,
++        Platform::Nes | Platform::Snes | Platform::Tg16 | Platform::Fds => VideoMode::Crop,
+         Platform::Sms
+         | Platform::Md
+         | Platform::S32x
+@@ -64,6 +64,7 @@ pub fn picture_choices(platform: Platform) -> &'static [VideoMode] {
+ pub fn offers_four_three(platform: Platform) -> bool {
+     match platform {
+         Platform::Nes
++        | Platform::Fds
+         | Platform::Snes
+         | Platform::Sms
+         | Platform::Md
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 90833de..364024b 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -52,7 +52,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::Vb
+         | Platform::NeoGeo
+         | Platform::Cps1
+-        | Platform::Cps2 => {
++        | Platform::Cps2
++        | Platform::Fds => {
+             let mut hidden = vec![QuickRow::ColourCorrection, QuickRow::Palette];
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
+@@ -67,7 +68,7 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+-            Platform::Nes | Platform::Snes => 0,
++            Platform::Nes | Platform::Snes | Platform::Fds => 0,
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+             Platform::Md => 3,
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index bf7c1df..190574e 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 92] = [
++pub const DIRS: [&str; 96] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -27,6 +27,7 @@ pub const DIRS: [&str; 92] = [
+     "Games/NEOGEO",
+     "Games/CPS1",
+     "Games/CPS2",
++    "Games/FDS",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -49,6 +50,7 @@ pub const DIRS: [&str; 92] = [
+     "Labels/NEOGEO",
+     "Labels/CPS1",
+     "Labels/CPS2",
++    "Labels/FDS",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -70,6 +72,7 @@ pub const DIRS: [&str; 92] = [
+     "Saves/NEOGEO",
+     "Saves/CPS1",
+     "Saves/CPS2",
++    "Saves/FDS",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -91,6 +94,7 @@ pub const DIRS: [&str; 92] = [
+     "States/NEOGEO",
+     "States/CPS1",
+     "States/CPS2",
++    "States/FDS",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index 264be97..81e0ae8 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -10,10 +10,11 @@ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
+ 
+ const KEY: &str = "order";
+ 
+-pub const RELEASED: [(Platform, u16, u8, u8); 20] = [
++pub const RELEASED: [(Platform, u16, u8, u8); 21] = [
+     (Platform::A2600, 1977, 9, 0),
+     (Platform::Nes, 1983, 7, 15),
+     (Platform::Sms, 1985, 10, 20),
++    (Platform::Fds, 1986, 2, 21),
+     (Platform::A7800, 1986, 5, 0),
+     (Platform::Tg16, 1987, 10, 30),
+     (Platform::Cps1, 1988, 5, 13),
+@@ -127,7 +128,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::Gba => QuickRow::ScreenGba,
+         Platform::Gb => QuickRow::ScreenGb,
+         Platform::Gbc => QuickRow::ScreenGbc,
+-        Platform::Nes => QuickRow::ScreenNes,
++        Platform::Nes | Platform::Fds => QuickRow::ScreenNes,
+         Platform::Snes => QuickRow::ScreenSnes,
+         Platform::Gg => QuickRow::ScreenGg,
+         Platform::Sms => QuickRow::ScreenSms,
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index c3c2a88..42b098e 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -24,6 +24,7 @@ impl VideoMode {
+                 | Platform::Gb
+                 | Platform::Gbc
+                 | Platform::Nes
++                | Platform::Fds
+                 | Platform::Gg
+                 | Platform::Sms
+                 | Platform::Tg16
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index 93ed5c2..d782c05 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -26,6 +26,7 @@ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Snes
+             | Platform::Gg
+             | Platform::Sms
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index 9ed9fac..9ba0aa4 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -70,7 +70,7 @@ fn nes_and_snes_start_in_crop_and_the_other_systems_keep_their_defaults() {
+ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+     for platform in Platform::SHELVES {
+         let want: &[VideoMode] = match platform {
+-            Platform::Nes | Platform::Snes => &[Crop, Stretch, Actual, FourThree],
++            Platform::Nes | Platform::Snes | Platform::Fds => &[Crop, Stretch, Actual, FourThree],
+             Platform::Tg16 => &[Crop, Stretch, Actual],
+             Platform::Sms
+             | Platform::Md
+diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
+index c8db8fe..9da96ad 100644
+--- a/crates/slot/tests/four_three.rs
++++ b/crates/slot/tests/four_three.rs
+@@ -61,6 +61,7 @@ fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
+         let tv = matches!(
+             platform,
+             Platform::Nes
++                | Platform::Fds
+                 | Platform::Snes
+                 | Platform::Sms
+                 | Platform::Md
+diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
+index 4feb3fe..cca5482 100644
+--- a/crates/slot/tests/shelf_order.rs
++++ b/crates/slot/tests/shelf_order.rs
+@@ -9,10 +9,11 @@ use slot_input::{Action, Btn};
+ use slot_store::{write_slot_state, Platform, Recent, SlotState};
+ use tempfile::TempDir;
+ 
+-const RELEASE_YEAR: [Platform; 20] = [
++const RELEASE_YEAR: [Platform; 21] = [
+     Platform::A2600,
+     Platform::Nes,
+     Platform::Sms,
++    Platform::Fds,
+     Platform::A7800,
+     Platform::Tg16,
+     Platform::Cps1,
+@@ -136,7 +137,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(Platform::SHELVES);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 22), want);
+ }
+ 
+ #[test]
+@@ -146,7 +147,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(RELEASE_YEAR);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 22), want);
+ }
+ 
+ #[test]
+@@ -155,7 +156,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+     let mut a = boot_with(d.path(), SlotState::default());
+     let mut want = names(RELEASE_YEAR.into_iter().rev());
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::L1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::L1, 22), want);
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 19d335a..b2f5210 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -267,6 +267,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+             | Platform::Gb
+             | Platform::Gbc
+             | Platform::Nes
++            | Platform::Fds
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Tg16
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 312798e..6dcd9c9 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -154,7 +154,7 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+             "{console:?} wrote before a change"
+         );
+         let walk: &[VideoMode] = match platform {
+-            Platform::Nes | Platform::Snes => &[Stretch, Actual, FourThree, Crop],
++            Platform::Nes | Platform::Snes | Platform::Fds => &[Stretch, Actual, FourThree, Crop],
+             Platform::Tg16 => &[Stretch, Actual, Crop],
+             Platform::Gg
+             | Platform::Ps1

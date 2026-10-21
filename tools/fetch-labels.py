@@ -59,7 +59,7 @@ Label sources, in order, per ROM:
      libretro:<name> or ss:<id> wheel. A dry run matches and reports but downloads, renders and writes no logo.
      A ROM not searched for the quota, a stop or --limit gets none (a later run searches it). A logo label is
      a label to later runs: delete it or use --force to replace it with real art.
-  PICO-8 (ADR 0101) needs no network and no dat: a cart carries its own label. A PNG cart (.p8.png, or a PNG
+  PICO-8 (ADR 0102) needs no network and no dat: a cart carries its own label. A PNG cart (.p8.png, or a PNG
   under a .p8 name) is its own 160x205 picture with the label at (16, 24), 128x128; a text .p8 cart has a
   __label__ section of 128 lines of 128 palette digits (0-9 and a-v, the secret palette included). Either is
   written to Labels/PICO8/<stem>.png as a 128x128 PNG. A cart with no label is reported as missing.
@@ -144,6 +144,12 @@ SYSTEMS = {
     # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "virtualboy,11,38,4918"). .vb and .vboy, as
     # slot scans (ADR 0097); libretro-thumbnails has Nintendo - Virtual Boy Named_Logos (22, checked 2026-10-20).
     "VB": ("virtualboy", {".vb", ".vboy"}, [NO_INTRO + "Virtual Boy"], 11),
+    # Famicom Disk System: libretro-database metadat/no-intro "Nintendo - Family Computer Disk System", which
+    # hashes the disk without the 16-byte fwNES header (Adian no Tsue (Japan).fds, 131000 bytes, two sides);
+    # ScreenScraper id 106 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper c253bfe, row "fds,106,22,4936").
+    # .fds, as slot scans (ADR 0101); libretro-thumbnails has no Family Computer Disk System Named_Logos
+    # (checked 2026-10-21, 404), so --logo-fallback takes the ScreenScraper wheel.
+    "FDS": ("fds", {".fds"}, [NO_INTRO + "Family Computer Disk System"], 106),
     # Arcade (ADR 0099): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
     # dat; ScreenScraper finds an arcade set by its file name (romnom). Ids per Skyscraper's
     # platforms_idmap.csv (Gemba/skyscraper c253bfe) row
@@ -152,7 +158,7 @@ SYSTEMS = {
     "NEOGEO": ("neogeo", {".zip"}, [], 142),
     "CPS1": ("cps1", {".zip"}, [], 6),
     "CPS2": ("cps2", {".zip"}, [], 7),
-    # PICO-8 (ADR 0101): the label is inside the cart (pico8_label), so no dat and no ScreenScraper id.
+    # PICO-8 (ADR 0102): the label is inside the cart (pico8_label), so no dat and no ScreenScraper id.
     # .p8 and .png, as slot scans; a .png only when named <name>.p8.png (pico8_admits).
     "PICO8": ("pico8", {".p8", ".png"}, [], None),
 }
@@ -606,7 +612,10 @@ class Rom:
         SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a HuCard likewise
         (size % 8192 == 512), a Mega Drive SMD dump (as Genesis Plus GX detects one) de-interleaved, since
         No-Intro hashes the raw ROM. A .lnx without its 64-byte LYNX header first, the way No-Intro and
-        Beetle Lynx hash it. A headered .a78 without its 128-byte header too."""
+        Beetle Lynx hash it. A headered .a78 without its 128-byte header too, and a .fds without its 16-byte
+        fwNES header."""
+        if system == "FDS" and self.size > 16 and self.read()[:4] == b"FDS\x1a":
+            yield zlib.crc32(self.read()[16:])
         if system == "Lynx" and self.size > 64 and self.read()[:4] == b"LYNX":
             yield zlib.crc32(self.read()[64:])
         if system == "A7800" and self.size > 128 and self.read()[1:10] == b"ATARI7800":
@@ -817,7 +826,7 @@ def expansion_systems(card):
     return {w for line in text.splitlines() for w in line.split("#")[0].split() if w.isascii() and w.isalnum()}
 
 
-# ---- PICO-8 labels (ADR 0101) --------------------------------------------------------------------
+# ---- PICO-8 labels (ADR 0102) --------------------------------------------------------------------
 
 # The 16 colours and the 16 secret ones (128-143), as PICO-8 0.2 draws them; the label digits 0-9, a-v.
 PICO8_PALETTE = [bytes.fromhex(c) for c in (
@@ -903,7 +912,7 @@ def pico8_label(data):
 
 
 def process_pico8(ctx, roms, have, out, args):
-    """Labels for PICO-8 carts, from the carts themselves (ADR 0101)."""
+    """Labels for PICO-8 carts, from the carts themselves (ADR 0102)."""
     stats = ctx.stats
     for rom in roms:
         stem, tag = rom.stem, f"PICO8/{rom.stem}"
@@ -1884,7 +1893,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, PICO8) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

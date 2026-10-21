@@ -1,0 +1,492 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:59:08 +0400
+Subject: [PATCH] fds-bios
+
+Before a disk starts slot checks BIOS/disksys.rom: present, 8192 bytes,
+crc32 0x5e607dcf (the disksys.rom row of libretro-database
+dat/System.dat, md5 ca30b50f880eb660a320674ed365ef7a). Missing or the
+wrong size: the disk stays on the shelf with "FDS needs
+BIOS/disksys.rom", because fceumm refuses a disk without it. Another
+8 KB file launches with one "disksys.rom is not the known dump" toast a
+session. A disk resumed at boot is checked the same way. The toasts,
+and the eight side banners the disk control shows, upload after the
+arcade one.
+---
+ crates/slot-store/src/fds.rs        |  22 +++++
+ crates/slot-store/src/lib.rs        |   1 +
+ crates/slot-ui/src/fds_toast.rs     |  50 +++++++++++
+ crates/slot-ui/src/lib.rs           |   2 +
+ crates/slot-ui/src/quick_retro.rs   |   1 +
+ crates/slot-ui/src/toast.rs         |   3 +
+ crates/slot/src/app.rs              |   8 +-
+ crates/slot/src/app/fds_bios.rs     |  35 ++++++++
+ crates/slot/tests/fds_bios.rs       | 132 ++++++++++++++++++++++++++++
+ crates/slot/tests/fds_common/mod.rs |  66 ++++++++++++++
+ crates/slot/tests/ps1_discs.rs      |   1 +
+ 11 files changed, 320 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-store/src/fds.rs
+ create mode 100644 crates/slot-ui/src/fds_toast.rs
+ create mode 100644 crates/slot/src/app/fds_bios.rs
+ create mode 100644 crates/slot/tests/fds_bios.rs
+ create mode 100644 crates/slot/tests/fds_common/mod.rs
+
+diff --git a/crates/slot-store/src/fds.rs b/crates/slot-store/src/fds.rs
+new file mode 100644
+index 0000000..0864f40
+--- /dev/null
++++ b/crates/slot-store/src/fds.rs
+@@ -0,0 +1,22 @@
++use std::path::Path;
++
++use crate::lynx::{crc32, Bios};
++
++pub const BIOS_FILE: &str = "disksys.rom";
++const BIOS_BYTES: usize = 8192;
++const BIOS_CRC32: u32 = 0x5e60_7dcf;
++
++pub fn bios(bios_dir: &Path) -> Bios {
++    match std::fs::read(bios_dir.join(BIOS_FILE)) {
++        Ok(bytes) => bios_of(&bytes),
++        Err(_) => Bios::Missing,
++    }
++}
++
++pub fn bios_of(bytes: &[u8]) -> Bios {
++    match (bytes.len(), crc32(bytes)) {
++        (BIOS_BYTES, BIOS_CRC32) => Bios::Known,
++        (BIOS_BYTES, _) => Bios::Unknown,
++        _ => Bios::Missing,
++    }
++}
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index a8c0544..57fd9a0 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -6,6 +6,7 @@ pub mod cart_shell;
+ mod config;
+ mod core;
+ mod core_policy;
++pub mod fds;
+ pub mod gb;
+ mod gb_palette;
+ mod gba;
+diff --git a/crates/slot-ui/src/fds_toast.rs b/crates/slot-ui/src/fds_toast.rs
+new file mode 100644
+index 0000000..db81d83
+--- /dev/null
++++ b/crates/slot-ui/src/fds_toast.rs
+@@ -0,0 +1,50 @@
++use crate::Toast;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum FdsToast {
++    NeedsBios,
++    UnknownBios,
++    Side(u8),
++}
++
++impl FdsToast {
++    pub const SIDES: u8 = 8;
++
++    pub const ALL: [FdsToast; 10] = [
++        FdsToast::NeedsBios,
++        FdsToast::UnknownBios,
++        FdsToast::Side(0),
++        FdsToast::Side(1),
++        FdsToast::Side(2),
++        FdsToast::Side(3),
++        FdsToast::Side(4),
++        FdsToast::Side(5),
++        FdsToast::Side(6),
++        FdsToast::Side(7),
++    ];
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            FdsToast::NeedsBios => "FDS needs BIOS/disksys.rom",
++            FdsToast::UnknownBios => "disksys.rom is not the known dump",
++            FdsToast::Side(0) => "Disk 1 Side A",
++            FdsToast::Side(1) => "Disk 1 Side B",
++            FdsToast::Side(2) => "Disk 2 Side A",
++            FdsToast::Side(3) => "Disk 2 Side B",
++            FdsToast::Side(4) => "Disk 3 Side A",
++            FdsToast::Side(5) => "Disk 3 Side B",
++            FdsToast::Side(6) => "Disk 4 Side A",
++            FdsToast::Side(_) => "Disk 4 Side B",
++        }
++    }
++}
++
++impl Toast {
++    pub fn fds_index(f: FdsToast) -> usize {
++        Toast::arcade_index(crate::ArcadeToast::ALL[0]) + crate::ArcadeToast::ALL.len() + f.index()
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 921e701..3f77274 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -17,6 +17,7 @@ mod clock;
+ mod disc_insert;
+ mod disc_toast;
+ mod draw;
++mod fds_toast;
+ mod footer;
+ mod hud;
+ mod icon;
+@@ -72,6 +73,7 @@ pub use cart::{
+ pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
+ pub use disc_toast::DiscToast;
+ pub use draw::{Canvas, Draw, Layout, TexId, OUT_H, OUT_W};
++pub use fds_toast::FdsToast;
+ pub use footer::{draw_corners, draw_footer, Printed, FOOTER_Y};
+ pub use hud::{
+     badge_at, ff_badge, footer_ink, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H,
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index f6ca806..9a6bdca 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -145,6 +145,7 @@ impl Toast {
+             .chain(crate::DiscToast::ALL.map(Toast::Disc))
+             .chain(crate::LynxToast::ALL.map(Toast::Lynx))
+             .chain(crate::ArcadeToast::ALL.map(Toast::Arcade))
++            .chain(crate::FdsToast::ALL.map(Toast::Fds))
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index d01b655..4f93ffb 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -33,6 +33,7 @@ pub enum Toast {
+     StartFailed,
+     Lynx(crate::LynxToast),
+     Arcade(crate::ArcadeToast),
++    Fds(crate::FdsToast),
+ }
+ 
+ impl Toast {
+@@ -73,6 +74,7 @@ impl Toast {
+             Toast::StartFailed => Toast::start_failed_index(),
+             Toast::Lynx(l) => Toast::lynx_index(l),
+             Toast::Arcade(a) => Toast::arcade_index(a),
++            Toast::Fds(f) => Toast::fds_index(f),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -123,6 +125,7 @@ impl Toast {
+             Toast::StartFailed => "Last start failed",
+             Toast::Lynx(l) => l.text(),
+             Toast::Arcade(a) => a.text(),
++            Toast::Fds(f) => f.text(),
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 8026f4b..17f3a66 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -2,6 +2,7 @@ mod arcade_bios;
+ mod atari_pad;
+ mod battery_warn;
+ mod fast_scroll;
++mod fds_bios;
+ mod lynx_bios;
+ mod ps1_discs;
+ mod shelf_order;
+@@ -449,6 +450,7 @@ pub struct App {
+     battery: Option<Battery>,
+     battery_warned: Option<u8>,
+     lynx_bios_warned: bool,
++    fds_bios_warned: bool,
+     lynx_flip: bool,
+     last_led: Option<LedState>,
+     powering_off: bool,
+@@ -646,6 +648,7 @@ impl App {
+             battery: None,
+             battery_warned: None,
+             lynx_bios_warned: false,
++            fds_bios_warned: false,
+             lynx_flip: true,
+             last_led: None,
+             powering_off: false,
+@@ -4992,7 +4995,10 @@ impl App {
+         }) else {
+             return;
+         };
+-        if !self.lynx_bios_allows(platform) || !self.neogeo_bios_allows(platform) {
++        if !self.lynx_bios_allows(platform)
++            || !self.neogeo_bios_allows(platform)
++            || !self.fds_bios_allows(platform)
++        {
+             return;
+         }
+         eprintln!(
+diff --git a/crates/slot/src/app/fds_bios.rs b/crates/slot/src/app/fds_bios.rs
+new file mode 100644
+index 0000000..2ef960d
+--- /dev/null
++++ b/crates/slot/src/app/fds_bios.rs
+@@ -0,0 +1,35 @@
++use slot_store::fds::bios;
++use slot_store::lynx::Bios;
++use slot_store::Platform;
++use slot_ui::{FdsToast, Toast};
++
++use super::App;
++
++impl App {
++    pub(super) fn fds_bios_allows(&mut self, platform: Platform) -> bool {
++        if platform != Platform::Fds {
++            return true;
++        }
++        let Some(root) = self.root.as_deref() else {
++            return true;
++        };
++        match bios(&crate::root::bios_dir(root)) {
++            Bios::Known => true,
++            Bios::Unknown => {
++                if !self.fds_bios_warned {
++                    self.fds_bios_warned = true;
++                    eprintln!("slot: fds: BIOS/disksys.rom is not the known dump, launching");
++                    self.hud
++                        .toast(Toast::Fds(FdsToast::UnknownBios), self.now());
++                }
++                true
++            }
++            Bios::Missing => {
++                eprintln!("slot: fds: no usable BIOS/disksys.rom, not launching");
++                self.hud.toast(Toast::Fds(FdsToast::NeedsBios), self.now());
++                self.refuse();
++                false
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/fds_bios.rs b/crates/slot/tests/fds_bios.rs
+new file mode 100644
+index 0000000..4790dd7
+--- /dev/null
++++ b/crates/slot/tests/fds_bios.rs
+@@ -0,0 +1,132 @@
++// The Famicom Disk System needs BIOS/disksys.rom, which slot never ships or fetches (ADR 0101).
++// Without it fceumm refuses the disk, so slot checks before the disk is inserted, like the Lynx.
++mod common;
++mod core_common;
++mod fds_common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use fds_common::{disk, fds_bios, placeholder_bios, put_bios};
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::fds::{bios, bios_of, BIOS_FILE};
++use slot_store::lynx::Bios;
++use slot_store::{write_slot_state, Platform, SlotState};
++use slot_ui::{ArcadeToast, FdsToast, Toast};
++use tempfile::TempDir;
++
++fn card(bios: Option<&[u8]>) -> TempDir {
++    let d = tmp_root_with_carts(&[]);
++    disk(&d.path().join("Games/FDS"), "Esper Dream", 2, true);
++    if let Some(b) = bios {
++        put_bios(d.path(), b);
++    }
++    d
++}
++
++fn boot_on(root: &Path, cart: Option<&str>) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            cart: cart.map(str::to_string),
++            cart_platform: cart.map(|_| Platform::Fds),
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn insert(a: &mut App) {
++    a.apply(Action::GbaDown(Btn::A));
++    a.apply(Action::GbaUp(Btn::A));
++    for _ in 0..10 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn inserting(a: &App) -> bool {
++    matches!(a.phase(), Phase::Inserting { .. } | Phase::Playing { .. })
++}
++
++#[test]
++fn the_check_reads_missing_short_long_and_unknown_files() {
++    let d = tempfile::tempdir().unwrap();
++    assert_eq!(BIOS_FILE, "disksys.rom");
++    assert_eq!(bios(d.path()), Bios::Missing);
++    for (bytes, want) in [
++        (vec![], Bios::Missing),
++        (vec![0u8; 4096], Bios::Missing),
++        (vec![0u8; 8193], Bios::Missing),
++        (vec![0u8; 8192], Bios::Unknown),
++    ] {
++        std::fs::write(d.path().join(BIOS_FILE), &bytes).unwrap();
++        assert_eq!(bios(d.path()), want, "{} bytes", bytes.len());
++    }
++}
++
++#[test]
++fn the_maintainers_own_bios_is_the_known_dump() {
++    let Some(b) = fds_bios() else {
++        return;
++    };
++    assert_eq!(bios_of(&b), Bios::Known);
++}
++
++#[test]
++fn with_no_bios_a_disk_stays_on_the_shelf_with_a_toast() {
++    let d = card(None);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Fds(FdsToast::NeedsBios)));
++    assert_eq!(
++        Toast::Fds(FdsToast::NeedsBios).text(),
++        "FDS needs BIOS/disksys.rom"
++    );
++}
++
++#[test]
++fn a_disk_resumed_at_boot_is_checked_too() {
++    let d = card(Some(&[0u8; 100]));
++    let a = boot_on(d.path(), Some("Esper Dream"));
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Fds(FdsToast::NeedsBios)));
++}
++
++#[test]
++fn an_unknown_bios_launches_and_says_so() {
++    let d = card(Some(&placeholder_bios()));
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Fds(FdsToast::UnknownBios)));
++}
++
++#[test]
++fn a_known_bios_launches_with_no_toast() {
++    let Some(b) = fds_bios() else {
++        return;
++    };
++    let d = card(Some(&b));
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn the_fds_toasts_upload_in_their_own_place_after_the_arcade_one() {
++    let every = Toast::every();
++    for f in FdsToast::ALL {
++        let t = Toast::Fds(f);
++        assert_eq!(every.get(t.index()), Some(&t), "{f:?}");
++    }
++    assert_eq!(
++        Toast::Fds(FdsToast::ALL[0]).index(),
++        Toast::Arcade(ArcadeToast::ALL[ArcadeToast::ALL.len() - 1]).index() + 1
++    );
++    assert_eq!(FdsToast::ALL.len(), 2 + usize::from(FdsToast::SIDES));
++}
+diff --git a/crates/slot/tests/fds_common/mod.rs b/crates/slot/tests/fds_common/mod.rs
+new file mode 100644
+index 0000000..fba4a84
+--- /dev/null
++++ b/crates/slot/tests/fds_common/mod.rs
+@@ -0,0 +1,66 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++pub const SIDE: usize = 65_500;
++pub const BIOS_CRC32: u32 = 0x5e60_7dcf;
++
++pub fn fceumm() -> Option<PathBuf> {
++    crate::core_common::require_core("fceumm")
++}
++
++pub fn side(n: u8) -> Vec<u8> {
++    let mut s = vec![0u8; SIDE];
++    s[0] = 1;
++    s[1..15].copy_from_slice(b"*NINTENDO-HVC*");
++    s[0x40] = 0xa0 + n;
++    s
++}
++
++pub fn disk_bytes(sides: u8, headered: bool) -> Vec<u8> {
++    let mut d = Vec::new();
++    if headered {
++        d.extend_from_slice(b"FDS\x1a");
++        d.push(sides);
++        d.extend_from_slice(&[0; 11]);
++    }
++    for n in 0..sides {
++        d.extend(side(n));
++    }
++    d
++}
++
++pub fn disk(dir: &Path, stem: &str, sides: u8, headered: bool) -> PathBuf {
++    std::fs::create_dir_all(dir).expect("disk dir");
++    let p = dir.join(format!("{stem}.fds"));
++    std::fs::write(&p, disk_bytes(sides, headered)).expect("write disk");
++    p
++}
++
++pub fn put_bios(root: &Path, bios: &[u8]) {
++    let dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&dir).expect("bios dir");
++    std::fs::write(dir.join("disksys.rom"), bios).expect("write bios");
++}
++
++pub fn placeholder_bios() -> Vec<u8> {
++    vec![0u8; 8192]
++}
++
++pub fn fds_bios() -> Option<Vec<u8>> {
++    let Some(path) = std::env::var_os("SLOT_FDS_BIOS") else {
++        eprintln!(
++            "skipping: no FDS BIOS, set SLOT_FDS_BIOS to a disksys.rom (8192 bytes, crc32 5e607dcf)"
++        );
++        return None;
++    };
++    let bytes = std::fs::read(&path).unwrap_or_default();
++    if bytes.len() != 8192 || slot_store::lynx::crc32(&bytes) != BIOS_CRC32 {
++        eprintln!(
++            "skipping: SLOT_FDS_BIOS {} is not the FDS BIOS",
++            Path::new(&path).display()
++        );
++        return None;
++    }
++    Some(bytes)
++}
+diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
+index 3df50f7..185037d 100644
+--- a/crates/slot/tests/ps1_discs.rs
++++ b/crates/slot/tests/ps1_discs.rs
+@@ -220,6 +220,7 @@ fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
+                 - DiscToast::ALL.len()
+                 - slot_ui::LynxToast::ALL.len()
+                 - slot_ui::ArcadeToast::ALL.len()
++                - slot_ui::FdsToast::ALL.len()
+                 + i
+         );
+     }

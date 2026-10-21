@@ -724,8 +724,8 @@ is never sold and never carries a donation or sponsor link.
 Checked at commit `814991a2571ad3970e386cef48f3b148aa1c27b9` of jtothebell/fake-08 (its master on
 2026-06-13), the commit `SLOT_PIN` pins as `fake08_commit` (archive sha256 `fake08_tarball_sha256`), and
 its submodule jtothebell/z8lua at `e6928578d46b61fd5ea30cfcf547e855a30a0553` (`fake08_z8lua_commit`,
-`fake08_z8lua_tarball_sha256`). It is built by `cores/fake08/build.sh` for the PICO-8 shelf (ADR 0101)
-with `cores/fake08/slot.patch` applied (seven files; ADR 0101 lists every change and why). MIT allows the
+`fake08_z8lua_tarball_sha256`). It is built by `cores/fake08/build.sh` for the PICO-8 shelf (ADR 0102)
+with `cores/fake08/slot.patch` applied (seven files; ADR 0102 lists every change and why). MIT allows the
 changes; the patch is public in this repository and in every release's source tarball. PICO-8 itself is
 Lexaloffle's proprietary product: none of it is shipped, fetched or needed.
 

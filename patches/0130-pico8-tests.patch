@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 01:52:02 +0400
+Subject: [PATCH] pico8-tests
+
+A GBA game after a PICO-8 game gets the input and the picture a GBA
+only run gets, rewind back on.
+---
+ crates/slot/tests/pico8_then_gba.rs | 159 ++++++++++++++++++++++++++++
+ 1 file changed, 159 insertions(+)
+ create mode 100644 crates/slot/tests/pico8_then_gba.rs
+
+diff --git a/crates/slot/tests/pico8_then_gba.rs b/crates/slot/tests/pico8_then_gba.rs
+new file mode 100644
+index 0000000..f2df7a5
+--- /dev/null
++++ b/crates/slot/tests/pico8_then_gba.rs
+@@ -0,0 +1,159 @@
++// A GBA game played after a PICO-8 game (no rewind, its own canvas and save dir) gets exactly what a
++// GBA only run gets (ADR 0102).
++mod common;
++mod core_common;
++mod pico8_common;
++mod real_seat;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use pico8_common::{fake08, text_cart};
++use slot::app::Phase;
++use slot::audio::{AudioSink, StubSink};
++use slot::core::dylib_name;
++use slot::session::Session;
++use slot_input::{Btn, Millis, RawEvent};
++use slot_retro::ButtonMask;
++use slot_store::{Core, Platform};
++use tempfile::TempDir;
++
++struct Rig {
++    root: TempDir,
++    session: Session,
++    now: Millis,
++}
++
++impl Rig {
++    fn feed(&mut self, ev: RawEvent) {
++        self.now += 20;
++        self.session.feed([ev], self.now);
++    }
++
++    fn tap(&mut self, b: Btn) {
++        self.feed(RawEvent::Down(b));
++        self.feed(RawEvent::Up(b));
++    }
++
++    fn until(&mut self, what: &str, cond: impl Fn(&Session) -> bool) {
++        let deadline = Instant::now() + Duration::from_secs(20);
++        while !cond(&self.session) {
++            assert!(Instant::now() < deadline, "timed out waiting for {what}");
++            self.now += 16;
++            self.session.feed([], self.now);
++            self.session.update(1.0 / 60.0);
++            std::thread::sleep(Duration::from_millis(1));
++        }
++    }
++
++    fn pad(&self) -> u16 {
++        self.session.emu().expect("no core in the slot").input().0
++    }
++
++    fn booted(pico8: &Path, mgba: &Path) -> Rig {
++        let carts = tempfile::tempdir().expect("tempdir");
++        let rom = text_cart(carts.path(), "Aaa", "aaa");
++        let root = real_seat::rooted(Platform::Pico8, "Aaa", &rom, pico8);
++        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
++        std::os::unix::fs::symlink(
++            std::fs::canonicalize(mgba).expect("core path"),
++            root.path().join("System").join(dylib_name(Core::Mgba)),
++        )
++        .expect("link core");
++        let mut sink = StubSink::draining();
++        sink.open(32_768).expect("the stub refused to open");
++        Rig {
++            session: Session::boot_with(root.path().to_path_buf(), Box::new(sink)),
++            root,
++            now: 0,
++        }
++    }
++
++    fn playing(&mut self, what: &str) {
++        self.until(what, |s| {
++            matches!(s.app().phase(), Phase::Playing { .. }) && s.frames_published() >= 10
++        });
++    }
++
++    fn gba(after_pico8: bool) -> Option<Rig> {
++        let pico8 = fake08()?;
++        let mgba = core_common::require_core("mgba")?;
++        let mut r = Rig::booted(&pico8, &mgba);
++        if after_pico8 {
++            r.tap(Btn::R1);
++            r.tap(Btn::A);
++            r.playing("the pico-8 cart to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Pico8);
++            assert!(!r.session.app().may_rewind());
++            r.feed(RawEvent::Down(Btn::Menu));
++            r.until("the eject", |s| !s.has_core());
++            r.feed(RawEvent::Up(Btn::Menu));
++            r.until("the shelf", |s| matches!(s.app().phase(), Phase::Shelf));
++            r.tap(Btn::L1);
++        }
++        r.tap(Btn::A);
++        r.playing("the gba cart to seat");
++        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
++        assert!(!r.session.app().triggers_to_game());
++        assert!(r.session.app().may_rewind());
++        Some(r)
++    }
++
++    fn input(&mut self) -> Vec<u16> {
++        let mut seen = vec![u16::from(
++            self.session.emu().expect("core").passes_through(),
++        )];
++        for btn in [Btn::A, Btn::B, Btn::L1, Btn::R1, Btn::L2, Btn::R2] {
++            self.feed(RawEvent::Down(btn));
++            seen.push(self.pad());
++            self.feed(RawEvent::Up(btn));
++            seen.push(self.pad());
++        }
++        self.feed(RawEvent::Down(Btn::R2));
++        self.session.update(1.0 / 60.0);
++        seen.push(u16::from(self.session.app().ff_badge().is_some()));
++        self.feed(RawEvent::Up(Btn::R2));
++        self.session.update(1.0 / 60.0);
++        self.feed(RawEvent::Down(Btn::Select));
++        self.feed(RawEvent::Down(Btn::X));
++        seen.push(self.pad() & ButtonMask::X);
++        self.feed(RawEvent::Up(Btn::X));
++        self.feed(RawEvent::Up(Btn::Select));
++        seen.push(u16::from(
++            self.root.path().join("Config/video_mode.txt").exists(),
++        ));
++        seen
++    }
++
++    fn picture(&self) -> ([f32; 4], u32, usize) {
++        let emu = self.session.emu().expect("core");
++        let frame = emu.latest_frame().expect("nothing was published").len();
++        (self.session.app().source_rect(), emu.frame_width(), frame)
++    }
++}
++
++#[test]
++fn a_gba_game_after_a_pico_8_game_gets_the_same_input_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(mut alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.input();
++    drop(alone);
++    let mut after = Rig::gba(true).expect("cores");
++    assert_eq!(after.input(), want);
++}
++
++#[test]
++fn a_gba_game_after_a_pico_8_game_gets_the_same_picture_as_a_gba_only_run() {
++    let _g = core_lock();
++    let Some(alone) = Rig::gba(false) else {
++        return;
++    };
++    let want = alone.picture();
++    assert_eq!(want.2, 240 * 160 * 4);
++    drop(alone);
++    let after = Rig::gba(true).expect("cores");
++    assert_eq!(after.picture(), want);
++}

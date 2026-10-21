@@ -1,10 +1,10 @@
 ---
 title: "Test PICO-8 with generated text and PNG carts, and GBA after PICO-8"
-phase: 18
+phase: 19
 area: tests
 type: test
 size: S
-depends_on: [195-pico8-core-build]
+depends_on: [204-pico8-core-build]
 ---
 
 ## Why
@@ -12,8 +12,8 @@ The core contract and the GBA-unchanged rule each need their own tests.
 
 ## Scope
 - [x] `pico8_common`: generated carts (our own Lua), a stored-deflate PNG writer for `.p8.png`.
-- [x] Core half (patch 0120): `pico8_core.rs`.
-- [x] Platform half (patch 0123): `pico8_then_gba.rs`; `resume_platform.rs` covers PICO-8.
+- [x] Core half (patch 0127): `pico8_core.rs`.
+- [x] Platform half (patch 0130): `pico8_then_gba.rs`; `resume_platform.rs` covers PICO-8.
 
 ## Tests
 | ID | File | Asserts |
@@ -29,7 +29,7 @@ The core contract and the GBA-unchanged rule each need their own tests.
 - [x] T1 passes.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 208.
 
 ## References
-- ADR 0101
+- ADR 0102

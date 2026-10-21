@@ -1,10 +1,10 @@
 ---
 title: "Build FAKE-08 from a pinned commit for host and device with our source patch, and record its licence"
-phase: 18
+phase: 19
 area: cores
 type: feature
 size: M
-depends_on: [194-pico8-tracking]
+depends_on: [203-pico8-tracking]
 ---
 
 ## Why
@@ -37,7 +37,7 @@ FAKE-08 is the only libretro core that runs PICO-8 carts and is free software (M
 - [x] C1 to C6 pass with SLOT_REQUIRE_CORES=1; each was red against the unpatched core; the device core needs only libc and libm.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 208.
 
 ## References
-- ADR 0101
+- ADR 0102

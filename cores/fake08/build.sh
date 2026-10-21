@@ -1,6 +1,6 @@
 #!/bin/sh
 # jtothebell/fake-08 (FAKE-08, PICO-8 carts): the shared steps are in cores/lib.sh. MIT, with z8lua (MIT
-# and WTFPL) as a submodule the GitHub archive leaves out, see LICENSING.md (ADR 0101). PICO-8 itself is
+# and WTFPL) as a submodule the GitHub archive leaves out, see LICENSING.md (ADR 0102). PICO-8 itself is
 # Lexaloffle's and is never shipped. The makefile is platform/libretro/Makefile and names the output
 # fake08_libretro.<ext>, so that is the core name here (SLOT_PIN keys fake08_*); its option keys start
 # fake08_.

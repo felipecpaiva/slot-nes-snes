@@ -1,10 +1,10 @@
 ---
 title: "Add Platform::Pico8 on FAKE-08 with a 3x picture, its own Screen section, Saves/PICO8 and no states"
-phase: 18
+phase: 19
 area: platform
 type: feature
 size: M
-depends_on: [195-pico8-core-build]
+depends_on: [204-pico8-core-build]
 ---
 
 ## Why
@@ -35,7 +35,7 @@ PICO-8 carts need their own shelf, their own picture rules and an honest answer 
 - [x] P1 to P3 pass; upstream sites (b), (e), (g) and (h) take one token each.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 208.
 
 ## References
-- ADR 0101
+- ADR 0102

@@ -1,33 +1,35 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Felipe Paiva <felipe.paiva@gmail.com>
-Date: Wed, 21 Oct 2026 01:52:02 +0400
-Subject: [PATCH] pico8-tests
+Date: Wed, 21 Oct 2026 00:59:57 +0400
+Subject: [PATCH] fds-tests
 
-A GBA game after a PICO-8 game gets the input and the picture a GBA
-only run gets, rewind back on.
+A GBA game played after a Famicom Disk System game whose disk was
+flipped gets the same input, frame and picture as a GBA only run. A
+disk resumes as a disk and never as a NES cart with the same name.
 ---
- crates/slot/tests/pico8_then_gba.rs | 159 ++++++++++++++++++++++++++++
- 1 file changed, 159 insertions(+)
- create mode 100644 crates/slot/tests/pico8_then_gba.rs
+ crates/slot/tests/fds_then_gba.rs    | 166 +++++++++++++++++++++++++++
+ crates/slot/tests/resume_platform.rs |   2 +
+ 2 files changed, 168 insertions(+)
+ create mode 100644 crates/slot/tests/fds_then_gba.rs
 
-diff --git a/crates/slot/tests/pico8_then_gba.rs b/crates/slot/tests/pico8_then_gba.rs
+diff --git a/crates/slot/tests/fds_then_gba.rs b/crates/slot/tests/fds_then_gba.rs
 new file mode 100644
-index 0000000..2820f31
+index 0000000..d9b4982
 --- /dev/null
-+++ b/crates/slot/tests/pico8_then_gba.rs
-@@ -0,0 +1,159 @@
-+// A GBA game played after a PICO-8 game (no rewind, its own canvas and save dir) gets exactly what a
-+// GBA only run gets (ADR 0101).
++++ b/crates/slot/tests/fds_then_gba.rs
+@@ -0,0 +1,166 @@
++// A GBA game played after a Famicom Disk System game whose disk was flipped (slot pressed the core's
++// L and R itself) gets exactly what a GBA only run gets (ADR 0101).
 +mod common;
 +mod core_common;
-+mod pico8_common;
++mod fds_common;
 +mod real_seat;
 +
 +use std::path::Path;
 +use std::time::{Duration, Instant};
 +
 +use common::core_lock;
-+use pico8_common::{fake08, text_cart};
++use fds_common::{disk, fceumm, placeholder_bios, put_bios};
 +use slot::app::Phase;
 +use slot::audio::{AudioSink, StubSink};
 +use slot::core::dylib_name;
@@ -35,6 +37,7 @@ index 0000000..2820f31
 +use slot_input::{Btn, Millis, RawEvent};
 +use slot_retro::ButtonMask;
 +use slot_store::{Core, Platform};
++use slot_ui::{FdsToast, Toast};
 +use tempfile::TempDir;
 +
 +struct Rig {
@@ -69,10 +72,11 @@ index 0000000..2820f31
 +        self.session.emu().expect("no core in the slot").input().0
 +    }
 +
-+    fn booted(pico8: &Path, mgba: &Path) -> Rig {
++    fn booted(fds: &Path, mgba: &Path) -> Rig {
 +        let carts = tempfile::tempdir().expect("tempdir");
-+        let rom = text_cart(carts.path(), "Aaa", "aaa");
-+        let root = real_seat::rooted(Platform::Pico8, "Aaa", &rom, pico8);
++        let rom = disk(carts.path(), "Aaa", 2, true);
++        let root = real_seat::rooted(Platform::Fds, "Aaa", &rom, fds);
++        put_bios(root.path(), &placeholder_bios());
 +        std::fs::write(root.path().join("Games/GBA/Bbb.gba"), common::gba_rom()).expect("rom");
 +        std::os::unix::fs::symlink(
 +            std::fs::canonicalize(mgba).expect("core path"),
@@ -94,16 +98,22 @@ index 0000000..2820f31
 +        });
 +    }
 +
-+    fn gba(after_pico8: bool) -> Option<Rig> {
-+        let pico8 = fake08()?;
++    fn gba(after_fds: bool) -> Option<Rig> {
++        let fds = fceumm()?;
 +        let mgba = core_common::require_core("mgba")?;
-+        let mut r = Rig::booted(&pico8, &mgba);
-+        if after_pico8 {
++        let mut r = Rig::booted(&fds, &mgba);
++        if after_fds {
 +            r.tap(Btn::R1);
 +            r.tap(Btn::A);
-+            r.playing("the pico-8 cart to seat");
-+            assert_eq!(r.session.app().playing_platform(), Platform::Pico8);
-+            assert!(!r.session.app().may_rewind());
++            r.playing("the disk to seat");
++            assert_eq!(r.session.app().playing_platform(), Platform::Fds);
++            assert!(!r.session.app().triggers_to_game());
++            r.feed(RawEvent::Down(Btn::Select));
++            r.tap(Btn::L2);
++            r.feed(RawEvent::Up(Btn::Select));
++            r.until("the side B banner", |s| {
++                s.app().toast() == Some(Toast::Fds(FdsToast::Side(1)))
++            });
 +            r.feed(RawEvent::Down(Btn::Menu));
 +            r.until("the eject", |s| !s.has_core());
 +            r.feed(RawEvent::Up(Btn::Menu));
@@ -114,7 +124,6 @@ index 0000000..2820f31
 +        r.playing("the gba cart to seat");
 +        assert_eq!(r.session.app().playing_platform(), Platform::Gba);
 +        assert!(!r.session.app().triggers_to_game());
-+        assert!(r.session.app().may_rewind());
 +        Some(r)
 +    }
 +
@@ -152,7 +161,7 @@ index 0000000..2820f31
 +}
 +
 +#[test]
-+fn a_gba_game_after_a_pico_8_game_gets_the_same_input_as_a_gba_only_run() {
++fn a_gba_game_after_a_flipped_disk_gets_the_same_input_as_a_gba_only_run() {
 +    let _g = core_lock();
 +    let Some(mut alone) = Rig::gba(false) else {
 +        return;
@@ -164,7 +173,7 @@ index 0000000..2820f31
 +}
 +
 +#[test]
-+fn a_gba_game_after_a_pico_8_game_gets_the_same_picture_as_a_gba_only_run() {
++fn a_gba_game_after_a_flipped_disk_gets_the_same_picture_as_a_gba_only_run() {
 +    let _g = core_lock();
 +    let Some(alone) = Rig::gba(false) else {
 +        return;
@@ -175,3 +184,23 @@ index 0000000..2820f31
 +    let after = Rig::gba(true).expect("cores");
 +    assert_eq!(after.picture(), want);
 +}
+diff --git a/crates/slot/tests/resume_platform.rs b/crates/slot/tests/resume_platform.rs
+index d9f9d8f..ec204a6 100644
+--- a/crates/slot/tests/resume_platform.rs
++++ b/crates/slot/tests/resume_platform.rs
+@@ -24,6 +24,7 @@ fn each_new_system_resumes_its_own_cart_and_never_a_nes_cart_with_the_same_name(
+         Platform::A2600,
+         Platform::A7800,
+         Platform::Vb,
++        Platform::Fds,
+     ] {
+         let root = common::tmp_root_with_real_carts(&[]);
+         let mut nes = b"NES\x1a\x02\x01".to_vec();
+@@ -33,6 +34,7 @@ fn each_new_system_resumes_its_own_cart_and_never_a_nes_cart_with_the_same_name(
+         let rom = format!("Games/{}/{STEM}.{ext}", platform.dir_name());
+         std::fs::write(root.path().join(rom), vec![0u8; 0x10000]).expect("write cart");
+         std::fs::write(root.path().join("BIOS/lynxboot.img"), [0u8; 512]).expect("write bios");
++        std::fs::write(root.path().join("BIOS/disksys.rom"), [0u8; 8192]).expect("write bios");
+         for remembered in [platform, Platform::Nes] {
+             remembering(root.path(), remembered);
+             let app = App::boot(root.path());

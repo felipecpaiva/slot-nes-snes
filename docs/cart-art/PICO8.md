@@ -1,11 +1,11 @@
-# PICO-8 cart art (issue 197)
+# PICO-8 cart art (issue 206)
 
 Same rules as [VARIANTS.md](VARIANTS.md): every value cites its source, or says it is the
 maintainer's choice. Nothing is guessed.
 
 ## The cart
 
-One cart for every PICO-8 game, `RetroShell::Pico8` (patch 0122). PICO-8 has no physical cart; its cart
+One cart for every PICO-8 game, `RetroShell::Pico8` (patch 0129). PICO-8 has no physical cart; its cart
 is the 160x205 PNG every cart is saved as, so the shell takes that picture's shape. Lexaloffle's frame
 bitmap is not used: the outline and the strip are drawn by us from the measurements below.
 

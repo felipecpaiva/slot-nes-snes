@@ -39,7 +39,8 @@ PHASES = {
     "14": "Phase 14: Atari 2600 and 7800",
     "16": "Phase 16: Virtual Boy",
     "17": "Phase 17: Arcade, Neo Geo, CPS1 and CPS2",
-    "18": "Phase 18: PICO-8",
+    "18": "Phase 18: Famicom Disk System",
+    "19": "Phase 19: PICO-8",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}
 FIELDS = {"Phase": list(PHASES.values()),

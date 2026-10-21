@@ -1,9 +1,9 @@
-# 0101. Bring PICO-8 carts into scope on pinned FAKE-08, a shelf of their own, no states
+# 0102. Bring PICO-8 carts into scope on pinned FAKE-08, a shelf of their own, no states
 
 - Status: Accepted. Amends [0002](0002-cores.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-21
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0072](0072-write-sav-when-the-core-gives-no-state.md) (a core with no state), [ADR 0094](0094-ngp-flash-staged-checked-published.md) (a core that writes its own saves), [ADR 0097](0097-virtual-boy-on-beetle-vb.md), [ADR 0100](0100-shelf-order-option.md), [issue 194](../../.github/issues/194-pico8-tracking.md), patches `0120-pico8-core-tests` to `0123-pico8-tests`, [docs/research/next-systems-2026-10-20.md](../research/next-systems-2026-10-20.md) ("PICO-8: 39 carts ... The fake-08 core exists; licence unverified")
+- Related: [ADR 0072](0072-write-sav-when-the-core-gives-no-state.md) (a core with no state), [ADR 0094](0094-ngp-flash-staged-checked-published.md) (a core that writes its own saves), [ADR 0097](0097-virtual-boy-on-beetle-vb.md), [ADR 0100](0100-shelf-order-option.md), [issue 203](../../.github/issues/203-pico8-tracking.md), patches `0127-pico8-core-tests` to `0130-pico8-tests`, [docs/research/next-systems-2026-10-20.md](../research/next-systems-2026-10-20.md) ("PICO-8: 39 carts ... The fake-08 core exists; licence unverified")
 
 ## Context
 
@@ -66,7 +66,7 @@ pinned source without the patch on 2026-10-21: all 11 failed).
 
 ## Decision
 
-- PICO-8 is in scope as Phase 18. One shelf `Games/PICO8`. The platform is `Platform::Pico8`, appended to
+- PICO-8 is in scope as Phase 19. One shelf `Games/PICO8`. The platform is `Platform::Pico8`, appended to
   `SHELVES`; the core is `Core::Fake08`, appended to `EVERY`. Upstream's `ALL` stays untouched and every
   policy method answers PICO-8 explicitly. One core, no picker, no BIOS.
 - **Shelf.** `.p8` (a text cart, or a PNG cart under that name, which FAKE-08 tells apart by content) and
@@ -183,11 +183,11 @@ gaps, not slot's; they are reported upstream-first when the device gate confirms
 
 Host only, a direction and not a device number: the median of three runs of 600 frames after the run above,
 Apple M-series. The slowest cart is Cave Runners at 0.67 ms a frame; most are under 0.25 ms. The budget at
-60 fps is 16.7 ms. The device gate (issue 199) measures it with `bench:device` (`CORE=fake08`) and real play.
+60 fps is 16.7 ms. The device gate (issue 208) measures it with `bench:device` (`CORE=fake08`) and real play.
 
 ## Consequences
 
-- Four patches, 0120 to 0123. No GBA, GB or GBC path changes; a GBA game after a PICO-8 game gets the GBA
+- Four patches, 0127 to 0130. No GBA, GB or GBC path changes; a GBA game after a PICO-8 game gets the GBA
   only input and picture (`pico8_then_gba.rs`).
 - Upstream test sites (b), (e), (g) and (h) take one more token each, in order: `| Platform::Pico8`,
   `| Core::Fake08`, `"PICO-8"` and `QuickRow::ScreenPico8`, by the standing rule.

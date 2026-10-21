@@ -489,6 +489,33 @@ class VirtualBoy(Base):
         self.assertTrue(any("systemeid=11" in c for c in self.http.calls))
 
 
+class Fds(Base):
+    ss_http = NesSnes.ss_http
+    run_ss = NesSnes.run_ss
+
+    def test_the_disk_system_names_its_folder_extension_dat_and_screenscraper_id(self):
+        self.assertEqual(
+            fl.SYSTEMS["FDS"], ("fds", {".fds"}, ["Nintendo - Family Computer Disk System"], 106))
+        self.assertNotIn("FDS", fl.ART_SYSTEMS)
+
+    def test_a_headered_disk_is_hashed_without_its_fwnes_header_first(self):
+        body = b"\x01*NINTENDO-HVC*" + bytes(65500 * 2 - 15)
+        head = b"FDS\x1a\x02" + bytes(11)
+        rom = fl.Rom("Nazo no Murasamejou (Japan)", len(head + body), lambda: head + body)
+        self.assertEqual(list(rom.crcs("FDS")), [zlib.crc32(body), zlib.crc32(head + body)])
+        bare = fl.Rom("Nazo no Murasamejou (Japan)", len(body), lambda: body)
+        self.assertEqual(list(bare.crcs("FDS")), [zlib.crc32(body)])
+
+    def test_a_disk_matched_by_crc_is_asked_under_106_and_lands_in_labels_fds(self):
+        body = bytes(range(256)) * 512
+        self.rom("FDS", "Nazo no Murasamejou (Japan).fds", b"FDS\x1a\x02" + bytes(11) + body)
+        r = self.dat("FDS", ("Nazo no Murasamejou (Japan)", crc(body)))
+        stats = self.run_ss("FDS", r, {}, (200, json.dumps(JEU).encode(), None), ["--card", self.card, "--only", "FDS"])
+        self.assertEqual((stats["matched"], stats["written"], stats["unknown"]), (1, 1, 0))
+        self.assertEqual(self.label("FDS", "Nazo no Murasamejou (Japan)"), PNG)
+        self.assertTrue(any("systemeid=106" in c for c in self.http.calls))
+
+
 def p8_text(label_digit="8"):
     label = "\n".join([label_digit * 128] * 128)
     return f"pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\n-- band\n__label__\n{label}\n".encode()

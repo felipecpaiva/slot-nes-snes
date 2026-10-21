@@ -165,9 +165,18 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
 | [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
 | [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |
-| [194](194-pico8-tracking.md) | PICO-8: FAKE-08, a shelf of its own, no states | 18 | device | tracking | L | 183-arcade-tracking |
-| [195](195-pico8-core-build.md) | Build FAKE-08 from a pinned commit for host and device with our source patch, and record its licence | 18 | cores | feature | M | 194-pico8-tracking |
-| [196](196-platform-pico8.md) | Add Platform::Pico8 on FAKE-08 with a 3x picture, its own Screen section, Saves/PICO8 and no states | 18 | platform | feature | M | 195-pico8-core-build |
-| [197](197-pico8-carts.md) | Draw the PICO-8 cart and take its label from the cart itself | 18 | ui-art | feature | S | 196-platform-pico8 |
-| [198](198-pico8-tests.md) | Test PICO-8 with generated text and PNG carts, and GBA after PICO-8 | 18 | tests | test | S | 195-pico8-core-build |
-| [199](199-pico8-device-gate.md) | PICO-8 device gate on the RG34XXSP | 18 | device | chore | S | 196-platform-pico8, 197-pico8-carts |
+| [194](194-fds-tracking.md) | Famicom Disk System: fceumm, a yellow disk shelf of its own | 18 | device | tracking | M | 33-deferred-fds |
+| [195](195-platform-fds.md) | Add Platform::Fds with its own shelf and the NES policy, on fceumm alone | 18 | platform | feature | M | 194-fds-tracking |
+| [196](196-fds-screen.md) | Give the Disk System its own Screen section with Shader and Picture | 18 | video | feature | S | 195-platform-fds |
+| [197](197-fds-bios.md) | Check BIOS/disksys.rom before a disk starts | 18 | platform | feature | S | 195-platform-fds |
+| [198](198-fds-disk.md) | Flip and swap disks with SELECT+L2 through fceumm's own drive buttons | 18 | input | feature | M | 195-platform-fds |
+| [199](199-fds-saves.md) | Disk saves: the live disk as the ordinary .sav, the .fds never written | 18 | platform | feature | S | 195-platform-fds |
+| [200](200-fds-tests.md) | Test GBA after a flipped disk, and resume | 18 | tests | test | S | 198-fds-disk |
+| [201](201-fds-carts.md) | Draw the yellow Disk Card and fetch disk labels | 18 | ui-art | feature | M | 195-platform-fds |
+| [202](202-fds-device-gate.md) | Famicom Disk System device gate on the RG34XXSP | 18 | device | chore | S | 197-fds-bios, 198-fds-disk, 199-fds-saves |
+| [203](203-pico8-tracking.md) | PICO-8: FAKE-08, a shelf of its own, no states | 19 | device | tracking | L | 194-fds-tracking |
+| [204](204-pico8-core-build.md) | Build FAKE-08 from a pinned commit for host and device with our source patch, and record its licence | 19 | cores | feature | M | 203-pico8-tracking |
+| [205](205-platform-pico8.md) | Add Platform::Pico8 on FAKE-08 with a 3x picture, its own Screen section, Saves/PICO8 and no states | 19 | platform | feature | M | 204-pico8-core-build |
+| [206](206-pico8-carts.md) | Draw the PICO-8 cart and take its label from the cart itself | 19 | ui-art | feature | S | 205-platform-pico8 |
+| [207](207-pico8-tests.md) | Test PICO-8 with generated text and PNG carts, and GBA after PICO-8 | 19 | tests | test | S | 204-pico8-core-build |
+| [208](208-pico8-device-gate.md) | PICO-8 device gate on the RG34XXSP | 19 | device | chore | S | 205-platform-pico8, 206-pico8-carts |

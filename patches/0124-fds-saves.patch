@@ -1,0 +1,275 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:59:08 +0400
+Subject: [PATCH] fds-saves
+
+fceumm exposes the live disk, every side without the fwNES header, as
+save RAM, so the Disk System uses the ordinary .sav: Saves/FDS/<stem>.sav
+holds the disk as the game left it (65,500 bytes a side) and loads back
+over the disk at the next insert. The .fds file on the shelf is only
+ever read, so deleting the .sav gives the disk back as dumped. A
+RetroArch .srm of the same disk loads the same way. A save whose size
+is not the disk's (another dump of the same name, a different side
+count) is not loaded half over the disk: it is renamed
+<stem>.sav.mismatch, kept, and the game starts from the disk as it is.
+---
+ crates/slot/src/fds_save.rs    |  60 +++++++++++++
+ crates/slot/src/lib.rs         |   1 +
+ crates/slot/src/session.rs     |   1 +
+ crates/slot/tests/fds_saves.rs | 156 +++++++++++++++++++++++++++++++++
+ 4 files changed, 218 insertions(+)
+ create mode 100644 crates/slot/src/fds_save.rs
+ create mode 100644 crates/slot/tests/fds_saves.rs
+
+diff --git a/crates/slot/src/fds_save.rs b/crates/slot/src/fds_save.rs
+new file mode 100644
+index 0000000..051a93b
+--- /dev/null
++++ b/crates/slot/src/fds_save.rs
+@@ -0,0 +1,60 @@
++use std::io::Read;
++use std::path::Path;
++
++use slot_store::Platform;
++
++use crate::fds_disk::{flips, SIDE_BYTES};
++
++pub fn disk_bytes(rom: &Path) -> Option<usize> {
++    let mut head = [0u8; 16];
++    let mut file = std::fs::File::open(rom).ok()?;
++    let len = file.metadata().ok()?.len() as usize;
++    file.read_exact(&mut head).ok()?;
++    let sides = if head.starts_with(b"FDS\x1a") {
++        usize::from(head[4])
++    } else if head.get(1..15) == Some(b"*NINTENDO-HVC*".as_slice()) {
++        len.max(SIDE_BYTES) / SIDE_BYTES
++    } else {
++        return None;
++    };
++    Some(sides.clamp(1, 8) * SIDE_BYTES)
++}
++
++pub fn checked_sav(
++    root: &Path,
++    platform: Platform,
++    stem: &str,
++    rom: &Path,
++    sav: Option<Vec<u8>>,
++) -> Option<Vec<u8>> {
++    let sav = sav?;
++    if !flips(platform) {
++        return Some(sav);
++    }
++    let want = disk_bytes(rom);
++    if want == Some(sav.len()) {
++        return Some(sav);
++    }
++    let dir = crate::root::saves_dir(root).join(platform.dir_name());
++    let kept = ["sav", "srm"]
++        .into_iter()
++        .map(|ext| dir.join(format!("{stem}.{ext}")))
++        .find(|p| p.exists())
++        .map(|p| {
++            let aside = p.with_extension(format!(
++                "{}.mismatch",
++                p.extension().and_then(|e| e.to_str()).unwrap_or("sav")
++            ));
++            (std::fs::rename(&p, &aside), aside)
++        });
++    eprintln!(
++        "slot: fds: {stem} save is {} bytes, the disk is {want:?}, starting from the disk as it is",
++        sav.len()
++    );
++    match kept {
++        Some((Ok(()), aside)) => eprintln!("slot: fds: kept the old save as {}", aside.display()),
++        Some((Err(e), aside)) => eprintln!("slot: fds: could not keep {}: {e}", aside.display()),
++        None => {}
++    }
++    None
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index f2d5b7f..9e7bda8 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -28,6 +28,7 @@ pub mod emu;
+ pub mod face_builder;
+ pub mod fast_scroll_trace;
+ pub mod fds_disk;
++pub mod fds_save;
+ pub mod frame_trace;
+ pub mod frames;
+ pub mod frontend;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 48484ec..12e5df1 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -577,6 +577,7 @@ impl Session {
+                 );
+                 launch("core opened");
+                 let sav = persist::read_sav(&root, platform, &stem);
++                let sav = crate::fds_save::checked_sav(&root, platform, &stem, &rom, sav);
+                 launch("save read");
+                 Loaded {
+                     opened,
+diff --git a/crates/slot/tests/fds_saves.rs b/crates/slot/tests/fds_saves.rs
+new file mode 100644
+index 0000000..95b52b4
+--- /dev/null
++++ b/crates/slot/tests/fds_saves.rs
+@@ -0,0 +1,156 @@
++// Famicom Disk System saves and the disk control (ADR 0101). fceumm exposes the live disk, every
++// side without the fwNES header, as save RAM, so the ordinary .sav in Saves/FDS holds the disk as the
++// game left it and the .fds file is only ever read. SELECT+L2, the PlayStation disc chord, flips to
++// the next side. The disk is generated and the BIOS is an 8 KB placeholder, so slot launches it with
++// its unknown-BIOS toast and the core runs the drive without booting a game.
++mod common;
++mod core_common;
++mod fds_common;
++mod real_seat;
++
++use std::path::{Path, PathBuf};
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use fds_common::{disk, disk_bytes, fceumm, placeholder_bios, put_bios, side, SIDE};
++use slot::app::Phase;
++use slot::fds_save::{checked_sav, disk_bytes as expected_bytes};
++use slot::persist::Snapshot;
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::Platform;
++use slot_ui::{FdsToast, Toast};
++
++const STEM: &str = "Murasame";
++
++fn seated(dylib: &Path, sides: u8) -> tempfile::TempDir {
++    let roms = tempfile::tempdir().expect("tempdir");
++    let rom = disk(roms.path(), STEM, sides, true);
++    let root = real_seat::rooted(Platform::Fds, STEM, &rom, dylib);
++    put_bios(root.path(), &placeholder_bios());
++    disk(&root.path().join("Games/FDS"), "Zzz", 1, true);
++    root
++}
++
++fn sav(root: &Path) -> PathBuf {
++    root.join("Saves/FDS").join(format!("{STEM}.sav"))
++}
++
++fn rom(root: &Path) -> PathBuf {
++    root.join("Games/FDS").join(format!("{STEM}.fds"))
++}
++
++fn live_disk(session: &Session) -> Option<Vec<u8>> {
++    session.emu().expect("no core").snapshot().save_ram()
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++fn written() -> Vec<u8> {
++    let mut d = [side(0), side(1)].concat();
++    d[SIDE + 0x200..SIDE + 0x204].copy_from_slice(b"SAVE");
++    d
++}
++
++#[test]
++fn the_disk_as_the_game_left_it_is_the_sav_and_the_fds_file_is_never_written() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let root = seated(&dylib, 2);
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().playing_platform(), Platform::Fds);
++    eject(&mut session);
++    drop(session);
++    assert!(std::fs::read(sav(root.path())).expect("no sav") == [side(0), side(1)].concat());
++    assert!(std::fs::read(rom(root.path())).expect("disk") == disk_bytes(2, true));
++}
++
++#[test]
++fn a_saved_disk_comes_back_on_the_next_insert() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let root = seated(&dylib, 2);
++    std::fs::write(sav(root.path()), written()).expect("write sav");
++    let mut first = real_seat::play(root.path(), true);
++    assert!(live_disk(&first) == Some(written()), "first insert");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(sav(root.path())).expect("sav") == written());
++    let second = real_seat::play(root.path(), true);
++    assert!(live_disk(&second) == Some(written()), "after reinsert");
++    assert!(std::fs::read(rom(root.path())).expect("disk") == disk_bytes(2, true));
++}
++
++#[test]
++fn a_save_of_the_wrong_size_is_kept_aside_and_never_half_written_over_the_disk() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let root = seated(&dylib, 2);
++    let stale = written()[..SIDE].to_vec();
++    std::fs::write(sav(root.path()), &stale).expect("write sav");
++    let session = real_seat::play(root.path(), true);
++    assert!(live_disk(&session) == Some([side(0), side(1)].concat()));
++    let aside = root
++        .path()
++        .join("Saves/FDS")
++        .join(format!("{STEM}.sav.mismatch"));
++    assert!(std::fs::read(aside).expect("kept aside") == stale);
++}
++
++#[test]
++fn the_expected_save_size_comes_from_the_header_or_the_file_length() {
++    let d = tempfile::tempdir().unwrap();
++    assert_eq!(
++        expected_bytes(&disk(d.path(), "a", 4, true)),
++        Some(4 * SIDE)
++    );
++    assert_eq!(
++        expected_bytes(&disk(d.path(), "b", 2, false)),
++        Some(2 * SIDE)
++    );
++    std::fs::write(d.path().join("c.fds"), b"not a disk at all").unwrap();
++    assert_eq!(expected_bytes(&d.path().join("c.fds")), None);
++    let nes = d.path().join("d.nes");
++    std::fs::write(&nes, [0u8; 32]).unwrap();
++    assert_eq!(
++        checked_sav(d.path(), Platform::Nes, "d", &nes, Some(vec![7; 3])),
++        Some(vec![7; 3])
++    );
++    assert_eq!(checked_sav(d.path(), Platform::Fds, "d", &nes, None), None);
++}
++
++#[test]
++fn select_l2_flips_to_side_b_and_says_so() {
++    let _g = core_lock();
++    let Some(dylib) = fceumm() else {
++        return;
++    };
++    let root = seated(&dylib, 2);
++    let mut session = real_seat::play(root.path(), true);
++    session.feed([RawEvent::Down(Btn::Select)], 5000);
++    session.feed([RawEvent::Down(Btn::L2)], 5016);
++    session.feed([RawEvent::Up(Btn::L2)], 5100);
++    session.feed([RawEvent::Up(Btn::Select)], 5116);
++    let deadline = Instant::now() + Duration::from_secs(10);
++    while session.app().toast() != Some(Toast::Fds(FdsToast::Side(1))) {
++        assert!(Instant::now() < deadline, "no side B banner");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    assert_eq!(Toast::Fds(FdsToast::Side(1)).text(), "Disk 1 Side B");
++    assert_eq!(Toast::Fds(FdsToast::Side(2)).text(), "Disk 2 Side A");
++}

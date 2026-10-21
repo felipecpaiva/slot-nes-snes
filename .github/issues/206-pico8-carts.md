@@ -1,10 +1,10 @@
 ---
 title: "Draw the PICO-8 cart and take its label from the cart itself"
-phase: 18
+phase: 19
 area: ui-art
 type: feature
 size: S
-depends_on: [196-platform-pico8]
+depends_on: [205-platform-pico8]
 ---
 
 ## Why
@@ -30,7 +30,7 @@ Every shelf shows a cart shell at the same fidelity, faced with the game's own a
 - [x] A1 and A2 pass; every other neutral regenerates byte for byte.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 208.
 
 ## References
-- ADR 0101; docs/cart-art/PICO8.md
+- ADR 0102; docs/cart-art/PICO8.md

@@ -1,10 +1,10 @@
 ---
 title: "PICO-8 device gate on the RG34XXSP"
-phase: 18
+phase: 19
 area: device
 type: chore
 size: S
-depends_on: [196-platform-pico8, 197-pico8-carts]
+depends_on: [205-platform-pico8, 206-pico8-carts]
 ---
 
 ## Why
@@ -30,4 +30,4 @@ Host numbers are a direction; the H700 sets the bar.
 This issue.
 
 ## References
-- ADR 0101
+- ADR 0102
