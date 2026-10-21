@@ -1,10 +1,10 @@
 ---
 title: "Draw the Super HuCard and fetch SuperGrafx labels"
-phase: 18
+phase: 20
 area: ui-art
 type: feature
 size: M
-depends_on: [196-platform-sgx]
+depends_on: [211-platform-sgx]
 ---
 
 ## Why
@@ -31,7 +31,7 @@ Super HuCards carry their label the other way up from standard HuCards; the shel
 - [x] A1 to A3 pass.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 214.
 
 ## References
-- ADR 0101; docs/cart-art/SGX.md
+- ADR 0103; docs/cart-art/SGX.md

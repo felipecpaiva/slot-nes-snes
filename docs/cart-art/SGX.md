@@ -1,11 +1,11 @@
-# PC Engine SuperGrafx cart art (issue 197)
+# PC Engine SuperGrafx cart art (issue 212)
 
 Same rules as [VARIANTS.md](VARIANTS.md): every value cites its source, or says it is the
 maintainer's choice. Nothing is guessed.
 
 ## The cards
 
-Two shells on the SuperGrafx shelf (patch 0122):
+Two shells on the SuperGrafx shelf (patch 0133):
 
 - `RetroShell::Sgx`, the **Super HuCard**, for a `.sgx` file: the five SuperGrafx cards.
 - `RetroShell::Hucard`, the TurboGrafx-16 HuCard, for a `.pce` file: Darius Plus and Darius Alpha, which
@@ -29,7 +29,7 @@ byte for byte (sha256 compared before and after).
 
 | Cards | Colour | Source |
 |---|---|---|
-| Every Super HuCard | `e4 e2 dc`, solid, the HuCard white | Maintainer's choice (ADR 0101): the HuCard white of the TurboGrafx-16 shelf. To be checked against a real card |
+| Every Super HuCard | `e4 e2 dc`, solid, the HuCard white | Maintainer's choice (ADR 0103): the HuCard white of the TurboGrafx-16 shelf. To be checked against a real card |
 
 A colour in `Config/cart_shell.txt` still overrides it.
 

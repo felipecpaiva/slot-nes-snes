@@ -1,10 +1,10 @@
 ---
 title: "Add Platform::Sgx with its options, Screen section, saves and the TurboGrafx-16 pad"
-phase: 18
+phase: 20
 area: platform
 type: feature
 size: M
-depends_on: [195-sgx-core-build]
+depends_on: [210-sgx-core-build]
 ---
 
 ## Why
@@ -34,7 +34,7 @@ The SuperGrafx needs its own shelf, Games/SGX, every policy answered explicitly,
 - [x] P1 to P3 pass; upstream sites (b), (e), (g) and (h) take their token.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 214.
 
 ## References
-- ADR 0101; docs/cart-art/SGX.md
+- ADR 0103; docs/cart-art/SGX.md

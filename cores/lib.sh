@@ -1,6 +1,7 @@
 # Shared by cores/<core>/build.sh (POSIX sh, sourced). The core's script sets only variables:
 #   core      name in SLOT_PIN keys, vendor/ names and <core>_libretro.<ext>   (fceumm)
-#   repo      upstream repository name under github.com/libretro                (libretro-fceumm)
+#   repo      upstream repository name under github.com/<owner>                 (libretro-fceumm)
+#   owner     optional, the GitHub owner of repo, libretro when empty              (jtothebell)
 #   makefile  makefile to pass with -f, empty for the default                   (Makefile.libretro)
 #   subdir    directory of the makefile inside the source, empty for the root   (libretro)
 #   make_args optional, extra make variables for both builds                        (USE_BLARGG_APU=1)
@@ -12,6 +13,8 @@
 #             (emu2413:pico/sound/emu2413:digital-sound-antiques/emu2413). SLOT_PIN holds
 #             <core>_<name>_commit and <core>_<name>_tarball_sha256; the tarball is
 #             vendor/<core>-<name>-src.tar.gz, unpacked at path inside the source, and ships beside it
+#   source_patch  optional, a patch under the repo root applied with patch -p1 to the unpacked source
+#             before both builds (cores/fake08/slot.patch); its path and sha256 go into the stamp
 # then calls core_main "$@". SLOT_PIN holds <core>_commit and <core>_tarball_sha256. The tarball is
 # the corresponding source (see LICENSING.md) and ships beside the core. OUT ending .dylib builds for
 # macOS, OUT ending .so builds for the device (run it through scripts/device-sh.sh).
@@ -22,6 +25,8 @@ device_cflags="-mcpu=cortex-a53"
 device_ldflags="${device_ldflags:-}"
 device_include="${device_include:-}"
 modules="${modules:-}"
+owner="${owner:-libretro}"
+source_patch="${source_patch:-}"
 
 usage() {
 	echo "usage: $0 fetch COMMIT TARBALL | builder | stamp COMMIT host|device | srcmeta COMMIT TARBALL | build COMMIT TARBALL WORKDIR OUT" >&2
@@ -93,8 +98,12 @@ recipe() {
 stamp() {
 	pin "$1"
 	echo "commit=$1"
-	echo "source=https://github.com/libretro/$repo/archive/$1.tar.gz"
+	echo "source=https://github.com/$owner/$repo/archive/$1.tar.gz"
 	echo "source_sha256=$pin_sha"
+	if [ -n "$source_patch" ]; then
+		echo "source_patch=$source_patch"
+		echo "source_patch_sha256=$(sha256 "$root/$source_patch")"
+	fi
 	echo "git_version=-$(printf %s "$1" | cut -c1-7)"
 	for m in $modules; do
 		module "$m"
@@ -124,7 +133,7 @@ srcmeta() {
 fetch() {
 	pin "$1"
 	mkdir -p "$(dirname "$2")"
-	curl -fsSL -o "$2.part" "https://github.com/libretro/$repo/archive/$1.tar.gz"
+	curl -fsSL -o "$2.part" "https://github.com/$owner/$repo/archive/$1.tar.gz"
 	(verify "$2.part") || { rm -f "$2.part"; exit 1; }
 	mv "$2.part" "$2"
 	for m in $modules; do
@@ -163,6 +172,9 @@ build() {
 		mkdir -p "$src/$mod_path"
 		tar -xzf "$t" -C "$src/$mod_path" --strip-components=1
 	done
+	if [ -n "$source_patch" ]; then
+		patch -s -p1 -d "$src" <"$root/$source_patch"
+	fi
 	mdir="$src${subdir:+/$subdir}"
 	if [ ! -f "$mdir/${makefile:-Makefile}" ]; then
 		echo "$tarball does not hold $repo-$rev/${subdir:+$subdir/}${makefile:-Makefile}" >&2

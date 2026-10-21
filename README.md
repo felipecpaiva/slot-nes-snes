@@ -1,9 +1,10 @@
 # slot-nes-snes
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
-NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, Virtual
-Boy, the Neo Geo, CPS1 and CPS2 arcade boards, and the PC Engine SuperGrafx, beside slot's own
+NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
+TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
+Atari 2600 and 7800, Virtual Boy, the Neo Geo, CPS1 and CPS2 arcade boards, PICO-8 carts, and the PC Engine SuperGrafx,
+beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -25,6 +26,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 |---|---|---|---|---|---|
 | GBA, GB, GBC | `Games/GBA`, `Games/GB`, `Games/GBC` | as slot | mGBA, gpSP (slot's own) | as slot | unchanged from upstream |
 | NES | `Games/NES` | `.nes` | fceumm, or nestopia | none | device tested |
+| Famicom Disk System | `Games/FDS` | `.fds` (headered or not) | fceumm | **required**, your own `disksys.rom` | device gate pending |
 | SNES | `Games/SNES` | `.sfc`, `.smc` | snes9x, or snes9x2005_plus | none | device tested |
 | Master System | `Games/SMS` | `.sms` | Genesis Plus GX | none | device tested |
 | Game Gear | `Games/GG` | `.gg` | Genesis Plus GX | none | device tested |
@@ -41,6 +43,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
 | Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
+| PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device gate pending |
 | PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
@@ -56,6 +59,9 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
 - **Atari Lynx:** required. `BIOS/lynxboot.img`, 512 bytes. Without it the cart stays on the shelf
   and slot says "Lynx needs BIOS/lynxboot.img" (a 0-byte placeholder counts as missing). A 512-byte
   file that is not the known dump still launches, with a one-time toast.
+- **Famicom Disk System:** required. `BIOS/disksys.rom`, 8192 bytes. Without it the disk stays on
+  the shelf and slot says "FDS needs BIOS/disksys.rom". An 8 KB file that is not the known dump
+  (crc32 5e607dcf) still launches, with a one-time toast.
 - **Atari 7800:** optional and off by default. With the BIOS row On (7800 Screen section), ProSystem
   loads `BIOS/7800 BIOS (U).rom` (`(E)` for a PAL cart) and shows the Atari logo before a signed game;
   an unsigned cart (homebrew) does not boot with it. Off hides the file from the core.
@@ -91,13 +97,6 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **TurboGrafx-16 and PC Engine** play like Game Gear: B is II, A is I, START is Run, X and Y are
   turbo. Picture is Crop by default (8 lines off the top and bottom), then Stretch and Actual. Every
   HuCard keeps a 2 KB `.sav`. CD games are out of scope; SuperGrafx cards have their own shelf.
-- **PC Engine SuperGrafx** has its own shelf, `Games/SGX`, on Beetle SuperGrafx: the five SuperGrafx
-  HuCards (`.sgx`) and the PC Engine cards with SuperGrafx enhancements (Darius Plus and Darius Alpha,
-  `.pce`), every one run on the SuperGrafx hardware. It plays and saves like the TurboGrafx-16 (B is II,
-  A is I, START is Run, X and Y are turbo, a 2 KB `.sav` per card); Picture is Crop by default, then
-  Stretch, Actual and 4:3. The Pad row switches to the 6-button pad (III and IV on Y and X, V and VI
-  on L1 and R1, the picture toggle on SELECT+X) from the next start. A SuperGrafx card is drawn as a Super HuCard, its label the other way up
-  from a standard HuCard's. A `.pce` card on the TG16 shelf stays a TurboGrafx-16 game.
 - **WonderSwan and WonderSwan Color.** Horizontal games are drawn at 3x, vertical ones upright at
   2x, read from the cart's own footer; a SELECT tap turns a vertical game sideways and back. 60 Hz by
   default, and the Refresh row switches to the native 75 Hz.
@@ -123,6 +122,14 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   Right Pad row's ABXY choice puts the right D-pad on X, A, B and Y (A and B move to R2 and L2), for
   games such as Red Alarm and Teleroboxer that use it as buttons. Games run at their own 50.27 Hz.
   Every cart keeps a 64 KB `.sav` in `Saves/VB`.
+- **Famicom Disk System.** Disks run on fceumm, the NES core, on a shelf of their own drawn as yellow
+  Disk Cards. SELECT+L2 turns the disk to its next side, and after the last side of a multi-disk game
+  goes back to Disk 1 Side A; a banner names the side now in the drive ("Disk 1 Side B"). The disk is
+  out of the drive for a second while it turns, as on the real drive. A game's progress is written to
+  the disk, which slot keeps as `Saves/FDS/<game>.sav` (the whole disk as the game left it); the `.fds`
+  file is never written, so deleting the `.sav` gives the disk back as dumped. A save of the wrong size
+  for the disk is kept aside as `<game>.sav.mismatch` and not loaded. Every disk runs at 60 Hz (it was
+  a Japan-only system), so there is no PAL Speed row.
 - **Neo Geo, CPS1 and CPS2** run on FinalBurn Neo, one shelf per board. The zip is the romset, named
   as the set (`mslug.zip`, `ffight.zip`, `ssf2t.zip`), for the pinned FinalBurn Neo (dat 1.0.0.03):
   a zip that is not a set of that board is left off the shelf, and an older MAME set may lack a file
@@ -136,6 +143,23 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   CPS1 game the grey CPS Changer case, each with the game's art from the label fetcher. The board's own settings and high scores
   (`Saves/fbneo/`) are written when the game closes; progress mid-game is in save states. CPS3 is not
   included.
+- **PICO-8** carts run on FAKE-08, a free reimplementation; PICO-8 itself (Lexaloffle's) is not included
+  and not needed. A cart is a `.p8` file (text, or a PNG cart under that name) or a `<name>.p8.png`; a
+  plain `.png` is never taken for a cart. The 128x128 screen is drawn at exactly 3x (384x384) in the
+  middle of the panel, or stretched to it. O is B and X is A (Y and X are turbo O and X), Start opens the
+  cart's own pause menu (Continue, the cart's items, Reset Cart). A cart's saves (its cartdata) are in
+  `Saves/PICO8/cdata/`, written within a second of a change. There are no save states and no rewind for
+  PICO-8: FAKE-08's states are not reliable at the pinned commit, so the in-game States page is hidden.
+  On the shelf every game is a grey PICO-8 cart wearing the cart's own label picture, which the label
+  fetcher takes from the cart itself, offline.
+- **PC Engine SuperGrafx** has its own shelf, `Games/SGX`, on Beetle SuperGrafx: the five SuperGrafx
+  HuCards (`.sgx`) and the PC Engine cards with SuperGrafx enhancements (Darius Plus and Darius Alpha,
+  `.pce`), every one run on the SuperGrafx hardware. It plays and saves like the TurboGrafx-16 (B is II,
+  A is I, START is Run, X and Y are turbo, a 2 KB `.sav` per card); Picture is Crop by default, then
+  Stretch, Actual and 4:3. The Pad row switches to the 6-button pad (III and IV on Y and X, V and VI
+  on L1 and R1, the picture toggle on SELECT+X) from the next start. A SuperGrafx card is drawn as a
+  Super HuCard, its label the other way up from a standard HuCard's. A `.pce` card on the TG16 shelf
+  stays a TurboGrafx-16 game.
 
 ### The Screen page
 
@@ -144,7 +168,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16, SuperGrafx), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, Atari 2600 and 7800, where it is the default) |
+| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, Atari 2600 and 7800, where it is the default) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -157,6 +181,8 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
 | Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
 | Pad | SuperGrafx | 2 Buttons (the default), 6 Buttons |
+
+PICO-8 has the two common rows only: Shader and Picture (Actual, the 3x picture, is the default).
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.
@@ -203,9 +229,12 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
 - Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
   there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 182) is still open.
+- PICO-8: no save states, no resume and no rewind (cartdata keeps a cart's own saves). FAKE-08 is not
+  PICO-8: of the 39 carts tried on the host, 7 stop on a Lua error FAKE-08 does not get past (they show
+  "runtime error"). The device gate is still open.
 - PC Engine SuperGrafx: with the 6-button pad turbo is off and L1 and R1 belong to the game. Beetle
-  SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16. The device gate (issue 199) is
-  still open.
+  SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16. The device gate
+  (issue 214) is still open.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few
@@ -213,6 +242,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - Atari 2600 and 7800: a PAL game is shown at the NTSC picture height in 4:3 and Stretch (the middle
   210 or 223 rows); Actual shows the whole PAL frame. Keypad, driving and Mindlink 2600 games are not
   supported. The device gates (issues 162 and 170) are still open.
+- Famicom Disk System: rewinding into the second the disk is out of the drive can leave it out (SELECT+L2
+  again puts the next side in). A disk that is never written still leaves a full-size `.sav`. The device
+  gate (issue 202) is still open.
 - At Native PAL speed, a 50 fps game on the 59.6 Hz panel repeats about one frame in six.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.

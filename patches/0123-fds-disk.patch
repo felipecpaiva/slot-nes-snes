@@ -1,0 +1,513 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:59:08 +0400
+Subject: [PATCH] fds-disk
+
+SELECT+L2, the PlayStation disc chord, flips a Famicom disk to its next
+side on the Disk System shelf. fceumm registers no libretro disk
+control at this pin: it ejects or inserts on a press of the pad's R and
+selects the next side on a press of L, only while the disk is out. slot
+keeps L1 and R1 for itself on this shelf and presses the core's own R,
+then L two frames later, then R again 60 frames after the eject, so a
+game polling the drive sees the disk out for a second. The walk goes
+through every side of every disk and back to the first (Disk 1 Side A,
+Disk 1 Side B, Disk 2 Side A, ...). The side in the drive is read back
+from the core's own state (SELD), never counted by slot, so a loaded
+state or a rewind cannot put the banner out of step, and the banner
+names it. A one-sided disk is not flipped. The PlayStation disc path is
+not used for disks.
+---
+ crates/slot-retro/src/libretro/discs.rs |   1 +
+ crates/slot/src/app/ps1_discs.rs        |   7 +-
+ crates/slot/src/emu.rs                  |  21 +++
+ crates/slot/src/fds_disk.rs             |  98 +++++++++++
+ crates/slot/src/lib.rs                  |   1 +
+ crates/slot/src/session.rs              |   9 +-
+ crates/slot/tests/fds_core.rs           | 211 ++++++++++++++++++++++++
+ 7 files changed, 346 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/src/fds_disk.rs
+ create mode 100644 crates/slot/tests/fds_core.rs
+
+diff --git a/crates/slot-retro/src/libretro/discs.rs b/crates/slot-retro/src/libretro/discs.rs
+index 65e8e67..48ab5f7 100644
+--- a/crates/slot-retro/src/libretro/discs.rs
++++ b/crates/slot-retro/src/libretro/discs.rs
+@@ -21,6 +21,7 @@ pub enum DiscEvent {
+     Restored(u32),
+     Refused,
+     NewerState,
++    Side(u8),
+ }
+ 
+ #[repr(C)]
+diff --git a/crates/slot/src/app/ps1_discs.rs b/crates/slot/src/app/ps1_discs.rs
+index 3d30d5d..31d28c8 100644
+--- a/crates/slot/src/app/ps1_discs.rs
++++ b/crates/slot/src/app/ps1_discs.rs
+@@ -1,5 +1,5 @@
+ use slot_retro::DiscEvent;
+-use slot_ui::{DiscToast, Toast};
++use slot_ui::{DiscToast, FdsToast, Toast};
+ 
+ use super::App;
+ 
+@@ -11,6 +11,10 @@ impl App {
+         ) else {
+             return;
+         };
++        if let DiscEvent::Side(side) = event {
++            self.hud.toast(Toast::Fds(FdsToast::Side(side)), self.now());
++            return;
++        }
+         let toast = match event {
+             DiscEvent::Swapped(index) | DiscEvent::Restored(index) => {
+                 let written = crate::ps1_load::remember_disc(&root, &cart, index);
+@@ -25,6 +29,7 @@ impl App {
+             }
+             DiscEvent::Refused => Some(DiscToast::Refused),
+             DiscEvent::NewerState => Some(DiscToast::NewerState),
++            DiscEvent::Side(_) => None,
+         };
+         if let Some(toast) = toast {
+             self.hud.toast(Toast::Disc(toast), self.now());
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index b41491f..0391b46 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -82,6 +82,7 @@ enum Cmd {
+     SetOption(String, String),
+     Refresh,
+     NextDisc,
++    FlipDisk,
+ }
+ 
+ struct Shared {
+@@ -117,6 +118,7 @@ struct Shared {
+     clock: Mutex<Clock>,
+     clocked: Condvar,
+     disc_event: Mutex<Option<DiscEvent>>,
++    fds_flip: AtomicU32,
+     flash: Mutex<Option<crate::ngp_flash::Seat>>,
+ }
+ 
+@@ -193,6 +195,7 @@ impl EmuHandle {
+             clock: Mutex::new(Clock::default()),
+             clocked: Condvar::new(),
+             disc_event: Mutex::new(None),
++            fds_flip: AtomicU32::new(0),
+             flash: Mutex::new(None),
+         });
+         let (tx, rx) = channel();
+@@ -437,6 +440,10 @@ impl EmuHandle {
+         request(&self.cmds, &self.shared, Cmd::NextDisc);
+     }
+ 
++    pub fn flip_disk(&self) {
++        request(&self.cmds, &self.shared, Cmd::FlipDisk);
++    }
++
+     pub fn take_disc_event(&self) -> Option<DiscEvent> {
+         self.shared.disc_event.lock().ok()?.take()
+     }
+@@ -535,6 +542,15 @@ impl Worker {
+         }
+     }
+ 
++    fn keep_fds_side(&self, core: &mut dyn RetroCore) {
++        let Some(event) = crate::fds_disk::flipped(core) else {
++            return;
++        };
++        if let Ok(mut slot) = self.shared.disc_event.lock() {
++            *slot = Some(event);
++        }
++    }
++
+     fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
+         match self.player {
+             Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
+@@ -768,6 +784,7 @@ impl Worker {
+                         turbo_frame,
+                     );
+                     turbo_frame = turbo_frame.wrapping_add(1);
++                    let (input, flipped) = crate::fds_disk::press(&self.shared.fds_flip, input);
+                     core.set_frame_skip(!last);
+                     let frame_began = Instant::now();
+                     match cable.as_mut() {
+@@ -810,6 +827,9 @@ impl Worker {
+                         }
+                         None => core.run_frame(input),
+                     }
++                    if flipped {
++                        self.keep_fds_side(core.as_mut());
++                    }
+                     let took = frame_began.elapsed();
+                     if last {
+                         drawn = took;
+@@ -1019,6 +1039,7 @@ impl Worker {
+                 core.next_disc();
+                 self.keep_disc_event(core);
+             }
++            Cmd::FlipDisk => crate::fds_disk::start(&self.shared.fds_flip, core),
+             Cmd::Refresh => match core.serialize() {
+                 Ok(state) => {
+                     core.set_frame_skip(true);
+diff --git a/crates/slot/src/fds_disk.rs b/crates/slot/src/fds_disk.rs
+new file mode 100644
+index 0000000..11ac8f7
+--- /dev/null
++++ b/crates/slot/src/fds_disk.rs
+@@ -0,0 +1,98 @@
++use std::sync::atomic::{AtomicU32, Ordering};
++
++use slot_retro::{ButtonMask, DiscEvent, RetroCore};
++use slot_store::Platform;
++
++pub const SIDE_BYTES: usize = 65_500;
++pub const EJECTED: u8 = 255;
++pub const EJECT_AT: u32 = 0;
++pub const SELECT_AT: u32 = 2;
++pub const INSERT_AT: u32 = 60;
++pub const FRAMES: u32 = INSERT_AT + 2;
++
++const SKIP_EJECT: u32 = 1 << 31;
++
++pub fn flips(platform: Platform) -> bool {
++    platform == Platform::Fds
++}
++
++pub fn sides(core: &dyn RetroCore) -> usize {
++    core.save_ram().map_or(0, |d| d.len() / SIDE_BYTES)
++}
++
++pub fn chunk(state: &[u8], tag: &[u8; 4]) -> Option<u8> {
++    let mut at = 16;
++    while let (Some(_kind), Some(size)) = (state.get(at), word(state, at + 1)) {
++        let end = (at + 5).checked_add(size)?;
++        let mut entry = at + 5;
++        while entry + 8 <= end {
++            let len = word(state, entry + 4)?;
++            if state.get(entry..entry + 4)? == tag {
++                return (len == 1).then(|| state.get(entry + 8).copied())?;
++            }
++            entry = entry.checked_add(8 + len)?;
++        }
++        at = end;
++    }
++    None
++}
++
++fn word(state: &[u8], at: usize) -> Option<usize> {
++    let b = state.get(at..at + 4)?;
++    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
++}
++
++pub fn start(flip: &AtomicU32, core: &mut dyn RetroCore) {
++    if flip.load(Ordering::Relaxed) != 0 {
++        return;
++    }
++    if sides(core) < 2 {
++        eprintln!("slot: fds: this disk has one side, nothing to flip");
++        return;
++    }
++    let inserted = core
++        .serialize()
++        .ok()
++        .and_then(|s| chunk(&s, b"INDI"))
++        .is_none_or(|d| d != EJECTED);
++    let skip = if inserted { 0 } else { SKIP_EJECT };
++    flip.store(skip | FRAMES, Ordering::Relaxed);
++}
++
++pub fn press(flip: &AtomicU32, input: ButtonMask) -> (ButtonMask, bool) {
++    let left = flip.load(Ordering::Relaxed);
++    if left == 0 {
++        return (input, false);
++    }
++    let frames = left & !SKIP_EJECT;
++    let frame = FRAMES - frames;
++    let held = match frame {
++        EJECT_AT if left & SKIP_EJECT == 0 => ButtonMask::R,
++        SELECT_AT => ButtonMask::L,
++        INSERT_AT => ButtonMask::R,
++        _ => 0,
++    };
++    let next = frames - 1;
++    flip.store(
++        if next == 0 {
++            0
++        } else {
++            (left & SKIP_EJECT) | next
++        },
++        Ordering::Relaxed,
++    );
++    let shoulders = ButtonMask::L | ButtonMask::R;
++    (ButtonMask((input.0 & !shoulders) | held), next == 0)
++}
++
++pub fn flipped(core: &mut dyn RetroCore) -> Option<DiscEvent> {
++    let state = core.serialize().ok()?;
++    let side = chunk(&state, b"SELD")?;
++    eprintln!(
++        "slot: fds: disk {} side {} of {} sides",
++        side / 2 + 1,
++        if side % 2 == 0 { 'A' } else { 'B' },
++        sides(core)
++    );
++    Some(DiscEvent::Side(side))
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 9ca7e8e..f2d5b7f 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -27,6 +27,7 @@ pub mod drc;
+ pub mod emu;
+ pub mod face_builder;
+ pub mod fast_scroll_trace;
++pub mod fds_disk;
+ pub mod frame_trace;
+ pub mod frames;
+ pub mod frontend;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 472696f..48484ec 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -246,6 +246,11 @@ impl Session {
+             Action::RewindStop => self.rewinding = false,
+             Action::FfStart if !menu_open => self.fast = true,
+             Action::FfStop => self.fast = false,
++            Action::DiscNext
++                if !menu_open && crate::fds_disk::flips(self.app.playing_platform()) =>
++            {
++                self.emu.iter().for_each(EmuHandle::flip_disk)
++            }
+             Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
+             Action::Eject if self.app.triggers_to_game() => {
+                 for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
+@@ -618,7 +623,9 @@ impl Session {
+         emu.set_ws_pad(self.app.pad_code(loaded.platform));
+         self.gestures
+             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
+-        self.gestures.set_disc_chord(loaded.platform.swaps_discs());
++        self.gestures.set_disc_chord(
++            loaded.platform.swaps_discs() || crate::fds_disk::flips(loaded.platform),
++        );
+         self.gestures
+             .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
+         self.app.set_snapshot(Box::new(emu.snapshot()));
+diff --git a/crates/slot/tests/fds_core.rs b/crates/slot/tests/fds_core.rs
+new file mode 100644
+index 0000000..0de2a9e
+--- /dev/null
++++ b/crates/slot/tests/fds_core.rs
+@@ -0,0 +1,211 @@
++// fceumm runs the Famicom Disk System (ADR 0101). The disk is a generated one: block 1 and the
++// *NINTENDO-HVC* mark on every side, the rest zero, so it never boots a game. Under an 8 KB
++// placeholder BIOS (zeros, not the real ROM) the core still loads it, exposes the disk as save RAM
++// and runs the disk drive, which is all these tests need. Tests that boot through the real BIOS read
++// it from SLOT_FDS_BIOS and print a BIOS skip without it.
++mod common;
++mod core_common;
++mod fds_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use fds_common::{disk, disk_bytes, fds_bios, placeholder_bios, put_bios, side, SIDE};
++use slot::fds_disk::{chunk, flipped, press, start, EJECTED, FRAMES, INSERT_AT};
++use slot_retro::{ButtonMask, DiscEvent, LibretroCore, RetroCore};
++use std::sync::atomic::AtomicU32;
++
++fn opened(root: &Path) -> Option<LibretroCore> {
++    let dylib = fds_common::fceumm()?;
++    std::fs::create_dir_all(slot::root::saves_dir(root)).unwrap();
++    std::fs::create_dir_all(slot::root::bios_dir(root)).unwrap();
++    Some(
++        LibretroCore::open_with(
++            &dylib,
++            &slot::root::bios_dir(root),
++            &slot::root::saves_dir(root),
++        )
++        .expect("open fceumm"),
++    )
++}
++
++fn loaded(root: &Path, sides: u8, headered: bool) -> Option<LibretroCore> {
++    put_bios(root, &placeholder_bios());
++    let mut core = opened(root)?;
++    core.load(&disk(&root.join("Games/FDS"), "Disk", sides, headered))
++        .expect("load the disk");
++    core.run_frame(ButtonMask::default());
++    Some(core)
++}
++
++fn drive(core: &mut LibretroCore) -> (u8, u8) {
++    let state = core.serialize().expect("state");
++    (
++        chunk(&state, b"SELD").expect("SELD"),
++        chunk(&state, b"INDI").expect("INDI"),
++    )
++}
++
++fn flip(core: &mut LibretroCore) -> Option<DiscEvent> {
++    let at = AtomicU32::new(0);
++    start(&at, core);
++    let mut event = None;
++    for _ in 0..FRAMES {
++        let (input, done) = press(&at, ButtonMask::default());
++        core.run_frame(input);
++        if done {
++            event = flipped(core);
++        }
++    }
++    event
++}
++
++#[test]
++fn a_disk_without_disksys_rom_does_not_load() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    let rom = disk(&d.path().join("Games/FDS"), "Disk", 2, true);
++    assert!(core.load(&rom).is_err());
++}
++
++#[test]
++fn the_save_ram_is_the_whole_disk_without_the_fwnes_header() {
++    let _g = core_lock();
++    for headered in [true, false] {
++        let d = tempfile::tempdir().unwrap();
++        let Some(core) = loaded(d.path(), 2, headered) else {
++            return;
++        };
++        let ram = core.save_ram().expect("save ram");
++        assert_eq!(ram.len(), 2 * SIDE, "headered {headered}");
++        assert_eq!(ram, [side(0), side(1)].concat(), "headered {headered}");
++    }
++}
++
++#[test]
++fn a_disk_starts_on_side_a_inserted() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 2, true) else {
++        return;
++    };
++    assert_eq!(drive(&mut core), (0, 0));
++}
++
++#[test]
++fn a_flip_ejects_the_disk_for_a_second_then_inserts_the_next_side() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 2, true) else {
++        return;
++    };
++    let at = AtomicU32::new(0);
++    start(&at, &mut core);
++    for frame in 0..FRAMES {
++        let (input, _) = press(&at, ButtonMask::default());
++        core.run_frame(input);
++        let (_, inserted) = drive(&mut core);
++        if frame < INSERT_AT {
++            assert_eq!(inserted, EJECTED, "frame {frame}");
++        } else {
++            assert_eq!(inserted, 1, "frame {frame}");
++        }
++    }
++    assert_eq!(drive(&mut core), (1, 1));
++    assert_eq!(
++        press(&at, ButtonMask(ButtonMask::L)).0,
++        ButtonMask(ButtonMask::L)
++    );
++}
++
++#[test]
++fn flips_walk_every_side_of_every_disk_and_come_back_to_the_first() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 4, true) else {
++        return;
++    };
++    let mut seen = Vec::new();
++    for _ in 0..4 {
++        match flip(&mut core) {
++            Some(DiscEvent::Side(s)) => seen.push(s),
++            other => panic!("{other:?}"),
++        }
++    }
++    assert_eq!(seen, [1, 2, 3, 0]);
++}
++
++#[test]
++fn a_one_sided_disk_is_never_flipped() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 1, true) else {
++        return;
++    };
++    let at = AtomicU32::new(0);
++    start(&at, &mut core);
++    assert_eq!(
++        press(&at, ButtonMask::default()),
++        (ButtonMask::default(), false)
++    );
++    assert_eq!(drive(&mut core), (0, 0));
++}
++
++#[test]
++fn a_state_keeps_the_side_that_was_in_the_drive() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 2, true) else {
++        return;
++    };
++    flip(&mut core);
++    let state = core.serialize().unwrap();
++    drop(core);
++    let e = tempfile::tempdir().unwrap();
++    let Some(mut again) = loaded(e.path(), 2, true) else {
++        return;
++    };
++    assert_eq!(drive(&mut again), (0, 0));
++    again.unserialize(&state).unwrap();
++    assert_eq!(drive(&mut again), (1, 1));
++    assert_eq!(flip(&mut again), Some(DiscEvent::Side(0)));
++}
++
++#[test]
++fn a_written_back_save_changes_the_disk_and_never_the_file() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = loaded(d.path(), 2, true) else {
++        return;
++    };
++    let mut changed = [side(0), side(1)].concat();
++    changed[SIDE + 0x100] = 0x5a;
++    core.load_save_ram(&changed).unwrap();
++    assert_eq!(core.save_ram().unwrap(), changed);
++    let file = std::fs::read(d.path().join("Games/FDS/Disk.fds")).unwrap();
++    assert_eq!(file, disk_bytes(2, true));
++}
++
++#[test]
++fn the_real_bios_draws_its_title_screen() {
++    let Some(bios) = fds_bios() else {
++        return;
++    };
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    put_bios(d.path(), &bios);
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    core.load(&disk(&d.path().join("Games/FDS"), "Disk", 2, true))
++        .unwrap();
++    for _ in 0..120 {
++        core.run_frame(ButtonMask::default());
++    }
++    let video = core.video_xrgb8888();
++    let first = video.get(..4).unwrap().to_vec();
++    assert!(video.chunks_exact(4).any(|p| p != first.as_slice()));
++}

@@ -1,10 +1,10 @@
 ---
 title: "Build Beetle SuperGrafx from a pinned commit for host and device without CD images and record its licence"
-phase: 18
+phase: 20
 area: cores
 type: feature
 size: S
-depends_on: [194-sgx-tracking]
+depends_on: [209-sgx-tracking]
 ---
 
 ## Why
@@ -31,7 +31,7 @@ Beetle PCE Fast has no SuperGrafx code. Beetle SuperGrafx is the same Mednafen p
 - [x] C1 and C2 pass with SLOT_REQUIRE_CORES=1; the device core needs only GLIBC_2.17 symbols.
 
 ## Device check (RG34XXSP)
-Issue 199.
+Issue 214.
 
 ## References
-- ADR 0101; docs/cart-art/SGX.md
+- ADR 0103; docs/cart-art/SGX.md

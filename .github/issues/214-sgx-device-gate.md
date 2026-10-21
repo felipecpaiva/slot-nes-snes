@@ -1,10 +1,10 @@
 ---
 title: "SuperGrafx device gate on the RG34XXSP"
-phase: 18
+phase: 20
 area: device
 type: chore
 size: S
-depends_on: [196-platform-sgx, 197-sgx-carts]
+depends_on: [211-platform-sgx, 212-sgx-carts]
 ---
 
 ## Why
@@ -32,4 +32,4 @@ No host number is a device number; two VDCs cost twice Beetle PCE Fast on the ho
 This issue is the device check.
 
 ## References
-- ADR 0101; docs/cart-art/SGX.md
+- ADR 0103; docs/cart-art/SGX.md

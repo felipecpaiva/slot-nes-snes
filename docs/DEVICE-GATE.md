@@ -409,7 +409,36 @@ lists the device copy). Host numbers are 0.21 to 0.30 ms a frame on the M5 Max; 
 | ddtod | CPS2 | | | | | |
 | 1941 | CPS1 | | | | | vertical, both ways |
 
-## PC Engine SuperGrafx (issue 199, ADR 0101)
+## Famicom Disk System (issue 202, ADR 0101)
+
+Pending. Needs the player's own `BIOS/disksys.rom` (8192 bytes, crc32 5e607dcf, md5
+ca30b50f880eb660a320674ed365ef7a). No new core: fceumm is already in `System/`. Copy the disks into
+`Games/FDS` and fetch their labels
+(`task labels:fetch -- --device --library <library> --only FDS --by-name --logo-fallback`).
+
+1. Speed: `task bench:device CORE=fceumm ROM_ON_DEVICE=/mnt/sdcard/Games/FDS/<disk>` with
+   `ARGS="--frames 3000 --warmup 600 --repeats 3"`; the budget is 16.7 ms.
+2. Shelf: each disk is a yellow Disk Card with its label in the well; the shelf sits after the Master
+   System in Release Year order.
+3. Boot: the BIOS screen (Mario and Luigi) runs for a few seconds, then the game loads from side A.
+4. Disk flip: at the game's "set side B" screen press SELECT+L2. The banner says "Disk 1 Side B", the
+   game sees the disk go out and come back about a second later and loads on. SELECT+L2 again goes
+   back to side A (or to Disk 2 on a two-disk game). L1 and R1 never touch the drive.
+5. Picture: Crop by default; Stretch, Actual and 4:3 from the Picture row; Shader walks the retro list.
+6. States and rewind: save and load a state on side B; the next flip still names the right side.
+7. Saves: save in a game that writes the disk (Zelda no Densetsu, Nazo no Murasamejou), eject:
+   `Saves/FDS/<stem>.sav` is the disk size (65,500 bytes a side) and the `.fds` on the card has its
+   old date and size. Start again: the save is there.
+8. Missing BIOS: rename `BIOS/disksys.rom`; launching shows "FDS needs BIOS/disksys.rom" and the disk
+   stays on the shelf. Put it back.
+
+| Title | Sides | bench:device ms/frame | Flip | Save | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|---|
+| Nazo no Murasamejou | 2 | | | | | | | action adventure, disk saves |
+| Esper Dream | 2 | | | | | | | action RPG, disk saves |
+| Famicom Tantei Club Part II Zenpen and Kouhen | 2 each | | | | | | | adventure in two disk files |
+
+## PC Engine SuperGrafx (issue 214, ADR 0103)
 
 Pending. No BIOS. Apply `docs/rom-library/best-copy/sgx-adds.tsv` (workspace): copy the five SuperGrafx
 cards into `Games/SGX` and move the two Darius cards there from `Games/TG16`, with their
@@ -460,7 +489,7 @@ The maintainer's device runs Release year; every other card stays Classic.
    Without the menu: `adb shell 'printf "order = release-year\n" > /mnt/sdcard/Config/shelf_order.txt'`
    (or that line in `Config/shelf_order.txt` with the card in a computer), then restart slot
    (`adb shell 'killall slot'`, or power off and on).
-3. R1 from Recents: Atari 2600, NES, Master System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
+3. R1 from Recents: Atari 2600, NES, Master System, Famicom Disk System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
    Game Boy, Lynx, Neo Geo, Game Gear, SNES, CPS2, 32X, PlayStation, Virtual Boy, Game Boy Color,
    Neo Geo Pocket, WonderSwan, GBA (shelves with no carts are skipped), then Recents again. L1 walks
    it backwards. The shelves peeking left and right of the current one are its neighbours in this
@@ -525,3 +554,33 @@ with Line and Pixel.
 2. With `cart_platform=tg16` and `cart=Bonk's Adventure (USA)` in `Config/slot.state` and a NES cart
    of the same name on the NES shelf, power on: the TurboGrafx-16 cart resumes (patch 0089 pins it in
    `resume_platform.rs`).
+
+## PICO-8 (issue 208, ADR 0102)
+
+Pending. Copy the carts listed in `docs/rom-library/best-copy/pico8-adds.tsv` (workspace) into
+`Games/PICO8/` under their target names, then `task labels:fetch -- --card <card> --only PICO8` (no network)
+for the labels. Host numbers are 0.05 to 0.67 ms a frame on the M-series; the device sets the bar.
+
+1. Speed: `task bench:device CORE=fake08 ROM_ON_DEVICE="/mnt/sdcard/Games/PICO8/<name>.p8.png" ARGS="--frames 3000
+   --warmup 600 --repeats 3"` for Cave Runners! (the slowest on the host), UFO Swamp Odyssey and Celeste;
+   record the medians.
+2. Picture: Actual is a sharp 384x384 square in the middle (3x, no shimmer when Celeste's camera moves);
+   Stretch fills the panel; SELECT+X flips between them; the Shader row walks the retro list.
+3. Controls: B is O (Celeste jumps), A is X (Celeste dashes), Y and X fire turbo O and X in Cherry Bomb,
+   START opens the pause menu (Continue, the cart's own items, Reset Cart, nothing else) and Reset Cart
+   restarts the same game; every quick tap counts in a 30 fps cart (Pico Racer menu, Ma Puzzle moves).
+4. Audio: 10 minutes each of Celeste and Witch Loves Bullets under `SLOT_TRACE`; music at the right pitch,
+   no crackle; `starved` and `dropped` stay 0.
+5. Saves: set a Pico de Pon high score (it uses cartdata), wait 2 s, power off at the switch, power on: the
+   score is kept (`Saves/PICO8/cdata/picodepon_high_scores.p8d.txt`), with no `.tmp` left beside it.
+6. No states: the in-game menu has no States page; eject, lid close and power tap leave nothing in
+   `States/PICO8/`; L2 does nothing, R2 fast-forwards.
+7. Errors: Demon Castle and Under Construction show "runtime error" and stay there; no other cart starts.
+8. Logs: `System/slot.log` keeps getting lines after a cartdata save (the stderr fix).
+
+| Cart | bench:device ms/frame | Starved / dropped | Date | Notes |
+|---|---|---|---|---|
+| Cave Runners! | | | | slowest on the host |
+| UFO Swamp Odyssey | | | | |
+| Celeste | | | | jump and dash |
+| Pico de Pon | | | | cartdata across a power cut |

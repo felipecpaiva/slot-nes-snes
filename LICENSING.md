@@ -26,6 +26,9 @@ we add, so no written offer is needed. It is in `System/licenses/`:
   build compiles, each the archive `SLOT_PIN` pins (below).
 - `mednafen_vb-src.tar.gz` and `mednafen_vb-src.meta`: the same for Beetle VB.
 - `fbneo-src.tar.gz` and `fbneo-src.meta`: the exact FinalBurn Neo source and its sha256 (below).
+- `fake08-src.tar.gz`, `fake08-z8lua-src.tar.gz` and `fake08-src.meta`: FAKE-08 and its z8lua submodule,
+  each the archive `SLOT_PIN` pins; the patch the build applies is `cores/fake08/slot.patch` in the
+  main tarball, its sha256 in the `.meta` (below).
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
@@ -716,12 +719,49 @@ device the core links the C++ runtime statically (`-static-libstdc++ -static-lib
 `libpthread`. The notice under snes9x names FinalBurn Neo, and the release terms do not change: the zip
 is never sold and never carries a donation or sponsor link.
 
+## FAKE-08 (PICO-8)
+
+Checked at commit `814991a2571ad3970e386cef48f3b148aa1c27b9` of jtothebell/fake-08 (its master on
+2026-06-13), the commit `SLOT_PIN` pins as `fake08_commit` (archive sha256 `fake08_tarball_sha256`), and
+its submodule jtothebell/z8lua at `e6928578d46b61fd5ea30cfcf547e855a30a0553` (`fake08_z8lua_commit`,
+`fake08_z8lua_tarball_sha256`). It is built by `cores/fake08/build.sh` for the PICO-8 shelf (ADR 0102)
+with `cores/fake08/slot.patch` applied (seven files; ADR 0102 lists every change and why). MIT allows the
+changes; the patch is public in this repository and in every release's source tarball. PICO-8 itself is
+Lexaloffle's proprietary product: none of it is shipped, fetched or needed.
+
+**FAKE-08 is free software and is GPL-compatible**, apart from one snippet noted below. The licence is
+the root `LICENSE.MD` of that source, copied verbatim and whole to `licenses/fake08-LICENSE.md`: FAKE-08
+under MIT, and the libraries it lists with their terms.
+
+- What is compiled into `fake08_libretro.so` (the 56 sources of `platform/libretro/Makefile.common`):
+  FAKE-08's own `source/` and `platform/libretro/` files (MIT; 16 of them have no licence text in their
+  first 4,000 bytes, which we read as covered by `LICENSE.MD`, a judgement, not a quote), z8lua (below),
+  lodepng (its zlib-style licence, `licenses/fake08-lodepng-LICENSE.txt`), miniz (MIT,
+  `licenses/fake08-miniz-LICENSE.txt`) and simpleini's `ConvertUTF.c` (MIT, named in `LICENSE.MD`).
+- **z8lua** has no licence file. Its notices are copied verbatim from the pinned source into
+  `licenses/fake08-z8lua-notices.txt`: Lua 5.2 (Lua.org, PUC-Rio, MIT) in `lua.h`, which covers the
+  `l*.c` files; eris (Florian Nuecke, MIT) in `eris.h`; and the PICO-8 parts by Sam Hocevar under the
+  WTFPL 2 (`lpico8lib.c`, `fix32.h`, `trigtables.h`).
+- **One snippet is CC BY-SA 3.0**: the oval drawing in `source/graphics.cpp` (a Stack Overflow answer,
+  attributed in `LICENSE.MD` with its URL). CC BY-SA 3.0 is not GPL-compatible, so we take the plugin
+  boundary stance under snes9x above: the core is a separate program slot loads across the libretro C
+  ABI, the zip an aggregate of separate works. This is our reading, not legal advice. The attribution
+  travels in `licenses/fake08-LICENSE.md`.
+- `platform/libretro/miyoomini/` (the public-domain audio files `LICENSE.MD` names) is not in the unix
+  build, so nothing of it ships.
+- No non-commercial clause and no donation clause. The release terms (the notice under snes9x, the
+  no-donations rule under FinalBurn Neo) do not change for it.
+- FAKE-08 is C++. The device build links the C++ runtime statically and binds `powf`, `exp2f` and `pow`
+  to their GLIBC_2.17 versions (`cores/fake08/glibc-2.17.h`), so it needs only `libc.so.6` and
+  `libm.so.6` at GLIBC_2.17 or older, which `task core:device:fake08` checks.
+- No BIOS is shipped or needed; PICO-8 carts are the player's own.
+
 ## Beetle SuperGrafx (PC Engine SuperGrafx)
 
 Checked at commit `9c11dcd213a79d57d2c86313971631af801f2cdc` of libretro/beetle-supergrafx-libretro, the
 commit `SLOT_PIN` pins as `mednafen_supergrafx_commit` (tarball sha256 `mednafen_supergrafx_tarball_sha256`).
-It is built by `cores/mednafen_supergrafx/build.sh` for the SuperGrafx shelf (ADR 0101) and ships from the
-platform patch (0121) in `dist:device`, checked by `zip-check.sh`. `dist-device.sh` copies these from
+It is built by `cores/mednafen_supergrafx/build.sh` for the SuperGrafx shelf (ADR 0103) and ships from the
+platform patch (0132) in `dist:device`, checked by `zip-check.sh`. `dist-device.sh` copies these from
 `licenses/` into the release:
 
 - `mednafen_supergrafx-GPL-2.0.txt`, the root `COPYING` of that source, copied verbatim and whole (the GPL

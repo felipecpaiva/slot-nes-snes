@@ -165,10 +165,25 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
 | [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
 | [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |
-| [194](194-sgx-tracking.md) | PC Engine SuperGrafx: Beetle SuperGrafx, a shelf of its own beside the TurboGrafx-16 | 18 | device | tracking | L | 183-arcade-tracking |
-| [195](195-sgx-core-build.md) | Build Beetle SuperGrafx from a pinned commit for host and device without CD images and record its licence | 18 | cores | feature | S | 194-sgx-tracking |
-| [196](196-platform-sgx.md) | Add Platform::Sgx with its options, Screen section, saves and the TurboGrafx-16 pad | 18 | platform | feature | M | 195-sgx-core-build |
-| [197](197-sgx-carts.md) | Draw the Super HuCard and fetch SuperGrafx labels | 18 | ui-art | feature | M | 196-platform-sgx |
-| [198](198-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 18 | tests | test | S | 195-sgx-core-build |
-| [199](199-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 18 | device | chore | S | 196-platform-sgx, 197-sgx-carts |
-| [200](200-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 18 | input | feature | M | 196-platform-sgx |
+| [194](194-fds-tracking.md) | Famicom Disk System: fceumm, a yellow disk shelf of its own | 18 | device | tracking | M | 33-deferred-fds |
+| [195](195-platform-fds.md) | Add Platform::Fds with its own shelf and the NES policy, on fceumm alone | 18 | platform | feature | M | 194-fds-tracking |
+| [196](196-fds-screen.md) | Give the Disk System its own Screen section with Shader and Picture | 18 | video | feature | S | 195-platform-fds |
+| [197](197-fds-bios.md) | Check BIOS/disksys.rom before a disk starts | 18 | platform | feature | S | 195-platform-fds |
+| [198](198-fds-disk.md) | Flip and swap disks with SELECT+L2 through fceumm's own drive buttons | 18 | input | feature | M | 195-platform-fds |
+| [199](199-fds-saves.md) | Disk saves: the live disk as the ordinary .sav, the .fds never written | 18 | platform | feature | S | 195-platform-fds |
+| [200](200-fds-tests.md) | Test GBA after a flipped disk, and resume | 18 | tests | test | S | 198-fds-disk |
+| [201](201-fds-carts.md) | Draw the yellow Disk Card and fetch disk labels | 18 | ui-art | feature | M | 195-platform-fds |
+| [202](202-fds-device-gate.md) | Famicom Disk System device gate on the RG34XXSP | 18 | device | chore | S | 197-fds-bios, 198-fds-disk, 199-fds-saves |
+| [203](203-pico8-tracking.md) | PICO-8: FAKE-08, a shelf of its own, no states | 19 | device | tracking | L | 194-fds-tracking |
+| [204](204-pico8-core-build.md) | Build FAKE-08 from a pinned commit for host and device with our source patch, and record its licence | 19 | cores | feature | M | 203-pico8-tracking |
+| [205](205-platform-pico8.md) | Add Platform::Pico8 on FAKE-08 with a 3x picture, its own Screen section, Saves/PICO8 and no states | 19 | platform | feature | M | 204-pico8-core-build |
+| [206](206-pico8-carts.md) | Draw the PICO-8 cart and take its label from the cart itself | 19 | ui-art | feature | S | 205-platform-pico8 |
+| [207](207-pico8-tests.md) | Test PICO-8 with generated text and PNG carts, and GBA after PICO-8 | 19 | tests | test | S | 204-pico8-core-build |
+| [208](208-pico8-device-gate.md) | PICO-8 device gate on the RG34XXSP | 19 | device | chore | S | 205-platform-pico8, 206-pico8-carts |
+| [209](209-sgx-tracking.md) | PC Engine SuperGrafx: Beetle SuperGrafx, a shelf of its own beside the TurboGrafx-16 | 20 | device | tracking | L | 203-pico8-tracking |
+| [210](210-sgx-core-build.md) | Build Beetle SuperGrafx from a pinned commit for host and device without CD images and record its licence | 20 | cores | feature | S | 209-sgx-tracking |
+| [211](211-platform-sgx.md) | Add Platform::Sgx with its options, Screen section, saves and the TurboGrafx-16 pad | 20 | platform | feature | M | 210-sgx-core-build |
+| [212](212-sgx-carts.md) | Draw the Super HuCard and fetch SuperGrafx labels | 20 | ui-art | feature | M | 211-platform-sgx |
+| [213](213-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 20 | tests | test | S | 210-sgx-core-build |
+| [214](214-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 20 | device | chore | S | 211-platform-sgx, 212-sgx-carts |
+| [215](215-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 20 | input | feature | M | 211-platform-sgx |

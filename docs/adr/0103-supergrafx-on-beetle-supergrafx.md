@@ -1,9 +1,9 @@
-# 0101. Bring the PC Engine SuperGrafx into scope on pinned Beetle SuperGrafx, a shelf of its own beside an unchanged TurboGrafx-16
+# 0103. Bring the PC Engine SuperGrafx into scope on pinned Beetle SuperGrafx, a shelf of its own beside an unchanged TurboGrafx-16
 
 - Status: Accepted. Amends [0002](0002-cores.md), the docs/PLAN.md "Who it's NOT for" line on more systems, and [0091](0091-tg16-on-beetle-pce-fast.md) ("SuperGrafx out of scope")
 - Date: 2026-10-21
 - Deciders: maintainer (Felipe Paiva)
-- Related: [ADR 0091](0091-tg16-on-beetle-pce-fast.md) (the TurboGrafx-16 precedent this follows), [ADR 0087](0087-four-three-picture.md), [ADR 0100](0100-shelf-order-option.md), [issue 194](../../.github/issues/194-sgx-tracking.md), patches `0120-sgx-core-tests` to `0123-sgx-pad`, [docs/cart-art/SGX.md](../cart-art/SGX.md)
+- Related: [ADR 0091](0091-tg16-on-beetle-pce-fast.md) (the TurboGrafx-16 precedent this follows), [ADR 0087](0087-four-three-picture.md), [ADR 0100](0100-shelf-order-option.md), [issue 194](../../.github/issues/209-sgx-tracking.md), patches `0131-sgx-core-tests` to `0134-sgx-pad`, [docs/cart-art/SGX.md](../cart-art/SGX.md)
 
 ## Context
 
@@ -25,9 +25,9 @@ the one RetroArch and ES-DE use for the system (`supergrafx/systeminfo.txt` on B
 
 ## Decision
 
-- The SuperGrafx is in scope as Phase 18, after the arcade boards. One shelf `Games/SGX`. The platform is
-  `Platform::Sgx`, appended to `SHELVES` after `Cps2`; the core is `Core::MednafenSupergrafx`, appended to
-  `EVERY` after `Fbneo`. Upstream's `ALL` stays untouched and every policy method answers the SuperGrafx
+- The SuperGrafx is in scope as Phase 20, after PICO-8 (Phase 19). One shelf `Games/SGX`. The platform is
+  `Platform::Sgx`, appended to `SHELVES` after `Pico8`; the core is `Core::MednafenSupergrafx`, appended to
+  `EVERY` after `Fake08`. Upstream's `ALL` stays untouched and every policy method answers the SuperGrafx
   explicitly. One core, no picker. The TurboGrafx-16 shelf and Beetle PCE Fast do not change.
 - **Core pin.** libretro/beetle-supergrafx-libretro `9c11dcd213a79d57d2c86313971631af801f2cdc` (its
   HEAD on 2026-10-21), archive sha256
@@ -85,7 +85,7 @@ The video path is the TurboGrafx-16 one: the 360x240 canvas, a 256x240 picture a
 followed by Stretch (`follows_frame_width`), no new canvas code. `sgx_core.rs` checks the red test card
 fills the canvas height at 59.82 fps and 44.1 kHz.
 
-The Screen page gains a **SuperGrafx** section, last in the classic order (after CPS2) and by date in the
+The Screen page gains a **SuperGrafx** section, last in the classic order (after PICO-8) and by date in the
 Release year order (after Lynx). Its rows are the TurboGrafx-16 rows, Shader and Picture:
 
 - Shader walks the retro list, kept in `Config/sgx_shader.txt` (`sgx=`), and the in-game Shader row steps it.
@@ -107,7 +107,7 @@ or sends nothing; the core's own turbo stays off. L1 and R1 stay slot's picture 
 and R (`libretro.cpp`, `update_input`); its turbo works only in 2-button mode. Its help text warns that
 6-button mode "can have weird behaviors in non compatible games", and none of the seven SuperGrafx titles
 uses it (it is for PC Engine fighting games such as Street Fighter II' Champion Edition), so 2 Buttons
-stays the default. The Pad row (patch 0123, `Config/sgx.txt`, `pad = 2` or `6`) answers the option at the
+stays the default. The Pad row (patch 0134, `Config/sgx.txt`, `pad = 2` or `6`) answers the option at the
 next start. With 6 buttons, latched when the card seats like the Virtual Boy Right Pad: X and Y reach the
 core raw (slot's turbo is passed by, `set_pass_through`), L1 and R1 go to the game (slot gives up the
 shoulders), and the picture toggle moves to SELECT+X, as on the SNES. A GBA game after a six-button
@@ -160,12 +160,12 @@ release, Apple M5 Max) on the maintainer's dumps (read only, never committed), w
 Two VDCs cost about twice Beetle PCE Fast. `--frameskip` changes nothing because the core has no frameskip
 option. PERFORMANCE.md puts the RG34XXSP 15 to 22 times behind this host, so expect 3 to 7 ms a frame on
 the Cortex-A53 against a 16.7 ms budget at 59.82 fps: full speed, with fast-forward near 2.5x rather
-than the 4x of lighter cores. The device gate (issue 199) measures it with `bench:device`
+than the 4x of lighter cores. The device gate (issue 214) measures it with `bench:device`
 (`CORE=mednafen_supergrafx`) and real play.
 
 ## Consequences
 
-- Four patches, 0120 to 0123. No GBA, GB or GBC path changes; the TurboGrafx-16 shelf is unchanged.
+- Four patches, 0131 to 0134. No GBA, GB or GBC path changes; the TurboGrafx-16 shelf is unchanged.
 - Upstream test sites (b), (e), (g) and (h) take one more token each, in order, by the standing rule:
   `| Platform::Sgx`, `| Core::MednafenSupergrafx`, `"SuperGrafx"` and `QuickRow::ScreenSgx`.
 - The core joins `task core:host`, `task core:device`, `task check`, `dist:device` and `zip-check.sh`.

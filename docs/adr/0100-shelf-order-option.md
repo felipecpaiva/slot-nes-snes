@@ -87,7 +87,7 @@ First release anywhere, from each platform's English Wikipedia article (read 202
 | Mega Drive | 29 October 1988 | Japan | [Sega Genesis](https://en.wikipedia.org/wiki/Sega_Genesis) |
 | Game Boy | 21 April 1989 | Japan | [Game Boy](https://en.wikipedia.org/wiki/Game_Boy) |
 | Lynx | 1 September 1989 | North America | [Atari Lynx](https://en.wikipedia.org/wiki/Atari_Lynx) |
-| PC Engine SuperGrafx | 8 December 1989 (added with ADR 0101, read 2026-10-21) | Japan | [PC Engine SuperGrafx](https://en.wikipedia.org/wiki/PC_Engine_SuperGrafx) |
+| PC Engine SuperGrafx | 8 December 1989 (added with ADR 0103, read 2026-10-21) | Japan | [PC Engine SuperGrafx](https://en.wikipedia.org/wiki/PC_Engine_SuperGrafx) |
 | Neo Geo MVS | 16 April 1990 | Japan | [Neo Geo (system)](https://en.wikipedia.org/wiki/Neo_Geo_(system)) |
 | Game Gear | 6 October 1990 | Japan | [Game Gear](https://en.wikipedia.org/wiki/Game_Gear) |
 | SNES (Super Famicom) | 21 November 1990 | Japan | [Super Nintendo Entertainment System](https://en.wikipedia.org/wiki/Super_Nintendo_Entertainment_System) |

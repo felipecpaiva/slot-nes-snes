@@ -1,0 +1,264 @@
+diff --git a/platform/libretro/libretro.cpp b/platform/libretro/libretro.cpp
+index 589d4f2..adfa4c9 100644
+--- a/platform/libretro/libretro.cpp
++++ b/platform/libretro/libretro.cpp
+@@ -401,6 +401,10 @@ EXPORT void retro_run()
+     setInputState(currKDown, currKHeld, picoMouseX, picoMouseY, mouseBtnState);
+ 
+     _vm->Step();
++    // slot-nes-snes: at most one cartdata write a second, and only when it changed.
++    if (frame % 60 == 0) {
++        _vm->FlushCartData();
++    }
+     //_vm->UpdateAndDraw();
+     kHeld = currKHeld;
+     kDown = currKDown;
+@@ -516,6 +520,11 @@ char luaStateBuffer[LUASTATEBUFFSIZE];
+ 
+ EXPORT size_t retro_serialize_size()
+ {
++    // slot-nes-snes: no states. At this pin the Lua half of a state is empty (eris.init_persist_all is
++    // never called), so a load restored the RAM under a program that kept running on; with that call
++    // made, eris fails on about a quarter of real carts and some restores it reports as good crash later.
++    // Cartdata (above) keeps a cart's own saves. The original sum stays below for a future pin.
++    return 0;
+     return 
+     //header
+     4 + 
+@@ -747,6 +756,11 @@ EXPORT bool retro_load_game(struct retro_game_info const *info)
+ {
+     check_variables(true);
+ 
++    // slot-nes-snes: ask for RGB565 here too. retro_get_system_av_info asks as well, but a frontend may
++    // call it outside any environment call it answers (slot does), and the picture is then read as XRGB8888.
++    retro_pixel_format pf = RETRO_PIXEL_FORMAT_RGB565;
++    enviro_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pf);
++
+     if (!info) {
+         _vm->QueueCartChange("__FAKE08-BIOS.p8");
+         return true;
+diff --git a/platform/libretro/libretrohost.cpp b/platform/libretro/libretrohost.cpp
+index 64c4a07..3e53669 100644
+--- a/platform/libretro/libretrohost.cpp
++++ b/platform/libretro/libretrohost.cpp
+@@ -27,7 +27,10 @@ static uint8_t stubMouseBtns;
+ std::string _currentCartDirectory;
+ 
+ void setInputState(uint8_t kDown, uint8_t kHeld, int16_t mouseX, int16_t mouseY, uint8_t mouseBtns) {
+-    stubCurrKDown = kDown;
++    // slot-nes-snes: keep a press until the cart reads the pad. A 30 fps cart reads it on every other
++    // frame, so a press that began on the frame between was lost and came back only as btnp's 15 frame
++    // repeat.
++    stubCurrKDown |= kDown;
+     stubCurrKHeld = kHeld;
+     stubMouseX = mouseX;
+     stubMouseY = mouseY;
+@@ -66,7 +69,9 @@ void Host::forceStretch(StretchOption newStretch) {
+ 
+ 
+ InputState_t Host::scanInput(){
+-    return InputState_t {stubCurrKDown, stubCurrKHeld, stubMouseX, stubMouseY, stubMouseBtns, stubCurrKBdown, stubCurrKBkey};
++    InputState_t state = {stubCurrKDown, stubCurrKHeld, stubMouseX, stubMouseY, stubMouseBtns, stubCurrKBdown, stubCurrKBkey};
++    stubCurrKDown = 0;
++    return state;
+ }
+ 
+ bool Host::shouldQuit() {
+diff --git a/source/hostCommonFunctions.cpp b/source/hostCommonFunctions.cpp
+index 96b255f..b6e18af 100644
+--- a/source/hostCommonFunctions.cpp
++++ b/source/hostCommonFunctions.cpp
+@@ -1,3 +1,4 @@
++#include <unistd.h>
+ #include <string>
+ 
+ #include "host.h"
+@@ -186,7 +187,7 @@ void Host::saveSettingsIni(){
+ 
+     std::string iniPath = _logFilePrefix + "settings.ini";
+ 
+-    FILE * file = freopen(iniPath.c_str(), "w", stderr);
++    FILE * file = fopen(iniPath.c_str(), "w");
+     if( file != NULL ) {
+ 		//Initialize data
+         fprintf(file, "%s", settingsIniStr.c_str());
+@@ -206,21 +207,28 @@ std::string Host::getCartDataFileContents(std::string cartDataKey) {
+ }
+ 
+ void Host::saveCartData(std::string cartDataKey, std::string contents) {
+-    FILE * file = freopen(getCartDataFile(cartDataKey).c_str(), "w", stderr);
++    // slot-nes-snes: write a temp file, sync it and rename it over the old one, so a power cut leaves
++    // the old or the new cartdata whole.
++    std::string path = getCartDataFile(cartDataKey);
++    std::string tmp = path + ".tmp";
++    FILE * file = fopen(tmp.c_str(), "w");
+     if( file != NULL ) {
+-		//Initialize data
+-        fprintf(file, "%s", contents.c_str());
+-		
+-        fflush(file);
+-        
+-        fclose(file);
++        bool ok = fputs(contents.c_str(), file) >= 0;
++        ok = fflush(file) == 0 && ok;
++        ok = fsync(fileno(file)) == 0 && ok;
++        ok = fclose(file) == 0 && ok;
++        if (ok) {
++            rename(tmp.c_str(), path.c_str());
++        } else {
++            remove(tmp.c_str());
++        }
+ 	}
+ }
+ 
+ size_t Host::getFileContents(std::string fileName, char* buffer) {
+ 	std::string absPath = _logFilePrefix + "cdata/" + fileName;
+     //get_file_bin_contents(absPath, buffer, length);
+-	FILE * file = freopen(absPath.c_str(), "rb", stderr);
++	FILE * file = fopen(absPath.c_str(), "rb");
+     if( file != NULL ) {
+ 		//Initialize data
+ 		size_t len;
+@@ -237,7 +245,7 @@ size_t Host::getFileContents(std::string fileName, char* buffer) {
+ 
+ void Host::writeBufferToFile(std::string fileName, char* buffer, size_t length) {
+ 	std::string absPath = _logFilePrefix + "cdata/" + fileName;
+-    FILE * file = freopen(absPath.c_str(), "w", stderr);
++    FILE * file = fopen(absPath.c_str(), "w");
+     if( file != NULL ) {
+ 		//Initialize data
+ 		fwrite(&length, sizeof(length), 1, file);
+diff --git a/source/p8GlobalLuaFunctions.h b/source/p8GlobalLuaFunctions.h
+index 3158b96..3a5a355 100644
+--- a/source/p8GlobalLuaFunctions.h
++++ b/source/p8GlobalLuaFunctions.h
+@@ -203,9 +203,9 @@ function menuitem(index, label, callback)
+ end
+ 
+ function __addbreadcrumb(label, carttoload)
+-    __f08_menu_items[8] = {nil, nil}
+-    __f08_menu_items[8][1] = label
+-    __f08_menu_items[8][2] = function() load(carttoload) end
++    __f08_menu_items[7] = {nil, nil}
++    __f08_menu_items[7][1] = label
++    __f08_menu_items[7][2] = function() load(carttoload) end
+ end
+ 
+ 
+@@ -216,9 +216,7 @@ __f08_menu_items = {
+     {nil, nil},
+     {nil, nil},
+     {nil, nil},
+-    {"reset cart", __resetcart},
+-    {"exit to menu", __loaddefaultcart},
+-    {"exit to settings", __loadsettingscart}
++    {"reset cart", __resetcart}
+ }
+ 
+ __f08_menu_selected = 0
+@@ -624,8 +622,9 @@ function __z8_tick()
+         __z8_stopped = false -- FIXME: what now?
+     elseif not ret then
+         printh(tostr(err))
+-        -- Return to menu on error
+-        __loaddefaultcart()
++        -- slot-nes-snes: stop on the error, as PICO-8 does, instead of loading fake-08's cart browser,
++        -- which would start another game under this game's saves.
++        cls() color(8) print("runtime error") color(6) print(tostr(err))
+         return -1
+     end
+     return 0
+diff --git a/source/picoluaapi.cpp b/source/picoluaapi.cpp
+index 721abb7..a41b42c 100644
+--- a/source/picoluaapi.cpp
++++ b/source/picoluaapi.cpp
+@@ -1459,7 +1459,7 @@ int ispaused(lua_State *L) {
+ }
+ 
+ int resetcart(lua_State *L) {
+-    _vmForLuaApi->QueueCartChange(_vmForLuaApi->CurrentCartFilename());
++    _vmForLuaApi->ResetCart();
+ 
+     return 0;
+ }
+diff --git a/source/vm.cpp b/source/vm.cpp
+index 63a6a63..693522f 100644
+--- a/source/vm.cpp
++++ b/source/vm.cpp
+@@ -569,6 +569,21 @@ std::vector<uint8_t> HexToBytes(std::string hex) {
+   return bytes;
+ }
+ 
++// slot-nes-snes: write the cartdata when it changed since the last write, so progress reaches the card
++// while the game runs and not only when the cart closes.
++void Vm::FlushCartData() {
++    if (_currentCartdataKey.length() == 0) {
++        return;
++    }
++    std::string now = getSerializedCartData();
++    if (_currentCartdataKey == _flushedCartdataKey && now == _flushedCartData) {
++        return;
++    }
++    _host->saveCartData(_currentCartdataKey, now);
++    _flushedCartdataKey = _currentCartdataKey;
++    _flushedCartData = now;
++}
++
+ std::string Vm::getSerializedCartData() {
+     std::string outputstr = "";
+ 
+@@ -622,8 +637,8 @@ bool Vm::Step(){
+         Logger_Write("error calling tick function: %s\n", message);
+         _cartLoadError = "Error in main loop: " + std::string(message);
+         lua_pop(_luaState, 1);
+-        // Return to menu on error
+-        QueueCartChange(DefaultCartName);
++        // slot-nes-snes: stop here, as PICO-8 does; the default cart is fake-08's cart browser, which
++        // would start another game under this game's saves.
+         return false;
+     }
+     else
+@@ -779,7 +794,19 @@ void Vm::QueueCartChange(std::string filename){
+     _audio->setPaused(false);
+ }
+ 
++// slot-nes-snes: a cart loaded from memory has no file name, and resetting it by name loaded fake-08's
++// cart browser; reset it from the same bytes.
++void Vm::ResetCart(){
++    if (CurrentCartFilename().length() == 0 && _lastCartData != nullptr) {
++        QueueCartChange(_lastCartData, _lastCartSize);
++        return;
++    }
++    QueueCartChange(CurrentCartFilename());
++}
++
+ void Vm::QueueCartChange(const unsigned char* cartData, size_t size){
++    _lastCartData = cartData;
++    _lastCartSize = size;
+     _nextCartKey = "";
+     _nextCartData = cartData;
+     _nextCartSize = size;
+diff --git a/source/vm.h b/source/vm.h
+index 7206d7f..0eb5be3 100644
+--- a/source/vm.h
++++ b/source/vm.h
+@@ -51,6 +51,10 @@ class Vm {
+     string _cartdataKeys[4];
+     int _cartdataKeyCount;
+     string _currentCartdataKey;
++    string _flushedCartdataKey;
++    string _flushedCartData;
++    const unsigned char* _lastCartData = nullptr;
++    size_t _lastCartSize = 0;
+ 
+     string _cartBreadcrumb;
+     string _cartParam;
+@@ -113,6 +117,8 @@ class Vm {
+     bool IsPaused();
+ 
+     std::string getSerializedCartData();
++    void FlushCartData();
++    void ResetCart();
+     void deserializeCartDataToMemory(std::string cartDataStr);
+ 
+     uint8_t vm_peek(int addr);
