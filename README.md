@@ -17,8 +17,8 @@ GBA, GB and GBC stay byte-identical to upstream.
 >
 > **Please do not report bugs from this patch set to slot's tracker.** Open them here.
 
-The pinned base is slot main `1b20432`, the coming 1.8.0 with no tag yet (`SLOT_PIN`, ADR 0083).
-Releases are named after it: `main-1b20432-ns.1` is the first.
+The pinned base is slot v1.8.0 (`0ceac65`, `SLOT_PIN`, ADR 0106).
+Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20432-ns.1` came before).
 
 ## Systems
 

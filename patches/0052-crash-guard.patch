@@ -19,14 +19,14 @@ upstream PR lands. Idea from oauramos/omega-zero be6eb11.
  crates/slot/src/app.rs             |   8 ++
  crates/slot/src/app/start_guard.rs |  67 +++++++++++
  crates/slot/src/session.rs         |   2 +
- crates/slot/tests/crash_guard.rs   | 172 +++++++++++++++++++++++++++++
- 8 files changed, 262 insertions(+), 1 deletion(-)
+ crates/slot/tests/crash_guard.rs   | 174 +++++++++++++++++++++++++++++
+ 8 files changed, 264 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot-ui/src/start_toast.rs
  create mode 100644 crates/slot/src/app/start_guard.rs
  create mode 100644 crates/slot/tests/crash_guard.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 566ceb5..1d92f2e 100644
+index f26ebde..2e4ae7d 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
 @@ -38,6 +38,7 @@ mod shelf;
@@ -72,10 +72,10 @@ index 0000000..97f4b59
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index c7ab96b..a5015a9 100644
+index bed2a6e..d27cb16 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -30,6 +30,7 @@ pub enum Toast {
+@@ -32,6 +32,7 @@ pub enum Toast {
      Retro(slot_store::RetroShader),
      Disc(crate::DiscToast),
      Battery(crate::BatteryToast),
@@ -83,15 +83,15 @@ index c7ab96b..a5015a9 100644
  }
  
  impl Toast {
-@@ -67,6 +68,7 @@ impl Toast {
-             Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+@@ -76,6 +77,7 @@ impl Toast {
+             Toast::Retro(s) => Toast::all().len() + s.index(),
              Toast::Disc(d) => Toast::disc_index(d),
              Toast::Battery(b) => Toast::battery_index(b),
 +            Toast::StartFailed => Toast::start_failed_index(),
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -114,6 +116,7 @@ impl Toast {
+@@ -146,6 +148,7 @@ impl Toast {
              Toast::Retro(s) => s.toast(),
              Toast::Disc(d) => d.text(),
              Toast::Battery(b) => b.text(),
@@ -100,7 +100,7 @@ index c7ab96b..a5015a9 100644
      }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 9c5fefb..0418f77 100644
+index c745f09..63e1958 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,6 +1,7 @@
@@ -111,7 +111,7 @@ index 9c5fefb..0418f77 100644
  
  use std::collections::HashMap;
  use std::path::{Path, PathBuf};
-@@ -453,6 +454,7 @@ pub struct App {
+@@ -465,6 +466,7 @@ pub struct App {
      pal_speeds: crate::pal_speed::PalSpeeds,
      sms_region: crate::sms_region::Region,
      rested: Option<(usize, usize)>,
@@ -119,7 +119,7 @@ index 9c5fefb..0418f77 100644
  }
  
  const FACE_AHEAD: i32 = 8;
-@@ -635,6 +637,7 @@ impl App {
+@@ -651,6 +653,7 @@ impl App {
              pal_speeds: crate::pal_speed::PalSpeeds::default(),
              sms_region: crate::sms_region::Region::Auto,
              rested: None,
@@ -127,7 +127,7 @@ index 9c5fefb..0418f77 100644
          }
      }
  
-@@ -693,6 +696,9 @@ impl App {
+@@ -709,6 +712,9 @@ impl App {
              Some((at, i)) => {
                  self.shelf_at = at;
                  self.shelf_mut().select(i);
@@ -137,7 +137,7 @@ index 9c5fefb..0418f77 100644
                  self.insert(false);
                  if let Phase::Inserting { resumed, t, .. } = &mut self.phase {
                      *resumed = true;
-@@ -5149,6 +5155,7 @@ impl App {
+@@ -5396,6 +5402,7 @@ impl App {
          };
          let (root, platform, core, cart) =
              (root.clone(), self.platform, self.core, cart.to_owned());
@@ -145,7 +145,7 @@ index 9c5fefb..0418f77 100644
          let failing = self.card_writes.clone();
          let write = move || {
              let written = persist::flush(
-@@ -5196,6 +5203,7 @@ impl App {
+@@ -5443,6 +5450,7 @@ impl App {
              eprintln!("slot: flush: {e}");
          }
          self.card_writes.wrote("flush", &written);
@@ -227,10 +227,10 @@ index 0000000..cd6373b
 +    }
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 0803254..d963d62 100644
+index 1653724..dd91c5f 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -343,6 +343,7 @@ impl Session {
+@@ -357,6 +357,7 @@ impl Session {
              launch("first frame shown");
          }
          self.app.set_game_ready(ready);
@@ -238,7 +238,7 @@ index 0803254..d963d62 100644
          self.sync_speed();
          self.sync_rewind_hud();
          self.sync_ff_hud();
-@@ -519,6 +520,7 @@ impl Session {
+@@ -531,6 +532,7 @@ impl Session {
          crate::audio::wake_device();
          let core = slot_store::core_for_platform(&self.root, stem, platform);
          launch(&format!("opening {stem} on {}", core.as_str()));
@@ -248,10 +248,10 @@ index 0803254..d963d62 100644
          self.app
 diff --git a/crates/slot/tests/crash_guard.rs b/crates/slot/tests/crash_guard.rs
 new file mode 100644
-index 0000000..e2bc8f5
+index 0000000..b74720c
 --- /dev/null
 +++ b/crates/slot/tests/crash_guard.rs
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,174 @@
 +mod common;
 +
 +use std::path::Path;
@@ -325,7 +325,9 @@ index 0000000..e2bc8f5
 +    let _ = App::boot(d.path());
 +
 +    assert_eq!(
-+        persist::read_resume(d.path(), Platform::Gba, Core::Mgba, "Emerald"),
++        persist::read_resume(d.path(), Platform::Gba, Core::Mgba, "Emerald")
++            .ok()
++            .flatten(),
 +        Some(500_000u64.to_le_bytes().to_vec())
 +    );
 +}

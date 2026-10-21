@@ -30,12 +30,12 @@ jewel case of patch segacd-carts.
  crates/slot-store/src/core_policy.rs         |   2 +
  crates/slot-store/src/lib.rs                 |   3 +-
  crates/slot-store/src/platform.rs            |   6 +-
- crates/slot-store/src/platform_policy.rs     |  21 ++-
+ crates/slot-store/src/platform_policy.rs     |  20 ++-
  crates/slot-store/src/scan.rs                |   2 +-
  crates/slot-store/src/sega_shader.rs         |   9 +-
  crates/slot-store/tests/md_platform.rs       |   1 +
  crates/slot-store/tests/sega_shader_state.rs |   1 +
- crates/slot-store/tests/segacd_platform.rs   | 146 +++++++++++++++++++
+ crates/slot-store/tests/segacd_platform.rs   | 145 +++++++++++++++++++
  crates/slot-ui/src/cart.rs                   |   7 +-
  crates/slot-ui/src/retro_cart.rs             |   3 +-
  crates/slot-ui/src/shell.rs                  |   1 +
@@ -56,14 +56,14 @@ jewel case of patch segacd-carts.
  crates/slot/tests/shelf_order.rs             |   9 +-
  crates/slot/tests/snes_select.rs             |   9 +-
  crates/slot/tests/system_picture.rs          |   1 +
- 31 files changed, 267 insertions(+), 22 deletions(-)
+ 31 files changed, 265 insertions(+), 22 deletions(-)
  create mode 100644 crates/slot-store/tests/segacd_platform.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 53d1b21..6f88614 100644
+index 0110e8b..3086c94 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -207,6 +207,7 @@ impl GameButton {
+@@ -248,6 +248,7 @@ impl GameButton {
              Platform::Gba
              | Platform::Snes
              | Platform::Md
@@ -242,10 +242,10 @@ index 4c7f823..db9c7ad 100644
                  | Platform::Tg16
                  | Platform::Sgx
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index a6250aa..aa2bc02 100644
+index f180b49..a45c555 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -52,7 +52,8 @@ pub use sega_shader::{
+@@ -59,7 +59,8 @@ pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
      CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
      NGP_SHADER_FILE, PCECD_SHADER_FILE, PICO8_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE,
@@ -301,7 +301,7 @@ index b65c124..171d847 100644
              Platform::Tg16 => (256, 240),
              Platform::Ws => (224, 144),
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 380c8b8..e93164a 100644
+index 249f57a..e0bfd7b 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -5,7 +5,7 @@ use crate::platform::Platform;
@@ -345,15 +345,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::S32x
-@@ -130,6 +134,7 @@ impl Platform {
-             | Platform::Gg
-             | Platform::Sms
-             | Platform::Md
-+            | Platform::SegaCd
-             | Platform::Ps1
-             | Platform::Ws
-             | Platform::Lynx
-@@ -149,6 +154,7 @@ impl Platform {
+@@ -122,6 +126,7 @@ impl Platform {
          match self {
              Platform::Snes
              | Platform::Md
@@ -361,7 +353,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::Lynx
-@@ -184,6 +190,7 @@ impl Platform {
+@@ -157,6 +162,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -369,7 +361,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -216,6 +223,7 @@ impl Platform {
+@@ -189,6 +195,7 @@ impl Platform {
              | Platform::Snes
              | Platform::Sms
              | Platform::Md
@@ -377,7 +369,7 @@ index 380c8b8..e93164a 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -242,6 +250,7 @@ impl Platform {
+@@ -215,6 +222,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -385,7 +377,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::Lynx
-@@ -267,6 +276,7 @@ impl Platform {
+@@ -240,6 +248,7 @@ impl Platform {
              | Platform::Snes
              | Platform::Sms
              | Platform::Md
@@ -393,7 +385,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -289,6 +299,7 @@ impl Platform {
+@@ -262,6 +271,7 @@ impl Platform {
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
@@ -401,7 +393,7 @@ index 380c8b8..e93164a 100644
              | Platform::S32x
              | Platform::NeoGeo => true,
              Platform::Gba
-@@ -325,6 +336,7 @@ impl Platform {
+@@ -298,6 +308,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -409,7 +401,7 @@ index 380c8b8..e93164a 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -353,6 +365,7 @@ impl Platform {
+@@ -326,6 +337,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -417,7 +409,7 @@ index 380c8b8..e93164a 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -382,6 +395,7 @@ impl Platform {
+@@ -355,6 +367,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -425,7 +417,7 @@ index 380c8b8..e93164a 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -411,6 +425,7 @@ impl Platform {
+@@ -384,6 +397,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -433,7 +425,7 @@ index 380c8b8..e93164a 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -440,6 +455,7 @@ impl Platform {
+@@ -413,6 +427,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -441,7 +433,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -469,6 +485,7 @@ impl Platform {
+@@ -442,6 +457,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -449,7 +441,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -498,6 +515,7 @@ impl Platform {
+@@ -471,6 +487,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -457,7 +449,7 @@ index 380c8b8..e93164a 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -530,6 +548,7 @@ impl Platform {
+@@ -503,6 +520,7 @@ impl Platform {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -559,10 +551,10 @@ index 0e65e73..d8d0add 100644
      assert_eq!(
 diff --git a/crates/slot-store/tests/segacd_platform.rs b/crates/slot-store/tests/segacd_platform.rs
 new file mode 100644
-index 0000000..df1dd03
+index 0000000..362c0e8
 --- /dev/null
 +++ b/crates/slot-store/tests/segacd_platform.rs
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,145 @@
 +mod common;
 +
 +use std::path::{Path, PathBuf};
@@ -638,7 +630,6 @@ index 0000000..df1dd03
 +    assert!(!p.owns_shoulders());
 +    assert!(p.owns_triggers());
 +    assert!(p.passes_xy_through());
-+    assert!(!p.turbo_on_xy());
 +    assert!(p.select_x_toggles_picture());
 +    assert_eq!(
 +        p.stretch_crops_height(),
@@ -788,10 +779,10 @@ index cc8da00..731be23 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6065e3a..f3f02f8 100644
+index 727a3d7..08437e1 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1331,6 +1331,7 @@ impl App {
+@@ -1364,6 +1364,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -799,7 +790,7 @@ index 6065e3a..f3f02f8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -1374,6 +1375,7 @@ impl App {
+@@ -1407,6 +1408,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -807,7 +798,7 @@ index 6065e3a..f3f02f8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -1403,6 +1405,7 @@ impl App {
+@@ -1436,6 +1438,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -815,7 +806,7 @@ index 6065e3a..f3f02f8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -2367,6 +2370,7 @@ impl App {
+@@ -2453,6 +2456,7 @@ impl App {
              Platform::Pico8 => self.sega_shaders.pico8,
              Platform::Sgx => self.sega_shaders.sgx,
              Platform::Pcecd => self.sega_shaders.pcecd,
@@ -823,7 +814,7 @@ index 6065e3a..f3f02f8 100644
              Platform::NeoGeo => self.sega_shaders.neogeo,
              Platform::Cps1 => self.sega_shaders.cps1,
              Platform::Cps2 => self.sega_shaders.cps2,
-@@ -2422,6 +2426,7 @@ impl App {
+@@ -2516,6 +2520,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -831,7 +822,7 @@ index 6065e3a..f3f02f8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -3405,6 +3410,7 @@ impl App {
+@@ -3571,6 +3576,7 @@ impl App {
              Platform::Pico8 => (&mut self.sega_shaders.pico8, &Shader::RETRO[..]),
              Platform::Sgx => (&mut self.sega_shaders.sgx, &Shader::RETRO[..]),
              Platform::Pcecd => (&mut self.sega_shaders.pcecd, &Shader::RETRO[..]),
@@ -839,7 +830,7 @@ index 6065e3a..f3f02f8 100644
              Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
              Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
              Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
-@@ -3469,6 +3475,7 @@ impl App {
+@@ -3635,6 +3641,7 @@ impl App {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -847,7 +838,7 @@ index 6065e3a..f3f02f8 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -3885,6 +3892,7 @@ impl App {
+@@ -4093,6 +4100,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -855,7 +846,7 @@ index 6065e3a..f3f02f8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -6089,6 +6097,7 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -6347,6 +6355,7 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::Gg
          | Platform::Sms
          | Platform::Md
@@ -888,11 +879,11 @@ index f0676c6..521d04e 100644
              | Platform::Tg16
              | Platform::Sgx
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index c263a3d..5e464b7 100644
+index 568870d..6384a2e 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -234,6 +234,7 @@ pub fn apply_core_options(
-     palette: Option<GbPalette>,
+     palette: Option<GbColors>,
  ) {
      apply_policy_options(core, which);
 +    crate::core_options_policy::apply_platform_options(core, platform);
@@ -965,7 +956,7 @@ index cbad50f..30ed9be 100644
              Platform::Tg16 => 5,
              Platform::Ws => 6,
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index cc920c9..3176a27 100644
+index f65d5af..cbfefd8 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
@@ -1009,7 +1000,7 @@ index cc920c9..3176a27 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
-index 30c67dd..26b9628 100644
+index 3b92f64..e752cfa 100644
 --- a/crates/slot/src/shelf_order.rs
 +++ b/crates/slot/src/shelf_order.rs
 @@ -10,7 +10,7 @@ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
@@ -1029,7 +1020,7 @@ index 30c67dd..26b9628 100644
      (Platform::Cps2, 1993, 9, 10),
      (Platform::S32x, 1994, 11, 21),
      (Platform::Ps1, 1994, 12, 3),
-@@ -135,7 +136,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+@@ -138,7 +139,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
          Platform::Snes => QuickRow::ScreenSnes,
          Platform::Gg => QuickRow::ScreenGg,
          Platform::Sms => QuickRow::ScreenSms,
@@ -1039,10 +1030,10 @@ index 30c67dd..26b9628 100644
          Platform::Tg16 => QuickRow::ScreenTg16,
          Platform::Ws => QuickRow::ScreenWs,
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
-index 1d707f9..850cc60 100644
+index de3b02a..086c902 100644
 --- a/crates/slot/src/snes_input.rs
 +++ b/crates/slot/src/snes_input.rs
-@@ -8,6 +8,7 @@ impl VideoMode {
+@@ -9,6 +9,7 @@ impl VideoMode {
              (
                  Platform::Snes
                  | Platform::Md
@@ -1063,7 +1054,7 @@ index 2fdff9e..1714086 100644
              | Platform::Tg16
              | Platform::Sgx
 diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
-index 030ce01..6b117fe 100644
+index 346a75c..022939a 100644
 --- a/crates/slot/tests/crop_overscan.rs
 +++ b/crates/slot/tests/crop_overscan.rs
 @@ -76,6 +76,7 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
@@ -1075,7 +1066,7 @@ index 030ce01..6b117fe 100644
              | Platform::A2600
              | Platform::A7800
 diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
-index e09736a..489df42 100644
+index 8398994..2f43657 100644
 --- a/crates/slot/tests/four_three.rs
 +++ b/crates/slot/tests/four_three.rs
 @@ -73,6 +73,7 @@ fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
@@ -1087,10 +1078,10 @@ index e09736a..489df42 100644
          assert_eq!(offers_four_three(platform), tv, "{platform:?}");
          assert_eq!(
 diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
-index f7fa2d5..f837052 100644
+index 090dc08..9c7a38f 100644
 --- a/crates/slot/tests/shelf_order.rs
 +++ b/crates/slot/tests/shelf_order.rs
-@@ -9,7 +9,7 @@ use slot_input::{Action, Btn};
+@@ -9,7 +9,7 @@ use slot_input::Btn;
  use slot_store::{write_slot_state, Platform, Recent, SlotState};
  use tempfile::TempDir;
  
@@ -1107,7 +1098,7 @@ index f7fa2d5..f837052 100644
      Platform::Cps2,
      Platform::S32x,
      Platform::Ps1,
-@@ -140,7 +141,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+@@ -139,7 +140,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
      assert_eq!(a.shelf_platform_name(), Some("Recents"));
      let mut want = names(Platform::SHELVES);
      want.push("Recents");
@@ -1116,7 +1107,7 @@ index f7fa2d5..f837052 100644
  }
  
  #[test]
-@@ -150,7 +151,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+@@ -149,7 +150,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
      assert_eq!(a.shelf_platform_name(), Some("Recents"));
      let mut want = names(RELEASE_YEAR);
      want.push("Recents");
@@ -1125,7 +1116,7 @@ index f7fa2d5..f837052 100644
  }
  
  #[test]
-@@ -159,7 +160,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+@@ -158,7 +159,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
      let mut a = boot_with(d.path(), SlotState::default());
      let mut want = names(RELEASE_YEAR.into_iter().rev());
      want.push("Recents");
@@ -1135,7 +1126,7 @@ index f7fa2d5..f837052 100644
  
  #[test]
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index 7f32fb9..4d6bcfa 100644
+index 7b80230..19b381d 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -257,9 +257,12 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {

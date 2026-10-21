@@ -14,25 +14,28 @@ latched when the card seats, the Virtual Boy Right Pad way, so a GBA
 game after a six-button SuperGrafx game gets the GBA input and picture.
 With 2 buttons nothing changes: X and Y are turbo, L1 and R1 are slot's.
 ---
- crates/slot-ui/src/quick_menu.rs    |  17 ++-
- crates/slot-ui/src/quick_retro.rs   |   5 +-
- crates/slot-ui/tests/retro_faces.rs |   8 +-
- crates/slot/src/app.rs              |  25 ++++-
- crates/slot/src/core.rs             |   1 +
- crates/slot/src/lib.rs              |   1 +
- crates/slot/src/session.rs          |   5 +-
- crates/slot/src/sgx_pad.rs          |  84 +++++++++++++++
- crates/slot/tests/sgx_platform.rs   |  96 ++++++++++++++++-
- crates/slot/tests/sgx_then_gba.rs   | 161 ++++++++++++++++++++++++++++
- 10 files changed, 392 insertions(+), 11 deletions(-)
+ crates/slot-ui/src/quick_menu.rs     |  17 ++-
+ crates/slot-ui/src/quick_retro.rs    |   5 +-
+ crates/slot-ui/tests/retro_faces.rs  |   8 +-
+ crates/slot/src/app.rs               |  35 +++++-
+ crates/slot/src/core.rs              |   1 +
+ crates/slot/src/input/raw_buttons.rs |  25 ++---
+ crates/slot/src/lib.rs               |   1 +
+ crates/slot/src/session.rs           |  13 ++-
+ crates/slot/src/sgx_pad.rs           |  84 ++++++++++++++
+ crates/slot/src/snes_input.rs        |   4 +-
+ crates/slot/tests/disc_chords.rs     |   2 +-
+ crates/slot/tests/sgx_platform.rs    |  96 +++++++++++++++-
+ crates/slot/tests/sgx_then_gba.rs    | 161 +++++++++++++++++++++++++++
+ 13 files changed, 422 insertions(+), 30 deletions(-)
  create mode 100644 crates/slot/src/sgx_pad.rs
  create mode 100644 crates/slot/tests/sgx_then_gba.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 2816241..2a4eb1c 100644
+index 1b92be3..9508351 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -169,10 +169,11 @@ pub enum QuickRow {
+@@ -178,10 +178,11 @@ pub enum QuickRow {
      SgxShader,
      ScreenSgx,
      SgxPicture,
@@ -40,12 +43,12 @@ index 2816241..2a4eb1c 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 159] = [
-+    pub const ALL: [QuickRow; 160] = [
+-    pub const ALL: [QuickRow; 167] = [
++    pub const ALL: [QuickRow; 168] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -332,6 +333,7 @@ impl QuickRow {
+@@ -349,6 +350,7 @@ impl QuickRow {
          QuickRow::SgxShader,
          QuickRow::ScreenSgx,
          QuickRow::SgxPicture,
@@ -53,7 +56,7 @@ index 2816241..2a4eb1c 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -587,13 +589,13 @@ impl QuickRow {
+@@ -615,13 +617,13 @@ impl QuickRow {
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
              QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
              QuickRow::Pico8Shader | QuickRow::Pico8Picture => &QuickRow::SCREEN_PICO8,
@@ -68,7 +71,7 @@ index 2816241..2a4eb1c 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -663,13 +665,15 @@ impl QuickRow {
+@@ -692,13 +694,15 @@ impl QuickRow {
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
              QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
              QuickRow::Pico8Shader | QuickRow::Pico8Picture => Some(QuickRow::ScreenPico8),
@@ -85,7 +88,7 @@ index 2816241..2a4eb1c 100644
              _ => None,
          }
      }
-@@ -842,6 +846,7 @@ impl QuickRow {
+@@ -878,6 +882,7 @@ impl QuickRow {
              | QuickRow::Cps2Shader => "Shader",
              QuickRow::Pico8Shader => "Shader",
              QuickRow::SgxShader => "Shader",
@@ -93,7 +96,7 @@ index 2816241..2a4eb1c 100644
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
-@@ -1075,6 +1080,8 @@ pub enum QuickValue {
+@@ -1125,6 +1130,8 @@ pub enum QuickValue {
      Turned,
      Classic,
      ReleaseYear,
@@ -102,7 +105,7 @@ index 2816241..2a4eb1c 100644
  }
  
  impl QuickValue {
-@@ -1152,6 +1159,8 @@ impl QuickValue {
+@@ -1225,6 +1232,8 @@ impl QuickValue {
              QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
              QuickValue::Classic => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 34,
              QuickValue::ReleaseYear => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 35,
@@ -111,7 +114,7 @@ index 2816241..2a4eb1c 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1218,6 +1227,8 @@ impl QuickValue {
+@@ -1301,6 +1310,8 @@ impl QuickValue {
              QuickValue::Turned => "Turned",
              QuickValue::Classic => "Classic",
              QuickValue::ReleaseYear => "Release Year",
@@ -182,10 +185,10 @@ index a85dfb6..4b759db 100644
      );
      for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index ae9f76a..55e5754 100644
+index 68d5f8e..c9ce5ef 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -470,6 +470,8 @@ pub struct App {
+@@ -482,6 +482,8 @@ pub struct App {
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
      vb_buttons_seated: bool,
@@ -194,7 +197,7 @@ index ae9f76a..55e5754 100644
      arcade_turns: crate::arcade_turn::ArcadeTurns,
      rested: Option<(usize, usize)>,
      start_marked: bool,
-@@ -666,6 +668,8 @@ impl App {
+@@ -682,6 +684,8 @@ impl App {
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
              vb_buttons_seated: false,
@@ -203,7 +206,7 @@ index ae9f76a..55e5754 100644
              arcade_turns: crate::arcade_turn::ArcadeTurns::default(),
              rested: None,
              start_marked: false,
-@@ -695,6 +699,7 @@ impl App {
+@@ -711,6 +715,7 @@ impl App {
          app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
          app.atari = crate::atari_switches::AtariSwitches::read(root);
          app.vb_screen = crate::vb_screen::VbScreen::read(root);
@@ -211,7 +214,7 @@ index ae9f76a..55e5754 100644
          app.arcade_turns = crate::arcade_turn::ArcadeTurns::read(root);
          app.lynx_flip = crate::lynx_turn::flips_right(root);
          app.restock_recents();
-@@ -1029,7 +1034,7 @@ impl App {
+@@ -1045,13 +1050,13 @@ impl App {
          if self.single_cart() {
              hidden.push(QuickRow::ExitGame);
          }
@@ -220,7 +223,14 @@ index ae9f76a..55e5754 100644
              hidden.extend([QuickRow::GameL, QuickRow::GameR]);
          }
          if !self.left_stick {
-@@ -1182,6 +1187,7 @@ impl App {
+             hidden.push(QuickRow::LeftStick);
+         }
+-        if !self.state.turbo || self.playing_platform().passes_xy_through() {
++        if !self.state.turbo || self.xy_to_game() {
+             hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
+         }
+         hidden
+@@ -1211,6 +1216,7 @@ impl App {
              | QuickRow::A7800RightDifficulty
              | QuickRow::A7800Bios => self.atari.quick_value(row),
              QuickRow::VbPalette | QuickRow::VbRightPad => self.vb_screen.quick_value(row),
@@ -228,7 +238,7 @@ index ae9f76a..55e5754 100644
              QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => self.arcade_turns.quick_value(row),
              QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
-@@ -1851,7 +1857,9 @@ impl App {
+@@ -1899,7 +1905,9 @@ impl App {
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
@@ -239,7 +249,7 @@ index ae9f76a..55e5754 100644
      }
  
      pub fn taken_buttons(&self) -> Vec<Btn> {
-@@ -2368,6 +2376,12 @@ impl App {
+@@ -2454,6 +2462,20 @@ impl App {
          self.vb_buttons_seated
      }
  
@@ -249,10 +259,18 @@ index ae9f76a..55e5754 100644
 +        self.sgx_six_seated
 +    }
 +
++    pub fn xy_to_game(&self) -> bool {
++        self.playing_platform().passes_xy_through() || self.sgx_six_seated
++    }
++
++    pub fn picture_chord(&self) -> bool {
++        self.playing_platform().select_x_toggles_picture() || self.sgx_six_seated
++    }
++
      pub fn triggers_to_game(&self) -> bool {
          let platform = self.playing_platform();
          !platform.owns_triggers() || (platform == Platform::Vb && self.vb_buttons_seated)
-@@ -3002,6 +3016,7 @@ impl App {
+@@ -3134,6 +3156,7 @@ impl App {
              | QuickRow::VbPalette
              | QuickRow::VbRightPad
              | QuickRow::FdsShader
@@ -260,7 +278,7 @@ index ae9f76a..55e5754 100644
              | QuickRow::NeoGeoShader
              | QuickRow::FdsPicture
              | QuickRow::Pico8Shader
-@@ -3052,6 +3067,9 @@ impl App {
+@@ -3184,6 +3207,9 @@ impl App {
          if self
              .vb_screen
              .change(row, right, self.root.as_deref(), &self.card_writes)
@@ -270,7 +288,7 @@ index ae9f76a..55e5754 100644
          {
              return;
          }
-@@ -3255,7 +3273,8 @@ impl App {
+@@ -3404,7 +3430,8 @@ impl App {
              QuickRow::VbPicture
              | QuickRow::VbSpeed
              | QuickRow::VbPalette
@@ -278,10 +296,10 @@ index ae9f76a..55e5754 100644
 +            | QuickRow::VbRightPad
 +            | QuickRow::SgxPad => return,
              QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
-             QuickRow::Wallpaper
-             | QuickRow::Recents
+             QuickRow::ScreenGeneral
+             | QuickRow::Brightness
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 2f0f6e2..c263a3d 100644
+index 11c69b8..568870d 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -133,6 +133,7 @@ fn open_named(
@@ -292,11 +310,65 @@ index 2f0f6e2..c263a3d 100644
                  if let Some(player) = link {
                      apply_link_options(&mut opened, core, player);
                  }
+diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
+index 82d85db..dbf55a0 100644
+--- a/crates/slot/src/input/raw_buttons.rs
++++ b/crates/slot/src/input/raw_buttons.rs
+@@ -5,9 +5,9 @@ use slot_store::{Controls, GameButton, Platform};
+ use super::bind::btn_device;
+ use super::mask::Pad;
+ 
+-fn raw_buttons(platform: Platform, triggers: bool) -> Vec<(Btn, u16)> {
++fn raw_buttons(xy: bool, triggers: bool) -> Vec<(Btn, u16)> {
+     let mut raw = Vec::new();
+-    if platform.passes_xy_through() {
++    if xy {
+         raw.extend([(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)]);
+     }
+     if triggers {
+@@ -24,9 +24,9 @@ fn bound_to_game(controls: &Controls, b: Btn) -> bool {
+     })
+ }
+ 
+-fn game_buttons(controls: &Controls, platform: Platform) -> Controls {
++fn game_buttons(controls: &Controls, xy: bool) -> Controls {
+     let mut c = *controls;
+-    if platform.passes_xy_through() {
++    if xy {
+         c.set_game(GameButton::TurboA, None);
+         c.set_game(GameButton::TurboB, None);
+     }
+@@ -35,17 +35,16 @@ fn game_buttons(controls: &Controls, platform: Platform) -> Controls {
+ 
+ impl Pad {
+     pub fn mask_for(&self, controls: &Controls, platform: Platform) -> ButtonMask {
+-        self.mask_with_triggers(controls, platform, !platform.owns_triggers())
++        self.mask_with(
++            controls,
++            platform.passes_xy_through(),
++            !platform.owns_triggers(),
++        )
+     }
+ 
+-    pub fn mask_with_triggers(
+-        &self,
+-        controls: &Controls,
+-        platform: Platform,
+-        triggers: bool,
+-    ) -> ButtonMask {
+-        let controls = game_buttons(controls, platform);
+-        let raw = raw_buttons(platform, triggers)
++    pub fn mask_with(&self, controls: &Controls, xy: bool, triggers: bool) -> ButtonMask {
++        let controls = game_buttons(controls, xy);
++        let raw = raw_buttons(xy, triggers)
+             .into_iter()
+             .filter(|(b, _)| self.holds(*b) && !bound_to_game(&controls, *b))
+             .fold(0, |bits, (_, bit)| bits | bit);
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 9e7bda8..5a6415e 100644
+index 544234d..a25a005 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -57,6 +57,7 @@ pub mod rewind;
+@@ -64,6 +64,7 @@ pub mod rewind;
  pub mod root;
  pub mod s32x_speed;
  pub mod session;
@@ -305,10 +377,35 @@ index 9e7bda8..5a6415e 100644
  pub mod shelf_restock;
  pub mod sms_region;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 12e5df1..94bd749 100644
+index 6920a26..03e9f4d 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -619,11 +619,12 @@ impl Session {
+@@ -175,7 +175,11 @@ impl Session {
+         let latched = self.gestures.ff_latched();
+         self.gestures.set_context(self.app.input_context());
+         let mut entries = self.app.binding_table().entries();
+-        crate::snes_input::keep_applicable(&mut entries, self.app.playing_platform());
++        crate::snes_input::keep_applicable(
++            &mut entries,
++            self.app.playing_platform(),
++            self.app.picture_chord(),
++        );
+         if self.app.repair_offered() {
+             let chord = Chord {
+                 modifier: Some(Mod::Select),
+@@ -228,9 +232,9 @@ impl Session {
+             self.pad.apply(Action::GbaUp(btn));
+         }
+         if let Some(emu) = &self.emu {
+-            let mask = self.pad.mask_with_triggers(
++            let mask = self.pad.mask_with(
+                 &self.app.controls(),
+-                self.app.playing_platform(),
++                self.app.xy_to_game(),
+                 self.app.triggers_to_game(),
+             );
+             if trace() && mask.0 != self.sent {
+@@ -649,7 +653,8 @@ impl Session {
          emu.set_driven(self.driven);
          emu.set_native_pal(self.app.native_pal(loaded.platform));
          emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
@@ -318,11 +415,6 @@ index 12e5df1..94bd749 100644
          let vb_buttons = self.app.latch_vb_pad(loaded.platform);
          emu.set_ws_pad(self.app.pad_code(loaded.platform));
          self.gestures
--            .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
-+            .set_video_mode_chord(loaded.platform.select_x_toggles_picture() || sgx_six);
-         self.gestures.set_disc_chord(
-             loaded.platform.swaps_discs() || crate::fds_disk::flips(loaded.platform),
-         );
 diff --git a/crates/slot/src/sgx_pad.rs b/crates/slot/src/sgx_pad.rs
 new file mode 100644
 index 0000000..e1fa72a
@@ -413,8 +505,36 @@ index 0000000..e1fa72a
 +        SgxPad::read(root).core_value(),
 +    );
 +}
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 123d8f8..1b9fa8f 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -39,8 +39,8 @@ impl VideoMode {
+     }
+ }
+ 
+-pub fn keep_applicable(entries: &mut Vec<Entry>, platform: Platform) {
+-    if !platform.select_x_toggles_picture() {
++pub fn keep_applicable(entries: &mut Vec<Entry>, platform: Platform, picture: bool) {
++    if !picture {
+         entries.retain(|e| e.action != Action::VideoModeToggle);
+     }
+     if platform.swaps_discs() || crate::fds_disk::flips(platform) {
+diff --git a/crates/slot/tests/disc_chords.rs b/crates/slot/tests/disc_chords.rs
+index cb53035..add17f0 100644
+--- a/crates/slot/tests/disc_chords.rs
++++ b/crates/slot/tests/disc_chords.rs
+@@ -19,7 +19,7 @@ fn gestures(platform: Platform, shortcuts: &ShortcutKeys) -> Gestures {
+         true,
+     );
+     let mut entries = table.entries();
+-    slot::snes_input::keep_applicable(&mut entries, platform);
++    slot::snes_input::keep_applicable(&mut entries, platform, platform.select_x_toggles_picture());
+     let mut g = Gestures::new();
+     g.set_entries(entries);
+     g
 diff --git a/crates/slot/tests/sgx_platform.rs b/crates/slot/tests/sgx_platform.rs
-index 2e84c51..8df27c2 100644
+index 6b9396f..6c783a7 100644
 --- a/crates/slot/tests/sgx_platform.rs
 +++ b/crates/slot/tests/sgx_platform.rs
 @@ -16,6 +16,7 @@ use slot::input::Pad;
@@ -434,7 +554,7 @@ index 2e84c51..8df27c2 100644
      );
      for row in QuickRow::SCREEN_SGX {
          assert_eq!(row.parent(), Some(QuickRow::ScreenSgx));
-@@ -385,3 +386,96 @@ fn on_the_device_select_reaches_the_supergrafx_game_only_after_the_chord_hold()
+@@ -384,3 +385,96 @@ fn on_the_device_select_reaches_the_supergrafx_game_only_after_the_chord_hold()
          assert_eq!(input(&session), 0, "{btn:?} let go");
      }
  }

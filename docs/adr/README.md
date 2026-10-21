@@ -122,3 +122,4 @@ the patch set looks the way it does.
 | [0103](0103-supergrafx-on-beetle-supergrafx.md) | Bring the PC Engine SuperGrafx into scope on pinned Beetle SuperGrafx, a shelf of its own beside an unchanged TurboGrafx-16 | Accepted. Amends 0002 and 0091 | 2026-10-21 |
 | [0104](0104-pc-engine-cd-on-beetle-pce-fast.md) | Bring the PC Engine CD into scope on the shipped Beetle PCE Fast, built with its CHD reader, a disc shelf of its own | Accepted. Amends 0002 and 0091 | 2026-10-21 |
 | [0105](0105-sega-cd-on-genesis-plus-gx.md) | Bring Sega CD / Mega-CD into scope on the Genesis Plus GX already shipped, with a BIOS check and the core's backup RAM made durable | Accepted. Amends 0053 | 2026-10-21 |
+| [0106](0106-rebase-to-slot-v1-8-0.md) | Rebase the patch set onto slot v1.8.0 and put our chords in its control table | Accepted | 2026-10-21 |
