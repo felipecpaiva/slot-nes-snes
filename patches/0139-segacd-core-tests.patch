@@ -1,0 +1,611 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Mon, 19 Oct 2026 11:00:00 +0400
+Subject: [PATCH] segacd-core-tests
+
+Sega CD / Mega-CD runs on Genesis Plus GX through slot's Mega Drive open
+path before any Sega CD platform code exists. The core boots a disc only
+through a CD BIOS, but it checks nothing in that file beyond opening it,
+so a dummy boot ROM written by the test lets these run on CI: a disc
+with no BIOS is refused, the region byte at 0x20b picks bios_CD_U, E or
+J, cue/bin, iso and chd discs load at 59.92 fps (PAL 49.70) on the
+360x240 Mega Drive canvas, and the core gives slot no SAVE_RAM.
+
+Backup RAM is the new save shape. The core writes it itself, only at
+unload, into the save dir slot hands it: Saves/scd_U.brm by default,
+Saves/<stem>.brm (the m3u stem for a playlist) with
+genesis_plus_gx_system_bram set to per game. A formatted file is written
+on the first unload even when the game saved nothing, an unchanged one
+is not rewritten, the file is read back at load, and a state does not
+carry it. A serialize, reload and unserialize writes it and leaves the
+game where it was. With slot's options no RAM cart is mounted.
+
+The core joins every m3u line to the playlist's directory, so an
+absolute line fails to load.
+
+With SLOT_SEGACD_BIOS pointing at the US BIOS (crc32 9f6f6276) the real
+BIOS boots to its menu, alone and with a synthetic disc, and draws
+inside the 320-wide picture. SLOT_SEGACD_DISC times a flush by reload
+on an owned disc. Without them those tests print a skip. The synthetic
+discs carry no security code: that block is Sega's and is not in this
+repository.
+---
+ crates/slot/tests/segacd_common/mod.rs | 154 ++++++++++
+ crates/slot/tests/segacd_core.rs       | 407 +++++++++++++++++++++++++
+ 2 files changed, 561 insertions(+)
+ create mode 100644 crates/slot/tests/segacd_common/mod.rs
+ create mode 100644 crates/slot/tests/segacd_core.rs
+
+diff --git a/crates/slot/tests/segacd_common/mod.rs b/crates/slot/tests/segacd_common/mod.rs
+new file mode 100644
+index 0000000..cb17139
+--- /dev/null
++++ b/crates/slot/tests/segacd_common/mod.rs
+@@ -0,0 +1,154 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++use slot_retro::{ButtonMask, RetroCore};
++
++pub const US: u8 = 0x7a;
++pub const EU: u8 = 0x64;
++pub const JP: u8 = 0xa1;
++pub const SECTORS: usize = 16;
++pub const BIOS_LEN: usize = 0x20000;
++pub const BIOS_U_CRC32: [u32; 2] = [0x9f6f_6276, 0xc6d1_0268];
++pub const BRAM_LEN: usize = 0x2000;
++pub const CANVAS: (usize, usize) = (360, 240);
++
++pub fn crc32(bytes: &[u8]) -> u32 {
++    let mut crc = !0u32;
++    for &b in bytes {
++        crc ^= u32::from(b);
++        for _ in 0..8 {
++            crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
++        }
++    }
++    !crc
++}
++
++/// A boot ROM the core accepts: the stack at the top of work RAM, the reset PC at 0x200, `bra.s *`.
++pub fn dummy_bios() -> Vec<u8> {
++    let mut rom = vec![0u8; BIOS_LEN];
++    rom[0..4].copy_from_slice(&0x00ff_fe00u32.to_be_bytes());
++    rom[4..8].copy_from_slice(&0x0000_0200u32.to_be_bytes());
++    rom[0x200..0x202].copy_from_slice(&[0x60, 0xfe]);
++    rom
++}
++
++/// The maintainer's own US BIOS from `SLOT_SEGACD_BIOS`, checked by size and crc32.
++pub fn real_bios() -> Option<Vec<u8>> {
++    let Some(path) = std::env::var_os("SLOT_SEGACD_BIOS") else {
++        eprintln!(
++            "skipping: no Sega CD BIOS, set SLOT_SEGACD_BIOS to a bios_CD_U.bin (131072 bytes, crc32 9f6f6276 or c6d10268)"
++        );
++        return None;
++    };
++    let bytes = std::fs::read(&path).unwrap_or_default();
++    if bytes.len() != BIOS_LEN || !BIOS_U_CRC32.contains(&crc32(&bytes)) {
++        eprintln!(
++            "skipping: SLOT_SEGACD_BIOS {} is not the US Sega CD BIOS ({} bytes, crc32 {:08x})",
++            Path::new(&path).display(),
++            bytes.len(),
++            crc32(&bytes)
++        );
++        return None;
++    }
++    Some(bytes)
++}
++
++/// The data track as 2048-byte sectors: the volume header in sector 0 with the region byte at 0x20b.
++pub fn iso(region: u8) -> Vec<u8> {
++    let mut data = vec![0u8; SECTORS * 2048];
++    data[..16].copy_from_slice(b"SEGADISCSYSTEM  ");
++    data[0x10..0x1b].copy_from_slice(b"SLOTTESTCD ");
++    data[0x100..0x110].copy_from_slice(b"SEGA MEGA DRIVE ");
++    data[0x20b] = region;
++    data
++}
++
++pub fn bcd(n: usize) -> u8 {
++    (((n / 10) << 4) | (n % 10)) as u8
++}
++
++/// The same track as raw 2352-byte Mode 1 sectors (sync, address, mode, data, EDC and ECC left zero).
++pub fn raw(iso: &[u8]) -> Vec<u8> {
++    let mut out = Vec::with_capacity(iso.len() / 2048 * 2352);
++    for (lba, sector) in iso.chunks(2048).enumerate() {
++        let at = lba + 150;
++        out.extend([0x00]);
++        out.extend([0xff; 10]);
++        out.extend([0x00]);
++        out.extend([bcd(at / 75 / 60), bcd(at / 75 % 60), bcd(at % 75), 0x01]);
++        out.extend(sector);
++        out.extend([0u8; 288]);
++    }
++    out
++}
++
++/// A one-track bin/cue disc in `dir`, returned as the .cue path.
++pub fn cue_disc(dir: &Path, stem: &str, region: u8) -> PathBuf {
++    std::fs::write(dir.join(format!("{stem}.bin")), raw(&iso(region))).unwrap();
++    let cue = dir.join(format!("{stem}.cue"));
++    std::fs::write(
++        &cue,
++        format!("FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"),
++    )
++    .unwrap();
++    cue
++}
++
++pub fn iso_disc(dir: &Path, stem: &str, region: u8) -> PathBuf {
++    let path = dir.join(format!("{stem}.iso"));
++    std::fs::write(&path, iso(region)).unwrap();
++    path
++}
++
++/// The bin/cue packed with MAME's chdman, as the library holds its discs. None, with a skip, when
++/// chdman is not installed (`brew install rom-tools`).
++pub fn chd_disc(dir: &Path, stem: &str, region: u8) -> Option<PathBuf> {
++    let src = dir.join("chd-src");
++    std::fs::create_dir_all(&src).unwrap();
++    let cue = cue_disc(&src, stem, region);
++    let chd = dir.join(format!("{stem}.chd"));
++    let ran = std::process::Command::new("chdman")
++        .arg("createcd")
++        .arg("-i")
++        .arg(&cue)
++        .arg("-o")
++        .arg(&chd)
++        .output();
++    match ran {
++        Ok(out) if out.status.success() => Some(chd),
++        Ok(out) => panic!(
++            "chdman createcd failed: {}",
++            String::from_utf8_lossy(&out.stderr)
++        ),
++        Err(e) => {
++            eprintln!("skipping: the CHD disc needs chdman on PATH ({e})");
++            None
++        }
++    }
++}
++
++pub fn play(core: &mut Box<dyn RetroCore>, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++/// The 8 KB internal backup RAM the core formats when it finds no file: the last 0x20 bytes are the
++/// BIOS format signature, which the core checks before it reads or writes a file.
++pub fn assert_formatted_bram(path: &Path) {
++    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
++    assert_eq!(bytes.len(), BRAM_LEN, "{}", path.display());
++    assert_eq!(&bytes[BRAM_LEN - 0x20..BRAM_LEN - 0x15], b"SEGA_CD_ROM");
++    assert_eq!(&bytes[BRAM_LEN - 0x10..BRAM_LEN - 0x05], b"RAM_CARTRID");
++}
++
++pub fn genesis_plus_gx() -> Option<PathBuf> {
++    crate::core_common::require_core("genesis_plus_gx")
++}
++
++pub fn put_bios(root: &Path, file: &str, bytes: &[u8]) {
++    let dir = slot::root::bios_dir(root);
++    std::fs::create_dir_all(&dir).expect("bios dir");
++    std::fs::write(dir.join(file), bytes).expect("write bios");
++}
+diff --git a/crates/slot/tests/segacd_core.rs b/crates/slot/tests/segacd_core.rs
+new file mode 100644
+index 0000000..ee36256
+--- /dev/null
++++ b/crates/slot/tests/segacd_core.rs
+@@ -0,0 +1,407 @@
++// Sega CD / Mega-CD on Genesis Plus GX through slot's Mega Drive open path, before any Sega CD platform
++// code exists (issues 222 and 230, ADR 0105).
++//
++// The core boots a disc only through a CD BIOS. It checks nothing in the BIOS file but that it opens
++// and is not empty (`load_bios` in core/loadrom.c), so most tests use a dummy boot ROM written by the
++// test: reset vectors pointing at a `bra.s *`. That is enough for the core to accept a disc, pick the
++// BIOS file by the disc's region byte, report its timing and write its backup RAM, which is what these
++// tests pin. They run everywhere, CI included.
++//
++// The synthetic discs carry the Sega CD volume header (`SEGADISCSYSTEM`) and a region byte at 0x20b,
++// where the core reads it, but no security code: that block is Sega's code and is not in this repo.
++// So the real BIOS never boots them into a program; it stops at its own menu. The tests that need the
++// real BIOS read it from `SLOT_SEGACD_BIOS` (a path to the US `bios_CD_U.bin`, 131072 bytes, md5
++// 854b9150240a198070150e4566ae1290, crc32 9f6f6276, or the System.dat dump, crc32 c6d10268) and
++// print a BIOS skip without it.
++//
++// `SLOT_SEGACD_DISC` (a path to any owned Sega CD .chd or .cue, opened read-only) adds the host half of
++// the backup RAM flush measurement: how long serialize, reload and unserialize take on a real disc.
++mod common;
++mod core_common;
++mod segacd_common;
++
++use std::path::{Path, PathBuf};
++use std::time::Instant;
++
++use common::core_lock;
++use core_common::require_core;
++use segacd_common::{
++    assert_formatted_bram, chd_disc, cue_disc, dummy_bios, iso_disc, play, real_bios, BRAM_LEN,
++    CANVAS, EU, JP, US,
++};
++use slot::core::open_core_for_palette;
++use slot_retro::RetroCore;
++use slot_store::{Core, Platform};
++
++struct Root {
++    dir: tempfile::TempDir,
++}
++
++impl Root {
++    /// A card root with `BIOS/` holding `bios` under each named file, and an empty `Saves/`.
++    fn new(bios: &[(&str, &[u8])]) -> Self {
++        let dir = tempfile::tempdir().unwrap();
++        std::fs::create_dir_all(slot::root::bios_dir(dir.path())).unwrap();
++        std::fs::create_dir_all(slot::root::saves_dir(dir.path())).unwrap();
++        std::fs::create_dir_all(dir.path().join("Games")).unwrap();
++        for (name, bytes) in bios {
++            std::fs::write(slot::root::bios_dir(dir.path()).join(name), bytes).unwrap();
++        }
++        Root { dir }
++    }
++
++    fn games(&self) -> PathBuf {
++        self.dir.path().join("Games")
++    }
++
++    fn save(&self, name: &str) -> PathBuf {
++        slot::root::saves_dir(self.dir.path()).join(name)
++    }
++
++    fn saves(&self) -> Vec<(String, u64)> {
++        let mut out: Vec<_> = std::fs::read_dir(slot::root::saves_dir(self.dir.path()))
++            .unwrap()
++            .map(|e| {
++                let e = e.unwrap();
++                (
++                    e.file_name().to_string_lossy().into_owned(),
++                    e.metadata().unwrap().len(),
++                )
++            })
++            .collect();
++        out.sort();
++        out
++    }
++
++    /// Genesis Plus GX opened the way slot opens it for the Mega Drive shelf today: BIOS/ as the system
++    /// dir, Saves/ as the save dir, the 360x240 canvas and slot's fixed Genesis Plus GX options.
++    fn core(&self, options: &[(&str, &str)]) -> Option<Box<dyn RetroCore>> {
++        let dylib = require_core("genesis_plus_gx")?;
++        let mut core = open_core_for_palette(
++            self.dir.path(),
++            Core::GenesisPlusGx,
++            Platform::Md,
++            "auto",
++            false,
++            None,
++            &[dylib],
++        );
++        for (key, value) in options {
++            core.set_option(key, value);
++        }
++        Some(core)
++    }
++}
++
++#[test]
++fn a_sega_cd_disc_with_no_bios_is_refused() {
++    let _g = core_lock();
++    let r = Root::new(&[]);
++    let Some(mut core) = r.core(&[]) else {
++        return;
++    };
++    let disc = cue_disc(&r.games(), "NoBios", US);
++    assert!(core.load(&disc).is_err(), "a disc loaded with no CD BIOS");
++}
++
++#[test]
++fn the_region_byte_at_0x20b_picks_the_bios_file_the_core_opens() {
++    let _g = core_lock();
++    let bios = dummy_bios();
++    let only_us = Root::new(&[("bios_CD_U.bin", &bios)]);
++    let Some(mut core) = only_us.core(&[]) else {
++        return;
++    };
++    let g = only_us.games();
++    assert!(
++        core.load(&cue_disc(&g, "Us", US)).is_ok(),
++        "a US disc with bios_CD_U.bin"
++    );
++    assert!(
++        core.load(&cue_disc(&g, "Eu", EU)).is_err(),
++        "a PAL disc ran on bios_CD_U.bin"
++    );
++    assert!(
++        core.load(&cue_disc(&g, "Jp", JP)).is_err(),
++        "a Japanese disc ran on bios_CD_U.bin"
++    );
++    drop(core);
++
++    let only_eu = Root::new(&[("bios_CD_E.bin", &bios)]);
++    let mut core = only_eu.core(&[]).unwrap();
++    let g = only_eu.games();
++    assert!(
++        core.load(&cue_disc(&g, "Us", US)).is_err(),
++        "a US disc ran on bios_CD_E.bin"
++    );
++    core.load(&cue_disc(&g, "Eu", EU))
++        .expect("a PAL disc with bios_CD_E.bin");
++    let fps = core.av_info().fps;
++    assert!((49.6..49.8).contains(&fps), "a PAL disc at {fps} fps");
++    drop(core);
++
++    let only_jp = Root::new(&[("bios_CD_J.bin", &bios)]);
++    let mut core = only_jp.core(&[]).unwrap();
++    core.load(&cue_disc(&only_jp.games(), "Jp", JP))
++        .expect("a Japanese disc with bios_CD_J.bin");
++}
++
++#[test]
++fn cue_bin_iso_and_chd_discs_load_at_59_92_fps_on_the_mega_drive_canvas_with_no_save_ram() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let Some(mut core) = r.core(&[]) else {
++        return;
++    };
++    let g = r.games();
++    let mut discs = vec![cue_disc(&g, "Cue", US), iso_disc(&g, "Iso", US)];
++    discs.extend(chd_disc(&g, "Chd", US));
++    for disc in discs {
++        core.load(&disc)
++            .unwrap_or_else(|e| panic!("{}: {e}", disc.display()));
++        play(&mut core, 10);
++        let av = core.av_info();
++        assert!(
++            (59.90..59.95).contains(&av.fps),
++            "{}: {} fps",
++            disc.display(),
++            av.fps
++        );
++        assert_eq!(av.sample_rate, 44100.0);
++        assert_eq!(core.canvas(), (CANVAS.0 as u32, CANVAS.1 as u32));
++        assert_eq!(core.video_xrgb8888().len(), CANVAS.0 * CANVAS.1 * 4);
++        assert_eq!(core.save_ram(), None, "{}", disc.display());
++    }
++}
++
++#[test]
++fn by_default_the_core_writes_only_scd_u_brm_into_slots_save_dir_and_only_at_unload() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let Some(mut core) = r.core(&[]) else {
++        return;
++    };
++    core.load(&cue_disc(&r.games(), "Default", US)).unwrap();
++    play(&mut core, 30);
++    assert_eq!(r.saves(), vec![], "written before unload");
++    drop(core);
++    // slot answers no option it was not given, so genesis_plus_gx_cart_size reads as unset: the core
++    // leaves cart_size at 0 and mounts no RAM cart (RetroArch's declared default is 4meg, a 512 KB
++    // 4Mbit_cart.brm shared by every game). A freshly formatted internal RAM is written even though the
++    // game saved nothing, because the core zeroes its checksum when it formats.
++    assert_eq!(r.saves(), vec![("scd_U.brm".to_string(), BRAM_LEN as u64)]);
++    assert_formatted_bram(&r.save("scd_U.brm"));
++}
++
++#[test]
++fn per_game_backup_ram_is_named_after_the_disc_stem() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let Some(mut core) = r.core(&[("genesis_plus_gx_system_bram", "per game")]) else {
++        return;
++    };
++    core.load(&cue_disc(&r.games(), "Lunar", US)).unwrap();
++    play(&mut core, 30);
++    drop(core);
++    assert_eq!(r.saves(), vec![("Lunar.brm".to_string(), BRAM_LEN as u64)]);
++    assert_formatted_bram(&r.save("Lunar.brm"));
++}
++
++#[test]
++fn the_backup_ram_is_read_at_load_and_not_rewritten_when_unchanged() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let opts = [("genesis_plus_gx_system_bram", "per game")];
++    let Some(mut core) = r.core(&opts) else {
++        return;
++    };
++    let disc = cue_disc(&r.games(), "Keep", US);
++    core.load(&disc).unwrap();
++    drop(core);
++    let brm = r.save("Keep.brm");
++    let mut bytes = std::fs::read(&brm).unwrap();
++    bytes[..16].copy_from_slice(b"SLOT BRAM MARKER");
++    std::fs::write(&brm, &bytes).unwrap();
++
++    // Second boot: the core reads the file at load. If it had not, it would format a fresh one and
++    // write that at unload, so a deleted file coming back means the load was ignored.
++    let mut core = r.core(&opts).unwrap();
++    core.load(&disc).unwrap();
++    play(&mut core, 30);
++    std::fs::remove_file(&brm).unwrap();
++    drop(core);
++    assert!(!brm.exists(), "an unchanged backup RAM was written again");
++}
++
++#[test]
++fn a_state_does_not_carry_the_backup_ram() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let opts = [("genesis_plus_gx_system_bram", "per game")];
++    let Some(mut core) = r.core(&opts) else {
++        return;
++    };
++    let disc = cue_disc(&r.games(), "State", US);
++    core.load(&disc).unwrap();
++    drop(core);
++    let brm = r.save("State.brm");
++    let mut bytes = std::fs::read(&brm).unwrap();
++    let marker: Vec<u8> = (0..64u8).map(|i| i.wrapping_mul(37) ^ 0xa5).collect();
++    bytes[..64].copy_from_slice(&marker);
++    std::fs::write(&brm, &bytes).unwrap();
++
++    let mut core = r.core(&opts).unwrap();
++    core.load(&disc).unwrap();
++    play(&mut core, 10);
++    let state = core.serialize().expect("no state");
++    assert!(
++        !state.windows(marker.len()).any(|w| w == marker.as_slice()),
++        "the backup RAM is in the state"
++    );
++    assert_eq!(state.len(), 1_036_288, "the Mega Drive state size");
++}
++
++#[test]
++fn an_m3u_names_its_discs_relative_to_itself_and_names_the_backup_ram() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let Some(mut core) = r.core(&[("genesis_plus_gx_system_bram", "per game")]) else {
++        return;
++    };
++    let g = r.games();
++    let one = cue_disc(&g, "Night Trap (Disc 1)", US);
++    cue_disc(&g, "Night Trap (Disc 2)", US);
++    // The core joins every line to the playlist's own directory, so an absolute line (what slot's PS1
++    // playlists write) names a file that does not exist.
++    let absolute = g.join("Absolute.m3u");
++    std::fs::write(&absolute, format!("{}\n", one.display())).unwrap();
++    assert!(core.load(&absolute).is_err(), "an absolute m3u line loaded");
++    let relative = g.join("Night Trap.m3u");
++    std::fs::write(
++        &relative,
++        "Night Trap (Disc 1).cue\nNight Trap (Disc 2).cue\n",
++    )
++    .unwrap();
++    core.load(&relative).expect("a relative m3u");
++    drop(core);
++    assert_eq!(
++        r.saves(),
++        vec![("Night Trap.brm".to_string(), BRAM_LEN as u64)]
++    );
++}
++
++fn time_flush_by_reload(core: &mut Box<dyn RetroCore>, disc: &Path) -> f64 {
++    let t = Instant::now();
++    let state = core.serialize().expect("no state");
++    core.load(disc).expect("reload");
++    core.unserialize(&state).expect("unserialize after reload");
++    t.elapsed().as_secs_f64() * 1000.0
++}
++
++#[test]
++fn a_flush_by_reload_writes_the_backup_ram_and_the_game_carries_on_from_its_state() {
++    let _g = core_lock();
++    let r = Root::new(&[("bios_CD_U.bin", &dummy_bios())]);
++    let opts = [("genesis_plus_gx_system_bram", "per game")];
++    let Some(mut core) = r.core(&opts) else {
++        return;
++    };
++    let g = r.games();
++    let disc = chd_disc(&g, "Flush", US).unwrap_or_else(|| cue_disc(&g, "Flush", US));
++    core.load(&disc).unwrap();
++    play(&mut core, 30);
++    let before = core.serialize().unwrap();
++    let ms = time_flush_by_reload(&mut core, &disc);
++    eprintln!("flush by reload of {}: {ms:.2} ms", disc.display());
++    assert_formatted_bram(&r.save("Flush.brm"));
++    // Genesis Plus GX's state is not byte-stable across a plain unserialize and serialize either (five
++    // bytes of timing differ), so the bar is: a reload and unserialize leaves the same state as an
++    // unserialize alone.
++    let reloaded = core.serialize().unwrap();
++    core.unserialize(&before).unwrap();
++    assert!(
++        core.serialize().unwrap() == reloaded,
++        "the state did not come back after the reload"
++    );
++    play(&mut core, 10);
++}
++
++#[test]
++fn a_flush_by_reload_of_an_owned_disc_is_timed() {
++    let _g = core_lock();
++    let Some(disc) = std::env::var_os("SLOT_SEGACD_DISC").map(PathBuf::from) else {
++        eprintln!(
++            "skipping: no Sega CD disc, set SLOT_SEGACD_DISC to an owned .chd or .cue to time a reload"
++        );
++        return;
++    };
++    let bios = real_bios().unwrap_or_else(dummy_bios);
++    let r = Root::new(&[
++        ("bios_CD_U.bin", &bios),
++        ("bios_CD_E.bin", &bios),
++        ("bios_CD_J.bin", &bios),
++    ]);
++    let Some(mut core) = r.core(&[("genesis_plus_gx_system_bram", "per game")]) else {
++        return;
++    };
++    let t = Instant::now();
++    core.load(&disc).expect("the owned disc did not load");
++    let first = t.elapsed().as_secs_f64() * 1000.0;
++    play(&mut core, 600);
++    let mut runs: Vec<f64> = (0..5)
++        .map(|_| {
++            let ms = time_flush_by_reload(&mut core, &disc);
++            play(&mut core, 60);
++            ms
++        })
++        .collect();
++    runs.sort_by(|a, b| a.total_cmp(b));
++    eprintln!(
++        "owned disc {}: first load {first:.2} ms, flush by reload min {:.2} median {:.2} max {:.2} ms",
++        disc.display(),
++        runs[0],
++        runs[2],
++        runs[4]
++    );
++}
++
++#[test]
++fn the_real_us_bios_boots_to_its_menu_and_draws_inside_the_mega_drive_picture() {
++    let _g = core_lock();
++    let Some(bios) = real_bios() else {
++        return;
++    };
++    let r = Root::new(&[("bios_CD_U.bin", &bios)]);
++    let Some(mut core) = r.core(&[]) else {
++        return;
++    };
++    // With no disc: the BIOS file itself as the content, which the core boots as a CD unit.
++    let alone = r.games().join("bios_CD_U.bin");
++    std::fs::write(&alone, &bios).unwrap();
++    for content in [alone, cue_disc(&r.games(), "Menu", US)] {
++        core.load(&content)
++            .unwrap_or_else(|e| panic!("{}: {e}", content.display()));
++        play(&mut core, 600);
++        let fps = core.av_info().fps;
++        assert!((59.90..59.95).contains(&fps), "{fps} fps");
++        let width = core.frame_width() as usize;
++        assert!(width == 320 || width == 256, "frame width {width}");
++        let video = core.video_xrgb8888();
++        let (x0, y0) = ((CANVAS.0 - width) / 2, 8);
++        let mut lit = 0;
++        for y in 0..CANVAS.1 {
++            for x in 0..CANVAS.0 {
++                let at = (y * CANVAS.0 + x) * 4;
++                let px = &video[at..at + 3];
++                let inside = (x0..x0 + width).contains(&x) && (y0..y0 + 224).contains(&y);
++                if inside {
++                    lit += usize::from(px != [0, 0, 0]);
++                } else {
++                    assert_eq!(px, [0, 0, 0], "{}: ({x}, {y})", content.display());
++                }
++            }
++        }
++        assert!(lit > 1000, "{}: {lit} lit pixels", content.display());
++        eprintln!("{}: {width} wide, {lit} lit pixels", content.display());
++    }
++}

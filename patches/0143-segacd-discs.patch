@@ -1,0 +1,543 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:45:07 +0400
+Subject: [PATCH] segacd-discs
+
+A Sega CD game of several discs is one game, the PS1 way (ADR 0067):
+discs named (Disc N) with no playlist get a generated one in
+Config/playlists/SEGACD, the discs a playlist names leave the shelf,
+SELECT+L2 swaps to the next disc with a banner, Saves/SEGACD/<stem>.disc
+remembers the disc, and a state carries the disc it was taken on in the
+same trailer as PS1. Three things differ, because Genesis Plus GX:
+
+- joins every m3u line to the playlist's own directory, so a Sega CD
+  playlist holds paths relative to itself
+  (../../../Games/SEGACD/<disc>), where PS1 playlists keep absolute ones;
+- offers only the legacy disk control interface, with no
+  set_initial_image, so a remembered disc is swapped in right after the
+  load instead of being handed to the core before it;
+- holds 4 discs.
+
+The disc file helpers and the playlist tidy now take the platform; PS1
+keeps its paths, its absolute playlists and its behaviour.
+---
+ crates/slot-retro/src/libretro.rs          |   1 +
+ crates/slot-retro/src/libretro/discs.rs    |  16 ++-
+ crates/slot-store/src/platform_policy.rs   |   3 +-
+ crates/slot-store/src/ps1.rs               |  80 +++++++++---
+ crates/slot-store/tests/segacd_platform.rs |   2 +-
+ crates/slot/src/app/ps1_discs.rs           |   3 +-
+ crates/slot/src/ps1_load.rs                |  19 +--
+ crates/slot/tests/ps1_discs.rs             |  27 ++--
+ crates/slot/tests/segacd_discs.rs          | 139 +++++++++++++++++++++
+ 9 files changed, 254 insertions(+), 36 deletions(-)
+ create mode 100644 crates/slot/tests/segacd_discs.rs
+
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index d7c3ea2..3a99e57 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -694,6 +694,7 @@ impl RetroCore for LibretroCore {
+             sample_rate: av.timing.sample_rate,
+         };
+         unsafe { (self.api.set_controller_port_device)(0, self.extra.port_device) };
++        self.swap_to_initial_disc();
+         Ok(())
+     }
+ 
+diff --git a/crates/slot-retro/src/libretro/discs.rs b/crates/slot-retro/src/libretro/discs.rs
+index 48ab5f7..627c6dd 100644
+--- a/crates/slot-retro/src/libretro/discs.rs
++++ b/crates/slot-retro/src/libretro/discs.rs
+@@ -51,6 +51,7 @@ pub struct DiscDrive {
+     control: Option<DiskControl>,
+     set_initial_image: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
+     initial: Option<(c_uint, CString)>,
++    after_load: Option<u32>,
+     event: Option<DiscEvent>,
+ }
+ 
+@@ -187,7 +188,7 @@ impl LibretroCore {
+             .set_initial_image
+             .filter(|_| self.extra.discs.in_use)
+         else {
+-            eprintln!("slot: disc: the core takes no initial disc, starting on disc 1");
++            self.extra.discs.after_load = Some(index);
+             return;
+         };
+         let _a = Active::bind(&mut self.host);
+@@ -201,6 +202,19 @@ impl LibretroCore {
+         }
+     }
+ 
++    pub(super) fn swap_to_initial_disc(&mut self) {
++        let Some(index) = self.extra.discs.after_load.take() else {
++            return;
++        };
++        match self.swap_disc(index) {
++            Ok(()) => eprintln!(
++                "slot: disc: the core takes no initial disc, swapped to disc {} after load",
++                index + 1
++            ),
++            Err(e) => eprintln!("slot: disc: {e}, starting on disc 1"),
++        }
++    }
++
+     pub fn take_disc_event(&mut self) -> Option<DiscEvent> {
+         self.extra.discs.event.take()
+     }
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index e93164a..3fa3604 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -385,7 +385,7 @@ impl Platform {
+ 
+     pub fn swaps_discs(self) -> bool {
+         match self {
+-            Platform::Ps1 => true,
++            Platform::Ps1 | Platform::SegaCd => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -395,7 +395,6 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::SegaCd
+             | Platform::Tg16
+             | Platform::Sgx
+             | Platform::Pcecd
+diff --git a/crates/slot-store/src/ps1.rs b/crates/slot-store/src/ps1.rs
+index c7e69b9..e35b13d 100644
+--- a/crates/slot-store/src/ps1.rs
++++ b/crates/slot-store/src/ps1.rs
+@@ -114,9 +114,15 @@ fn same_file_key(p: &Path) -> String {
+ }
+ 
+ pub fn tidy(root: &Path, carts: &mut Vec<Cart>) {
++    for platform in Platform::SHELVES.into_iter().filter(|p| p.swaps_discs()) {
++        tidy_shelf(root, platform, carts);
++    }
++}
++
++fn tidy_shelf(root: &Path, platform: Platform, carts: &mut Vec<Cart>) {
+     let mut named = HashSet::new();
+     carts.retain(|c| {
+-        if c.platform != Platform::Ps1 || !is_m3u(&c.rom) {
++        if c.platform != platform || !is_m3u(&c.rom) {
+             return true;
+         }
+         match playlist(&c.rom) {
+@@ -125,23 +131,27 @@ pub fn tidy(root: &Path, carts: &mut Vec<Cart>) {
+                 true
+             }
+             None => {
+-                eprintln!("slot: ps1: skipping {}", c.rom.display());
++                eprintln!(
++                    "slot: {}: skipping {}",
++                    platform.dir_name().to_ascii_lowercase(),
++                    c.rom.display()
++                );
+                 false
+             }
+         }
+     });
+-    carts.retain(|c| c.platform != Platform::Ps1 || !named.contains(&same_file_key(&c.rom)));
++    carts.retain(|c| c.platform != platform || !named.contains(&same_file_key(&c.rom)));
+ 
+     let mut groups: BTreeMap<String, Vec<(u32, usize)>> = BTreeMap::new();
+     for (i, c) in carts.iter().enumerate() {
+-        if c.platform != Platform::Ps1 || is_m3u(&c.rom) {
++        if c.platform != platform || is_m3u(&c.rom) {
+             continue;
+         }
+         if let Some((base, n)) = disc_tag(&c.stem) {
+             groups.entry(base).or_default().push((n, i));
+         }
+     }
+-    let labels_dir = root.join("Labels").join(Platform::Ps1.dir_name());
++    let labels_dir = root.join("Labels").join(platform.dir_name());
+     let labels = listing(&labels_dir);
+     let mut gone = HashSet::new();
+     let mut grouped = Vec::new();
+@@ -154,14 +164,14 @@ pub fn tidy(root: &Path, carts: &mut Vec<Cart>) {
+             .iter()
+             .filter_map(|(_, i)| carts.get(*i).map(|c| c.rom.as_path()))
+             .collect();
+-        let Some(m3u) = write_playlist(root, &base, &roms) else {
++        let Some(m3u) = write_playlist(root, platform, &base, &roms) else {
+             continue;
+         };
+         let Some(first) = discs.first().and_then(|(_, i)| carts.get(*i)) else {
+             continue;
+         };
+         grouped.push(Cart {
+-            platform: Platform::Ps1,
++            platform,
+             stem: base.clone(),
+             rom: m3u,
+             label: labels
+@@ -189,30 +199,70 @@ fn is_m3u(p: &Path) -> bool {
+         .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
+ }
+ 
+-fn write_playlist(root: &Path, base: &str, discs: &[&Path]) -> Option<PathBuf> {
+-    let path = root.join(PLAYLISTS_DIR).join(format!("{base}.m3u"));
++fn write_playlist(root: &Path, platform: Platform, base: &str, discs: &[&Path]) -> Option<PathBuf> {
++    let dir = root.join("Config/playlists").join(platform.dir_name());
++    let path = dir.join(format!("{base}.m3u"));
+     let mut text = String::new();
+     for disc in discs {
+         let disc = std::path::absolute(disc).unwrap_or_else(|_| disc.to_path_buf());
+-        text.push_str(&disc.to_string_lossy());
++        let line = match platform {
++            Platform::SegaCd => match relative_to(&dir, &disc) {
++                Some(line) => line,
++                None => {
++                    eprintln!(
++                        "slot: {}: {} has no path from {}, no playlist",
++                        platform.dir_name().to_ascii_lowercase(),
++                        disc.display(),
++                        dir.display()
++                    );
++                    return None;
++                }
++            },
++            _ => disc,
++        };
++        text.push_str(&line.to_string_lossy());
+         text.push('\n');
+     }
+     if std::fs::read(&path).ok().as_deref() == Some(text.as_bytes()) {
+         return Some(path);
+     }
+-    let written = path
+-        .parent()
+-        .map_or(Ok(()), std::fs::create_dir_all)
+-        .and_then(|_| atomic_write(&path, text.as_bytes()));
++    let written = std::fs::create_dir_all(&dir).and_then(|_| atomic_write(&path, text.as_bytes()));
+     match written {
+         Ok(()) => Some(path),
+         Err(e) => {
+-            eprintln!("slot: ps1: could not write {}: {e}", path.display());
++            eprintln!(
++                "slot: {}: could not write {}: {e}",
++                platform.dir_name().to_ascii_lowercase(),
++                path.display()
++            );
+             None
+         }
+     }
+ }
+ 
++fn relative_to(dir: &Path, file: &Path) -> Option<PathBuf> {
++    let dir = std::path::absolute(dir).ok()?;
++    let mut from = dir.components().peekable();
++    let mut to = file.components().peekable();
++    while let (Some(a), Some(b)) = (from.peek(), to.peek()) {
++        if a != b {
++            break;
++        }
++        from.next();
++        to.next();
++    }
++    let up = from.count();
++    let rest: PathBuf = to.collect();
++    if up == dir.components().count() || rest.as_os_str().is_empty() {
++        return None;
++    }
++    Some(
++        std::iter::repeat_n(Component::ParentDir, up)
++            .collect::<PathBuf>()
++            .join(rest),
++    )
++}
++
+ pub fn serial(disc: &Path) -> Option<String> {
+     let ext = disc.extension()?.to_str()?.to_ascii_lowercase();
+     match ext.as_str() {
+diff --git a/crates/slot-store/tests/segacd_platform.rs b/crates/slot-store/tests/segacd_platform.rs
+index df1dd03..f9478dc 100644
+--- a/crates/slot-store/tests/segacd_platform.rs
++++ b/crates/slot-store/tests/segacd_platform.rs
+@@ -84,7 +84,7 @@ fn sega_cd_plays_like_the_mega_drive_and_answers_every_policy() {
+     assert!(!p.has_gb_palettes());
+     assert!(p.rewinds());
+     assert!(!p.fills_canvas());
+-    assert!(!p.swaps_discs());
++    assert!(p.swaps_discs());
+     assert_eq!(p.actual_scale(), None);
+     assert!(!p.flashes_on_unload());
+     assert!(!p.is_arcade());
+diff --git a/crates/slot/src/app/ps1_discs.rs b/crates/slot/src/app/ps1_discs.rs
+index 31d28c8..27bde34 100644
+--- a/crates/slot/src/app/ps1_discs.rs
++++ b/crates/slot/src/app/ps1_discs.rs
+@@ -17,7 +17,8 @@ impl App {
+         }
+         let toast = match event {
+             DiscEvent::Swapped(index) | DiscEvent::Restored(index) => {
+-                let written = crate::ps1_load::remember_disc(&root, &cart, index);
++                let written =
++                    crate::ps1_load::remember_disc(&root, self.playing_platform(), &cart, index);
+                 if let Err(e) = &written {
+                     eprintln!("slot: disc: could not remember disc {}: {e}", index + 1);
+                 }
+diff --git a/crates/slot/src/ps1_load.rs b/crates/slot/src/ps1_load.rs
+index 988c95e..6c2b32a 100644
+--- a/crates/slot/src/ps1_load.rs
++++ b/crates/slot/src/ps1_load.rs
+@@ -16,14 +16,14 @@ fn is_playlist(rom: &Path) -> bool {
+         .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
+ }
+ 
+-pub fn disc_file(root: &Path, stem: &str) -> PathBuf {
++pub fn disc_file(root: &Path, platform: Platform, stem: &str) -> PathBuf {
+     crate::root::saves_dir(root)
+-        .join(Platform::Ps1.dir_name())
++        .join(platform.dir_name())
+         .join(format!("{stem}.disc"))
+ }
+ 
+-pub fn remembered_disc(root: &Path, stem: &str, discs: usize) -> u32 {
+-    let path = disc_file(root, stem);
++pub fn remembered_disc(root: &Path, platform: Platform, stem: &str, discs: usize) -> u32 {
++    let path = disc_file(root, platform, stem);
+     let text = match std::fs::read_to_string(&path) {
+         Ok(text) => text,
+         Err(e) => {
+@@ -44,8 +44,13 @@ pub fn remembered_disc(root: &Path, stem: &str, discs: usize) -> u32 {
+     }
+ }
+ 
+-pub fn remember_disc(root: &Path, stem: &str, index: u32) -> std::io::Result<()> {
+-    let path = disc_file(root, stem);
++pub fn remember_disc(
++    root: &Path,
++    platform: Platform,
++    stem: &str,
++    index: u32,
++) -> std::io::Result<()> {
++    let path = disc_file(root, platform, stem);
+     if let Some(dir) = path.parent() {
+         std::fs::create_dir_all(dir)?;
+     }
+@@ -65,7 +70,7 @@ pub fn offer_remembered_disc(
+     let Some(discs) = slot_store::ps1::playlist(rom) else {
+         return;
+     };
+-    let index = remembered_disc(root, stem, discs.len());
++    let index = remembered_disc(root, platform, stem, discs.len());
+     if let Some(path) = discs.get(index as usize).filter(|_| index > 0) {
+         core.set_initial_disc(index, path);
+     }
+diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
+index 3c1b38b..e345cf7 100644
+--- a/crates/slot/tests/ps1_discs.rs
++++ b/crates/slot/tests/ps1_discs.rs
+@@ -114,7 +114,7 @@ fn a_game_resumes_on_the_disc_its_disc_file_names() {
+     };
+     let root = common::tmp_root_with_real_carts(&[]);
+     let m3u = two_discs(&root.path().join("Games/PS1"), STEM);
+-    remember_disc(root.path(), STEM, 1).expect("write the disc file");
++    remember_disc(root.path(), Platform::Ps1, STEM, 1).expect("write the disc file");
+     let mut core = opened(&dylib, root.path());
+     offer_remembered_disc(&mut core, root.path(), Platform::Ps1, STEM, &m3u);
+     slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
+@@ -194,18 +194,27 @@ fn a_single_disc_state_is_exactly_the_cores_bytes() {
+ #[test]
+ fn a_missing_or_corrupt_disc_file_means_disc_one() {
+     let root = tempfile::tempdir().expect("tempdir");
+-    assert_eq!(remembered_disc(root.path(), STEM, 2), 0);
++    assert_eq!(remembered_disc(root.path(), Platform::Ps1, STEM, 2), 0);
+     for text in ["", "two", "-1", "2", "7\n"] {
+-        std::fs::create_dir_all(disc_file(root.path(), STEM).parent().expect("dir")).expect("dir");
+-        std::fs::write(disc_file(root.path(), STEM), text).expect("write");
+-        assert_eq!(remembered_disc(root.path(), STEM, 2), 0, "{text:?}");
++        std::fs::create_dir_all(
++            disc_file(root.path(), Platform::Ps1, STEM)
++                .parent()
++                .expect("dir"),
++        )
++        .expect("dir");
++        std::fs::write(disc_file(root.path(), Platform::Ps1, STEM), text).expect("write");
++        assert_eq!(
++            remembered_disc(root.path(), Platform::Ps1, STEM, 2),
++            0,
++            "{text:?}"
++        );
+     }
+-    remember_disc(root.path(), STEM, 1).expect("write");
++    remember_disc(root.path(), Platform::Ps1, STEM, 1).expect("write");
+     assert_eq!(
+         std::fs::read_to_string(root.path().join("Saves/PS1/Game.disc")).expect("read"),
+         "1\n"
+     );
+-    assert_eq!(remembered_disc(root.path(), STEM, 2), 1);
++    assert_eq!(remembered_disc(root.path(), Platform::Ps1, STEM, 2), 1);
+ }
+ 
+ #[test]
+@@ -253,7 +262,7 @@ fn select_l2_in_a_two_disc_game_swaps_the_disc_and_remembers_it() {
+         return;
+     };
+     let root = seated_two_disc_game(&dylib);
+-    remember_disc(root.path(), STEM, 1).expect("start on disc 2");
++    remember_disc(root.path(), Platform::Ps1, STEM, 1).expect("start on disc 2");
+     let mut session = real_seat::play(root.path(), true);
+     assert_eq!(session.app().playing_platform(), Platform::Ps1);
+     session.feed([RawEvent::Down(Btn::Select)], 5000);
+@@ -261,7 +270,7 @@ fn select_l2_in_a_two_disc_game_swaps_the_disc_and_remembers_it() {
+     session.feed([RawEvent::Up(Btn::L2)], 5100);
+     session.feed([RawEvent::Up(Btn::Select)], 5116);
+     let deadline = Instant::now() + Duration::from_secs(10);
+-    while std::fs::read_to_string(disc_file(root.path(), STEM))
++    while std::fs::read_to_string(disc_file(root.path(), Platform::Ps1, STEM))
+         .ok()
+         .as_deref()
+         != Some("0\n")
+diff --git a/crates/slot/tests/segacd_discs.rs b/crates/slot/tests/segacd_discs.rs
+new file mode 100644
+index 0000000..5c8298b
+--- /dev/null
++++ b/crates/slot/tests/segacd_discs.rs
+@@ -0,0 +1,139 @@
++// Sega CD discs on Genesis Plus GX (ADR 0105). The core offers only the legacy disk control interface
++// (no set_initial_image), holds 4 discs and joins every m3u line to the playlist's own directory, so
++// slot writes Sega CD playlists with relative paths and swaps to a remembered disc right after load.
++mod common;
++mod core_common;
++mod segacd_common;
++
++use std::path::{Path, PathBuf};
++
++use common::{core_lock, tmp_root_with_carts};
++use segacd_common::{dummy_bios, genesis_plus_gx, iso_disc, put_bios, US};
++use slot::core::apply_core_options;
++use slot::ps1_load::{disc_file, offer_remembered_disc, remember_disc};
++use slot_retro::{ButtonMask, DiscEvent, LibretroCore, RetroCore};
++use slot_store::{scan, Core, Platform};
++
++const STEM: &str = "Night Trap (USA)";
++
++fn card() -> tempfile::TempDir {
++    let d = tmp_root_with_carts(&[]);
++    put_bios(d.path(), "bios_CD_U.bin", &dummy_bios());
++    let games = d.path().join("Games/SEGACD");
++    iso_disc(&games, &format!("{STEM} (Disc 1)"), US);
++    iso_disc(&games, &format!("{STEM} (Disc 2)"), US);
++    d
++}
++
++fn playlist(root: &Path) -> PathBuf {
++    let carts: Vec<_> = scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == Platform::SegaCd)
++        .collect();
++    assert_eq!(carts.len(), 1, "{carts:?}");
++    assert_eq!(carts[0].stem, STEM);
++    carts[0].rom.clone()
++}
++
++fn opened(root: &Path, dylib: PathBuf) -> LibretroCore {
++    let mut core = LibretroCore::open_with(
++        &dylib,
++        &slot::root::bios_dir(root),
++        &slot::root::saves_dir(root),
++    )
++    .expect("open genesis plus gx");
++    let (w, h) = Core::GenesisPlusGx.canvas(Platform::SegaCd);
++    core.set_canvas(w, h);
++    core.use_disc_drive();
++    apply_core_options(
++        &mut core,
++        Core::GenesisPlusGx,
++        Platform::SegaCd,
++        "auto",
++        false,
++        false,
++        None,
++    );
++    core
++}
++
++fn run(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn a_two_disc_set_becomes_one_game_with_a_playlist_relative_to_itself() {
++    let d = card();
++    let m3u = playlist(d.path());
++    assert_eq!(
++        m3u,
++        d.path().join(format!("Config/playlists/SEGACD/{STEM}.m3u"))
++    );
++    assert_eq!(
++        std::fs::read_to_string(&m3u).expect("read the playlist"),
++        format!(
++            "../../../Games/SEGACD/{STEM} (Disc 1).iso\n../../../Games/SEGACD/{STEM} (Disc 2).iso\n"
++        )
++    );
++}
++
++#[test]
++fn the_generated_playlist_loads_and_swaps_between_its_discs() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = card();
++    let m3u = playlist(d.path());
++    let mut core = opened(d.path(), dylib);
++    slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
++    run(&mut core, 5);
++    assert_eq!((core.disc_count(), core.disc_index()), (2, 0));
++    core.next_disc();
++    assert_eq!(core.disc_index(), 1);
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Swapped(1)));
++}
++
++#[test]
++fn a_remembered_disc_is_swapped_in_right_after_load() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = card();
++    let m3u = playlist(d.path());
++    remember_disc(d.path(), Platform::SegaCd, STEM, 1).expect("write the disc file");
++    assert_eq!(
++        disc_file(d.path(), Platform::SegaCd, STEM),
++        d.path().join(format!("Saves/SEGACD/{STEM}.disc"))
++    );
++    let mut core = opened(d.path(), dylib);
++    offer_remembered_disc(&mut core, d.path(), Platform::SegaCd, STEM, &m3u);
++    slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
++    assert_eq!(core.disc_index(), 1);
++}
++
++#[test]
++fn a_state_taken_on_disc_two_brings_disc_two_back_after_a_fresh_load() {
++    let _g = core_lock();
++    let Some(dylib) = genesis_plus_gx() else {
++        return;
++    };
++    let d = card();
++    let m3u = playlist(d.path());
++    let mut core = opened(d.path(), dylib.clone());
++    slot::ps1_load::load(&mut core, &m3u).expect("load the playlist");
++    core.next_disc();
++    run(&mut core, 5);
++    let state = core.serialize().expect("serialize");
++    drop(core);
++    let mut core = opened(d.path(), dylib);
++    slot::ps1_load::load(&mut core, &m3u).expect("load again");
++    assert_eq!(core.disc_index(), 0);
++    core.unserialize(&state).expect("unserialize");
++    assert_eq!(core.disc_index(), 1);
++    assert_eq!(core.take_disc_event(), Some(DiscEvent::Restored(1)));
++}

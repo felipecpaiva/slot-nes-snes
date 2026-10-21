@@ -1,0 +1,242 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:46:43 +0400
+Subject: [PATCH] segacd-carts
+
+A Sega CD game stands on the shelf as a jewel case with its disc inside,
+drawn by the PlayStation case renderer (ADR 0069) at the same size,
+with the same neutrals, cover well, tray and insert animation, so a
+Sega CD case and a PS1 case with the same cover are the same pixels.
+Japanese discs get the spine card (obi) the JP style draws. North
+American Sega CD games shipped in larger cases about the size of a VHS
+keep case; v1 draws the jewel case for them too, the cover fitted whole
+in the square well, and leaves that case as a deferred style. The style comes from the file name
+tags, then the region byte at 0x20b of a .cue or .iso, then USA, the
+same order as the BIOS check; a set of two or more discs is the double
+case. The cover is Labels/SEGACD/<stem>.png and the disc scan
+Labels/SEGACD/disc/<stem>.png, printed outside the hub as on PS1.
+---
+ crates/slot-ui/src/lib.rs           |   4 +-
+ crates/slot-ui/src/ps1_case.rs      |  29 +++++-
+ crates/slot-ui/tests/segacd_case.rs | 137 ++++++++++++++++++++++++++++
+ 3 files changed, 164 insertions(+), 6 deletions(-)
+ create mode 100644 crates/slot-ui/tests/segacd_case.rs
+
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 7dced06..cd41e0f 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -100,8 +100,8 @@ pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOT
+ pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
+ pub use ps1_case::{
+     cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case,
+-    sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX,
+-    OBI_PAPER,
++    read_sega_cd_case, sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R,
++    DISC_PRINT_R, DISC_PX, OBI_PAPER,
+ };
+ pub use quick_menu::{
+     core_button_legends, draw_menu_ground, link_button_legends, prompt_legends, quick_caret_face,
+diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
+index 15ef890..00392b5 100644
+--- a/crates/slot-ui/src/ps1_case.rs
++++ b/crates/slot-ui/src/ps1_case.rs
+@@ -20,7 +20,10 @@ const NEUTRAL: u8 = 128;
+ const TITLE_BOX: (u32, u32, u32, u32) = (80, 52, 200, 70);
+ 
+ pub fn has_disc(cart: &Cart) -> bool {
+-    matches!(cart.platform, Platform::Ps1 | Platform::Pcecd)
++    matches!(
++        cart.platform,
++        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd
++    )
+ }
+ 
+ pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
+@@ -30,15 +33,22 @@ pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
+         .lock()
+         .unwrap_or_else(|e| e.into_inner())
+         .entry(cart.rom.clone())
+-        .or_insert_with(|| read_case(&cart.rom, &cart.stem))
++        .or_insert_with(|| match cart.platform {
++            Platform::SegaCd => read_sega_cd_case(&cart.rom, &cart.stem),
++            _ => read_case(&cart.rom, &cart.stem),
++        })
+ }
+ 
+-pub fn read_case(rom: &Path, stem: &str) -> Ps1Case {
++fn is_set(rom: &Path) -> bool {
+     let is_m3u = rom
+         .extension()
+         .and_then(|e| e.to_str())
+         .is_some_and(|e| e.eq_ignore_ascii_case("m3u"));
+-    if is_m3u && playlist(rom).is_some_and(|discs| discs.len() > 1) {
++    is_m3u && playlist(rom).is_some_and(|discs| discs.len() > 1)
++}
++
++pub fn read_case(rom: &Path, stem: &str) -> Ps1Case {
++    if is_set(rom) {
+         return Ps1Case::Double;
+     }
+     match tag_region(stem).or_else(|| serial(rom).as_deref().and_then(serial_region)) {
+@@ -56,6 +66,17 @@ pub fn cd_case(stem: &str) -> Ps1Case {
+     }
+ }
+ 
++pub fn read_sega_cd_case(rom: &Path, stem: &str) -> Ps1Case {
++    if is_set(rom) {
++        return Ps1Case::Double;
++    }
++    match sega_cd_region(rom, stem) {
++        DiscRegion::Us => Ps1Case::Us,
++        DiscRegion::Eu => Ps1Case::Eu,
++        DiscRegion::Jp => Ps1Case::Jp,
++    }
++}
++
+ pub fn tag_region(stem: &str) -> Option<DiscRegion> {
+     label_tags(stem)
+         .iter()
+diff --git a/crates/slot-ui/tests/segacd_case.rs b/crates/slot-ui/tests/segacd_case.rs
+new file mode 100644
+index 0000000..fdb65f1
+--- /dev/null
++++ b/crates/slot-ui/tests/segacd_case.rs
+@@ -0,0 +1,137 @@
++use std::path::{Path, PathBuf};
++
++use slot_store::{Cart, Platform};
++use slot_ui::{
++    cart_box, cart_face, cart_interior, disc_art_path, has_disc, read_sega_cd_case, retro_shell_of,
++    seated_box, shows_interior, Ps1Case, RetroShell, DISC_PX,
++};
++
++fn disc(platform: Platform, stem: &str, rom: PathBuf, label: Option<PathBuf>) -> Cart {
++    Cart {
++        platform,
++        stem: stem.into(),
++        rom,
++        label,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++fn png(path: &Path, w: u32, h: u32) {
++    let file = std::fs::File::create(path).expect("create png");
++    let mut e = png::Encoder::new(std::io::BufWriter::new(file), w, h);
++    e.set_color(png::ColorType::Rgba);
++    e.set_depth(png::BitDepth::Eight);
++    let data: Vec<u8> = (0..w * h)
++        .flat_map(|i| [(i % 251) as u8, (i % 13) as u8 * 19, 90, 255])
++        .collect();
++    e.write_header()
++        .expect("png header")
++        .write_image_data(&data)
++        .expect("png data");
++}
++
++fn iso(dir: &Path, stem: &str, region: u8) -> PathBuf {
++    let mut data = vec![0u8; 4096];
++    data[..16].copy_from_slice(b"SEGADISCSYSTEM  ");
++    data[0x20b] = region;
++    let path = dir.join(format!("{stem}.iso"));
++    std::fs::write(&path, data).expect("write iso");
++    path
++}
++
++#[test]
++fn a_sega_cd_game_is_a_jewel_case_of_its_region() {
++    let d = tempfile::tempdir().expect("tempdir");
++    let chd = Path::new("x.chd");
++    assert_eq!(read_sega_cd_case(chd, "Snatcher (USA)"), Ps1Case::Us);
++    assert_eq!(read_sega_cd_case(chd, "Sonic CD (Europe)"), Ps1Case::Eu);
++    assert_eq!(
++        read_sega_cd_case(chd, "Lunar - Eternal Blue (Japan) (En)"),
++        Ps1Case::Jp
++    );
++    assert_eq!(read_sega_cd_case(chd, "Popful Mail"), Ps1Case::Us);
++    let eu = iso(d.path(), "Untagged", 0x64);
++    assert_eq!(read_sega_cd_case(&eu, "Untagged"), Ps1Case::Eu);
++    let jp = iso(d.path(), "Untagged JP", 0xa1);
++    assert_eq!(read_sega_cd_case(&jp, "Untagged JP"), Ps1Case::Jp);
++    let cart = disc(
++        Platform::SegaCd,
++        "Keio Flying Squadron (Japan)",
++        "k.chd".into(),
++        None,
++    );
++    assert_eq!(retro_shell_of(&cart), Some(RetroShell::Ps1(Ps1Case::Jp)));
++}
++
++#[test]
++fn a_set_of_two_discs_is_a_double_case() {
++    let d = tempfile::tempdir().expect("tempdir");
++    iso(d.path(), "Night Trap (USA) (Disc 1)", 0x7a);
++    iso(d.path(), "Night Trap (USA) (Disc 2)", 0x7a);
++    let m3u = d.path().join("Night Trap (USA).m3u");
++    std::fs::write(
++        &m3u,
++        "Night Trap (USA) (Disc 1).iso\nNight Trap (USA) (Disc 2).iso\n",
++    )
++    .expect("write m3u");
++    assert_eq!(read_sega_cd_case(&m3u, "Night Trap (USA)"), Ps1Case::Double);
++}
++
++#[test]
++fn a_sega_cd_case_sits_and_draws_exactly_like_a_playstation_case_with_the_same_cover() {
++    assert_eq!(cart_box(Platform::SegaCd), cart_box(Platform::Ps1));
++    assert_eq!(seated_box(Platform::SegaCd), seated_box(Platform::Ps1));
++    let d = tempfile::tempdir().expect("tempdir");
++    let cover = d.path().join("Sonic CD (USA).png");
++    png(&cover, 300, 300);
++    let sega = disc(
++        Platform::SegaCd,
++        "Sonic CD (USA)",
++        d.path().join("Games/SEGACD/Sonic CD (USA).chd"),
++        Some(cover.clone()),
++    );
++    let ps1 = disc(
++        Platform::Ps1,
++        "Sonic CD (USA)",
++        d.path().join("Games/PS1/Sonic CD (USA).chd"),
++        Some(cover),
++    );
++    let (a, b) = (cart_face(&sega), cart_face(&ps1));
++    assert_eq!((a.w, a.h), (b.w, b.h));
++    assert!(
++        a.rgba == b.rgba,
++        "the Sega CD face differs from the PS1 face"
++    );
++}
++
++#[test]
++fn a_sega_cd_game_carries_its_disc_and_the_disc_scan_lives_under_labels_segacd() {
++    let cart = disc(
++        Platform::SegaCd,
++        "Vay (USA)",
++        "/card/Games/SEGACD/Vay (USA).chd".into(),
++        None,
++    );
++    assert!(has_disc(&cart));
++    assert!(shows_interior(&cart));
++    let face = cart_interior(&cart);
++    assert_eq!((face.w, face.h), (DISC_PX, DISC_PX));
++    assert_eq!(
++        disc_art_path(&cart),
++        Some(PathBuf::from("/card/Labels/SEGACD/disc/Vay (USA).png"))
++    );
++    let labelled = disc(
++        Platform::SegaCd,
++        "Vay (USA)",
++        "/card/Games/SEGACD/Vay (USA).chd".into(),
++        Some("/card/Labels/SEGACD/Vay (USA).png".into()),
++    );
++    assert_eq!(
++        disc_art_path(&labelled),
++        Some(PathBuf::from("/card/Labels/SEGACD/disc/Vay (USA).png"))
++    );
++    let md = disc(Platform::Md, "Vay (USA)", "v.md".into(), None);
++    assert!(!has_disc(&md));
++}
