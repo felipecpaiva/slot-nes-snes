@@ -23,6 +23,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 11 | Spec (Who it's NOT for), Phase 17 | Neo Geo, CPS1 and CPS2 in the patch set on FinalBurn Neo (patches 0110 to 0116, ADR 0099), the zip as the romset on those three shelves only, device gate (issue 193) pending |
 | 12 | Spec (Who it's NOT for, Out of scope), Phase 18, Phase 6+ | Famicom Disk System in the patch set on the shipped fceumm (patches 0120 to 0126, ADR 0101), out of the deferred list, device gate (issue 202) pending |
 | 13 | Spec (Who it's NOT for), Phase 19 | PICO-8 carts in the patch set on FAKE-08 (patches 0127 to 0130, ADR 0102), no states, device gate (issue 208) pending |
+| 14 | Spec (Who it's NOT for), Phase 20 | PC Engine SuperGrafx in the patch set on Beetle SuperGrafx (patches 0131 to 0134, ADR 0103), device gate (issue 214) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -63,7 +64,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101) and PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095), Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset), the Famicom Disk System (Phase 18, ADR 0101), PICO-8 carts (Phase 19, ADR 0102, on FAKE-08; PICO-8 itself is never shipped) and the PC Engine SuperGrafx (Phase 20, ADR 0103) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -636,6 +637,22 @@ with its z8lua submodule, built with `cores/fake08/slot.patch`; one shelf `Games
 | 5 | 206, done (0129) | Our grey PICO-8 cart; labels cropped from the cart by `fetch-labels.py` |
 | 6 | 207, done (0130) | A GBA game after a PICO-8 game equals a GBA only run |
 | 7 | 208 | Device gate |
+
+### Phase 20: PC Engine SuperGrafx (in the patch set, device gate pending)
+
+Tracking issue 209, children 210 to 215, ADR 0103. One core, Beetle SuperGrafx (`mednafen_supergrafx`)
+pinned at `9c11dcd`, one shelf `Games/SGX` for `.sgx` and `.pce`, no BIOS, no core picker, every card run
+as a SuperGrafx (`sgx_forcesgx`). The TurboGrafx-16 shelf is unchanged. Patches 0131 to 0134.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0103 and the issues |
+| 2 | 210, done | Core build with `HAVE_CHD=0`, the C++ runtime linked in, `powf` at GLIBC_2.17, licence |
+| 3 | 213, core half done | Generated HuCard: picture, rates, SuperGrafx mode by extension and by `sgx_forcesgx`, states, backup RAM (patch 0131) |
+| 4 | 211, done (0132) | `Platform::Sgx`, options, Screen section (Shader, Picture with 4:3), saves, the TurboGrafx-16 pad |
+| 5 | 212, done (0133) | The Super HuCard, labels for ScreenScraper id 105 |
+| 6 | 214 | Device gate: Daimakaimura, 1941, Aldynes, Battle Ace, Granzort, Darius Plus, Darius Alpha |
+| 7 | 200, done (0134) | Pad row: 2 Buttons or the 6-button Avenue Pad; a GBA game after it equals a GBA only run |
 
 ### Phase 6+: deferred (non-blocking)
 
