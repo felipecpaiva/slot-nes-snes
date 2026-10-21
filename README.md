@@ -1,11 +1,9 @@
 # slot-nes-snes
 
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
-NES, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation, TurboGrafx-16 and PC Engine,
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and Virtual
-Boy, beside slot's own
-WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color, Atari 2600 and 7800, and
-the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
+NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
+TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
+Atari 2600 and 7800, Virtual Boy, and the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -27,6 +25,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 |---|---|---|---|---|---|
 | GBA, GB, GBC | `Games/GBA`, `Games/GB`, `Games/GBC` | as slot | mGBA, gpSP (slot's own) | as slot | unchanged from upstream |
 | NES | `Games/NES` | `.nes` | fceumm, or nestopia | none | device tested |
+| Famicom Disk System | `Games/FDS` | `.fds` (headered or not) | fceumm | **required**, your own `disksys.rom` | device gate pending |
 | SNES | `Games/SNES` | `.sfc`, `.smc` | snes9x, or snes9x2005_plus | none | device tested |
 | Master System | `Games/SMS` | `.sms` | Genesis Plus GX | none | device tested |
 | Game Gear | `Games/GG` | `.gg` | Genesis Plus GX | none | device tested |
@@ -57,6 +56,9 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
 - **Atari Lynx:** required. `BIOS/lynxboot.img`, 512 bytes. Without it the cart stays on the shelf
   and slot says "Lynx needs BIOS/lynxboot.img" (a 0-byte placeholder counts as missing). A 512-byte
   file that is not the known dump still launches, with a one-time toast.
+- **Famicom Disk System:** required. `BIOS/disksys.rom`, 8192 bytes. Without it the disk stays on
+  the shelf and slot says "FDS needs BIOS/disksys.rom". An 8 KB file that is not the known dump
+  (crc32 5e607dcf) still launches, with a one-time toast.
 - **Atari 7800:** optional and off by default. With the BIOS row On (7800 Screen section), ProSystem
   loads `BIOS/7800 BIOS (U).rom` (`(E)` for a PAL cart) and shows the Atari logo before a signed game;
   an unsigned cart (homebrew) does not boot with it. Off hides the file from the core.
@@ -117,6 +119,14 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   Right Pad row's ABXY choice puts the right D-pad on X, A, B and Y (A and B move to R2 and L2), for
   games such as Red Alarm and Teleroboxer that use it as buttons. Games run at their own 50.27 Hz.
   Every cart keeps a 64 KB `.sav` in `Saves/VB`.
+- **Famicom Disk System.** Disks run on fceumm, the NES core, on a shelf of their own drawn as yellow
+  Disk Cards. SELECT+L2 turns the disk to its next side, and after the last side of a multi-disk game
+  goes back to Disk 1 Side A; a banner names the side now in the drive ("Disk 1 Side B"). The disk is
+  out of the drive for a second while it turns, as on the real drive. A game's progress is written to
+  the disk, which slot keeps as `Saves/FDS/<game>.sav` (the whole disk as the game left it); the `.fds`
+  file is never written, so deleting the `.sav` gives the disk back as dumped. A save of the wrong size
+  for the disk is kept aside as `<game>.sav.mismatch` and not loaded. Every disk runs at 60 Hz (it was
+  a Japan-only system), so there is no PAL Speed row.
 - **Neo Geo, CPS1 and CPS2** run on FinalBurn Neo, one shelf per board. The zip is the romset, named
   as the set (`mslug.zip`, `ffight.zip`, `ssf2t.zip`), for the pinned FinalBurn Neo (dat 1.0.0.03):
   a zip that is not a set of that board is left off the shelf, and an older MAME set may lack a file
@@ -138,7 +148,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, Atari 2600 and 7800, where it is the default) |
+| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, 32X, Neo Geo, CPS1, CPS2, Atari 2600 and 7800, where it is the default) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -203,6 +213,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - Atari 2600 and 7800: a PAL game is shown at the NTSC picture height in 4:3 and Stretch (the middle
   210 or 223 rows); Actual shows the whole PAL frame. Keypad, driving and Mindlink 2600 games are not
   supported. The device gates (issues 162 and 170) are still open.
+- Famicom Disk System: rewinding into the second the disk is out of the drive can leave it out (SELECT+L2
+  again puts the next side in). A disk that is never written still leaves a full-size `.sav`. The device
+  gate (issue 202) is still open.
 - At Native PAL speed, a 50 fps game on the 59.6 Hz panel repeats about one frame in six.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.

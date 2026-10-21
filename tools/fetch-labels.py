@@ -139,6 +139,12 @@ SYSTEMS = {
     # Skyscraper's platforms_idmap.csv (Gemba/skyscraper ccd49ae, row "virtualboy,11,38,4918"). .vb and .vboy, as
     # slot scans (ADR 0097); libretro-thumbnails has Nintendo - Virtual Boy Named_Logos (22, checked 2026-10-20).
     "VB": ("virtualboy", {".vb", ".vboy"}, [NO_INTRO + "Virtual Boy"], 11),
+    # Famicom Disk System: libretro-database metadat/no-intro "Nintendo - Family Computer Disk System", which
+    # hashes the disk without the 16-byte fwNES header (Adian no Tsue (Japan).fds, 131000 bytes, two sides);
+    # ScreenScraper id 106 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper c253bfe, row "fds,106,22,4936").
+    # .fds, as slot scans (ADR 0101); libretro-thumbnails has no Family Computer Disk System Named_Logos
+    # (checked 2026-10-21, 404), so --logo-fallback takes the ScreenScraper wheel.
+    "FDS": ("fds", {".fds"}, [NO_INTRO + "Family Computer Disk System"], 106),
     # Arcade (ADR 0099): the zip is the romset, named after its FinalBurn Neo set, so there is no No-Intro
     # dat; ScreenScraper finds an arcade set by its file name (romnom). Ids per Skyscraper's
     # platforms_idmap.csv (Gemba/skyscraper c253bfe) row
@@ -598,7 +604,10 @@ class Rom:
         SNES without a 512-byte copier header (size % 1024 == 512) then the whole file, a HuCard likewise
         (size % 8192 == 512), a Mega Drive SMD dump (as Genesis Plus GX detects one) de-interleaved, since
         No-Intro hashes the raw ROM. A .lnx without its 64-byte LYNX header first, the way No-Intro and
-        Beetle Lynx hash it. A headered .a78 without its 128-byte header too."""
+        Beetle Lynx hash it. A headered .a78 without its 128-byte header too, and a .fds without its 16-byte
+        fwNES header."""
+        if system == "FDS" and self.size > 16 and self.read()[:4] == b"FDS\x1a":
+            yield zlib.crc32(self.read()[16:])
         if system == "Lynx" and self.size > 64 and self.read()[:4] == b"LYNX":
             yield zlib.crc32(self.read()[64:])
         if system == "A7800" and self.size > 128 and self.read()[1:10] == b"ATARI7800":
@@ -1747,7 +1756,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")
