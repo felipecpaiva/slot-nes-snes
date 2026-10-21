@@ -1,9 +1,9 @@
 # Sega CD / Mega-CD on slot-nes-snes: plan (2026-10-19)
 
-> **Integrated 2026-10-21 (ADR 0104, patches 0135 to 0142).** Written on the `segacd-groundwork` branch
-> as ADR 0094, issues 113 to 122, patch 0057 and Phase 13; renumbered on integration to ADR 0104, issues
-> 216 to 225 (226 is the device gate), patch 0135 and Phase 21. Where the integration differs from this
-> plan, ADR 0104 wins: `genesis_plus_gx_cart_size` is left unanswered (the pin stores "disabled" as 0xff
+> **Integrated 2026-10-21 (ADR 0105, patches 0139 to 0146).** Written on the `segacd-groundwork` branch
+> as ADR 0094, issues 113 to 122, patch 0057 and Phase 13; renumbered on integration to ADR 0105, issues
+> 222 to 231 (232 is the device gate), patch 0139 and Phase 22. Where the integration differs from this
+> plan, ADR 0105 wins: `genesis_plus_gx_cart_size` is left unanswered (the pin stores "disabled" as 0xff
 > and mounts a cart), the state trailer is the PS1 one, the BIOS check uses crc32 and knows both US dumps,
 > there is no Region row, and the cases are the PS1 jewel cases unchanged.
 
@@ -18,12 +18,12 @@ the core that already plays Game Gear, Master System and Mega Drive. Core line n
 - **Verdict: go.** It is the cheapest disc system on the list:
   - no new core, no new licence, no new build: GPGX already ships, and our pinned build has
     `HAVE_CHD = 1` (`Makefile.libretro` line 4);
-  - the picture is the Mega Drive's (256 or 320 x 224, the 360x240 canvas, ADR 0052);
+  - the picture is the Mega Drive's (256 or 320 x 230, the 360x240 canvas, ADR 0052);
   - 59.92 fps (US, JP) or 49.70 (EU), both handled by ADR 0071 the way Mega Drive is;
   - the controls are the Mega Drive's (3 or 6 buttons);
   - discs and jewel cases reuse the PS1 machinery (ADR 0067, 0069).
 - **Done now (groundwork, this branch):** host tests on the pinned core
-  (`patches/0135-segacd-core-tests.patch`, issue 224). They prove, on CI with no real BIOS:
+  (`patches/0139-segacd-core-tests.patch`, issue 230). They prove, on CI with no real BIOS:
   - a disc with no BIOS is refused;
   - the region byte picks `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`;
   - cue/bin, iso and chd discs load at 59.92 fps on the 360x240 canvas, with no `SAVE_RAM`;
@@ -31,7 +31,7 @@ the core that already plays Game Gear, Master System and Mega Drive. Core line n
     not carry it, and that a flush by reload writes it and leaves the game where it was;
   - how GPGX reads an `.m3u`.
   With `SLOT_SEGACD_BIOS` set, the real US BIOS boots to its menu and draws the 320-wide picture.
-- **The one new problem is backup RAM durability** (issue 221). GPGX writes the Sega CD's internal
+- **The one new problem is backup RAM durability** (issue 227). GPGX writes the Sega CD's internal
   backup RAM (`.brm`) itself, only in `retro_unload_game`, truncating the file in place. Unlike
   NGP, the save state does **not** carry it, so a resume state is no backstop. The NGP design
   (issue 75 on the NGP branch) applies, and the flush by reload is cheap on the host (0.8 ms for a
@@ -40,7 +40,7 @@ the core that already plays Game Gear, Master System and Mega Drive. Core line n
 
 ## 1. Core facts at the pin (verified 2026-10-19)
 
-Each fact is pinned by a test in `segacd_core.rs` (patch 0135) unless it says "source".
+Each fact is pinned by a test in `segacd_core.rs` (patch 0139) unless it says "source".
 
 ### Loading a disc
 
@@ -58,7 +58,7 @@ Each fact is pinned by a test in `segacd_core.rs` (patch 0135) unless it says "s
   load fails (tested: no BIOS, and a PAL or Japanese disc with only the US BIOS present).
 - **The core checks nothing in the BIOS file** beyond opening it and reading more than zero bytes
   (`load_bios`, `core/loadrom.c` line 394). A junk file of the right name "boots" to a black screen.
-  The tests rely on this (a 128 KB dummy that spins), and slot's BIOS check (issue 218) must hash
+  The tests rely on this (a 128 KB dummy that spins), and slot's BIOS check (issue 224) must hash
   the file, because the core will not.
 - **Known BIOS dumps** (GPGX libretro doc, and the maintainer's files, md5 checked 2026-10-19):
 
@@ -69,7 +69,7 @@ Each fact is pinned by a test in `segacd_core.rs` (patch 0135) unless it says "s
   | `bios_CD_J.bin` | 131072 | `278a9397d192149e84e820ac621a8edd` | `9d2da8f2` |
 
   The PicoDrive doc lists another US revision (md5 `2efd74e3...`), the RetroPie copy he also has.
-  Issue 218 decides whether that one is accepted too (it boots in GPGX, unmeasured).
+  Issue 224 decides whether that one is accepted too (it boots in GPGX, unmeasured).
 - **The BIOS alone** loaded as content boots the CD unit to its menu (the `ROMType` "BR" branch,
   `core/loadrom.c` from line 797). Tested with the real US BIOS: 320 wide, the menu drawn inside the
   picture, black bars outside.
@@ -123,7 +123,7 @@ Each fact is pinned by a test in `segacd_core.rs` (patch 0135) unless it says "s
   default `4meg`, a 512 KB `4Mbit_cart.brm` shared by every game, lines 1404 to 1500). slot answers
   no option it was not given, so the core reads the option as unset, leaves `cart_size` at 0 and
   mounts no cart (`cd_cart_init`, `core/cd_hw/cd_cart.c` line 178; tested: only `scd_U.brm` is
-  written). Issue 219 makes that explicit.
+  written). Issue 225 makes that explicit.
 - **Flush by reload works.** Serialize, `load` the same disc (slot's `load` unloads first, so the
   core writes the `.brm`), unserialize: the `.brm` is on disk and the state is the state an
   unserialize alone gives (tested). Host timings on the M5 Max:
@@ -143,7 +143,7 @@ Each fact is pinned by a test in `segacd_core.rs` (patch 0135) unless it says "s
   write absolute paths (`write_playlist`, patch 0034), so that code cannot be reused as is: Sega CD
   playlists must hold paths relative to the playlist, or sit beside the discs.
 
-## 2. Backup RAM durability (issue 221)
+## 2. Backup RAM durability (issue 227)
 
 The bar is ADR 0012 and 0034's rule for `.sav`: progress the game wrote survives these events.
 
@@ -161,7 +161,7 @@ The NGP options carry over, with one change: option 5 (rely on the state) is not
    NGP issue 75 seam. The file sits beside the platform's other saves and follows ADR 0082's hack
    updates. Small.
 2. **Per-game file**: `genesis_plus_gx_system_bram = per game`, so one game cannot clobber
-   another's saves and a torn write loses one game, not a region's worth. Small (issue 219).
+   another's saves and a torn write loses one game, not a region's worth. Small (issue 225).
 3. **Atomic publish.** The core writes into a staging dir (`Saves/SEGACD/.core/`). Before load slot
    copies `Saves/SEGACD/<stem>.brm` in; after unload it publishes with `persist`'s temp, fsync and
    rename. A torn file never reaches the final path. Small, reuses the atomic writer and NGP's
@@ -177,11 +177,11 @@ The NGP options carry over, with one change: option 5 (rely on the state) is not
    its pinned upstream with no patches, and the file format would change (`.sav` instead of
    `.brm`). Only if option 5 fails the device bar, and then upstream first (ADR 0047).
 
-**Recommendation: 1 + 2 + 3 + 4 + 5**, the NGP design, decided in ADR 0104 with option 5 conditional
+**Recommendation: 1 + 2 + 3 + 4 + 5**, the NGP design, decided in ADR 0105 with option 5 conditional
 on the device number. If the reload misses the bar at lid close, the fallback is to flush by reload
 only at eject and autosave, and accept up to 60 s of loss at a lid close.
 
-## 3. Measuring the reload on the device (issue 221)
+## 3. Measuring the reload on the device (issue 227)
 
 What to measure: the wall time of serialize, `load` of the same disc, unserialize, on the RG34XXSP,
 for real CHDs on the SD card. The host number is 2 ms; the A53 is roughly 10 to 15 times slower on
@@ -211,7 +211,7 @@ The bar:
 If the autosave misses its bar, the autosave flush moves to the next pause (quick menu open), which
 already stops the game.
 
-## 4. Video and the Screen section (issue 220)
+## 4. Video and the Screen section (issue 226)
 
 - `Core::canvas(GenesisPlusGx, SegaCd) = (360, 240)`, the Mega Drive canvas (ADR 0050). Stretch
   follows the live frame width (ADR 0052), Crop and Picture as Mega Drive (ADR 0061, 0062).
@@ -221,14 +221,14 @@ already stops the game.
   because European discs run at 49.70.
 - Named test sites (g) and (h) gain the token (ADR 0055); CONTRIBUTING.md in that patch.
 
-## 5. Input (issue 223)
+## 5. Input (issue 229)
 
 The Mega Drive policy as shipped (patch 0026): SNES-like layout, X, Y, L and R as the 6-button row,
 slot keeps no shoulders (`owns_shoulders` false), SELECT is MODE and keeps slot's chords. GPGX picks 3 or 6 buttons per port by its device
 type. Default 6-button, like Mega Drive. A game that misreads a 6-button pad is a device-gate
 finding, and a per-game 3-button choice is added only then.
 
-## 6. Shelf, scan, discs, cases, art (issues 217, 222, 225)
+## 6. Shelf, scan, discs, cases, art (issues 223, 228, 231)
 
 - **Shelf** `Games/SEGACD`, `Platform::SegaCd`, appended to `SHELVES`; `Saves/SEGACD`,
   `States/SEGACD`, `Labels/SEGACD`, short like `Games/MD`. The shelf title is "Sega CD"; the EU and
@@ -236,11 +236,11 @@ finding, and a per-game 3-button choice is added only then.
 - **Scan** `.chd`, `.cue`, `.m3u`, and `.iso` (a cooked single-track dump). A `.bin` is never a game
   (it is a track; the PS1 rule). A playlist hides the discs it names (PS1 code, reused). Discs
   named `(Disc N)` with no playlist get one generated, **with relative paths** (section 1).
-- **Discs** (issue 222): ADR 0067's swap (SELECT+L2 on PS1; on Sega CD L2 is free too), rollback,
+- **Discs** (issue 228): ADR 0067's swap (SELECT+L2 on PS1; on Sega CD L2 is free too), rollback,
   `Saves/SEGACD/<stem>.disc`, and the state trailer. Differences: legacy interface only, so the
   remembered disc is set by a swap right after load; 4 discs at most. Multi-disc games in his
   library: Night Trap and Prize Fighter (two discs each).
-- **Cases** (issue 225): the PS1 jewel case renderer (ADR 0069) with Sega CD styles:
+- **Cases** (issue 231): the PS1 jewel case renderer (ADR 0069) with Sega CD styles:
   - US: the long box era and later the jewel case; v1 draws the jewel case only (the long box is a
     deferred style, like issue 68);
   - EU and JP: the jewel case; JP with its spine strip (obi), as PS1.
@@ -253,22 +253,22 @@ finding, and a per-game 3-button choice is added only then.
   (`box-2D`) and disc scan (`support-2D`), disc games matched by name since a disc has no CRC in a
   No-Intro dat.
 
-## 7. Issue list (Phase 21)
+## 7. Issue list (Phase 22)
 
 | Issue | Title | Size |
 |---|---|---|
-| 216 | Tracking: Sega CD / Mega-CD on Genesis Plus GX (holds the device gate) | L |
-| 217 | Add `Platform::SegaCd` with its own shelf, disc scan and explicit policy | M |
-| 218 | Check the region's Sega CD BIOS before a launch and toast instead of a black screen | S |
-| 219 | Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache | S |
-| 220 | Give Sega CD the Mega Drive canvas and its own Screen section | S |
-| 221 | Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload | M |
-| 222 | Swap Sega CD discs, remember the disc, record it in states | S |
-| 223 | Hand the Mega Drive 3 and 6 button pad to Sega CD games | S |
-| 224 | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | S |
-| 225 | Draw Sega CD games as jewel cases and fetch their covers | M |
+| 222 | Tracking: Sega CD / Mega-CD on Genesis Plus GX (holds the device gate) | L |
+| 223 | Add `Platform::SegaCd` with its own shelf, disc scan and explicit policy | M |
+| 224 | Check the region's Sega CD BIOS before a launch and toast instead of a black screen | S |
+| 225 | Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache | S |
+| 226 | Give Sega CD the Mega Drive canvas and its own Screen section | S |
+| 227 | Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload | M |
+| 228 | Swap Sega CD discs, remember the disc, record it in states | S |
+| 229 | Hand the Mega Drive 3 and 6 button pad to Sega CD games | S |
+| 230 | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | S |
+| 231 | Draw Sega CD games as jewel cases and fetch their covers | M |
 
-## 8. Device gate (in issue 216)
+## 8. Device gate (in issue 222)
 
 1. Play Sonic CD, Lunar: The Silver Star, Snatcher and Final Fight CD for 10 minutes each under
    `SLOT_TRACE`: full speed, zero audio underruns, the ms a frame recorded (estimate 4 to 6 ms,
@@ -281,7 +281,7 @@ finding, and a per-game 3-button choice is added only then.
 
 ## 9. What remains for the integration step
 
-Issues 217 to 223 and 225, plus the platform half of 224, in issue order. Nothing to build: the core
+Issues 223 to 229 and 231, plus the platform half of 230, in issue order. Nothing to build: the core
 is already in `task core:host`, `task core:device`, `dist:device` and `zip-check.sh`. When the
 platform patch lands, `zip-check.sh` gains `SEGACD` in its `games` list and the README row moves
-from planned to shipped. NGP issue 75's staging code should land first so issue 221 reuses it.
+from planned to shipped. NGP issue 75's staging code should land first so issue 227 reuses it.

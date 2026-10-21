@@ -1,4 +1,4 @@
-"""tools/fetch-labels.py for Sega CD (ADR 0104), offline: the system entry, discs by name with the cover and the
+"""tools/fetch-labels.py for Sega CD (ADR 0105), offline: the system entry, discs by name with the cover and the
 disc scan, a two-disc set as one game, and no disc hashed.
 
     python3 -m unittest tools/tests/test_fetch_labels_segacd.py
@@ -44,7 +44,7 @@ class SegaCd(Base):
 
     def test_sega_cd_names_its_library_folder_screenscraper_id_and_thumbnails_folder(self):
         self.assertEqual(fl.SYSTEMS["SEGACD"], ("segacd", {".chd", ".cue", ".m3u", ".iso"}, [], 20))
-        self.assertEqual(fl.DISC_SYSTEMS["SEGACD"], "Sega - Mega-CD - Sega CD")
+        self.assertEqual(fl.DISC["SEGACD"], "Sega - Mega-CD - Sega CD")
         self.assertNotIn("SEGACD", fl.ART_SYSTEMS)
 
     def test_a_disc_by_name_takes_the_cover_and_the_disc_scan_under_20_and_is_never_hashed(self):

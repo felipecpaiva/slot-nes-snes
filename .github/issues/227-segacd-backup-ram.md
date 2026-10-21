@@ -1,14 +1,14 @@
 ---
 title: "Keep Sega CD backup RAM safe: core save dir, atomic publish, check, flush by reload"
-phase: 21
+phase: 22
 area: platform
 type: feature
 size: M
-depends_on: [219-segacd-options]
+depends_on: [225-segacd-options]
 ---
 
 ## Why
-Step 7, the one new problem (ADR 0104). Genesis Plus GX gives slot no `SAVE_RAM` for a CD and does not expose the backup RAM in its memory maps. It writes `<stem>.brm` itself, only in `retro_unload_game`, truncating the file in place, into whatever save dir slot hands it (today `Saves/`). **Unlike NGP, the state does not carry it**, so a resume state is no backstop: a power cut loses everything since the last clean eject, resume or not. The facts are pinned by `segacd_core.rs` (patch 0135).
+Step 7, the one new problem (ADR 0105). Genesis Plus GX gives slot no `SAVE_RAM` for a CD and does not expose the backup RAM in its memory maps. It writes `<stem>.brm` itself, only in `retro_unload_game`, truncating the file in place, into whatever save dir slot hands it (today `Saves/`). **Unlike NGP, the state does not carry it**, so a resume state is no backstop: a power cut loses everything since the last clean eject, resume or not. The facts are pinned by `segacd_core.rs` (patch 0139).
 
 ## Scope
 - [x] Core save dir `Saves/SEGACD/.core` through `slot::ngp_flash::core_save_dir`, the NGP seam (the NGP flash ADR, 0094), generalised by platform.
@@ -26,16 +26,16 @@ Step 7, the one new problem (ADR 0104). Genesis Plus GX gives slot no `SAVE_RAM`
 | (done) | `segacd_core.rs` `the_backup_ram_is_read_at_load_and_not_rewritten_when_unchanged` | the core reads the staged file |
 | (done) | `segacd_core.rs` `a_flush_by_reload_writes_the_backup_ram_and_the_game_carries_on_from_its_state` | the reload contract and its host time |
 | (done) | `segacd_core.rs` `a_flush_by_reload_of_an_owned_disc_is_timed` | host timing on a real disc (`SLOT_SEGACD_DISC`) |
-| (done, 0140) | `segacd_saves.rs` `a_lid_close_mid_game_puts_the_backup_ram_in_saves_segacd` | real `Session`, file in `Saves/SEGACD/<stem>.brm` after `flush_resume`, game still running |
-| (done, 0140) | `segacd_saves.rs` `an_eject_publishes_the_backup_ram_atomically` | never a partial file at the final path |
-| (done, 0140) | `segacd_saves.rs` `a_torn_backup_ram_on_the_card_boots_the_game_and_is_kept_aside` | the check |
+| (done, 0144) | `segacd_saves.rs` `a_lid_close_mid_game_puts_the_backup_ram_in_saves_segacd` | real `Session`, file in `Saves/SEGACD/<stem>.brm` after `flush_resume`, game still running |
+| (done, 0144) | `segacd_saves.rs` `an_eject_publishes_the_backup_ram_atomically` | never a partial file at the final path |
+| (done, 0144) | `segacd_saves.rs` `a_torn_backup_ram_on_the_card_boots_the_game_and_is_kept_aside` | the check |
 
 ## Edge cases
 | Case | Expected handling |
 |---|---|
 | Game never saved | The first unload still writes a formatted 8 KB file (pinned); publishing it is harmless |
 | Reload fails mid-flush (disc removed from the card) | The state is written; log, toast, and resume from the state on the next launch |
-| A disc swapped mid-game | The reload loads the playlist, then swaps back to the disc in play (issue 222) before unserialize |
+| A disc swapped mid-game | The reload loads the playlist, then swaps back to the disc in play (issue 228) before unserialize |
 | A `.brm` copied in from RetroArch or muOS (`scd_U.brm`, per region) | Not imported automatically; README says to rename it `<stem>.brm` for the game it belongs to |
 
 ## Acceptance
@@ -45,4 +45,4 @@ Step 7, the one new problem (ADR 0104). Genesis Plus GX gives slot no `SAVE_RAM`
 Save in Lunar, close the lid, pull the battery, boot: the save is there, resuming and starting fresh. The reload times recorded in docs/PERFORMANCE.md.
 
 ## References
-- ADR 0012, 0034, 0072, 0082, 0094 (the NGP flash design), 0104; docs/research/segacd-plan.md sections 2 and 3
+- ADR 0012, 0034, 0072, 0082, 0094 (the NGP flash design), 0105; docs/research/segacd-plan.md sections 2 and 3

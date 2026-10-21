@@ -18,31 +18,32 @@ refuses the disc without it. Another 128 KB file launches with one
 "bios_CD_U.bin is not a known dump" toast a session: the core checks
 nothing in the file, so a junk BIOS would otherwise be a black screen
 with no word. A disc resumed at boot is checked the same way. The six
-toasts upload after the FDS ones.
+toasts upload after the PC Engine CD ones.
 ---
  crates/slot-store/src/lib.rs       |   1 +
  crates/slot-store/src/ps1.rs       |   2 +-
  crates/slot-store/src/segacd.rs    |  69 +++++++++++
- crates/slot-ui/src/lib.rs          |   6 +-
+ crates/slot-ui/src/lib.rs          |   7 +-
  crates/slot-ui/src/ps1_case.rs     |   6 +
  crates/slot-ui/src/quick_retro.rs  |   1 +
  crates/slot-ui/src/segacd_toast.rs |  41 +++++++
  crates/slot-ui/src/toast.rs        |   3 +
  crates/slot/src/app.rs             |   4 +
  crates/slot/src/app/segacd_bios.rs |  41 +++++++
+ crates/slot/tests/pcecd_bios.rs    |   2 +-
  crates/slot/tests/ps1_discs.rs     |   1 +
  crates/slot/tests/segacd_bios.rs   | 187 +++++++++++++++++++++++++++++
- 12 files changed, 359 insertions(+), 3 deletions(-)
+ 13 files changed, 361 insertions(+), 4 deletions(-)
  create mode 100644 crates/slot-store/src/segacd.rs
  create mode 100644 crates/slot-ui/src/segacd_toast.rs
  create mode 100644 crates/slot/src/app/segacd_bios.rs
  create mode 100644 crates/slot/tests/segacd_bios.rs
 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 72287bd..bf449a2 100644
+index aa2bc02..3bd23ca 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -24,6 +24,7 @@ pub mod s32x;
+@@ -25,6 +25,7 @@ pub mod s32x;
  mod scan;
  pub mod sega;
  mod sega_shader;
@@ -139,10 +140,10 @@ index 0000000..25db6d1
 +    })
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index fb3dfc2..168dc9f 100644
+index 355cb23..7dced06 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -38,6 +38,7 @@ mod retro_mould;
+@@ -39,6 +39,7 @@ mod retro_mould;
  mod retro_shadows;
  mod retro_shell;
  mod screen_order;
@@ -150,18 +151,19 @@ index fb3dfc2..168dc9f 100644
  mod shelf;
  mod shell;
  mod silhouette;
-@@ -96,8 +97,8 @@ pub use plate::{
+@@ -98,8 +99,9 @@ pub use plate::{
  pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
  pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
  pub use ps1_case::{
--    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
+-    cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
 -    DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
-+    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, sega_cd_region,
-+    tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
++    cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case,
++    sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX,
++    OBI_PAPER,
  };
  pub use quick_menu::{
      core_button_legends, draw_menu_ground, link_button_legends, prompt_legends, quick_caret_face,
-@@ -121,6 +122,7 @@ pub use retro_shell::{
+@@ -123,6 +125,7 @@ pub use retro_shell::{
      SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK, SNES_GREY, SNES_TITLES, VB_GREY, WSC_CLEAR, WS_BLACK,
  };
  pub use screen_order::{screen_page, set_screen_page};
@@ -170,10 +172,10 @@ index fb3dfc2..168dc9f 100644
  pub use shell::{
      gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
 diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
-index 98fc5b6..83aac63 100644
+index 80b5d4f..15ef890 100644
 --- a/crates/slot-ui/src/ps1_case.rs
 +++ b/crates/slot-ui/src/ps1_case.rs
-@@ -175,3 +175,9 @@ fn overlay(base: u8, colour: u8) -> u8 {
+@@ -183,3 +183,9 @@ fn overlay(base: u8, colour: u8) -> u8 {
      };
      out.clamp(0, 255) as u8
  }
@@ -184,20 +186,20 @@ index 98fc5b6..83aac63 100644
 +        .unwrap_or(DiscRegion::Us)
 +}
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
-index 0a8e1e3..1886b4d 100644
+index 9a86d80..5f66e50 100644
 --- a/crates/slot-ui/src/quick_retro.rs
 +++ b/crates/slot-ui/src/quick_retro.rs
-@@ -156,6 +156,7 @@ impl Toast {
-             .chain(crate::LynxToast::ALL.map(Toast::Lynx))
+@@ -158,6 +158,7 @@ impl Toast {
              .chain(crate::ArcadeToast::ALL.map(Toast::Arcade))
              .chain(crate::FdsToast::ALL.map(Toast::Fds))
+             .chain(crate::PcecdToast::ALL.map(Toast::Pcecd))
 +            .chain(crate::SegaCdToast::ALL.map(Toast::SegaCd))
              .collect()
      }
  }
 diff --git a/crates/slot-ui/src/segacd_toast.rs b/crates/slot-ui/src/segacd_toast.rs
 new file mode 100644
-index 0000000..4df5fdf
+index 0000000..a71f2ee
 --- /dev/null
 +++ b/crates/slot-ui/src/segacd_toast.rs
 @@ -0,0 +1,41 @@
@@ -239,69 +241,69 @@ index 0000000..4df5fdf
 +
 +impl Toast {
 +    pub fn segacd_index(s: SegaCdToast) -> usize {
-+        Toast::fds_index(crate::FdsToast::ALL[0]) + crate::FdsToast::ALL.len() + s.index()
++        Toast::pcecd_index(crate::PcecdToast::ALL[0]) + crate::PcecdToast::ALL.len() + s.index()
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index 4f93ffb..05a7ed1 100644
+index 4a67857..ad91eb0 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -34,6 +34,7 @@ pub enum Toast {
-     Lynx(crate::LynxToast),
+@@ -35,6 +35,7 @@ pub enum Toast {
      Arcade(crate::ArcadeToast),
      Fds(crate::FdsToast),
+     Pcecd(crate::PcecdToast),
 +    SegaCd(crate::SegaCdToast),
  }
  
  impl Toast {
-@@ -75,6 +76,7 @@ impl Toast {
-             Toast::Lynx(l) => Toast::lynx_index(l),
+@@ -77,6 +78,7 @@ impl Toast {
              Toast::Arcade(a) => Toast::arcade_index(a),
              Toast::Fds(f) => Toast::fds_index(f),
+             Toast::Pcecd(p) => Toast::pcecd_index(p),
 +            Toast::SegaCd(s) => Toast::segacd_index(s),
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -126,6 +128,7 @@ impl Toast {
-             Toast::Lynx(l) => l.text(),
+@@ -129,6 +131,7 @@ impl Toast {
              Toast::Arcade(a) => a.text(),
              Toast::Fds(f) => f.text(),
+             Toast::Pcecd(p) => p.text(),
 +            Toast::SegaCd(s) => s.text(),
          }
      }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 4d347ca..d3cc8f1 100644
+index f19496e..5d7ff93 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -5,6 +5,7 @@ mod fast_scroll;
- mod fds_bios;
+@@ -6,6 +6,7 @@ mod fds_bios;
  mod lynx_bios;
+ mod pcecd_bios;
  mod ps1_discs;
 +mod segacd_bios;
  mod shelf_order;
  mod silent_start;
  mod start_guard;
-@@ -451,6 +452,7 @@ pub struct App {
-     battery_warned: Option<u8>,
+@@ -453,6 +454,7 @@ pub struct App {
      lynx_bios_warned: bool,
      fds_bios_warned: bool,
+     pcecd_bios_warned: bool,
 +    segacd_bios_warned: bool,
      lynx_flip: bool,
      last_led: Option<LedState>,
      powering_off: bool,
-@@ -651,6 +653,7 @@ impl App {
-             battery_warned: None,
+@@ -654,6 +656,7 @@ impl App {
              lynx_bios_warned: false,
              fds_bios_warned: false,
+             pcecd_bios_warned: false,
 +            segacd_bios_warned: false,
              lynx_flip: true,
              last_led: None,
              powering_off: false,
-@@ -5075,6 +5078,7 @@ impl App {
-         if !self.lynx_bios_allows(platform)
+@@ -5098,6 +5101,7 @@ impl App {
              || !self.neogeo_bios_allows(platform)
              || !self.fds_bios_allows(platform)
+             || !self.pcecd_bios_allows(platform)
 +            || !self.segacd_bios_allows(platform)
          {
              return;
@@ -353,25 +355,37 @@ index 0000000..b47d173
 +        }
 +    }
 +}
+diff --git a/crates/slot/tests/pcecd_bios.rs b/crates/slot/tests/pcecd_bios.rs
+index 3ea54ff..addb7d5 100644
+--- a/crates/slot/tests/pcecd_bios.rs
++++ b/crates/slot/tests/pcecd_bios.rs
+@@ -155,6 +155,6 @@ fn the_pc_engine_cd_toasts_upload_in_their_own_place_after_the_disk_system_ones(
+     );
+     assert_eq!(
+         every.len(),
+-        Toast::Pcecd(PcecdToast::UnknownBios).index() + 1
++        Toast::Pcecd(PcecdToast::UnknownBios).index() + 1 + slot_ui::SegaCdToast::ALL.len()
+     );
+ }
 diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
-index 185037d..0c3f811 100644
+index c7adc55..3c1b38b 100644
 --- a/crates/slot/tests/ps1_discs.rs
 +++ b/crates/slot/tests/ps1_discs.rs
-@@ -221,6 +221,7 @@ fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
-                 - slot_ui::LynxToast::ALL.len()
+@@ -222,6 +222,7 @@ fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
                  - slot_ui::ArcadeToast::ALL.len()
                  - slot_ui::FdsToast::ALL.len()
+                 - slot_ui::PcecdToast::ALL.len()
 +                - slot_ui::SegaCdToast::ALL.len()
                  + i
          );
      }
 diff --git a/crates/slot/tests/segacd_bios.rs b/crates/slot/tests/segacd_bios.rs
 new file mode 100644
-index 0000000..f105c74
+index 0000000..87ac580
 --- /dev/null
 +++ b/crates/slot/tests/segacd_bios.rs
 @@ -0,0 +1,187 @@
-+// Sega CD needs the BIOS of the disc's region in BIOS/, which slot never ships or fetches (ADR 0104).
++// Sega CD needs the BIOS of the disc's region in BIOS/, which slot never ships or fetches (ADR 0105).
 +// Genesis Plus GX opens bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin by the disc's region byte at
 +// 0x20b and checks nothing in it, so slot checks the file before the disc is inserted.
 +mod common;
@@ -388,7 +402,7 @@ index 0000000..f105c74
 +use slot_store::ps1::DiscRegion;
 +use slot_store::segacd::{bios, bios_file, bios_of, disc_region, BIOS_BYTES};
 +use slot_store::{write_slot_state, Platform, SlotState};
-+use slot_ui::{sega_cd_region, FdsToast, SegaCdToast, Toast};
++use slot_ui::{sega_cd_region, PcecdToast, SegaCdToast, Toast};
 +use tempfile::TempDir;
 +
 +fn card(disc: &str, region: u8, bios: &[(&str, &[u8])]) -> TempDir {
@@ -547,7 +561,7 @@ index 0000000..f105c74
 +}
 +
 +#[test]
-+fn the_sega_cd_toasts_upload_in_their_own_place_after_the_fds_ones() {
++fn the_sega_cd_toasts_upload_in_their_own_place_after_the_pc_engine_cd_ones() {
 +    let every = Toast::every();
 +    for s in SegaCdToast::ALL {
 +        let t = Toast::SegaCd(s);
@@ -555,6 +569,6 @@ index 0000000..f105c74
 +    }
 +    assert_eq!(
 +        Toast::SegaCd(SegaCdToast::ALL[0]).index(),
-+        Toast::Fds(FdsToast::ALL[FdsToast::ALL.len() - 1]).index() + 1
++        Toast::Pcecd(PcecdToast::ALL[PcecdToast::ALL.len() - 1]).index() + 1
 +    );
 +}

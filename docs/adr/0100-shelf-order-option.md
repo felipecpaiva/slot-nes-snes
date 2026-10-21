@@ -85,13 +85,14 @@ First release anywhere, from each platform's English Wikipedia article (read 202
 | TurboGrafx-16 (PC Engine) | 30 October 1987 | Japan | [TurboGrafx-16](https://en.wikipedia.org/wiki/TurboGrafx-16) |
 | CPS1 | 13 May 1988 (Forgotten Worlds) | Japan | [CP System](https://en.wikipedia.org/wiki/CP_System) |
 | Mega Drive | 29 October 1988 | Japan | [Sega Genesis](https://en.wikipedia.org/wiki/Sega_Genesis) |
+| PC Engine CD-ROM² | 4 December 1988 (added with ADR 0104, read 2026-10-21) | Japan | [TurboGrafx-16](https://en.wikipedia.org/wiki/TurboGrafx-16), section "CD-ROM² / TurboGrafx-CD" |
 | Game Boy | 21 April 1989 | Japan | [Game Boy](https://en.wikipedia.org/wiki/Game_Boy) |
 | Lynx | 1 September 1989 | North America | [Atari Lynx](https://en.wikipedia.org/wiki/Atari_Lynx) |
 | PC Engine SuperGrafx | 8 December 1989 (added with ADR 0103, read 2026-10-21) | Japan | [PC Engine SuperGrafx](https://en.wikipedia.org/wiki/PC_Engine_SuperGrafx) |
 | Neo Geo MVS | 16 April 1990 | Japan | [Neo Geo (system)](https://en.wikipedia.org/wiki/Neo_Geo_(system)) |
 | Game Gear | 6 October 1990 | Japan | [Game Gear](https://en.wikipedia.org/wiki/Game_Gear) |
 | SNES (Super Famicom) | 21 November 1990 | Japan | [Super Nintendo Entertainment System](https://en.wikipedia.org/wiki/Super_Nintendo_Entertainment_System) |
-| Sega CD (Mega-CD) | 12 December 1991 (added with ADR 0104, read 2026-10-21) | Japan | [Sega CD](https://en.wikipedia.org/wiki/Sega_CD) |
+| Sega CD (Mega-CD) | 12 December 1991 (added with ADR 0105, read 2026-10-21) | Japan | [Sega CD](https://en.wikipedia.org/wiki/Sega_CD) |
 | CPS2 | 10 September 1993 (Super Street Fighter II) | Japan | [CP System II](https://en.wikipedia.org/wiki/CP_System_II) |
 | Sega 32X | 21 November 1994 | North America | [32X](https://en.wikipedia.org/wiki/32X) |
 | PlayStation | 3 December 1994 | Japan | [PlayStation (console)](https://en.wikipedia.org/wiki/PlayStation_(console)) |

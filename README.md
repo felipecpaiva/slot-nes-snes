@@ -4,7 +4,7 @@ More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic
 NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
 TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
 Atari 2600 and 7800, Virtual Boy, the Neo Geo, CPS1 and CPS2 arcade boards, PICO-8 carts, the PC Engine SuperGrafx,
-and Sega CD / Mega-CD, beside slot's own
+PC Engine CD-ROM² and TurboGrafx-CD discs, and Sega CD / Mega-CD, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -45,6 +45,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device gate pending |
 | PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
+| PC Engine CD, TurboGrafx-CD | `Games/PCECD` | `.chd`, `.cue`, `.ccd` | Beetle PCE Fast | **required**, your own `syscard3.pce` (System Card 3.0) | device gate pending |
 | Sega CD, Mega-CD | `Games/SEGACD` | `.chd`, `.cue`, `.iso`, `.m3u` | Genesis Plus GX | **required**, your own `bios_CD_U.bin`, `bios_CD_E.bin`, `bios_CD_J.bin` | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
@@ -103,7 +104,7 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   sticks, and L1, R1, L2 and R2 go to the game. SELECT+R2 toggles fast-forward.
 - **TurboGrafx-16 and PC Engine** play like Game Gear: B is II, A is I, START is Run, X and Y are
   turbo. Picture is Crop by default (8 lines off the top and bottom), then Stretch and Actual. Every
-  HuCard keeps a 2 KB `.sav`. CD games are out of scope; SuperGrafx cards have their own shelf.
+  HuCard keeps a 2 KB `.sav`. SuperGrafx cards and CD discs have their own shelves.
 - **WonderSwan and WonderSwan Color.** Horizontal games are drawn at 3x, vertical ones upright at
   2x, read from the cart's own footer; a SELECT tap turns a vertical game sideways and back. 60 Hz by
   default, and the Refresh row switches to the native 75 Hz.
@@ -167,6 +168,15 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   on L1 and R1, the picture toggle on SELECT+X) from the next start. A SuperGrafx card is drawn as a
   Super HuCard, its label the other way up from a standard HuCard's. A `.pce` card on the TG16 shelf
   stays a TurboGrafx-16 game.
+- **PC Engine CD and TurboGrafx-CD** have their own shelf, `Games/PCECD`, on the same Beetle PCE Fast
+  core: CD-ROM², Super CD-ROM² and Arcade CD-ROM² discs as `.chd`, `.cue` or `.ccd`. Put your own System
+  Card 3.0 in `BIOS/syscard3.pce` (262,144 bytes, md5 `38179df8f4ac870017db21ebcbf53114`; a copy with a
+  512-byte header works too); without it a disc stays on the shelf and says so. It plays like the
+  TurboGrafx-16 (B is II, A is I, START is Run, X and Y are turbo), with save states, rewind and
+  fast-forward; the 2 KB backup RAM is the disc's `.sav`. Picture is Crop by default, then Stretch,
+  Actual and 4:3. A disc is drawn in its jewel case with its cover, a Japanese disc with the paper spine
+  strip, and the disc slides out into the slot when it starts. Discs are large, so `Games/PCECD` is a
+  good folder for the Expansion Card.
 - **Sega CD, Mega-CD** has its own shelf, `Games/SEGACD`, on Genesis Plus GX, the Mega Drive core. It
   plays like the Mega Drive: the six-button pad, SELECT+X for the picture, Stretch following the 256
   or 320 wide frame, PAL Speed for European discs, CD audio, rewind and fast-forward. A game of
@@ -188,7 +198,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, Atari 2600 and 7800, where it is the default) |
+| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, Sega CD, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -255,9 +265,12 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 - PC Engine SuperGrafx: with the 6-button pad turbo is off and L1 and R1 belong to the game. Beetle
   SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16. The device gate
   (issue 214) is still open.
+- PC Engine CD: one disc per game (Beetle PCE Fast cannot change discs, so no `.m3u`), System Card 3.0
+  only (no Games Express). The device gate (issue 221) is still open, including whether the CD audio
+  keeps time from a CHD with large hunks.
 - Sega CD: the backup RAM is written by reloading the disc for an instant (serialize, load, restore),
   because the core keeps it outside save states. Its cost on the device is a device-gate item (issue
-  226); if it is too slow at lid close, that flush moves to eject, autosave and the quick menu. A
+  232); if it is too slow at lid close, that flush moves to eject, autosave and the quick menu. A
   `.chd` with no region tag is taken as a US disc. Up to 4 discs a game.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.

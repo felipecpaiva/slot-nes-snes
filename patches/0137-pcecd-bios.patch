@@ -1,0 +1,483 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 11:15:06 +0400
+Subject: [PATCH] pcecd-bios
+
+Before a disc starts slot checks BIOS/syscard3.pce, the System Card 3.0
+the core boots (pce_fast_cdbios "System Card 3"): present, 262144 bytes,
+crc32 0x6d9a73ef (the syscard3.pce row of libretro-database
+dat/System.dat, md5 38179df8f4ac870017db21ebcbf53114). A 512-byte
+copier header is skipped first, the same rule the core uses when it
+loads the card (libretro.c HuCLoadCD), so a headered copy of the same
+card reads as known. Missing or the wrong size: the disc stays on the
+shelf with "PC Engine CD needs BIOS/syscard3.pce", because the core
+refuses a disc without a card. Another 256 KB card launches with one
+"syscard3.pce is not the known dump" toast a session. A disc resumed at
+boot is checked the same way. The two toasts upload after the Disk
+System ones.
+---
+ crates/slot-store/src/lib.rs         |   1 +
+ crates/slot-store/src/pcecd.rs       |  27 +++++
+ crates/slot-ui/src/lib.rs            |   2 +
+ crates/slot-ui/src/pcecd_toast.rs    |  28 +++++
+ crates/slot-ui/src/quick_retro.rs    |   1 +
+ crates/slot-ui/src/toast.rs          |   3 +
+ crates/slot/src/app.rs               |   4 +
+ crates/slot/src/app/pcecd_bios.rs    |  36 ++++++
+ crates/slot/tests/pcecd_bios.rs      | 160 +++++++++++++++++++++++++++
+ crates/slot/tests/pcecd_platform.rs  |  22 +++-
+ crates/slot/tests/ps1_discs.rs       |   1 +
+ crates/slot/tests/resume_platform.rs |   2 +
+ 12 files changed, 285 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot-store/src/pcecd.rs
+ create mode 100644 crates/slot-ui/src/pcecd_toast.rs
+ create mode 100644 crates/slot/src/app/pcecd_bios.rs
+ create mode 100644 crates/slot/tests/pcecd_bios.rs
+
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 36494fa..a6250aa 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -14,6 +14,7 @@ pub mod ini;
+ pub mod lynx;
+ pub mod nes;
+ pub mod ngp;
++pub mod pcecd;
+ pub mod pico8;
+ mod platform;
+ mod platform_policy;
+diff --git a/crates/slot-store/src/pcecd.rs b/crates/slot-store/src/pcecd.rs
+new file mode 100644
+index 0000000..3c721ca
+--- /dev/null
++++ b/crates/slot-store/src/pcecd.rs
+@@ -0,0 +1,27 @@
++use std::path::Path;
++
++use crate::lynx::{crc32, Bios};
++
++pub const BIOS_FILE: &str = "syscard3.pce";
++const BIOS_BYTES: usize = 262_144;
++const BIOS_CRC32: u32 = 0x6d9a_73ef;
++const COPIER_HEADER: usize = 512;
++
++pub fn bios(bios_dir: &Path) -> Bios {
++    match std::fs::read(bios_dir.join(BIOS_FILE)) {
++        Ok(bytes) => bios_of(&bytes),
++        Err(_) => Bios::Missing,
++    }
++}
++
++pub fn bios_of(bytes: &[u8]) -> Bios {
++    let body = match bytes.len() & COPIER_HEADER {
++        0 => bytes,
++        _ => bytes.get(COPIER_HEADER..).unwrap_or_default(),
++    };
++    match (body.len(), crc32(body)) {
++        (BIOS_BYTES, BIOS_CRC32) => Bios::Known,
++        (BIOS_BYTES, _) => Bios::Unknown,
++        _ => Bios::Missing,
++    }
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index fb3dfc2..fd9a1cc 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -24,6 +24,7 @@ mod icon;
+ mod lid_fit;
+ mod link_art;
+ mod lynx_toast;
++mod pcecd_toast;
+ mod plate;
+ mod polaroids;
+ mod power_menu;
+@@ -87,6 +88,7 @@ pub use link_art::{
+     PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
+ };
+ pub use lynx_toast::LynxToast;
++pub use pcecd_toast::PcecdToast;
+ pub use plate::{
+     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints,
+     hint_coloured, hint_face, hint_quad, hint_row, hint_width, title_face, title_line_face,
+diff --git a/crates/slot-ui/src/pcecd_toast.rs b/crates/slot-ui/src/pcecd_toast.rs
+new file mode 100644
+index 0000000..ddc0158
+--- /dev/null
++++ b/crates/slot-ui/src/pcecd_toast.rs
+@@ -0,0 +1,28 @@
++use crate::Toast;
++
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub enum PcecdToast {
++    NeedsBios,
++    UnknownBios,
++}
++
++impl PcecdToast {
++    pub const ALL: [PcecdToast; 2] = [PcecdToast::NeedsBios, PcecdToast::UnknownBios];
++
++    pub fn index(self) -> usize {
++        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
++    }
++
++    pub fn text(self) -> &'static str {
++        match self {
++            PcecdToast::NeedsBios => "PC Engine CD needs BIOS/syscard3.pce",
++            PcecdToast::UnknownBios => "syscard3.pce is not the known dump",
++        }
++    }
++}
++
++impl Toast {
++    pub fn pcecd_index(p: PcecdToast) -> usize {
++        Toast::fds_index(crate::FdsToast::ALL[0]) + crate::FdsToast::ALL.len() + p.index()
++    }
++}
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 8b59485..ba821c9 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -152,6 +152,7 @@ impl Toast {
+             .chain(crate::LynxToast::ALL.map(Toast::Lynx))
+             .chain(crate::ArcadeToast::ALL.map(Toast::Arcade))
+             .chain(crate::FdsToast::ALL.map(Toast::Fds))
++            .chain(crate::PcecdToast::ALL.map(Toast::Pcecd))
+             .collect()
+     }
+ }
+diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
+index 4f93ffb..4a67857 100644
+--- a/crates/slot-ui/src/toast.rs
++++ b/crates/slot-ui/src/toast.rs
+@@ -34,6 +34,7 @@ pub enum Toast {
+     Lynx(crate::LynxToast),
+     Arcade(crate::ArcadeToast),
+     Fds(crate::FdsToast),
++    Pcecd(crate::PcecdToast),
+ }
+ 
+ impl Toast {
+@@ -75,6 +76,7 @@ impl Toast {
+             Toast::Lynx(l) => Toast::lynx_index(l),
+             Toast::Arcade(a) => Toast::arcade_index(a),
+             Toast::Fds(f) => Toast::fds_index(f),
++            Toast::Pcecd(p) => Toast::pcecd_index(p),
+             fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
+         }
+     }
+@@ -126,6 +128,7 @@ impl Toast {
+             Toast::Lynx(l) => l.text(),
+             Toast::Arcade(a) => a.text(),
+             Toast::Fds(f) => f.text(),
++            Toast::Pcecd(p) => p.text(),
+         }
+     }
+ }
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index e350c8b..6065e3a 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -4,6 +4,7 @@ mod battery_warn;
+ mod fast_scroll;
+ mod fds_bios;
+ mod lynx_bios;
++mod pcecd_bios;
+ mod ps1_discs;
+ mod shelf_order;
+ mod silent_start;
+@@ -451,6 +452,7 @@ pub struct App {
+     battery_warned: Option<u8>,
+     lynx_bios_warned: bool,
+     fds_bios_warned: bool,
++    pcecd_bios_warned: bool,
+     lynx_flip: bool,
+     last_led: Option<LedState>,
+     powering_off: bool,
+@@ -651,6 +653,7 @@ impl App {
+             battery_warned: None,
+             lynx_bios_warned: false,
+             fds_bios_warned: false,
++            pcecd_bios_warned: false,
+             lynx_flip: true,
+             last_led: None,
+             powering_off: false,
+@@ -5073,6 +5076,7 @@ impl App {
+         if !self.lynx_bios_allows(platform)
+             || !self.neogeo_bios_allows(platform)
+             || !self.fds_bios_allows(platform)
++            || !self.pcecd_bios_allows(platform)
+         {
+             return;
+         }
+diff --git a/crates/slot/src/app/pcecd_bios.rs b/crates/slot/src/app/pcecd_bios.rs
+new file mode 100644
+index 0000000..a20bd3b
+--- /dev/null
++++ b/crates/slot/src/app/pcecd_bios.rs
+@@ -0,0 +1,36 @@
++use slot_store::lynx::Bios;
++use slot_store::pcecd::bios;
++use slot_store::Platform;
++use slot_ui::{PcecdToast, Toast};
++
++use super::App;
++
++impl App {
++    pub(super) fn pcecd_bios_allows(&mut self, platform: Platform) -> bool {
++        if platform != Platform::Pcecd {
++            return true;
++        }
++        let Some(root) = self.root.as_deref() else {
++            return true;
++        };
++        match bios(&crate::root::bios_dir(root)) {
++            Bios::Known => true,
++            Bios::Unknown => {
++                if !self.pcecd_bios_warned {
++                    self.pcecd_bios_warned = true;
++                    eprintln!("slot: pcecd: BIOS/syscard3.pce is not the known dump, launching");
++                    self.hud
++                        .toast(Toast::Pcecd(PcecdToast::UnknownBios), self.now());
++                }
++                true
++            }
++            Bios::Missing => {
++                eprintln!("slot: pcecd: no usable BIOS/syscard3.pce, not launching");
++                self.hud
++                    .toast(Toast::Pcecd(PcecdToast::NeedsBios), self.now());
++                self.refuse();
++                false
++            }
++        }
++    }
++}
+diff --git a/crates/slot/tests/pcecd_bios.rs b/crates/slot/tests/pcecd_bios.rs
+new file mode 100644
+index 0000000..3ea54ff
+--- /dev/null
++++ b/crates/slot/tests/pcecd_bios.rs
+@@ -0,0 +1,160 @@
++// A PC Engine CD boots the System Card in BIOS/syscard3.pce, which slot never ships or fetches
++// (ADR 0104). Without it Beetle PCE Fast refuses the disc, so slot checks before the disc goes in, like
++// the Lynx and the Disk System. The core skips a 512-byte copier header (libretro.c HuCLoadCD: a size
++// with the 0x200 bit set), so the check does too.
++mod common;
++mod core_common;
++mod pcecd_common;
++mod tg16_common;
++
++use std::path::Path;
++
++use common::tmp_root_with_carts;
++use pcecd_common::{disc, placeholder_card, put_card, real_card};
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::lynx::Bios;
++use slot_store::pcecd::{bios, bios_of, BIOS_FILE};
++use slot_store::{write_slot_state, Platform, SlotState};
++use slot_ui::{FdsToast, PcecdToast, Toast};
++use tempfile::TempDir;
++
++fn card(bios: Option<&[u8]>) -> TempDir {
++    let d = tmp_root_with_carts(&[]);
++    disc(&d.path().join("Games/PCECD"), "Ys Book I & II (USA)");
++    if let Some(b) = bios {
++        put_card(d.path(), b);
++    }
++    d
++}
++
++fn boot_on(root: &Path, cart: Option<&str>) -> App {
++    write_slot_state(
++        root,
++        &SlotState {
++            clock_set: true,
++            cart: cart.map(str::to_string),
++            cart_platform: cart.map(|_| Platform::Pcecd),
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    App::boot(root)
++}
++
++fn insert(a: &mut App) {
++    a.apply(Action::GbaDown(Btn::A));
++    a.apply(Action::GbaUp(Btn::A));
++    for _ in 0..10 {
++        a.update(1.0 / 60.0);
++    }
++}
++
++fn inserting(a: &App) -> bool {
++    matches!(a.phase(), Phase::Inserting { .. } | Phase::Playing { .. })
++}
++
++fn headered(body: &[u8]) -> Vec<u8> {
++    let mut h = vec![0u8; 512];
++    h.extend_from_slice(body);
++    h
++}
++
++#[test]
++fn the_check_reads_missing_short_long_and_unknown_files() {
++    let d = tempfile::tempdir().unwrap();
++    assert_eq!(BIOS_FILE, "syscard3.pce");
++    assert_eq!(bios(d.path()), Bios::Missing);
++    for (bytes, want) in [
++        (vec![], Bios::Missing),
++        (vec![0u8; 131_072], Bios::Missing),
++        (vec![0u8; 262_145], Bios::Missing),
++        (vec![0u8; 262_144], Bios::Unknown),
++        (headered(&[0u8; 262_144]), Bios::Unknown),
++    ] {
++        std::fs::write(d.path().join(BIOS_FILE), &bytes).unwrap();
++        assert_eq!(bios(d.path()), want, "{} bytes", bytes.len());
++    }
++}
++
++#[test]
++fn the_maintainers_own_card_is_the_known_dump_with_or_without_a_copier_header() {
++    let Some(b) = real_card() else {
++        return;
++    };
++    assert_eq!(bios_of(&b), Bios::Known);
++    assert_eq!(bios_of(&headered(&b)), Bios::Known);
++}
++
++#[test]
++fn with_no_system_card_a_disc_stays_on_the_shelf_with_a_toast() {
++    let d = card(None);
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Pcecd(PcecdToast::NeedsBios)));
++    assert_eq!(
++        Toast::Pcecd(PcecdToast::NeedsBios).text(),
++        "PC Engine CD needs BIOS/syscard3.pce"
++    );
++}
++
++#[test]
++fn a_disc_resumed_at_boot_is_checked_too() {
++    let d = card(Some(&[0u8; 100]));
++    let a = boot_on(d.path(), Some("Ys Book I & II (USA)"));
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Pcecd(PcecdToast::NeedsBios)));
++}
++
++#[test]
++fn an_unknown_system_card_launches_and_says_so() {
++    let d = card(Some(&placeholder_card()));
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), Some(Toast::Pcecd(PcecdToast::UnknownBios)));
++}
++
++#[test]
++fn a_known_system_card_launches_with_no_toast() {
++    let Some(b) = real_card() else {
++        return;
++    };
++    let d = card(Some(&b));
++    let mut a = boot_on(d.path(), None);
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_eq!(a.toast(), None);
++}
++
++#[test]
++fn the_check_never_stops_a_turbografx_hucard() {
++    let d = tmp_root_with_carts(&[]);
++    std::fs::write(
++        d.path().join("Games/TG16/Bonk.pce"),
++        tg16_common::hucard_bytes(false),
++    )
++    .unwrap();
++    let mut a = App::boot(d.path());
++    insert(&mut a);
++    assert!(inserting(&a), "{:?}", a.phase());
++    assert_ne!(a.toast(), Some(Toast::Pcecd(PcecdToast::NeedsBios)));
++}
++
++#[test]
++fn the_pc_engine_cd_toasts_upload_in_their_own_place_after_the_disk_system_ones() {
++    let every = Toast::every();
++    for p in PcecdToast::ALL {
++        let t = Toast::Pcecd(p);
++        assert_eq!(every.get(t.index()), Some(&t), "{p:?}");
++    }
++    assert_eq!(
++        Toast::Pcecd(PcecdToast::ALL[0]).index(),
++        Toast::Fds(FdsToast::ALL[FdsToast::ALL.len() - 1]).index() + 1
++    );
++    assert_eq!(
++        every.len(),
++        Toast::Pcecd(PcecdToast::UnknownBios).index() + 1
++    );
++}
+diff --git a/crates/slot/tests/pcecd_platform.rs b/crates/slot/tests/pcecd_platform.rs
+index 8c25c1d..242c07d 100644
+--- a/crates/slot/tests/pcecd_platform.rs
++++ b/crates/slot/tests/pcecd_platform.rs
+@@ -1,6 +1,5 @@
+ mod common;
+ mod core_common;
+-mod input_common;
+ mod pcecd_common;
+ mod real_seat;
+ mod tg16_common;
+@@ -209,7 +208,26 @@ fn the_pc_engine_cd_picture_starts_at_crop_and_walks_stretch_actual_four_three_c
+ 
+ #[test]
+ fn the_in_game_shader_row_steps_the_pc_engine_cd_shader_into_its_own_file() {
+-    let (root, mut session) = input_common::playing(Platform::Pcecd, "Gate of Thunder");
++    let root = tmp_root_with_real_carts(&[]);
++    put_card(root.path(), &placeholder_card());
++    std::fs::write(
++        root.path().join("Games/PCECD/Gate of Thunder.cue"),
++        [0u8; 0x200],
++    )
++    .unwrap();
++    common::clocked(root.path());
++    let mut session = Session::boot(root.path().to_path_buf());
++    session.feed([RawEvent::Down(Btn::A)], 16);
++    session.feed([RawEvent::Up(Btn::A)], 32);
++    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
++    while !matches!(session.app().phase(), Phase::Playing { .. }) {
++        assert!(
++            std::time::Instant::now() < deadline,
++            "the disc never seated"
++        );
++        session.update(1.0 / 60.0);
++        std::thread::sleep(std::time::Duration::from_millis(1));
++    }
+     assert_eq!(session.app().screen_shader(), Shader::Off);
+     let mut now = 100;
+     for ev in [
+diff --git a/crates/slot/tests/ps1_discs.rs b/crates/slot/tests/ps1_discs.rs
+index 185037d..c7adc55 100644
+--- a/crates/slot/tests/ps1_discs.rs
++++ b/crates/slot/tests/ps1_discs.rs
+@@ -221,6 +221,7 @@ fn the_disc_toasts_follow_the_retro_banners_and_read_plainly() {
+                 - slot_ui::LynxToast::ALL.len()
+                 - slot_ui::ArcadeToast::ALL.len()
+                 - slot_ui::FdsToast::ALL.len()
++                - slot_ui::PcecdToast::ALL.len()
+                 + i
+         );
+     }
+diff --git a/crates/slot/tests/resume_platform.rs b/crates/slot/tests/resume_platform.rs
+index c09ad25..4657a81 100644
+--- a/crates/slot/tests/resume_platform.rs
++++ b/crates/slot/tests/resume_platform.rs
+@@ -38,6 +38,8 @@ fn each_new_system_resumes_its_own_cart_and_never_a_nes_cart_with_the_same_name(
+         std::fs::write(root.path().join(rom), vec![0u8; 0x10000]).expect("write cart");
+         std::fs::write(root.path().join("BIOS/lynxboot.img"), [0u8; 512]).expect("write bios");
+         std::fs::write(root.path().join("BIOS/disksys.rom"), [0u8; 8192]).expect("write bios");
++        std::fs::write(root.path().join("BIOS/syscard3.pce"), vec![0u8; 262_144])
++            .expect("write bios");
+         for remembered in [platform, Platform::Nes] {
+             remembering(root.path(), remembered);
+             let app = App::boot(root.path());

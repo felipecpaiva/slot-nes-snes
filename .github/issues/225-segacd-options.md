@@ -1,14 +1,14 @@
 ---
 title: "Set the Sega CD core options: per-game backup RAM, no RAM cart, no precache"
-phase: 21
+phase: 22
 area: cores
 type: feature
 size: S
-depends_on: [217-platform-segacd]
+depends_on: [223-platform-segacd]
 ---
 
 ## Why
-Step 5. Three Genesis Plus GX options decide where Sega CD saves go and what a reload costs. slot answers no option it was not given, so today the core reads them as unset (pinned by `segacd_core.rs`). They must be explicit (ADR 0104).
+Step 5. Three Genesis Plus GX options decide where Sega CD saves go and what a reload costs. slot answers no option it was not given, so today the core reads them as unset (pinned by `segacd_core.rs`). They must be explicit (ADR 0105).
 
 ## Scope
 - [x] `genesis_plus_gx_system_bram = per game`: `<stem>.brm` per game instead of one `scd_U.brm` per region, so one game cannot fill or clobber another's 8 KB and a torn write loses one game.
@@ -22,7 +22,7 @@ Step 5. Three Genesis Plus GX options decide where Sega CD saves go and what a r
 |---|---|---|
 | (exists) | `segacd_core.rs` `by_default_the_core_writes_only_scd_u_brm_into_slots_save_dir_and_only_at_unload` | the unset baseline |
 | (exists) | `segacd_core.rs` `per_game_backup_ram_is_named_after_the_disc_stem` | the per-game name |
-| (done, 0141) | `segacd_saves.rs` `slot_opens_a_disc_with_per_game_backup_ram_no_ram_cart_and_the_mega_drive_without_either` | slot's open path: a disc writes only `<stem>.brm`, the Mega Drive path still `scd_U.brm` |
+| (done, 0145) | `segacd_saves.rs` `slot_opens_a_disc_with_per_game_backup_ram_no_ram_cart_and_the_mega_drive_without_either` | slot's open path: a disc writes only `<stem>.brm`, the Mega Drive path still `scd_U.brm` |
 
 ## Edge cases
 | Case | Expected handling |
@@ -37,4 +37,4 @@ Step 5. Three Genesis Plus GX options decide where Sega CD saves go and what a r
 Save in two different games; two `.brm` files, each with its own saves.
 
 ## References
-- ADR 0053, 0064, 0104; `libretro/libretro.c` lines 1385 to 1500 and 1765 at `393f70c`
+- ADR 0053, 0064, 0105; `libretro/libretro.c` lines 1385 to 1500 and 1765 at `393f70c`

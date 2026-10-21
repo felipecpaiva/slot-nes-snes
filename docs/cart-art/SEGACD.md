@@ -1,4 +1,4 @@
-# Sega CD jewel case (issue 225, ADR 0104)
+# Sega CD jewel case (issue 231, ADR 0105)
 
 Same rules as [VARIANTS.md](VARIANTS.md) and [PS1.md](PS1.md): every value cites its source, or says it is
 the maintainer's choice. Nothing is guessed.
@@ -6,7 +6,7 @@ the maintainer's choice. Nothing is guessed.
 ## What slot draws
 
 A Sega CD game is the PlayStation jewel case of ADR 0069, unchanged: `RetroShell::Ps1(Ps1Case)` with the
-same outlines, neutrals, cover well, black tray, disc and insert animation (patch 0142). No new bitmap; a
+same outlines, neutrals, cover well, black tray, disc and insert animation (patch 0146). No new bitmap; a
 Sega CD case and a PS1 case with the same cover are the same pixels (`slot-ui/tests/segacd_case.rs`).
 
 | Value | Ours | Source |

@@ -9,6 +9,8 @@
 #             "-static-libstdc++ -static-libgcc" because the handheld's OS may lack libstdc++.so.6
 #   device_include  optional, a header under the repo root force-included into every device compile
 #             (cores/mednafen_pce_fast/glibc-2.17.h pins a libm symbol to its GLIBC_2.17 version)
+#   host_cflags  optional, extra CFLAGS for the macOS build only (-Dfdopen=fdopen: zlib 1.2.11 takes the
+#             SDK's TARGET_OS_MAC for classic Mac OS and defines fdopen away)
 #   modules   optional, git submodules the GitHub archive leaves out, as name:path:owner/repo words
 #             (emu2413:pico/sound/emu2413:digital-sound-antiques/emu2413). SLOT_PIN holds
 #             <core>_<name>_commit and <core>_<name>_tarball_sha256; the tarball is
@@ -24,6 +26,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 device_cflags="-mcpu=cortex-a53"
 device_ldflags="${device_ldflags:-}"
 device_include="${device_include:-}"
+host_cflags="${host_cflags:-}"
 modules="${modules:-}"
 owner="${owner:-libretro}"
 source_patch="${source_patch:-}"
@@ -112,7 +115,10 @@ stamp() {
 	done
 	echo "builder=$(builder "$2")"
 	case "$2" in
-	host) echo "recipe=$(recipe osx)" ;;
+	host)
+		echo "recipe=$(recipe osx)"
+		[ -z "$host_cflags" ] || echo "host_cflags=$host_cflags"
+		;;
 	device)
 		echo "recipe=$(recipe unix)"
 		echo "device_cflags=$device_cflags"
@@ -188,6 +194,8 @@ build() {
 			CFLAGS="$CFLAGS -include $root/$device_include" CXXFLAGS="$CXXFLAGS -include $root/$device_include"
 		fi
 		[ -z "$device_ldflags" ] || export LDFLAGS="$device_ldflags"
+	elif [ -n "$host_cflags" ]; then
+		export CFLAGS="$host_cflags" CXXFLAGS="$host_cflags"
 	fi
 	make -C "$mdir" ${makefile:+-f "$makefile"} platform=$platform ${make_args:-} \
 		GIT_VERSION="-$(printf %s "$rev" | cut -c1-7)" \

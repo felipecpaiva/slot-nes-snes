@@ -1,9 +1,9 @@
-# 0104. Bring Sega CD / Mega-CD into scope on the Genesis Plus GX already shipped, with a BIOS check and the core's backup RAM made durable
+# 0105. Bring Sega CD / Mega-CD into scope on the Genesis Plus GX already shipped, with a BIOS check and the core's backup RAM made durable
 
 - Status: Accepted. Amends [0053](0053-genesis-plus-gx-for-sega.md) and the docs/PLAN.md "Who it's NOT for" line on more systems
 - Date: 2026-10-21 (groundwork 2026-10-19, numbered 0094 on the `segacd-groundwork` branch; main's 0094 is the NGP flash ADR)
 - Deciders: maintainer (Felipe Paiva)
-- Related: [Sega CD plan](../research/segacd-plan.md), [ADR 0053](0053-genesis-plus-gx-for-sega.md), [ADR 0059](0059-need-fullpath-load.md), [ADR 0067](0067-ps1-disk-control-and-disc-in-states.md), [ADR 0069](0069-ps1-jewel-case-shelf.md), [ADR 0072](0072-write-sav-when-the-core-gives-no-state.md), [ADR 0094](0094-ngp-flash-staged-checked-published.md), [ADR 0098](0098-expansion-card.md), [ADR 0100](0100-shelf-order-option.md), [issue 216](../../.github/issues/216-segacd-tracking.md), patches 0135 to 0142
+- Related: [Sega CD plan](../research/segacd-plan.md), [ADR 0053](0053-genesis-plus-gx-for-sega.md), [ADR 0059](0059-need-fullpath-load.md), [ADR 0067](0067-ps1-disk-control-and-disc-in-states.md), [ADR 0069](0069-ps1-jewel-case-shelf.md), [ADR 0072](0072-write-sav-when-the-core-gives-no-state.md), [ADR 0094](0094-ngp-flash-staged-checked-published.md), [ADR 0098](0098-expansion-card.md), [ADR 0100](0100-shelf-order-option.md), [issue 222](../../.github/issues/222-segacd-tracking.md), patches 0139 to 0146
 
 ## Context
 
@@ -12,7 +12,7 @@ Sega CD ranks first on the next-systems review (docs/research/next-systems-2026-
 System and Mega Drive (ADR 0053), and our pinned build (`393f70c`) has CHD support compiled in. So there is no
 new core, no new licence and no new build.
 
-Reading the core at the pin and testing it on slot's open path (patch 0135) found these facts:
+Reading the core at the pin and testing it on slot's open path (patch 0139) found these facts:
 
 - The core picks one BIOS file from the disc's region byte at 0x20b (`get_region`: 0x64 Europe, 0xa1 Japan,
   anything else USA) and checks nothing in it beyond opening it. A missing file fails the load. A junk file
@@ -32,8 +32,8 @@ Reading the core at the pin and testing it on slot's open path (patch 0135) foun
 
 ## Decision
 
-- Sega CD is in scope as Phase 21: one shelf `Games/SEGACD` for `.chd`, `.cue`, `.iso` and `.m3u` (a `.bin` is
-  a track, never a game), `Platform::SegaCd` appended to `SHELVES` after the SuperGrafx. Upstream `ALL` stays
+- Sega CD is in scope as Phase 22: one shelf `Games/SEGACD` for `.chd`, `.cue`, `.iso` and `.m3u` (a `.bin` is
+  a track, never a game), `Platform::SegaCd` appended to `SHELVES` after the PC Engine CD. Upstream `ALL` stays
   untouched and every policy method is answered explicitly (ADR 0063). The core is `Core::GenesisPlusGx` at the
   existing pin, with no picker. Released 12 December 1991 (Mega-CD, Japan) for the shelf order (ADR 0100).
 - Picture, timing and pad are the Mega Drive's: the 360x240 canvas, Stretch following the live frame width
@@ -82,7 +82,7 @@ Reading the core at the pin and testing it on slot's open path (patch 0135) foun
 
 ## Consequences
 
-- Eight patches (0135 to 0142). They touch neither GBA, GB nor GBC, and give the Mega Drive no new option, so the
+- Eight patches (0139 to 0146). They touch neither GBA, GB nor GBC, and give the Mega Drive no new option, so the
   GBA harness compare stays at 0 diffs and the Mega Drive tests are unchanged.
 - No build, dist or zip change for the core, which already ships. `zip-check.sh` gains the `SEGACD` games
   folder.
@@ -91,6 +91,6 @@ Reading the core at the pin and testing it on slot's open path (patch 0135) foun
 - This is the first core whose state does not back up its saves. A Sega CD save written in the window between
   the last flush and a power cut is lost; the flush points above keep that window to at most 60 s of play.
 - CI tests the core with a dummy BIOS only. The real BIOS and real discs are covered by the maintainer's local
-  runs (`SLOT_SEGACD_BIOS`, `SLOT_SEGACD_DISC`) and the device gate (docs/DEVICE-GATE.md, issue 226).
+  runs (`SLOT_SEGACD_BIOS`, `SLOT_SEGACD_DISC`) and the device gate (docs/DEVICE-GATE.md, issue 232).
 - On a rebase or a core pin bump, `segacd_core.rs` is the contract to rerun: BIOS file names, the region byte,
   the `.brm` names and timing, the state without the backup RAM, the m3u joining and the RAM cart option.

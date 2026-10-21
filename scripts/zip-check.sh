@@ -8,7 +8,7 @@ read_pin
 
 cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx"
 # Games/ folders the zip may hold.
-games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX SEGACD"
+games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX PCECD SEGACD"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States Labels BIOS Wallpapers"
 
@@ -111,7 +111,7 @@ licenses/snes9x2005_plus_libretro.so.meta licenses/snes9x2005_plus-src.meta lice
 licenses/genesis_plus_gx_libretro.so.meta licenses/genesis_plus_gx-src.meta licenses/genesis_plus_gx-src.tar.gz licenses/genesis_plus_gx-LICENSE.txt
 licenses/pcsx_rearmed_libretro.so.meta licenses/pcsx_rearmed-src.meta licenses/pcsx_rearmed-src.tar.gz licenses/pcsx_rearmed-GPL-2.0.txt
 licenses/mednafen_pce_fast_libretro.so.meta licenses/mednafen_pce_fast-src.meta licenses/mednafen_pce_fast-src.tar.gz licenses/mednafen_pce_fast-GPL-2.0.txt
-licenses/mednafen_pce_fast-tremor-BSD.txt licenses/mednafen_pce_fast-headerless-files.txt
+licenses/mednafen_pce_fast-tremor-BSD.txt licenses/mednafen_pce_fast-headerless-files.txt licenses/mednafen_pce_fast-chd-notices.txt
 licenses/mednafen_wswan_libretro.so.meta licenses/mednafen_wswan-src.meta licenses/mednafen_wswan-src.tar.gz licenses/mednafen_wswan-GPL-2.0.txt licenses/mednafen_wswan-headerless-files.txt
 licenses/mednafen_lynx_libretro.so.meta licenses/mednafen_lynx-src.meta licenses/mednafen_lynx-src.tar.gz licenses/mednafen_lynx-GPL-2.0.txt
 licenses/mednafen_lynx-Handy-zlib.txt licenses/mednafen_lynx-headerless-files.txt
@@ -228,7 +228,7 @@ for core in $cores; do
 	snes9x2005_plus) need snes9x2005_plus_libretro.so.meta snes9x2005_plus-src.tar.gz snes9x2005_plus-src.meta snes9x2005-LICENSE.txt ;;
 	genesis_plus_gx) need genesis_plus_gx_libretro.so.meta genesis_plus_gx-src.tar.gz genesis_plus_gx-src.meta genesis_plus_gx-LICENSE.txt ;;
 	pcsx_rearmed) need pcsx_rearmed_libretro.so.meta pcsx_rearmed-src.tar.gz pcsx_rearmed-src.meta pcsx_rearmed-GPL-2.0.txt ;;
-	mednafen_pce_fast) need mednafen_pce_fast_libretro.so.meta mednafen_pce_fast-src.tar.gz mednafen_pce_fast-src.meta mednafen_pce_fast-GPL-2.0.txt mednafen_pce_fast-tremor-BSD.txt mednafen_pce_fast-headerless-files.txt ;;
+	mednafen_pce_fast) need mednafen_pce_fast_libretro.so.meta mednafen_pce_fast-src.tar.gz mednafen_pce_fast-src.meta mednafen_pce_fast-GPL-2.0.txt mednafen_pce_fast-tremor-BSD.txt mednafen_pce_fast-headerless-files.txt mednafen_pce_fast-chd-notices.txt ;;
 	mednafen_wswan) need mednafen_wswan_libretro.so.meta mednafen_wswan-src.tar.gz mednafen_wswan-src.meta mednafen_wswan-GPL-2.0.txt mednafen_wswan-headerless-files.txt ;;
 	mednafen_lynx) need mednafen_lynx_libretro.so.meta mednafen_lynx-src.tar.gz mednafen_lynx-src.meta mednafen_lynx-GPL-2.0.txt mednafen_lynx-Handy-zlib.txt mednafen_lynx-headerless-files.txt ;;
 	mednafen_ngp) need mednafen_ngp_libretro.so.meta mednafen_ngp-src.tar.gz mednafen_ngp-src.meta mednafen_ngp-GPL-2.0.txt mednafen_ngp-headerless-files.txt ;;

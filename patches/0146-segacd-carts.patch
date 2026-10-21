@@ -16,42 +16,44 @@ same order as the BIOS check; a set of two or more discs is the double
 case. The cover is Labels/SEGACD/<stem>.png and the disc scan
 Labels/SEGACD/disc/<stem>.png, printed outside the hub as on PS1.
 ---
- crates/slot-ui/src/lib.rs           |   5 +-
- crates/slot-ui/src/ps1_case.rs      |  28 +++++-
+ crates/slot-ui/src/lib.rs           |   4 +-
+ crates/slot-ui/src/ps1_case.rs      |  29 +++++-
  crates/slot-ui/tests/segacd_case.rs | 137 ++++++++++++++++++++++++++++
- 3 files changed, 163 insertions(+), 7 deletions(-)
+ 3 files changed, 164 insertions(+), 6 deletions(-)
  create mode 100644 crates/slot-ui/tests/segacd_case.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 168dc9f..1a84df3 100644
+index 7dced06..cd41e0f 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -97,8 +97,9 @@ pub use plate::{
- pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
+@@ -100,8 +100,8 @@ pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOT
  pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
  pub use ps1_case::{
--    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, sega_cd_region,
--    tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
-+    disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, read_sega_cd_case,
-+    sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX,
-+    OBI_PAPER,
+     cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case,
+-    sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX,
+-    OBI_PAPER,
++    read_sega_cd_case, sega_cd_region, tag_region, DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R,
++    DISC_PRINT_R, DISC_PX, OBI_PAPER,
  };
  pub use quick_menu::{
      core_button_legends, draw_menu_ground, link_button_legends, prompt_legends, quick_caret_face,
 diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
-index 83aac63..e31af94 100644
+index 15ef890..00392b5 100644
 --- a/crates/slot-ui/src/ps1_case.rs
 +++ b/crates/slot-ui/src/ps1_case.rs
-@@ -20,7 +20,7 @@ const NEUTRAL: u8 = 128;
+@@ -20,7 +20,10 @@ const NEUTRAL: u8 = 128;
  const TITLE_BOX: (u32, u32, u32, u32) = (80, 52, 200, 70);
  
  pub fn has_disc(cart: &Cart) -> bool {
--    cart.platform == Platform::Ps1
-+    matches!(cart.platform, Platform::Ps1 | Platform::SegaCd)
+-    matches!(cart.platform, Platform::Ps1 | Platform::Pcecd)
++    matches!(
++        cart.platform,
++        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd
++    )
  }
  
  pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
-@@ -30,15 +30,22 @@ pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
+@@ -30,15 +33,22 @@ pub(crate) fn case_of(cart: &Cart) -> Ps1Case {
          .lock()
          .unwrap_or_else(|e| e.into_inner())
          .entry(cart.rom.clone())
@@ -77,7 +79,7 @@ index 83aac63..e31af94 100644
          return Ps1Case::Double;
      }
      match tag_region(stem).or_else(|| serial(rom).as_deref().and_then(serial_region)) {
-@@ -48,6 +55,17 @@ pub fn read_case(rom: &Path, stem: &str) -> Ps1Case {
+@@ -56,6 +66,17 @@ pub fn cd_case(stem: &str) -> Ps1Case {
      }
  }
  
@@ -95,15 +97,6 @@ index 83aac63..e31af94 100644
  pub fn tag_region(stem: &str) -> Option<DiscRegion> {
      label_tags(stem)
          .iter()
-@@ -71,7 +89,7 @@ pub fn disc_art_path(cart: &Cart) -> Option<PathBuf> {
-                 .find(|a| a.ends_with("Games") || a.ends_with("Config"))?
-                 .parent()?
-                 .join("Labels")
--                .join(Platform::Ps1.dir_name())
-+                .join(cart.platform.dir_name())
-                 .join("disc")
-                 .join(file),
-         ),
 diff --git a/crates/slot-ui/tests/segacd_case.rs b/crates/slot-ui/tests/segacd_case.rs
 new file mode 100644
 index 0000000..fdb65f1
