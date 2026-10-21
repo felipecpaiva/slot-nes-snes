@@ -118,3 +118,4 @@ the patch set looks the way it does.
 | [0099](0099-arcade-on-finalburn-neo.md) | Bring Neo Geo, CPS1 and CPS2 into scope on one pinned FinalBurn Neo, a shelf per board, the zip as the romset | Accepted. Amends 0002 and the zip non-goal for the arcade shelves | 2026-10-20 |
 | [0100](0100-shelf-order-option.md) | Offer a Shelf order option in Config/shelf_order.txt: Classic (the default, the order systems were added) or Release year (first release anywhere, oldest first, one dated row per platform) | Accepted | 2026-10-20 |
 | [0101](0101-famicom-disk-system-on-fceumm.md) | Bring the Famicom Disk System into scope on the shipped fceumm, a disk shelf of its own | Accepted. Amends 0002; closes issue 33 | 2026-10-21 |
+| [0102](0102-pico8-on-fake08.md) | Bring PICO-8 carts into scope on pinned FAKE-08, a shelf of their own, no states | Accepted. Amends 0002 | 2026-10-21 |

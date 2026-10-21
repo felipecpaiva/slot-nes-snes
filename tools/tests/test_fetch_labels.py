@@ -516,6 +516,59 @@ class Fds(Base):
         self.assertTrue(any("systemeid=106" in c for c in self.http.calls))
 
 
+def p8_text(label_digit="8"):
+    label = "\n".join([label_digit * 128] * 128)
+    return f"pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\n-- band\n__label__\n{label}\n".encode()
+
+
+def p8_png():
+    """A 160x205 PNG cart picture: grey, with a red 128x128 label at (16, 24)."""
+    rows = []
+    for y in range(205):
+        row = b""
+        for x in range(160):
+            row += bytes([255, 0, 77, 255]) if 16 <= x < 144 and 24 <= y < 152 else bytes([100, 100, 100, 255])
+        rows.append(row)
+    return fl.png_bytes(160, 205, rows)
+
+
+class Pico8(Base):
+    def test_pico_8_has_no_dat_and_no_screenscraper_id(self):
+        self.assertEqual(fl.SYSTEMS["PICO8"], ("pico8", {".p8", ".png"}, [], None))
+
+    def test_a_text_cart_label_section_becomes_a_128_square_png_in_the_palette_without_the_network(self):
+        self.rom("PICO8", "Band.p8", p8_text("8"))
+        self.rom("PICO8", "Night.p8", p8_text("o"))
+        stats = self.run_tool({}, ["--card", self.card, "--only", "PICO8"])
+        self.assertEqual((stats["matched"], stats["written"], stats["errors"]), (2, 2, 0))
+        self.assertEqual(self.http.calls, [])
+        w, h, rows = fl.png_rows(self.label("PICO8", "Band"))
+        self.assertEqual((w, h), (128, 128))
+        self.assertEqual(rows[64][:4], bytes([0xff, 0x00, 0x4d, 0xff]))
+        self.assertEqual(fl.png_rows(self.label("PICO8", "Night"))[2][0][:3], bytes.fromhex("be1250"))
+
+    def test_a_png_cart_gives_its_own_picture_at_16_24_and_a_bare_png_is_not_a_cart(self):
+        self.rom("PICO8", "Celeste.p8.png", p8_png())
+        self.rom("PICO8", "Packed.p8", p8_png())
+        self.rom("PICO8", "cover.png", p8_png())
+        stats = self.run_tool({}, ["--card", self.card, "--only", "PICO8"])
+        self.assertEqual((stats["matched"], stats["written"]), (2, 2))
+        for stem in ("Celeste.p8", "Packed"):
+            w, h, rows = fl.png_rows(self.label("PICO8", stem))
+            self.assertEqual((w, h), (128, 128))
+            self.assertEqual({rows[y][x * 4:x * 4 + 4] for y in (0, 127) for x in (0, 127)}, {bytes([255, 0, 77, 255])})
+        self.assertIsNone(self.label("PICO8", "cover"))
+
+    def test_a_cart_without_a_label_is_missing_and_an_existing_label_is_kept(self):
+        self.rom("PICO8", "Bare.p8", b"pico-8 cartridge\n__lua__\nx=1\n")
+        self.rom("PICO8", "Band.p8", p8_text())
+        os.makedirs(os.path.join(self.card, "Labels", "PICO8"))
+        fl.spit(os.path.join(self.card, "Labels", "PICO8", "Band.png"), PNG)
+        stats = self.run_tool({}, ["--card", self.card, "--only", "PICO8"])
+        self.assertEqual((stats["missing"], stats["skipped"], stats["written"]), (1, 1, 0))
+        self.assertEqual(self.label("PICO8", "Band"), PNG)
+
+
 class Lynx(Base):
     ss_http = NesSnes.ss_http
     run_ss = NesSnes.run_ss

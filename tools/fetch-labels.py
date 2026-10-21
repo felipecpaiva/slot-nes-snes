@@ -59,6 +59,10 @@ Label sources, in order, per ROM:
      libretro:<name> or ss:<id> wheel. A dry run matches and reports but downloads, renders and writes no logo.
      A ROM not searched for the quota, a stop or --limit gets none (a later run searches it). A logo label is
      a label to later runs: delete it or use --force to replace it with real art.
+  PICO-8 (ADR 0102) needs no network and no dat: a cart carries its own label. A PNG cart (.p8.png, or a PNG
+  under a .p8 name) is its own 160x205 picture with the label at (16, 24), 128x128; a text .p8 cart has a
+  __label__ section of 128 lines of 128 palette digits (0-9 and a-v, the secret palette included). Either is
+  written to Labels/PICO8/<stem>.png as a 128x128 PNG. A cart with no label is reported as missing.
   A ROM with no source is reported as missing.
 The PNG is written as fetched: slot fits any PNG into the label box (cover, or contain for the Master System
 box) and caches it itself (art.rs, retro_cart.rs, label_cache.rs), so a pre-cropped image buys nothing. Restart slot after pushing.
@@ -71,6 +75,7 @@ import os
 import shlex
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -153,6 +158,9 @@ SYSTEMS = {
     "NEOGEO": ("neogeo", {".zip"}, [], 142),
     "CPS1": ("cps1", {".zip"}, [], 6),
     "CPS2": ("cps2", {".zip"}, [], 7),
+    # PICO-8 (ADR 0102): the label is inside the cart (pico8_label), so no dat and no ScreenScraper id.
+    # .p8 and .png, as slot scans; a .png only when named <name>.p8.png (pico8_admits).
+    "PICO8": ("pico8", {".p8", ".png"}, [], None),
 }
 ARCADE = {"NEOGEO", "CPS1", "CPS2"}
 # ScreenScraper media for an arcade set, in order: the cart label scan when it has one (a Neo Geo cart), else
@@ -818,6 +826,127 @@ def expansion_systems(card):
     return {w for line in text.splitlines() for w in line.split("#")[0].split() if w.isascii() and w.isalnum()}
 
 
+# ---- PICO-8 labels (ADR 0102) --------------------------------------------------------------------
+
+# The 16 colours and the 16 secret ones (128-143), as PICO-8 0.2 draws them; the label digits 0-9, a-v.
+PICO8_PALETTE = [bytes.fromhex(c) for c in (
+    "000000 1d2b53 7e2553 008751 ab5236 5f574f c2c3c7 fff1e8 ff004d ffa300 ffec27 00e436 29adff 83769c ff77a8 ffccaa "
+    "291814 111d35 422136 125359 742f29 49333b a28879 f3ef7d be1250 ff6c24 a8e72e 00b543 065ab5 754665 ff6e59 ff9d81"
+).split()]
+PICO8_DIGITS = "0123456789abcdefghijklmnopqrstuv"
+
+
+def pico8_admits(name):
+    stem, ext = os.path.splitext(name)
+    return ext.lower() != ".png" or stem.lower().endswith(".p8")
+
+
+def png_rows(data):
+    """(width, height, RGBA rows) of an 8-bit RGBA or RGB, non-interlaced PNG, stdlib only."""
+    if not data.startswith(PNG):
+        raise Fail("not a PNG")
+    pos, idat, head = 8, b"", None
+    while pos + 8 <= len(data):
+        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body, pos = data[pos + 8:pos + 8 + n], pos + 12 + n
+        if kind == b"IHDR":
+            head = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            idat += body
+    if not head or head[2] != 8 or head[3] not in (2, 6) or head[6] != 0:
+        raise Fail("not an 8-bit RGB or RGBA PNG")
+    w, h, bpp = head[0], head[1], 4 if head[3] == 6 else 3
+    raw, stride, rows, prev, i = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp), 0
+    for _ in range(h):
+        f, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):
+            a, b = line[x - bpp] if x >= bpp else 0, prev[x]
+            c = prev[x - bpp] if x >= bpp else 0
+            if f == 1:
+                line[x] = (line[x] + a) & 255
+            elif f == 2:
+                line[x] = (line[x] + b) & 255
+            elif f == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        prev = line
+        rows.append(bytes(line) if bpp == 4 else
+                    b"".join(bytes(line[x:x + 3]) + b"\xff" for x in range(0, stride, 3)))
+    return w, h, rows
+
+
+def png_bytes(w, h, rows):
+    """An RGBA PNG of rows (bytes of w * 4 each)."""
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    raw = b"".join(b"\0" + row for row in rows)
+    return PNG + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + \
+        chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def pico8_label(data):
+    """The cart's own 128x128 label as PNG bytes, or None when the cart has none."""
+    if data.startswith(PNG):
+        w, h, rows = png_rows(data)
+        if (w, h) != (160, 205):
+            raise Fail(f"a PICO-8 PNG cart is 160x205, this one is {w}x{h}")
+        return png_bytes(128, 128, [row[16 * 4:144 * 4] for row in rows[24:152]])
+    text = data.decode("latin-1").splitlines()
+    if "__label__" not in text:
+        return None
+    lines = text[text.index("__label__") + 1:][:128]
+    if len(lines) < 128 or any(len(l) < 128 for l in lines):
+        raise Fail("the __label__ section is shorter than 128 lines of 128 digits")
+    rows = []
+    for line in lines:
+        row = b""
+        for d in line[:128].lower():
+            if d not in PICO8_DIGITS:
+                raise Fail(f"the __label__ section has a {d!r}, not a palette digit")
+            row += PICO8_PALETTE[PICO8_DIGITS.index(d)] + b"\xff"
+        rows.append(row)
+    return png_bytes(128, 128, rows)
+
+
+def process_pico8(ctx, roms, have, out, args):
+    """Labels for PICO-8 carts, from the carts themselves (ADR 0102)."""
+    stats = ctx.stats
+    for rom in roms:
+        stem, tag = rom.stem, f"PICO8/{rom.stem}"
+        if args.only_stem and nfc(stem) != nfc(args.only_stem):
+            continue
+        if f"{stem}.png".lower() in have and not args.force:
+            stats["skipped"] += 1
+            continue
+        if not rom.read:
+            stats["unknown"] += 1
+            print(f"  unknown  {tag} (not in the library)")
+            continue
+        stats["matched"] += 1
+        try:
+            body = pico8_label(rom.read())
+        except (Fail, zlib.error, ValueError) as e:
+            stats["errors"] += 1
+            print(f"  error  {tag}: {e}")
+            continue
+        if body is None:
+            stats["missing"] += 1
+            print(f"  missing  {tag} (the cart has no label)")
+            continue
+        stats["written"] += 1
+        note_label(ctx, "PICO8", "", stem)
+        ctx.report.append(("PICO8", stem, "written", "cart", "label"))
+        if ctx.dry:
+            continue
+        dest = os.path.join(out, "Labels", "PICO8", stem + ".png")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        spit(dest, body)
+    return []
+
+
 def scan_card(card, system, expansion=None):
     """(roms, collisions) for Games/<SYSTEM>/ on a mounted card, or on the mounted Expansion Card for a system
     Config/expansion.txt lists. Without --expansion such a system is skipped out loud, never read as empty."""
@@ -832,6 +961,8 @@ def scan_card(card, system, expansion=None):
     for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         p = os.path.join(d, n)
         if n.startswith(".") or not os.path.isfile(p) or os.path.splitext(n)[1].lower() not in SYSTEMS[system][1]:
+            continue
+        if system == "PICO8" and not pico8_admits(n):
             continue
         rom = loose_rom(p)
         key = nfc(rom.stem)
@@ -849,6 +980,8 @@ def scan_library(lib, system):
     for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         p = os.path.join(d, n)
         if n.startswith("._") or not os.path.isfile(p):
+            continue
+        if system == "PICO8" and not pico8_admits(n):
             continue
         if os.path.splitext(n)[1].lower() in exts:  # an arcade .zip is the romset itself
             rom = loose_rom(p)
@@ -1671,6 +1804,8 @@ def run(args, ctx):
                     stem, ext = os.path.splitext(n)
                     if n.startswith(".") or ext.lower() not in SYSTEMS[system][1]:
                         continue
+                    if system == "PICO8" and not pico8_admits(n):
+                        continue
                     stems.setdefault(nfc(stem), []).append(stem)
                 for k, group in stems.items():
                     if len(group) > 1:
@@ -1704,6 +1839,8 @@ def run(args, ctx):
                     ctx.sib.setdefault(title_key(n[:-4], system), []).append(n)
             if system == "PS1":
                 left = process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args)
+            elif system == "PICO8":
+                left = process_pico8(ctx, roms, have, root, args)
             elif system in ARCADE:
                 left = process_arcade(ctx, system, roms, have, root, args)
             else:
@@ -1756,7 +1893,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

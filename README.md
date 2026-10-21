@@ -3,7 +3,8 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic RG34XXSP (H700):
 NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
 TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
-Atari 2600 and 7800, Virtual Boy, and the Neo Geo, CPS1 and CPS2 arcade boards, beside slot's own
+Atari 2600 and 7800, Virtual Boy, the Neo Geo, CPS1 and CPS2 arcade boards, and PICO-8 carts, beside
+slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -42,6 +43,7 @@ Releases are named after it: `main-1b20432-ns.1` is the first.
 | Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
 | Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
 | Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
+| PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -140,6 +142,15 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   CPS1 game the grey CPS Changer case, each with the game's art from the label fetcher. The board's own settings and high scores
   (`Saves/fbneo/`) are written when the game closes; progress mid-game is in save states. CPS3 is not
   included.
+- **PICO-8** carts run on FAKE-08, a free reimplementation; PICO-8 itself (Lexaloffle's) is not included
+  and not needed. A cart is a `.p8` file (text, or a PNG cart under that name) or a `<name>.p8.png`; a
+  plain `.png` is never taken for a cart. The 128x128 screen is drawn at exactly 3x (384x384) in the
+  middle of the panel, or stretched to it. O is B and X is A (Y and X are turbo O and X), Start opens the
+  cart's own pause menu (Continue, the cart's items, Reset Cart). A cart's saves (its cartdata) are in
+  `Saves/PICO8/cdata/`, written within a second of a change. There are no save states and no rewind for
+  PICO-8: FAKE-08's states are not reliable at the pinned commit, so the in-game States page is hidden.
+  On the shelf every game is a grey PICO-8 cart wearing the cart's own label picture, which the label
+  fetcher takes from the cart itself, offline.
 
 ### The Screen page
 
@@ -160,6 +171,8 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Left, Right Difficulty; TV Type | Atari 2600 | Auto, A, B; Auto, Colour, B&W |
 | Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
 | Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
+
+PICO-8 has the two common rows only: Shader and Picture (Actual, the 3x picture, is the default).
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.
@@ -206,6 +219,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
 - Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
   there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 182) is still open.
+- PICO-8: no save states, no resume and no rewind (cartdata keeps a cart's own saves). FAKE-08 is not
+  PICO-8: of the 39 carts tried on the host, 7 stop on a Lua error FAKE-08 does not get past (they show
+  "runtime error"). The device gate is still open.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few

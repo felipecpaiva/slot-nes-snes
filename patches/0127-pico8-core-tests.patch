@@ -1,0 +1,419 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 01:35:36 +0400
+Subject: [PATCH] pico8-core-tests
+
+FAKE-08 (PICO-8 carts) on the generic libretro host before any PICO-8
+platform code exists. Generated carts (text .p8, .p8.png and a PNG
+named .p8, our own code) draw a band whose width is cartdata slot 0.
+They pin what cores/fake08/slot.patch gives the core: RGB565 asked for
+at load, cartdata in <save dir>/cdata within a second and through a
+synced temp file, stderr left where the frontend put it, every short
+press seen by a 30 fps cart, a pause menu that ends on reset cart
+(reset from the cart's own bytes), a runtime error that stays on the
+error instead of opening fake-08's cart browser, and no states.
+---
+ crates/slot/tests/pico8_common/mod.rs | 153 +++++++++++++++++
+ crates/slot/tests/pico8_core.rs       | 233 ++++++++++++++++++++++++++
+ 2 files changed, 386 insertions(+)
+ create mode 100644 crates/slot/tests/pico8_common/mod.rs
+ create mode 100644 crates/slot/tests/pico8_core.rs
+
+diff --git a/crates/slot/tests/pico8_common/mod.rs b/crates/slot/tests/pico8_common/mod.rs
+new file mode 100644
+index 0000000..f84a0cf
+--- /dev/null
++++ b/crates/slot/tests/pico8_common/mod.rs
+@@ -0,0 +1,153 @@
++#![allow(dead_code)]
++// Generated PICO-8 carts (ADR 0102), our own code. The cart draws a red band (colour 8) over columns 40
++// to 79 + n of its 128x128 screen, where n is cartdata slot 0; pressing O (PICO-8 button 4) adds one
++// to n and dsets it. On the 240x160 canvas the picture sits centred at (56, 16), so the band is canvas
++// columns 96 to 135 + n. The .p8 text format and the .p8.png layout (each byte in the low two bits
++// of A, R, G and B, code at 0x4300, plain text when it is neither ":c:" nor "pxa") are the ones fake-08
++// reads at 814991a (source/cart.cpp, Cart::loadCartFromPng).
++
++use std::path::{Path, PathBuf};
++
++use crate::core_common::require_core;
++
++pub const PICTURE: (usize, usize) = (128, 128);
++pub const CANVAS: (usize, usize) = (240, 160);
++pub const LEFT: usize = (CANVAS.0 - PICTURE.0) / 2;
++pub const TOP: usize = (CANVAS.1 - PICTURE.1) / 2;
++pub const BAND: std::ops::Range<usize> = LEFT + 40..LEFT + 80;
++pub const KEY: &str = "slotnessnes_band";
++
++pub fn fake08() -> Option<PathBuf> {
++    require_core("fake08")
++}
++
++pub fn code(title: &str) -> String {
++    format!(
++        "-- {title}\n-- by slot-nes-snes\ncartdata(\"{KEY}\")\nn=dget(0)\n\
++         function _update()\n if btnp(4) then n+=1 dset(0,n) end\nend\n\
++         function _draw()\n cls(0)\n rectfill(40,0,79+n,127,8)\nend\n"
++    )
++}
++
++pub fn text_cart(dir: &Path, stem: &str, title: &str) -> PathBuf {
++    lua_cart(dir, stem, &code(title))
++}
++
++pub fn lua_cart(dir: &Path, stem: &str, lua: &str) -> PathBuf {
++    let p = dir.join(format!("{stem}.p8"));
++    let body = format!("pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\n{lua}");
++    std::fs::write(&p, body).expect("write cart");
++    p
++}
++
++/// Draws the band for 30 frames, then calls a nil global.
++pub const FAILS_LATER: &str = "t=0\nfunction _update() t+=1 if t>30 then nothing_here() end end\n\
++                               function _draw() cls(0) rectfill(40,0,79,127,8) end\n";
++
++/// PICO-8 white (colour 7, fff1e8), which the pause menu frames itself in; the band cart never uses it.
++pub fn white_pixels(video: &[u8]) -> usize {
++    video
++        .chunks(4)
++        .take(CANVAS.0 * CANVAS.1)
++        .filter(|p| p[2] > 0xe0 && p[1] > 0xe0 && p[0] > 0xc0)
++        .count()
++}
++
++/// A 160x205 .p8.png: grey picture, cart data in the low bits, the code uncompressed.
++pub fn png_cart(dir: &Path, file: &str, title: &str) -> PathBuf {
++    let mut data = vec![0u8; 0x8001];
++    let code = code(title);
++    data[0x4300..0x4300 + code.len()].copy_from_slice(code.as_bytes());
++    data[0x8000] = 41;
++    let (w, h) = (160usize, 205usize);
++    let mut raw = Vec::with_capacity(h * (1 + w * 4));
++    for y in 0..h {
++        raw.push(0);
++        for x in 0..w {
++            let b = data.get(y * w + x).copied().unwrap_or(0);
++            let px = [
++                0x80 | (b >> 4) & 3,
++                0x80 | (b >> 2) & 3,
++                0x80 | b & 3,
++                0xfc | b >> 6,
++            ];
++            raw.extend_from_slice(&px);
++        }
++    }
++    let p = dir.join(file);
++    std::fs::write(&p, png(w as u32, h as u32, &raw)).expect("write png cart");
++    p
++}
++
++fn crc32(bytes: &[u8]) -> u32 {
++    let mut c = !0u32;
++    for &b in bytes {
++        c ^= u32::from(b);
++        for _ in 0..8 {
++            c = if c & 1 != 0 {
++                0xedb8_8320 ^ (c >> 1)
++            } else {
++                c >> 1
++            };
++        }
++    }
++    !c
++}
++
++fn chunk(out: &mut Vec<u8>, kind: &[u8], body: &[u8]) {
++    out.extend_from_slice(&(body.len() as u32).to_be_bytes());
++    let start = out.len();
++    out.extend_from_slice(kind);
++    out.extend_from_slice(body);
++    let crc = crc32(&out[start..]);
++    out.extend_from_slice(&crc.to_be_bytes());
++}
++
++/// RGBA PNG with stored (uncompressed) deflate blocks, enough for a test cart.
++fn png(w: u32, h: u32, raw: &[u8]) -> Vec<u8> {
++    let mut z = vec![0x78, 0x01];
++    let blocks: Vec<&[u8]> = raw.chunks(0xffff).collect();
++    for (i, b) in blocks.iter().enumerate() {
++        z.push(u8::from(i + 1 == blocks.len()));
++        z.extend_from_slice(&(b.len() as u16).to_le_bytes());
++        z.extend_from_slice(&(!(b.len() as u16)).to_le_bytes());
++        z.extend_from_slice(b);
++    }
++    let (mut a, mut b) = (1u32, 0u32);
++    for &x in raw {
++        a = (a + u32::from(x)) % 65521;
++        b = (b + a) % 65521;
++    }
++    z.extend_from_slice(&(b << 16 | a).to_be_bytes());
++    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
++    let mut ihdr = w.to_be_bytes().to_vec();
++    ihdr.extend_from_slice(&h.to_be_bytes());
++    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
++    chunk(&mut out, b"IHDR", &ihdr);
++    chunk(&mut out, b"IDAT", &z);
++    chunk(&mut out, b"IEND", &[]);
++    out
++}
++
++pub fn lit(px: &[u8]) -> bool {
++    px[..3].iter().any(|&c| c > 0x20)
++}
++
++/// Canvas columns with a lit pixel in the middle row of the picture.
++pub fn lit_columns(video: &[u8]) -> Vec<usize> {
++    let y = TOP + PICTURE.1 / 2;
++    (0..CANVAS.0)
++        .filter(|&x| lit(&video[(y * CANVAS.0 + x) * 4..]))
++        .collect()
++}
++
++/// Rows of the canvas with any lit pixel.
++pub fn lit_rows(video: &[u8]) -> Vec<usize> {
++    (0..CANVAS.1)
++        .filter(|&y| (0..CANVAS.0).any(|x| lit(&video[(y * CANVAS.0 + x) * 4..])))
++        .collect()
++}
++
++pub fn band(extra: usize) -> Vec<usize> {
++    (BAND.start..BAND.end + extra).collect()
++}
+diff --git a/crates/slot/tests/pico8_core.rs b/crates/slot/tests/pico8_core.rs
+new file mode 100644
+index 0000000..6cd63c7
+--- /dev/null
++++ b/crates/slot/tests/pico8_core.rs
+@@ -0,0 +1,233 @@
++// FAKE-08 (PICO-8 carts) on the generic libretro host, before any PICO-8 platform code exists (ADR 0102).
++// The generated carts live in pico8_common. The core is built with cores/fake08/slot.patch, which also
++// turns states off (ADR 0102).
++mod common;
++mod core_common;
++mod pico8_common;
++
++use std::os::unix::fs::MetadataExt;
++use std::path::Path;
++
++use common::core_lock;
++use pico8_common::{
++    band, lit_columns, lit_rows, lua_cart, png_cart, text_cart, white_pixels, CANVAS, FAILS_LATER,
++    KEY, PICTURE, TOP,
++};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++/// The core opened the way slot opens it (BIOS/ and Saves/PICO8, `slot::core::open_named`) on the
++/// 240x160 canvas, with the fixed options ADR 0102 ships: 1x and no crop.
++fn fake08(saves: &Path) -> Option<LibretroCore> {
++    let dylib = pico8_common::fake08()?;
++    std::fs::create_dir_all(saves).unwrap();
++    let mut core = LibretroCore::open_with(&dylib, saves, saves).expect("open fake-08");
++    core.set_canvas(CANVAS.0 as u32, CANVAS.1 as u32);
++    core.set_option("fake08_video_scale", "1x");
++    for side in ["h_left", "h_right", "v_top", "v_bottom"] {
++        core.set_option(&format!("fake08_crop_{side}"), "0");
++    }
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize, pad: u16) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask(pad));
++    }
++}
++
++/// Four frames down and four up: a 30 fps cart reads the pad on every other frame.
++fn press(core: &mut LibretroCore, pad: u16) {
++    play(core, 4, pad);
++    play(core, 4, 0);
++}
++
++fn press_o(core: &mut LibretroCore) {
++    press(core, ButtonMask::B);
++}
++
++fn stderr_id() -> (u64, u64) {
++    let m = std::fs::metadata("/dev/fd/2").expect("stderr");
++    (m.dev(), m.ino())
++}
++
++#[test]
++fn a_text_cart_boots_at_60_fps_22050_hz_and_draws_its_128_by_128_screen_centred() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band"))
++        .expect("fake-08 refused the cart");
++    play(&mut core, 30, 0);
++    let av = core.av_info();
++    assert_eq!(av.fps, 60.0);
++    assert_eq!(av.sample_rate, 22050.0);
++    assert!(!core.take_audio().is_empty(), "no sound buffer came out");
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(0));
++    assert_eq!(
++        lit_rows(core.video_xrgb8888()),
++        (TOP..TOP + PICTURE.1).collect::<Vec<_>>()
++    );
++}
++
++#[test]
++fn a_p8_png_cart_loads_from_its_picture_like_the_text_one() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&png_cart(d.path(), "Band.p8.png", "band"))
++        .expect("fake-08 refused the png cart");
++    play(&mut core, 30, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(0));
++}
++
++#[test]
++fn a_png_cart_named_p8_loads_too() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&png_cart(d.path(), "Band.p8", "band"))
++        .expect("fake-08 refused a png cart named .p8");
++    play(&mut core, 30, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(0));
++}
++
++#[test]
++fn o_is_the_libretro_b_button_and_cartdata_reaches_cdata_within_a_second() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    press_o(&mut core);
++    press_o(&mut core);
++    play(&mut core, 2, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(2));
++    play(&mut core, 61, 0);
++    let file = d.path().join("cdata").join(format!("{KEY}.p8d.txt"));
++    let text = std::fs::read_to_string(&file).expect("no cartdata file while the game runs");
++    assert!(text.starts_with("00020000"), "{text:?}");
++    assert!(!d
++        .path()
++        .join("cdata")
++        .join(format!("{KEY}.p8d.txt.tmp"))
++        .exists());
++}
++
++#[test]
++fn writing_cartdata_leaves_the_frontends_stderr_open_where_it_was() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    let before = stderr_id();
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    press_o(&mut core);
++    play(&mut core, 61, 0);
++    drop(core);
++    assert_eq!(stderr_id(), before);
++}
++
++#[test]
++fn the_next_game_reads_the_cartdata_the_last_one_wrote() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    press_o(&mut core);
++    drop(core);
++    let mut core = fake08(d.path()).unwrap();
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(1));
++}
++
++#[test]
++fn the_pause_menu_ends_on_reset_cart_and_never_leaves_for_the_cart_browser() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    assert_eq!(white_pixels(core.video_xrgb8888()), 0);
++    press(&mut core, ButtonMask::START);
++    assert!(
++        white_pixels(core.video_xrgb8888()) > 100,
++        "Start drew no menu"
++    );
++    for _ in 0..10 {
++        press(&mut core, ButtonMask::DOWN);
++    }
++    press_o(&mut core);
++    play(&mut core, 60, 0);
++    assert_eq!(white_pixels(core.video_xrgb8888()), 0);
++    assert_eq!(lit_columns(core.video_xrgb8888())[0], band(0)[0]);
++}
++
++#[test]
++fn a_runtime_error_stays_on_the_error_and_starts_no_other_cart() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    text_cart(d.path(), "Other", "other");
++    core.load(&lua_cart(d.path(), "Fails", FAILS_LATER))
++        .unwrap();
++    play(&mut core, 20, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(0));
++    play(&mut core, 120, 0);
++    let frame = core.video_xrgb8888().to_vec();
++    assert!(
++        lit_columns(&frame).len() < band(0).len(),
++        "the band is still drawn"
++    );
++    assert!(!lit_rows(&frame).is_empty(), "no error text");
++    play(&mut core, 120, ButtonMask::B);
++    assert_eq!(core.video_xrgb8888(), &frame[..]);
++}
++
++#[test]
++fn every_short_press_counts_on_a_30_fps_cart_whichever_frame_it_starts_on() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    for gap in [3, 4, 5, 6, 3, 4, 5, 6] {
++        play(&mut core, 1, ButtonMask::B);
++        play(&mut core, gap, 0);
++    }
++    play(&mut core, 2, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(8));
++}
++
++#[test]
++fn fake_08_offers_no_state_so_slot_keeps_none() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = fake08(d.path()) else {
++        return;
++    };
++    core.load(&text_cart(d.path(), "Band", "band")).unwrap();
++    play(&mut core, 30, 0);
++    assert!(core.serialize().is_err(), "fake-08 gave a state");
++    play(&mut core, 2, 0);
++    assert_eq!(lit_columns(core.video_xrgb8888()), band(0));
++}
