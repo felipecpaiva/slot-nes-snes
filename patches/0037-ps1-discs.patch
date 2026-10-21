@@ -28,9 +28,7 @@ The swap with rollback follows bently0602/slot, and the initial disc and
 the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
 (all GPL-3.0).
 ---
- crates/slot-input/src/gesture.rs         |   6 +-
- crates/slot-input/src/gesture/ps1.rs     |  14 ++
- crates/slot-input/tests/ps1_gesture.rs   |  30 +++
+ crates/slot-input/src/gesture.rs         |   1 +
  crates/slot-retro/src/canvas.rs          |   9 +
  crates/slot-retro/src/core.rs            |   6 +
  crates/slot-retro/src/lib.rs             |   2 +-
@@ -47,111 +45,31 @@ the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
  crates/slot/src/core.rs                  |   3 +
  crates/slot/src/emu.rs                   |  28 ++-
  crates/slot/src/ps1_load.rs              |  70 +++++-
- crates/slot/src/session.rs               |  14 +-
+ crates/slot/src/session.rs               |  13 +-
+ crates/slot/src/snes_input.rs            |   6 +
+ crates/slot/tests/disc_chords.rs         |  52 ++++
  crates/slot/tests/ps1_common/mod.rs      |   8 +
  crates/slot/tests/ps1_discs.rs           | 290 +++++++++++++++++++++++
  crates/slot/tests/real_seat/mod.rs       |   2 +
- 23 files changed, 854 insertions(+), 13 deletions(-)
- create mode 100644 crates/slot-input/src/gesture/ps1.rs
- create mode 100644 crates/slot-input/tests/ps1_gesture.rs
+ 23 files changed, 863 insertions(+), 12 deletions(-)
  create mode 100644 crates/slot-retro/src/libretro/discs.rs
  create mode 100644 crates/slot-ui/src/disc_toast.rs
  create mode 100644 crates/slot/src/app/ps1_discs.rs
+ create mode 100644 crates/slot/tests/disc_chords.rs
  create mode 100644 crates/slot/tests/ps1_discs.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index 8b0af99..3162677 100644
+index 7f501fa..5d6749b 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -1,5 +1,7 @@
- use crate::{Btn, Millis, RawEvent};
- 
-+mod ps1;
-+
- pub const SELECT_CHORD_MS: Millis = 600;
- 
- pub const SELECT_TAP_MS: Millis = 50;
-@@ -52,6 +54,7 @@ pub enum Action {
-     MenuChordUp(Btn),
-     RepairCard,
+@@ -55,6 +55,7 @@ pub enum Action {
+     NextShelf,
+     Favorite,
      VideoModeToggle,
 +    DiscNext,
  }
  
- #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-@@ -110,6 +113,7 @@ pub struct Gestures {
-     r2_last_release: Option<Millis>,
-     rewinding: bool,
-     video_mode_chord: bool,
-+    disc_chord: bool,
- }
- 
- fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
-@@ -244,7 +248,7 @@ impl Gestures {
-                     .or(Some(Action::VideoModeToggle)),
-                 _ => self.shortcut(Some(Mod::Select), b),
-             };
--            if let Some(action) = action {
-+            if let Some(action) = self.ps1_chord(action) {
-                 self.mark_chorded();
-                 return self.hold(b, action);
-             }
-diff --git a/crates/slot-input/src/gesture/ps1.rs b/crates/slot-input/src/gesture/ps1.rs
-new file mode 100644
-index 0000000..c43ec3b
---- /dev/null
-+++ b/crates/slot-input/src/gesture/ps1.rs
-@@ -0,0 +1,14 @@
-+use super::{Action, Gestures};
-+
-+impl Gestures {
-+    pub fn set_disc_chord(&mut self, on: bool) {
-+        self.disc_chord = on;
-+    }
-+
-+    pub(super) fn ps1_chord(&self, action: Option<Action>) -> Option<Action> {
-+        match action {
-+            Some(Action::PalettePrev) if self.disc_chord => Some(Action::DiscNext),
-+            other => other,
-+        }
-+    }
-+}
-diff --git a/crates/slot-input/tests/ps1_gesture.rs b/crates/slot-input/tests/ps1_gesture.rs
-new file mode 100644
-index 0000000..1f9060d
---- /dev/null
-+++ b/crates/slot-input/tests/ps1_gesture.rs
-@@ -0,0 +1,30 @@
-+use slot_input::{Action, Btn, Gestures, RawEvent};
-+
-+fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
-+    let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
-+    out.extend(g.feed(RawEvent::Down(b), 1020));
-+    out.extend(g.feed(RawEvent::Up(b), 1100));
-+    out.extend(g.feed(RawEvent::Up(Btn::Select), 1120));
-+    out.extend(g.tick(2000));
-+    out
-+}
-+
-+fn ps1() -> Gestures {
-+    let mut g = Gestures::new();
-+    g.set_video_mode_chord(true);
-+    g.set_disc_chord(true);
-+    g
-+}
-+
-+#[test]
-+fn select_l2_swaps_the_disc_on_ps1() {
-+    assert_eq!(select_with(&mut ps1(), Btn::L2), [Action::DiscNext]);
-+}
-+
-+#[test]
-+fn select_l2_still_steps_the_palette_back_everywhere_else() {
-+    assert_eq!(
-+        select_with(&mut Gestures::new(), Btn::L2),
-+        [Action::PalettePrev]
-+    );
-+}
+ #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
 index 11b39f6..6bc842d 100644
 --- a/crates/slot-retro/src/canvas.rs
@@ -218,10 +136,10 @@ index dd754e5..ec927a1 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index 04b98d0..6729703 100644
+index 1017c2a..f161ded 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
-@@ -7,7 +7,7 @@ mod mock;
+@@ -14,7 +14,7 @@ mod mock;
  mod rumble;
  mod turbo_mode;
  
@@ -637,7 +555,7 @@ index 0000000..e917714
 +    }
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index ee60ae7..f4cce8a 100644
+index 550281b..386131d 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
 @@ -12,6 +12,7 @@ mod battery;
@@ -653,7 +571,7 @@ index ee60ae7..f4cce8a 100644
  };
  pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
 +pub use disc_toast::DiscToast;
- pub use draw::{Canvas, Draw, Layout, TexId, OUT_H, OUT_W};
+ pub use draw::{Canvas, Draw, TexId, OUT_H, OUT_W};
  pub use footer::{draw_corners, draw_footer, Printed, FOOTER_Y};
  pub use hud::{
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
@@ -677,28 +595,28 @@ index d0f6c6c..7058551 100644
      }
  }
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index 0992c2f..af28ab9 100644
+index 1d1ca0f..4e38dc5 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -28,6 +28,7 @@ pub enum Toast {
-     CardRepairFailed,
-     Palette(GbPalette),
+@@ -30,6 +30,7 @@ pub enum Toast {
+     Palette(GbColors),
+     Duplicate(QuickRow),
      Retro(slot_store::RetroShader),
 +    Disc(crate::DiscToast),
  }
  
  impl Toast {
-@@ -63,6 +64,7 @@ impl Toast {
-         match self {
-             Toast::Palette(p) => Self::FIXED.len() + p.index(),
-             Toast::Retro(s) => Self::FIXED.len() + GbPalette::all().count() + s.index(),
+@@ -72,6 +73,7 @@ impl Toast {
+                     + bound_rows().position(|r| r == row).unwrap_or(0)
+             }
+             Toast::Retro(s) => Toast::all().len() + s.index(),
 +            Toast::Disc(d) => Toast::disc_index(d),
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -108,6 +110,7 @@ impl Toast {
-             Toast::CardRepairFailed => "Card repair failed",
+@@ -140,6 +142,7 @@ impl Toast {
              Toast::Palette(p) => p.label(),
+             Toast::Duplicate(_) => "",
              Toast::Retro(s) => s.toast(),
 +            Toast::Disc(d) => d.text(),
          }
@@ -721,7 +639,7 @@ index 0d62155..de32a5e 100644
          assert_eq!(t.index(), i, "{t:?} does not answer to its own place");
      }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 9d090ea..cb4c708 100644
+index 9b164b9..6a9aff5 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,3 +1,5 @@
@@ -770,7 +688,7 @@ index 0000000..3d30d5d
 +    }
 +}
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index a0e2293..e62c847 100644
+index 16c8385..858b3d6 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -109,6 +109,9 @@ fn open_named(
@@ -784,7 +702,7 @@ index a0e2293..e62c847 100644
                      opened.answer_av();
                  }
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 674c9f5..e31e939 100644
+index 596b4c7..202f973 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
@@ -812,7 +730,7 @@ index 674c9f5..e31e939 100644
  }
  
  #[derive(Default)]
-@@ -181,6 +183,7 @@ impl EmuHandle {
+@@ -189,6 +191,7 @@ impl EmuHandle {
              requested: AtomicBool::new(false),
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
@@ -820,7 +738,7 @@ index 674c9f5..e31e939 100644
          });
          let (tx, rx) = channel();
          let worker = Worker {
-@@ -404,6 +407,14 @@ impl EmuHandle {
+@@ -412,6 +415,14 @@ impl EmuHandle {
          request(&self.cmds, &self.shared, Cmd::Load(state));
      }
  
@@ -835,7 +753,7 @@ index 674c9f5..e31e939 100644
      pub fn snapshot(&self) -> EmuSnapshot {
          EmuSnapshot {
              cmds: self.cmds.clone(),
-@@ -485,6 +496,15 @@ struct Worker {
+@@ -493,6 +504,15 @@ struct Worker {
  }
  
  impl Worker {
@@ -851,7 +769,7 @@ index 674c9f5..e31e939 100644
      fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
          match self.player {
              Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
-@@ -540,6 +560,7 @@ impl Worker {
+@@ -548,6 +568,7 @@ impl Worker {
                  eprintln!("slot: resume: {e}");
                  self.shared.resume_refused.store(true, Ordering::Release);
              }
@@ -859,7 +777,7 @@ index 674c9f5..e31e939 100644
          }
          let av = core.av_info();
          let device_hz = match ring.sample_rate() {
-@@ -913,6 +934,11 @@ impl Worker {
+@@ -923,6 +944,11 @@ impl Worker {
                  if let Err(e) = core.unserialize(&self.for_core(state)) {
                      eprintln!("slot: {e}");
                  }
@@ -955,10 +873,10 @@ index 383fea8..988c95e 100644
 +    }
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 944d98b..fdc62b0 100644
+index 673110a..ca80b01 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -245,6 +245,7 @@ impl Session {
+@@ -259,6 +259,7 @@ impl Session {
              Action::RewindStop => self.rewinding = false,
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,
@@ -966,7 +884,7 @@ index 944d98b..fdc62b0 100644
              _ => {}
          }
          let menu = self.overlaid();
-@@ -318,6 +319,9 @@ impl Session {
+@@ -332,6 +333,9 @@ impl Session {
                  self.app.peer_lost();
              }
          }
@@ -976,8 +894,8 @@ index 944d98b..fdc62b0 100644
          if let Some(sfx) = self.app.take_sfx() {
              self.play_sfx(sfx);
          }
-@@ -530,7 +534,14 @@ impl Session {
-                     .flatten();
+@@ -543,7 +547,14 @@ impl Session {
+                 };
                  launch("resume state read");
                  let palette = crate::core::palette_for(chosen, platform, &rom, player);
 -                let opened = open_core(&root, core, platform, serial, colour, palette, player);
@@ -992,14 +910,79 @@ index 944d98b..fdc62b0 100644
                  launch("core opened");
                  let sav = persist::read_sav(&root, platform, &stem);
                  launch("save read");
-@@ -573,6 +584,7 @@ impl Session {
-         emu.set_pass_through(loaded.platform.passes_xy_through());
-         self.gestures
-             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
-+        self.gestures.set_disc_chord(loaded.platform.swaps_discs());
-         self.app.set_snapshot(Box::new(emu.snapshot()));
-         self.emu = Some(emu);
-         true
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index c9940e6..168a5cd 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -24,4 +24,10 @@ pub fn keep_applicable(entries: &mut Vec<Entry>, platform: Platform) {
+     if !platform.select_x_toggles_picture() {
+         entries.retain(|e| e.action != Action::VideoModeToggle);
+     }
++    if platform.swaps_discs() {
++        entries
++            .iter_mut()
++            .filter(|e| e.action == Action::PalettePrev)
++            .for_each(|e| e.action = Action::DiscNext);
++    }
+ }
+diff --git a/crates/slot/tests/disc_chords.rs b/crates/slot/tests/disc_chords.rs
+new file mode 100644
+index 0000000..cb53035
+--- /dev/null
++++ b/crates/slot/tests/disc_chords.rs
+@@ -0,0 +1,52 @@
++use slot::input::Table;
++use slot_input::{Action, Btn, Gestures, RawEvent};
++use slot_store::{Binding, CarouselKeys, Controls, Device, Platform, Shortcut, ShortcutKeys};
++
++fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
++    let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
++    out.extend(g.feed(RawEvent::Down(b), 1020));
++    out.extend(g.feed(RawEvent::Up(b), 1100));
++    out.extend(g.feed(RawEvent::Up(Btn::Select), 1120));
++    out.extend(g.tick(2000));
++    out
++}
++
++fn gestures(platform: Platform, shortcuts: &ShortcutKeys) -> Gestures {
++    let table = Table::new(
++        &Controls::default(),
++        shortcuts,
++        &CarouselKeys::default(),
++        true,
++    );
++    let mut entries = table.entries();
++    slot::snes_input::keep_applicable(&mut entries, platform);
++    let mut g = Gestures::new();
++    g.set_entries(entries);
++    g
++}
++
++#[test]
++fn select_l2_swaps_the_disc_on_ps1() {
++    let mut g = gestures(Platform::Ps1, &ShortcutKeys::default());
++    assert_eq!(select_with(&mut g, Btn::L2), [Action::DiscNext]);
++}
++
++#[test]
++fn select_l2_still_steps_the_palette_back_on_game_boy() {
++    let mut g = gestures(Platform::Gb, &ShortcutKeys::default());
++    assert_eq!(select_with(&mut g, Btn::L2), [Action::PalettePrev]);
++}
++
++#[test]
++fn the_disc_swap_follows_palette_back_when_the_user_moves_it() {
++    let mut keys = ShortcutKeys::default();
++    keys.set(
++        Shortcut::PaletteBack,
++        Binding::with(slot_store::Modifier::Select, Device::Up),
++    );
++    keys.set(Shortcut::BrightnessUp, None);
++    let mut g = gestures(Platform::Ps1, &keys);
++    assert_eq!(select_with(&mut g, Btn::Up), [Action::DiscNext]);
++    let mut g = gestures(Platform::Ps1, &keys);
++    assert!(!select_with(&mut g, Btn::L2).contains(&Action::DiscNext));
++}
 diff --git a/crates/slot/tests/ps1_common/mod.rs b/crates/slot/tests/ps1_common/mod.rs
 index 50e5d04..88f6f30 100644
 --- a/crates/slot/tests/ps1_common/mod.rs

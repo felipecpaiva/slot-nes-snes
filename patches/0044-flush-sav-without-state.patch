@@ -10,19 +10,19 @@ progress held in save RAM. The missing state is logged.
 Generic half of suprsomething/slot.advance dbbadae (GPL-3.0),
 https://github.com/suprsomething/slot.advance/commit/dbbadae
 ---
- crates/slot/src/app.rs                   | 21 ++++-----
+ crates/slot/src/app.rs                   | 21 ++++----
  crates/slot/src/lib.rs                   |  1 +
  crates/slot/src/no_state.rs              |  7 +++
- crates/slot/tests/flush_without_state.rs | 59 ++++++++++++++++++++++++
- 4 files changed, 76 insertions(+), 12 deletions(-)
+ crates/slot/tests/flush_without_state.rs | 65 ++++++++++++++++++++++++
+ 4 files changed, 82 insertions(+), 12 deletions(-)
  create mode 100644 crates/slot/src/no_state.rs
  create mode 100644 crates/slot/tests/flush_without_state.rs
 
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index f866391..1f5cd9a 100644
+index a3e2fcb..8b1de1a 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -4609,11 +4609,10 @@ impl App {
+@@ -4854,11 +4854,10 @@ impl App {
          let (Some(root), Some(snapshot)) = (&self.root, &self.snapshot) else {
              return;
          };
@@ -35,9 +35,9 @@ index f866391..1f5cd9a 100644
          };
 -        let (state, sav) = trusted_write(snapshot.as_ref(), state, "eject");
          let state = state.filter(|_| self.state.eject_save);
+         self.state_writer.flush();
          match persist::eject(
-             root,
-@@ -5118,11 +5117,10 @@ impl App {
+@@ -5365,11 +5364,10 @@ impl App {
          else {
              return;
          };
@@ -52,7 +52,7 @@ index f866391..1f5cd9a 100644
          let (root, platform, core, cart) =
              (root.clone(), self.platform, self.core, cart.to_owned());
          let failing = self.card_writes.clone();
-@@ -5156,11 +5154,10 @@ impl App {
+@@ -5403,11 +5401,10 @@ impl App {
          else {
              return;
          };
@@ -68,10 +68,10 @@ index f866391..1f5cd9a 100644
              root,
              self.platform,
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 51de787..c507511 100644
+index 05b6a26..25c686a 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -35,6 +35,7 @@ pub mod link_radio;
+@@ -42,6 +42,7 @@ pub mod link_radio;
  pub mod link_screen;
  pub mod link_start;
  pub mod link_state;
@@ -94,10 +94,10 @@ index 0000000..a4a394e
 +}
 diff --git a/crates/slot/tests/flush_without_state.rs b/crates/slot/tests/flush_without_state.rs
 new file mode 100644
-index 0000000..48624a4
+index 0000000..d39c523
 --- /dev/null
 +++ b/crates/slot/tests/flush_without_state.rs
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,65 @@
 +mod common;
 +
 +use common::{app_playing_with, tmp_root_with_carts};
@@ -130,7 +130,9 @@ index 0000000..48624a4
 +    let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
 +    a.apply(Action::PowerTap);
 +    assert_eq!(
-+        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        persist::read_sav(d.path(), Platform::Gba, "Emerald")
++            .ok()
++            .flatten(),
 +        Some(vec![7u8; 32])
 +    );
 +}
@@ -141,7 +143,9 @@ index 0000000..48624a4
 +    let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
 +    a.apply(Action::Eject);
 +    assert_eq!(
-+        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        persist::read_sav(d.path(), Platform::Gba, "Emerald")
++            .ok()
++            .flatten(),
 +        Some(vec![7u8; 32])
 +    );
 +}
@@ -153,7 +157,9 @@ index 0000000..48624a4
 +    a.tick_ms(60_000);
 +    a.settle_saves();
 +    assert_eq!(
-+        persist::read_sav(d.path(), Platform::Gba, "Emerald"),
++        persist::read_sav(d.path(), Platform::Gba, "Emerald")
++            .ok()
++            .flatten(),
 +        Some(vec![7u8; 32])
 +    );
 +}

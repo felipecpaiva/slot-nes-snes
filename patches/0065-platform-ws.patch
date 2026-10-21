@@ -40,7 +40,7 @@ shelf shows a placeholder GBA shape until the WonderSwan carts land.
  crates/slot-store/src/core_policy.rs         |  24 ++-
  crates/slot-store/src/lib.rs                 |   3 +-
  crates/slot-store/src/platform.rs            |   5 +
- crates/slot-store/src/platform_policy.rs     |  45 ++--
+ crates/slot-store/src/platform_policy.rs     |  42 ++--
  crates/slot-store/src/scan.rs                |   2 +-
  crates/slot-store/src/sega_shader.rs         |  15 +-
  crates/slot-store/src/ws.rs                  |  32 +++
@@ -77,7 +77,7 @@ shelf shows a placeholder GBA shape until the WonderSwan carts land.
  crates/slot/tests/wswan_core.rs              | 102 +--------
  crates/slot/tests/wswan_saves.rs             | 116 +++++++++++
  crates/slot/tests/wswan_seat.rs              |  73 +++++++
- 44 files changed, 797 insertions(+), 193 deletions(-)
+ 44 files changed, 795 insertions(+), 192 deletions(-)
  create mode 100644 crates/slot-store/src/ws.rs
  create mode 100644 crates/slot-store/tests/wswan_platform.rs
  create mode 100644 crates/slot/src/ws_load.rs
@@ -113,10 +113,10 @@ index 174d57e..7d64703 100644
          let av = self.extra.av_change.take()?;
          self.av = av;
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index eb2792a..0553c76 100644
+index ad4aa4a..eb5853b 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -204,7 +204,9 @@ impl GameButton {
+@@ -245,7 +245,9 @@ impl GameButton {
  
      pub fn of(platform: Platform) -> &'static [GameButton] {
          match platform {
@@ -331,18 +331,18 @@ index 5f0d58c..4bc4eba 100644
      }
  }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index a6ee0a1..0c975ff 100644
+index 15b7fa7..4f297e6 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -21,6 +21,7 @@ mod shelf_carts;
+@@ -28,6 +28,7 @@ mod shelf_carts;
  mod slot_state;
  pub mod snes;
  mod stamp;
 +pub mod ws;
  
- pub use atomic::atomic_write;
+ pub use atomic::{atomic_write, sweep_temps};
  pub use bindings::{
-@@ -41,7 +42,7 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
+@@ -48,7 +49,7 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
  pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, PS1_SHADER_FILE, SEGA_SHADERS_FILE,
@@ -396,7 +396,7 @@ index c288314..0ef9cfb 100644
      }
  
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 4acde88..62a4709 100644
+index a00dbae..862e401 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -3,7 +3,7 @@ use crate::platform::Platform;
@@ -443,15 +443,7 @@ index 4acde88..62a4709 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -66,13 +68,14 @@ impl Platform {
-             | Platform::Gg
-             | Platform::Sms
-             | Platform::Md
--            | Platform::Ps1 => false,
-+            | Platform::Ps1
-+            | Platform::Ws => false,
-         }
-     }
+@@ -57,7 +59,7 @@ impl Platform {
  
      pub fn select_x_toggles_picture(self) -> bool {
          match self {
@@ -460,7 +452,7 @@ index 4acde88..62a4709 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -94,13 +97,19 @@ impl Platform {
+@@ -79,13 +81,19 @@ impl Platform {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -482,7 +474,7 @@ index 4acde88..62a4709 100644
              Platform::Nes | Platform::Snes | Platform::Sms | Platform::Md | Platform::Tg16 => true,
          }
      }
-@@ -115,7 +124,8 @@ impl Platform {
+@@ -100,7 +108,8 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -492,7 +484,7 @@ index 4acde88..62a4709 100644
          }
      }
  
-@@ -123,7 +133,7 @@ impl Platform {
+@@ -108,7 +117,7 @@ impl Platform {
          match self {
              Platform::Gba => &Shader::GBA,
              Platform::Gb | Platform::Gbc => &Shader::GB,
@@ -501,7 +493,7 @@ index 4acde88..62a4709 100644
              Platform::Nes
              | Platform::Snes
              | Platform::Sms
-@@ -143,7 +153,8 @@ impl Platform {
+@@ -128,7 +137,8 @@ impl Platform {
              | Platform::Snes
              | Platform::Gg
              | Platform::Sms
@@ -511,13 +503,23 @@ index 4acde88..62a4709 100644
          }
      }
  
-@@ -158,7 +169,8 @@ impl Platform {
+@@ -143,7 +153,8 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
 -            | Platform::Tg16 => true,
 +            | Platform::Tg16
 +            | Platform::Ws => true,
+         }
+     }
+ 
+@@ -158,7 +169,8 @@ impl Platform {
+             | Platform::Gg
+             | Platform::Sms
+             | Platform::Md
+-            | Platform::Tg16 => false,
++            | Platform::Tg16
++            | Platform::Ws => false,
          }
      }
  
@@ -532,16 +534,6 @@ index 4acde88..62a4709 100644
      }
  
 @@ -188,7 +201,8 @@ impl Platform {
-             | Platform::Gg
-             | Platform::Sms
-             | Platform::Md
--            | Platform::Tg16 => false,
-+            | Platform::Tg16
-+            | Platform::Ws => false,
-         }
-     }
- 
-@@ -203,7 +217,8 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -709,7 +701,7 @@ index 9a8787f..efbbc85 100644
      write_sega_shaders(d.path(), &s).expect("write");
      assert_eq!(
 diff --git a/crates/slot-store/tests/tg16_platform.rs b/crates/slot-store/tests/tg16_platform.rs
-index a4666fa..b3a25ec 100644
+index 777b588..2738574 100644
 --- a/crates/slot-store/tests/tg16_platform.rs
 +++ b/crates/slot-store/tests/tg16_platform.rs
 @@ -9,9 +9,8 @@ use slot_store::{
@@ -979,10 +971,10 @@ index 7fd2934..9e8446d 100644
          Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
          Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 2eb8670..b555341 100644
+index 31377d2..de6b7af 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -110,10 +110,13 @@ pub enum QuickRow {
+@@ -119,10 +119,13 @@ pub enum QuickRow {
      Tg16Shader,
      ScreenTg16,
      Tg16Picture,
@@ -992,12 +984,12 @@ index 2eb8670..b555341 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 100] = [
-+    pub const ALL: [QuickRow; 103] = [
+-    pub const ALL: [QuickRow; 108] = [
++    pub const ALL: [QuickRow; 111] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -214,6 +217,9 @@ impl QuickRow {
+@@ -231,6 +234,9 @@ impl QuickRow {
          QuickRow::Tg16Shader,
          QuickRow::ScreenTg16,
          QuickRow::Tg16Picture,
@@ -1007,34 +999,34 @@ index 2eb8670..b555341 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -276,7 +282,7 @@ impl QuickRow {
-         QuickRow::ScRewind,
+@@ -296,7 +302,7 @@ impl QuickRow {
+         QuickRow::ScPictureNext,
      ];
  
--    pub const SCREEN: [QuickRow; 10] = [
-+    pub const SCREEN: [QuickRow; 11] = [
+-    pub const SCREEN: [QuickRow; 11] = [
++    pub const SCREEN: [QuickRow; 12] = [
+         QuickRow::ScreenGeneral,
          QuickRow::ScreenGba,
          QuickRow::ScreenGbc,
-         QuickRow::ScreenGb,
-@@ -287,6 +293,7 @@ impl QuickRow {
+@@ -308,6 +314,7 @@ impl QuickRow {
          QuickRow::ScreenMd,
          QuickRow::ScreenPs1,
          QuickRow::ScreenTg16,
 +        QuickRow::ScreenWs,
      ];
  
-     pub const SCREEN_GBA: [QuickRow; 3] = [
-@@ -353,7 +360,8 @@ impl QuickRow {
+     pub const SCREEN_GENERAL: [QuickRow; 2] = [QuickRow::Brightness, QuickRow::BlueLight];
+@@ -379,7 +386,8 @@ impl QuickRow {
              | QuickRow::ScreenSms
              | QuickRow::ScreenMd
              | QuickRow::ScreenPs1
 -            | QuickRow::ScreenTg16 => &QuickRow::SCREEN,
 +            | QuickRow::ScreenTg16
 +            | QuickRow::ScreenWs => &QuickRow::SCREEN,
+             QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
+             QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
              QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-                 &QuickRow::SCREEN_GBA
-             }
-@@ -410,6 +418,7 @@ impl QuickRow {
+@@ -438,6 +446,7 @@ impl QuickRow {
                  &QuickRow::SCREEN_PS1
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
@@ -1042,7 +1034,7 @@ index 2eb8670..b555341 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -446,6 +455,7 @@ impl QuickRow {
+@@ -475,6 +484,7 @@ impl QuickRow {
                  Some(QuickRow::ScreenPs1)
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => Some(QuickRow::ScreenTg16),
@@ -1050,7 +1042,7 @@ index 2eb8670..b555341 100644
              _ => None,
          }
      }
-@@ -492,6 +502,7 @@ impl QuickRow {
+@@ -522,6 +532,7 @@ impl QuickRow {
              QuickRow::ScreenMd => Some(QuickRow::SCREEN_MD[0]),
              QuickRow::ScreenPs1 => Some(QuickRow::SCREEN_PS1[0]),
              QuickRow::ScreenTg16 => Some(QuickRow::SCREEN_TG16[0]),
@@ -1058,7 +1050,7 @@ index 2eb8670..b555341 100644
              _ => None,
          }
      }
-@@ -593,19 +604,21 @@ impl QuickRow {
+@@ -629,19 +640,21 @@ impl QuickRow {
              QuickRow::SmsShader => "Shader",
              QuickRow::MdShader => "Shader",
              QuickRow::Ps1Shader => "Shader",
@@ -1082,7 +1074,7 @@ index 2eb8670..b555341 100644
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -645,6 +658,7 @@ impl QuickRow {
+@@ -682,6 +695,7 @@ impl QuickRow {
                  | QuickRow::ScreenMd
                  | QuickRow::ScreenPs1
                  | QuickRow::ScreenTg16
@@ -1150,32 +1142,32 @@ index d48154a..66a797f 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index 6dace58..dbeb5f1 100644
+index a0db299..b3a0033 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
 @@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
--        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16"]
-+        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan"]
+-        ["General", "Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16"]
++        ["General", "Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan"]
      );
      assert_eq!(
-         QuickRow::SCREEN_GBA.map(QuickRow::label),
-@@ -152,7 +152,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             QuickRow::Shortcuts,
+         QuickRow::SCREEN_GENERAL.map(QuickRow::label),
+@@ -157,7 +157,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              QuickRow::Controls,
              QuickRow::ControlsShelf,
--            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16
-+            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs
+             QuickRow::ControlsInGame,
+-            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16
++            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs
          ]
      );
      for page in [
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index e200fe2..2dff29b 100644
+index 02ae9b0..fa83fc5 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -453,6 +453,7 @@ pub struct App {
+@@ -465,6 +465,7 @@ pub struct App {
      sega_shaders: slot_store::SegaShaders,
      pictures: crate::platform_video::SystemPictures,
      pal_speeds: crate::pal_speed::PalSpeeds,
@@ -1183,7 +1175,7 @@ index e200fe2..2dff29b 100644
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
      rested: Option<(usize, usize)>,
-@@ -638,6 +639,7 @@ impl App {
+@@ -654,6 +655,7 @@ impl App {
              sega_shaders: slot_store::SegaShaders::default(),
              pictures: crate::platform_video::SystemPictures::default(),
              pal_speeds: crate::pal_speed::PalSpeeds::default(),
@@ -1191,7 +1183,7 @@ index e200fe2..2dff29b 100644
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
              rested: None,
-@@ -1024,6 +1026,7 @@ impl App {
+@@ -1043,6 +1045,7 @@ impl App {
              (QuickRow::Shader, Platform::Md) => QuickRow::MdShader,
              (QuickRow::Shader, Platform::Ps1) => QuickRow::Ps1Shader,
              (QuickRow::Shader, Platform::Tg16) => QuickRow::Tg16Shader,
@@ -1199,7 +1191,7 @@ index e200fe2..2dff29b 100644
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
-@@ -1036,7 +1039,8 @@ impl App {
+@@ -1055,7 +1058,8 @@ impl App {
                  | Platform::Sms
                  | Platform::Md
                  | Platform::Ps1
@@ -1209,7 +1201,7 @@ index e200fe2..2dff29b 100644
              ) => QuickRow::GbaBezel,
              (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
              (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
-@@ -1069,13 +1073,15 @@ impl App {
+@@ -1098,13 +1102,15 @@ impl App {
              QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
              QuickRow::Ps1Shader => Some(shader_value(self.sega_shaders.ps1)),
              QuickRow::Tg16Shader => Some(shader_value(self.sega_shaders.tg16)),
@@ -1226,7 +1218,7 @@ index e200fe2..2dff29b 100644
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -1134,6 +1140,7 @@ impl App {
+@@ -1164,6 +1170,7 @@ impl App {
              | QuickRow::ScreenMd
              | QuickRow::ScreenPs1
              | QuickRow::ScreenTg16
@@ -1234,7 +1226,7 @@ index e200fe2..2dff29b 100644
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -1203,7 +1210,8 @@ impl App {
+@@ -1236,7 +1243,8 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -1244,7 +1236,7 @@ index e200fe2..2dff29b 100644
              Platform::Gb | Platform::Gbc => self
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
-@@ -1232,7 +1240,8 @@ impl App {
+@@ -1265,7 +1273,8 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -1254,7 +1246,7 @@ index e200fe2..2dff29b 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -1247,7 +1256,8 @@ impl App {
+@@ -1280,7 +1289,8 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -1264,7 +1256,7 @@ index e200fe2..2dff29b 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -1662,6 +1672,14 @@ impl App {
+@@ -1710,6 +1720,14 @@ impl App {
          self.platform = platform;
      }
  
@@ -1279,7 +1271,7 @@ index e200fe2..2dff29b 100644
      pub fn set_named_core(&mut self, named: bool) {
          self.named_core = named;
      }
-@@ -1678,7 +1696,7 @@ impl App {
+@@ -1726,7 +1744,7 @@ impl App {
          video_mode::source_rect(
              self.platform,
              crate::platform_video::shown(self.platform, self.frame_w, self.video_mode),
@@ -1288,7 +1280,7 @@ index e200fe2..2dff29b 100644
              self.video_mode,
          )
      }
-@@ -1991,7 +2009,7 @@ impl App {
+@@ -2077,7 +2095,7 @@ impl App {
  
      pub fn picture_rect(&self) -> [f32; 4] {
          let (w, h) = crate::platform_video::picture(self.platform, self.frame_w);
@@ -1297,7 +1289,7 @@ index e200fe2..2dff29b 100644
          let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
          [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
      }
-@@ -2167,6 +2185,7 @@ impl App {
+@@ -2253,6 +2271,7 @@ impl App {
              Platform::Md => self.sega_shaders.md,
              Platform::Ps1 => self.sega_shaders.ps1,
              Platform::Tg16 => self.sega_shaders.tg16,
@@ -1305,7 +1297,7 @@ index e200fe2..2dff29b 100644
          }
      }
  
-@@ -2193,7 +2212,8 @@ impl App {
+@@ -2279,7 +2298,8 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -1315,7 +1307,7 @@ index e200fe2..2dff29b 100644
          }
      }
  
-@@ -2651,7 +2671,8 @@ impl App {
+@@ -2776,7 +2796,8 @@ impl App {
              | QuickRow::ScreenSms
              | QuickRow::ScreenMd
              | QuickRow::ScreenPs1
@@ -1325,7 +1317,7 @@ index e200fe2..2dff29b 100644
                  if let Some(row) = row.child() {
                      let row = row.shown(&self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
-@@ -2729,6 +2750,8 @@ impl App {
+@@ -2861,6 +2882,8 @@ impl App {
              | QuickRow::MdPicture
              | QuickRow::Ps1Shader
              | QuickRow::Ps1Picture
@@ -1334,7 +1326,7 @@ index e200fe2..2dff29b 100644
              | QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -2881,13 +2904,15 @@ impl App {
+@@ -3030,13 +3053,15 @@ impl App {
              | QuickRow::SmsShader
              | QuickRow::MdShader
              | QuickRow::Ps1Shader
@@ -1351,7 +1343,7 @@ index e200fe2..2dff29b 100644
              | QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -2923,6 +2948,7 @@ impl App {
+@@ -3078,6 +3103,7 @@ impl App {
              | QuickRow::ScreenMd
              | QuickRow::ScreenPs1
              | QuickRow::ScreenTg16
@@ -1359,7 +1351,7 @@ index e200fe2..2dff29b 100644
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -2984,6 +3010,7 @@ impl App {
+@@ -3142,6 +3168,7 @@ impl App {
              Platform::Md => (&mut self.sega_shaders.md, &Shader::RETRO[..]),
              Platform::Ps1 => (&mut self.sega_shaders.ps1, &Shader::RETRO[..]),
              Platform::Tg16 => (&mut self.sega_shaders.tg16, &Shader::RETRO[..]),
@@ -1367,7 +1359,7 @@ index e200fe2..2dff29b 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -3044,7 +3071,8 @@ impl App {
+@@ -3202,7 +3229,8 @@ impl App {
                  | Platform::Sms
                  | Platform::Md
                  | Platform::Ps1
@@ -1377,7 +1369,7 @@ index e200fe2..2dff29b 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -3446,7 +3474,8 @@ impl App {
+@@ -3646,7 +3674,8 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::Ps1
@@ -1387,7 +1379,7 @@ index e200fe2..2dff29b 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -5629,7 +5658,8 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -5879,7 +5908,8 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::Sms
          | Platform::Md
          | Platform::Ps1
@@ -1398,7 +1390,7 @@ index e200fe2..2dff29b 100644
          Platform::Gbc => 2,
      }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 3796853..d005847 100644
+index 7246e11..5cc0bcc 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -192,7 +192,8 @@ pub fn colour_option(
@@ -1455,12 +1447,12 @@ index a212377..b586da2 100644
      }
  }
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 9faf9a5..4f15fdb 100644
+index 72af5b0..a8d24a0 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -545,7 +545,9 @@ impl Frontend {
+@@ -548,7 +548,9 @@ impl Frontend {
+         compositor.set_screen_power(self.session.app().screen_power());
          compositor.set_screen_footer(self.session.app().screen_footer());
-         compositor.set_overlay_slide(self.session.app().overlay_slide());
          let app = self.session.app();
 -        let (canvas_w, canvas_h) = app.core().canvas(app.playing_platform());
 +        let (canvas_w, canvas_h) = app
@@ -1470,10 +1462,10 @@ index 9faf9a5..4f15fdb 100644
          compositor.set_game_source_rect(self.session.app().source_rect());
          self.grab_link_shot(compositor);
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 6768ae4..fda052a 100644
+index 665f00d..163b669 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -58,3 +58,4 @@ pub mod thumb;
+@@ -65,3 +65,4 @@ pub mod thumb;
  pub mod thumb_sized;
  pub mod video_mode;
  pub mod wallpaper;
@@ -1600,7 +1592,7 @@ index 053a8ad..0db0b9e 100644
          .iter()
          .zip(systems)
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 3cb0c59..e4a2473 100644
+index 47b45bf..0276aef 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
@@ -1644,10 +1636,10 @@ index 3cb0c59..e4a2473 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index d963d62..989df04 100644
+index dd91c5f..758cc27 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -523,6 +523,8 @@ impl Session {
+@@ -535,6 +535,8 @@ impl Session {
          self.app.mark_start(platform, stem);
          self.app.set_core(core);
          self.app.set_platform(platform);
@@ -1656,7 +1648,7 @@ index d963d62..989df04 100644
          self.app
              .set_video_mode(crate::platform_video::video_mode_for(
                  &self.root, stem, platform,
-@@ -543,6 +545,7 @@ impl Session {
+@@ -556,6 +558,7 @@ impl Session {
                  launch("resume state read");
                  let palette = crate::core::palette_for(chosen, platform, &rom, player);
                  let mut opened = open_core(&root, core, platform, serial, colour, palette, player);
@@ -1665,10 +1657,10 @@ index d963d62..989df04 100644
                      opened.core.as_mut(),
                      &root,
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
-index d406ae5..d851c06 100644
+index 126088b..cd936db 100644
 --- a/crates/slot/src/snes_input.rs
 +++ b/crates/slot/src/snes_input.rs
-@@ -5,7 +5,9 @@ use crate::video_mode::VideoMode;
+@@ -6,7 +6,9 @@ use crate::video_mode::VideoMode;
  impl VideoMode {
      pub fn flipped(self, platform: Platform) -> VideoMode {
          match (platform, self) {
@@ -1702,7 +1694,7 @@ index 0000000..e06473b
 +    core.set_canvas(w, h);
 +}
 diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
-index 89ff062..5bf503a 100644
+index d0a6e36..3e0f96f 100644
 --- a/crates/slot/tests/crop_overscan.rs
 +++ b/crates/slot/tests/crop_overscan.rs
 @@ -73,9 +73,12 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
@@ -1722,7 +1714,7 @@ index 89ff062..5bf503a 100644
          assert_eq!(picture_choices(platform), want, "{platform:?}");
      }
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index eebded0..de27aa7 100644
+index 62ffb63..3d431b9 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
@@ -1735,10 +1727,10 @@ index eebded0..de27aa7 100644
          };
          assert_eq!(
 diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
-index 1b250b5..b7fb09a 100644
+index 48f19b9..682eebb 100644
 --- a/crates/slot/tests/sega_quick_shader.rs
 +++ b/crates/slot/tests/sega_quick_shader.rs
-@@ -92,9 +92,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+@@ -98,9 +98,9 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
  #[test]
  fn every_card_mix_hides_exactly_the_absent_systems() {
      use slot::retro_quick::hidden_on_shelf;
@@ -1751,7 +1743,7 @@ index 1b250b5..b7fb09a 100644
          let hidden = hidden_on_shelf(systems);
          assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
          assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
-@@ -103,6 +103,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+@@ -109,6 +109,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
          assert_eq!(hidden.contains(&QuickRow::ScreenMd), !systems[3]);
          assert_eq!(hidden.contains(&QuickRow::ScreenPs1), !systems[4]);
          assert_eq!(hidden.contains(&QuickRow::ScreenTg16), !systems[5]);
@@ -1760,7 +1752,7 @@ index 1b250b5..b7fb09a 100644
  }
  
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index b67b7b3..0309860 100644
+index 3e138df..69bf9f7 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -258,7 +258,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
@@ -1786,7 +1778,7 @@ index adb0a1c..3558bb0 100644
              Platform::Gba | Platform::Gb | Platform::Gbc => &[],
          };
 diff --git a/crates/slot/tests/tg16_screen.rs b/crates/slot/tests/tg16_screen.rs
-index d3fdea1..f99747b 100644
+index d3fdea1..f39cbcf 100644
 --- a/crates/slot/tests/tg16_screen.rs
 +++ b/crates/slot/tests/tg16_screen.rs
 @@ -42,8 +42,8 @@ fn open_turbografx(app: &mut App) {
@@ -1796,7 +1788,7 @@ index d3fdea1..f99747b 100644
 -fn turbografx_closes_the_screen_list_and_opens_its_own_section() {
 -    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenTg16));
 +fn turbografx_follows_playstation_in_the_screen_list_and_opens_its_own_section() {
-+    assert_eq!(QuickRow::SCREEN[9], QuickRow::ScreenTg16);
++    assert_eq!(QuickRow::SCREEN[10], QuickRow::ScreenTg16);
      assert_eq!(QuickRow::ScreenTg16.label(), "TurboGrafx-16");
      assert!(QuickRow::ScreenTg16.opens());
      assert_eq!(QuickRow::ScreenTg16.child(), Some(QuickRow::Tg16Shader));

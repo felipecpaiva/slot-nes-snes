@@ -1,7 +1,8 @@
-# slot NES/SNES: patch set over pinned slot main 1b20432, phased build plan (RG34XXSP reference)
+# slot NES/SNES: patch set over pinned slot v1.8.0, phased build plan (RG34XXSP reference)
 
 > Built against slot v1.6.0 (`9d7c795`), rebased onto v1.7.0 (`34ac380`) on 2026-10-15 (ADR 0038) and
-> onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083).
+> onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083) and onto v1.8.0 (`0ceac65`)
+> on 2026-10-21 (ADR 0104).
 > Version numbers below follow `SLOT_PIN`; the phase history is unchanged.
 
 ## Plan changelog

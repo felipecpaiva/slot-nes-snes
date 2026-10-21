@@ -21,30 +21,40 @@ Triangle on X, with turbo passing X and Y through.
 Handing the triggers to the game follows gmaster1998/slot.ps1's toggle
 (GPL-3.0).
 ---
- crates/slot-input/src/gesture.rs         |   6 +-
- crates/slot-input/src/gesture/ps1.rs     |  25 +++-
- crates/slot-input/tests/ps1_gesture.rs   | 125 ++++++++++++++++++-
+ crates/slot-input/src/gesture.rs         |   8 +-
+ crates/slot-input/src/gesture/ps1.rs     |  26 ++++
+ crates/slot-input/tests/ps1_gesture.rs   | 127 ++++++++++++++++++++
  crates/slot-retro/src/core.rs            |   2 +
  crates/slot-store/src/platform_policy.rs |  14 +++
  crates/slot/src/input/raw_buttons.rs     |   3 +
  crates/slot/src/session.rs               |   8 ++
  crates/slot/tests/ps1_input.rs           | 146 +++++++++++++++++++++++
- 8 files changed, 323 insertions(+), 6 deletions(-)
+ 8 files changed, 333 insertions(+), 1 deletion(-)
+ create mode 100644 crates/slot-input/src/gesture/ps1.rs
+ create mode 100644 crates/slot-input/tests/ps1_gesture.rs
  create mode 100644 crates/slot/tests/ps1_input.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index 3162677..3a31c75 100644
+index 5d6749b..fa2a917 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -114,6 +114,7 @@ pub struct Gestures {
+@@ -1,5 +1,7 @@
+ use crate::{Btn, Millis, RawEvent};
+ 
++mod ps1;
++
+ pub const SELECT_CHORD_MS: Millis = 600;
+ 
+ pub const SELECT_TAP_MS: Millis = 50;
+@@ -159,6 +161,7 @@ pub struct Gestures {
+     r2_refused: bool,
+     r2_last_release: Option<Millis>,
      rewinding: bool,
-     video_mode_chord: bool,
-     disc_chord: bool,
 +    triggers_to_game: bool,
  }
  
- fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
-@@ -240,6 +241,9 @@ impl Gestures {
+ pub fn anywhere(action: Action) -> bool {
+@@ -354,6 +357,9 @@ impl Gestures {
                  }
              };
          }
@@ -54,31 +64,25 @@ index 3162677..3a31c75 100644
          if self.chording(now) {
              let action = match b {
                  Btn::VolUp | Btn::VolDown => Some(Action::MuteToggle),
-@@ -253,7 +257,7 @@ impl Gestures {
-                 return self.hold(b, action);
+@@ -376,7 +382,7 @@ impl Gestures {
+             Btn::Select | Btn::Menu | Btn::Power | Btn::Lid | Btn::VolUp | Btn::VolDown
+         );
+         if self.context == Context::Game {
+-            if let Some(action) = self.shortcut(None, b) {
++            if let Some(action) = self.shortcut(None, b).filter(|_| !self.trigger_to_game(b)) {
+                 return self.fire(b, action, now);
              }
-         }
--        if self.playing {
-+        if self.playing && !self.trigger_to_game(b) {
-             match self.shortcut(None, b) {
-                 Some(Action::FfStart) => {
-                     self.ff_button = Some(b);
+         } else if !system {
 diff --git a/crates/slot-input/src/gesture/ps1.rs b/crates/slot-input/src/gesture/ps1.rs
-index c43ec3b..9b19055 100644
---- a/crates/slot-input/src/gesture/ps1.rs
+new file mode 100644
+index 0000000..e1866f9
+--- /dev/null
 +++ b/crates/slot-input/src/gesture/ps1.rs
-@@ -1,4 +1,5 @@
--use super::{Action, Gestures};
+@@ -0,0 +1,26 @@
 +use super::{Action, Gestures, Release};
 +use crate::{Btn, Millis};
- 
- impl Gestures {
-     pub fn set_disc_chord(&mut self, on: bool) {
-@@ -11,4 +12,26 @@ impl Gestures {
-             other => other,
-         }
-     }
 +
++impl Gestures {
 +    pub fn set_triggers_to_game(&mut self, on: bool) {
 +        self.triggers_to_game = on;
 +    }
@@ -100,13 +104,13 @@ index c43ec3b..9b19055 100644
 +        self.ff_latched = true;
 +        Some(vec![Action::FfStart])
 +    }
- }
++}
 diff --git a/crates/slot-input/tests/ps1_gesture.rs b/crates/slot-input/tests/ps1_gesture.rs
-index 1f9060d..0ba4810 100644
---- a/crates/slot-input/tests/ps1_gesture.rs
+new file mode 100644
+index 0000000..7a6326a
+--- /dev/null
 +++ b/crates/slot-input/tests/ps1_gesture.rs
-@@ -1,4 +1,33 @@
--use slot_input::{Action, Btn, Gestures, RawEvent};
+@@ -0,0 +1,127 @@
 +use slot_input::{Action, Btn, Chord, Gestures, Mod, RawEvent, SELECT_CHORD_MS};
 +
 +fn default_shortcuts() -> Vec<(Chord, Action)> {
@@ -137,22 +141,18 @@ index 1f9060d..0ba4810 100644
 +    g.set_playing(true);
 +    g
 +}
- 
- fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
-     let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
-@@ -10,7 +39,7 @@ fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
- }
- 
- fn ps1() -> Gestures {
--    let mut g = Gestures::new();
-+    let mut g = playing();
-     g.set_video_mode_chord(true);
-     g.set_disc_chord(true);
-     g
-@@ -23,8 +52,96 @@ fn select_l2_swaps_the_disc_on_ps1() {
- 
- #[test]
- fn select_l2_still_steps_the_palette_back_everywhere_else() {
++
++fn select_with(g: &mut Gestures, b: Btn) -> Vec<Action> {
++    let mut out = g.feed(RawEvent::Down(Btn::Select), 1000);
++    out.extend(g.feed(RawEvent::Down(b), 1020));
++    out.extend(g.feed(RawEvent::Up(b), 1100));
++    out.extend(g.feed(RawEvent::Up(Btn::Select), 1120));
++    out.extend(g.tick(2000));
++    out
++}
++
++#[test]
++fn select_l2_still_steps_the_palette_back_everywhere_else() {
 +    assert_eq!(select_with(&mut playing(), Btn::L2), [Action::PalettePrev]);
 +}
 +
@@ -163,7 +163,7 @@ index 1f9060d..0ba4810 100644
 +}
 +
 +fn ps1_with_triggers() -> Gestures {
-+    let mut g = ps1();
++    let mut g = playing();
 +    g.set_triggers_to_game(true);
 +    g
 +}
@@ -225,14 +225,6 @@ index 1f9060d..0ba4810 100644
 +}
 +
 +#[test]
-+fn select_x_flips_the_ps1_picture() {
-+    assert_eq!(
-+        select_with(&mut ps1_with_triggers(), Btn::X),
-+        [Action::VideoModeToggle]
-+    );
-+}
-+
-+#[test]
 +fn select_alone_reaches_the_ps1_game_once_the_chord_window_closes() {
 +    let mut g = ps1_with_triggers();
 +    assert!(g.feed(RawEvent::Down(Btn::Select), 1000).is_empty());
@@ -241,13 +233,11 @@ index 1f9060d..0ba4810 100644
 +        g.tick(1000 + SELECT_CHORD_MS),
 +        [Action::GbaDown(Btn::Select)]
 +    );
-     assert_eq!(
--        select_with(&mut Gestures::new(), Btn::L2),
--        [Action::PalettePrev]
++    assert_eq!(
 +        g.feed(RawEvent::Up(Btn::Select), 2000),
 +        [Action::GbaUp(Btn::Select)]
-     );
- }
++    );
++}
 diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
 index ec927a1..da02b2e 100644
 --- a/crates/slot-retro/src/core.rs
@@ -285,7 +275,7 @@ index 1896363..6215838 100644
 +    }
  }
 diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
-index 3ea03f6..24a5f41 100644
+index 4687249..558c07d 100644
 --- a/crates/slot/src/input/raw_buttons.rs
 +++ b/crates/slot/src/input/raw_buttons.rs
 @@ -10,6 +10,9 @@ fn raw_buttons(platform: Platform) -> Vec<(Btn, u16)> {
@@ -299,10 +289,10 @@ index 3ea03f6..24a5f41 100644
  }
  
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index fdc62b0..b84edec 100644
+index ca80b01..79ff3a7 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -246,6 +246,12 @@ impl Session {
+@@ -260,6 +260,12 @@ impl Session {
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,
              Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
@@ -315,10 +305,10 @@ index fdc62b0..b84edec 100644
              _ => {}
          }
          let menu = self.overlaid();
-@@ -585,6 +591,8 @@ impl Session {
-         self.gestures
-             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
-         self.gestures.set_disc_chord(loaded.platform.swaps_discs());
+@@ -610,6 +616,8 @@ impl Session {
+         emu.set_volume(self.app.output_volume());
+         emu.set_driven(self.driven);
+         emu.set_pass_through(loaded.platform.passes_xy_through());
 +        self.gestures
 +            .set_triggers_to_game(!loaded.platform.owns_triggers());
          self.app.set_snapshot(Box::new(emu.snapshot()));

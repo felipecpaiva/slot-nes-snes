@@ -22,9 +22,10 @@ not used for disks.
  crates/slot/src/emu.rs                  |  21 +++
  crates/slot/src/fds_disk.rs             |  98 +++++++++++
  crates/slot/src/lib.rs                  |   1 +
- crates/slot/src/session.rs              |   9 +-
+ crates/slot/src/session.rs              |   5 +
+ crates/slot/src/snes_input.rs           |   2 +-
  crates/slot/tests/fds_core.rs           | 211 ++++++++++++++++++++++++
- 7 files changed, 346 insertions(+), 2 deletions(-)
+ 8 files changed, 344 insertions(+), 2 deletions(-)
  create mode 100644 crates/slot/src/fds_disk.rs
  create mode 100644 crates/slot/tests/fds_core.rs
 
@@ -71,7 +72,7 @@ index 3d30d5d..31d28c8 100644
          if let Some(toast) = toast {
              self.hud.toast(Toast::Disc(toast), self.now());
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index b41491f..0391b46 100644
+index 3bf8f57..a6c3ea0 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -82,6 +82,7 @@ enum Cmd {
@@ -90,7 +91,7 @@ index b41491f..0391b46 100644
      flash: Mutex<Option<crate::ngp_flash::Seat>>,
  }
  
-@@ -193,6 +195,7 @@ impl EmuHandle {
+@@ -201,6 +203,7 @@ impl EmuHandle {
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
              disc_event: Mutex::new(None),
@@ -98,7 +99,7 @@ index b41491f..0391b46 100644
              flash: Mutex::new(None),
          });
          let (tx, rx) = channel();
-@@ -437,6 +440,10 @@ impl EmuHandle {
+@@ -445,6 +448,10 @@ impl EmuHandle {
          request(&self.cmds, &self.shared, Cmd::NextDisc);
      }
  
@@ -109,7 +110,7 @@ index b41491f..0391b46 100644
      pub fn take_disc_event(&self) -> Option<DiscEvent> {
          self.shared.disc_event.lock().ok()?.take()
      }
-@@ -535,6 +542,15 @@ impl Worker {
+@@ -543,6 +550,15 @@ impl Worker {
          }
      }
  
@@ -125,7 +126,7 @@ index b41491f..0391b46 100644
      fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
          match self.player {
              Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
-@@ -768,6 +784,7 @@ impl Worker {
+@@ -778,6 +794,7 @@ impl Worker {
                          turbo_frame,
                      );
                      turbo_frame = turbo_frame.wrapping_add(1);
@@ -133,7 +134,7 @@ index b41491f..0391b46 100644
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
                      match cable.as_mut() {
-@@ -810,6 +827,9 @@ impl Worker {
+@@ -820,6 +837,9 @@ impl Worker {
                          }
                          None => core.run_frame(input),
                      }
@@ -143,7 +144,7 @@ index b41491f..0391b46 100644
                      let took = frame_began.elapsed();
                      if last {
                          drawn = took;
-@@ -1019,6 +1039,7 @@ impl Worker {
+@@ -1029,6 +1049,7 @@ impl Worker {
                  core.next_disc();
                  self.keep_disc_event(core);
              }
@@ -256,10 +257,10 @@ index 0000000..11ac8f7
 +    Some(DiscEvent::Side(side))
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 9ca7e8e..f2d5b7f 100644
+index e74f6ec..1531a9e 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -27,6 +27,7 @@ pub mod drc;
+@@ -34,6 +34,7 @@ pub mod drc;
  pub mod emu;
  pub mod face_builder;
  pub mod fast_scroll_trace;
@@ -268,10 +269,10 @@ index 9ca7e8e..f2d5b7f 100644
  pub mod frames;
  pub mod frontend;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 472696f..48484ec 100644
+index 2cb8c5a..3982f87 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -246,6 +246,11 @@ impl Session {
+@@ -261,6 +261,11 @@ impl Session {
              Action::RewindStop => self.rewinding = false,
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,
@@ -283,17 +284,19 @@ index 472696f..48484ec 100644
              Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
              Action::Eject if self.app.triggers_to_game() => {
                  for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
-@@ -618,7 +623,9 @@ impl Session {
-         emu.set_ws_pad(self.app.pad_code(loaded.platform));
-         self.gestures
-             .set_video_mode_chord(loaded.platform.select_x_toggles_picture());
--        self.gestures.set_disc_chord(loaded.platform.swaps_discs());
-+        self.gestures.set_disc_chord(
-+            loaded.platform.swaps_discs() || crate::fds_disk::flips(loaded.platform),
-+        );
-         self.gestures
-             .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
-         self.app.set_snapshot(Box::new(emu.snapshot()));
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 66c3829..ca0f33a 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -41,7 +41,7 @@ pub fn keep_applicable(entries: &mut Vec<Entry>, platform: Platform) {
+     if !platform.select_x_toggles_picture() {
+         entries.retain(|e| e.action != Action::VideoModeToggle);
+     }
+-    if platform.swaps_discs() {
++    if platform.swaps_discs() || crate::fds_disk::flips(platform) {
+         entries
+             .iter_mut()
+             .filter(|e| e.action == Action::PalettePrev)
 diff --git a/crates/slot/tests/fds_core.rs b/crates/slot/tests/fds_core.rs
 new file mode 100644
 index 0000000..0de2a9e

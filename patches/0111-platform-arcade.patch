@@ -37,7 +37,7 @@ shells land.
  crates/slot-store/src/core_policy.rs         |   40 +-
  crates/slot-store/src/lib.rs                 |    6 +-
  crates/slot-store/src/platform.rs            |   12 +
- crates/slot-store/src/platform_policy.rs     |  110 +-
+ crates/slot-store/src/platform_policy.rs     |  105 +-
  crates/slot-store/src/scan.rs                |    6 +-
  crates/slot-store/src/sega_shader.rs         |   23 +-
  crates/slot-store/tests/arcade_platform.rs   |  195 +++
@@ -63,7 +63,7 @@ shells land.
  crates/slot/tests/gpsp.rs                    |    2 +-
  crates/slot/tests/snes_select.rs             |    4 +-
  crates/slot/tests/system_picture.rs          |    7 +-
- 33 files changed, 2247 insertions(+), 80 deletions(-)
+ 33 files changed, 2243 insertions(+), 79 deletions(-)
  create mode 100644 crates/slot-store/src/arcade.rs
  create mode 100644 crates/slot-store/src/arcade_sets.tsv
  create mode 100644 crates/slot-store/tests/arcade_platform.rs
@@ -1734,10 +1734,10 @@ index 0000000..42c8bf1
 +NEOGEO	zintrkcd	zintrckb	ch	Zintrick / Oshidashi Zentrix (Neo CD conversion)
 +NEOGEO	zupapa	-	-	Zupapa!
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 1cc3233..23a429a 100644
+index d4a4add..48dcd1b 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -211,7 +211,10 @@ impl GameButton {
+@@ -252,7 +252,10 @@ impl GameButton {
              | Platform::Lynx
              | Platform::Ws
              | Platform::S32x
@@ -2088,15 +2088,18 @@ index 72338a9..62ebbf6 100644
      }
  }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 0c091ec..545c4a5 100644
+index 141bb19..2f61e12 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -1,3 +1,4 @@
+@@ -5,6 +5,7 @@ macro_rules! eprintln {
+     }};
+ }
+ 
 +pub mod arcade;
  mod atomic;
  mod bindings;
  mod bios_dump;
-@@ -46,8 +47,9 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
+@@ -53,8 +54,9 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
  pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
@@ -2160,7 +2163,7 @@ index 64ada8b..25bb12d 100644
      }
  
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 692d2fb..333635d 100644
+index 137e50f..fc89a15 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -5,7 +5,7 @@ use crate::platform::Platform;
@@ -2218,19 +2221,7 @@ index 692d2fb..333635d 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -108,7 +120,10 @@ impl Platform {
-             | Platform::S32x
-             | Platform::A2600
-             | Platform::A7800
--            | Platform::Vb => false,
-+            | Platform::Vb
-+            | Platform::NeoGeo
-+            | Platform::Cps1
-+            | Platform::Cps2 => false,
-         }
-     }
- 
-@@ -121,7 +136,10 @@ impl Platform {
+@@ -99,7 +111,10 @@ impl Platform {
              | Platform::Lynx
              | Platform::Ngp
              | Platform::S32x
@@ -2242,7 +2233,7 @@ index 692d2fb..333635d 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -152,7 +170,10 @@ impl Platform {
+@@ -130,7 +145,10 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2254,7 +2245,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -174,7 +195,10 @@ impl Platform {
+@@ -152,7 +170,10 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2266,7 +2257,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -195,7 +219,10 @@ impl Platform {
+@@ -173,7 +194,10 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2278,7 +2269,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -214,13 +241,16 @@ impl Platform {
+@@ -192,13 +216,16 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2297,7 +2288,7 @@ index 692d2fb..333635d 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -234,7 +264,9 @@ impl Platform {
+@@ -212,7 +239,9 @@ impl Platform {
              | Platform::Ngp
              | Platform::A2600
              | Platform::A7800
@@ -2308,7 +2299,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -256,7 +288,10 @@ impl Platform {
+@@ -234,7 +263,10 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2317,6 +2308,18 @@ index 692d2fb..333635d 100644
 +            | Platform::NeoGeo
 +            | Platform::Cps1
 +            | Platform::Cps2 => true,
+         }
+     }
+ 
+@@ -256,7 +288,10 @@ impl Platform {
+             | Platform::S32x
+             | Platform::A2600
+             | Platform::A7800
+-            | Platform::Vb => false,
++            | Platform::Vb
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => false,
          }
      }
  
@@ -2336,18 +2339,6 @@ index 692d2fb..333635d 100644
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
--            | Platform::Vb => false,
-+            | Platform::Vb
-+            | Platform::NeoGeo
-+            | Platform::Cps1
-+            | Platform::Cps2 => false,
-         }
-     }
- 
-@@ -322,7 +363,10 @@ impl Platform {
-             | Platform::S32x
-             | Platform::A2600
-             | Platform::A7800
 -            | Platform::Vb => true,
 +            | Platform::Vb
 +            | Platform::NeoGeo
@@ -2356,7 +2347,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -344,7 +388,10 @@ impl Platform {
+@@ -322,7 +363,10 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2368,7 +2359,7 @@ index 692d2fb..333635d 100644
          }
      }
  
-@@ -366,6 +413,32 @@ impl Platform {
+@@ -344,6 +388,32 @@ impl Platform {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2401,7 +2392,7 @@ index 692d2fb..333635d 100644
              | Platform::Vb => false,
          }
      }
-@@ -374,6 +447,9 @@ impl Platform {
+@@ -352,6 +422,9 @@ impl Platform {
          self.accepts(path)
              && match self {
                  Platform::S32x => crate::s32x::admits(path),
@@ -2894,10 +2885,10 @@ index a706dc3..c964fb5 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index a07acc9..197d4d7 100644
+index c6bacac..28bd828 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1072,7 +1072,10 @@ impl App {
+@@ -1091,7 +1091,10 @@ impl App {
                  | Platform::Ngp
                  | Platform::S32x
                  | Platform::A2600
@@ -2909,7 +2900,7 @@ index a07acc9..197d4d7 100644
              ) => QuickRow::GbaBezel,
              (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
              (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
-@@ -1282,7 +1285,10 @@ impl App {
+@@ -1315,7 +1318,10 @@ impl App {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2921,7 +2912,7 @@ index a07acc9..197d4d7 100644
              Platform::Gb | Platform::Gbc => self
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
-@@ -1318,7 +1324,10 @@ impl App {
+@@ -1351,7 +1357,10 @@ impl App {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2933,7 +2924,7 @@ index a07acc9..197d4d7 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -1340,7 +1349,10 @@ impl App {
+@@ -1373,7 +1382,10 @@ impl App {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2945,7 +2936,7 @@ index a07acc9..197d4d7 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -2278,6 +2290,9 @@ impl App {
+@@ -2364,6 +2376,9 @@ impl App {
              Platform::A2600 => self.sega_shaders.a2600,
              Platform::A7800 => self.sega_shaders.a7800,
              Platform::Vb => self.sega_shaders.vb,
@@ -2955,7 +2946,7 @@ index a07acc9..197d4d7 100644
          }
      }
  
-@@ -2330,7 +2345,10 @@ impl App {
+@@ -2416,7 +2431,10 @@ impl App {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -2967,7 +2958,7 @@ index a07acc9..197d4d7 100644
          }
      }
  
-@@ -3236,6 +3254,9 @@ impl App {
+@@ -3394,6 +3412,9 @@ impl App {
              Platform::A2600 => (&mut self.sega_shaders.a2600, &Shader::RETRO[..]),
              Platform::A7800 => (&mut self.sega_shaders.a7800, &Shader::RETRO[..]),
              Platform::Vb => (&mut self.sega_shaders.vb, &Shader::RETRO[..]),
@@ -2977,7 +2968,7 @@ index a07acc9..197d4d7 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -3303,7 +3324,10 @@ impl App {
+@@ -3461,7 +3482,10 @@ impl App {
                  | Platform::S32x
                  | Platform::A2600
                  | Platform::A7800
@@ -2989,7 +2980,7 @@ index a07acc9..197d4d7 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -3712,7 +3736,10 @@ impl App {
+@@ -3912,7 +3936,10 @@ impl App {
              | Platform::S32x
              | Platform::A2600
              | Platform::A7800
@@ -3001,7 +2992,7 @@ index a07acc9..197d4d7 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -3877,8 +3904,8 @@ impl App {
+@@ -4078,8 +4105,8 @@ impl App {
              .cloned()
              .collect();
          carts.sort_by(|a, b| {
@@ -3012,7 +3003,7 @@ index a07acc9..197d4d7 100644
          });
          let index = self.shelves[FAVORITES_AT].1.index;
          self.restock(FAVORITES_AT, carts);
-@@ -5905,7 +5932,10 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -6155,7 +6182,10 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::S32x
          | Platform::A2600
          | Platform::A7800
@@ -3041,7 +3032,7 @@ index e2db518..61545e0 100644
      }
  }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 76880b0..0b788db 100644
+index 5bee5d6..4b1d0d0 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -204,7 +204,8 @@ pub fn colour_option(
@@ -3150,7 +3141,7 @@ index c7476f8..d933955 100644
          seen[at] = true;
      }
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 85eab04..bf7c1df 100644
+index 906d4d0..fa158ba 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
@@ -3202,10 +3193,10 @@ index 85eab04..bf7c1df 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
-index cd358b9..c3c2a88 100644
+index 79d26cd..4775ee8 100644
 --- a/crates/slot/src/snes_input.rs
 +++ b/crates/slot/src/snes_input.rs
-@@ -13,7 +13,10 @@ impl VideoMode {
+@@ -14,7 +14,10 @@ impl VideoMode {
                  | Platform::Lynx
                  | Platform::Ngp
                  | Platform::S32x
@@ -3234,7 +3225,7 @@ index d6d6f7a..bc85e3e 100644
          ) => OFF,
      }
 diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
-index dc4695e..9ed9fac 100644
+index bafa739..a6b8155 100644
 --- a/crates/slot/tests/crop_overscan.rs
 +++ b/crates/slot/tests/crop_overscan.rs
 @@ -72,9 +72,14 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
@@ -3256,7 +3247,7 @@ index dc4695e..9ed9fac 100644
              | Platform::Gb
              | Platform::Gbc
 diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
-index 2cde6ac..c8db8fe 100644
+index 24b915f..c854a9f 100644
 --- a/crates/slot/tests/four_three.rs
 +++ b/crates/slot/tests/four_three.rs
 @@ -67,6 +67,9 @@ fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
@@ -3270,7 +3261,7 @@ index 2cde6ac..c8db8fe 100644
          assert_eq!(offers_four_three(platform), tv, "{platform:?}");
          assert_eq!(
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index 9fdf8d2..d5a929b 100644
+index 4f6521a..e97ddcc 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
@@ -3283,7 +3274,7 @@ index 9fdf8d2..d5a929b 100644
          };
          assert_eq!(
 diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
-index 4e4e948..19d335a 100644
+index d379fcb..2561410 100644
 --- a/crates/slot/tests/snes_select.rs
 +++ b/crates/slot/tests/snes_select.rs
 @@ -257,7 +257,9 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
