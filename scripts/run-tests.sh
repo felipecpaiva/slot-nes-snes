@@ -63,8 +63,11 @@ fi
 # Upstream's render_native.rs (v1.8.0, 9d2bc24) compares exact bezel pixels on a 640x480 panel; it
 # passes in both trees here and failed one test on the macOS runner (run 39573607904), so it runs in
 # both trees too and gates only a failure the unpatched tree does not share (ADR 0106).
-both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native"
+# Upstream's rumble.rs times a motor pulse by wall clock; in the full parallel run of the 146-patch suite
+# tests it failed a_buzz_is_cut_off_at_the_longest_the_motor_runs three times and passes run alone in
+# both trees, so it runs apart in both trees too (ADR 0106).
+both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble"
 up="$(dirname "$1")/slot-upstream"
 [ -d "$up/crates" ] || {
 	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2

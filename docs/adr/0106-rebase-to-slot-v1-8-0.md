@@ -125,6 +125,9 @@ v1.8.0 is a tag, so the release is `v1.8.0-ns.1` (`SLOT_PIN` tag `v1.8.0` plus `
   macOS runner (run 39573607904), and the unpatched tree fails it the same way there (run
   39575886711: upstream fails 1, patched fails 1). It joins `run-tests.sh`'s both-trees list, locally and on CI, so it
   gates only a failure the unpatched tree does not share.
+- Upstream's `rumble.rs` times a motor pulse by wall clock. In the full parallel run of the 146-patch
+  suite it failed `a_buzz_is_cut_off_at_the_longest_the_motor_runs` three times and passes alone in
+  both trees, so it joins the both-trees list, which runs each tree's binary on its own.
 - `scripts/check-format.sh` fails only on files we add or change: rustfmt also walks the modules a
   changed `lib.rs` declares and reaches upstream's own `sticker.rs`, which 1.8.0 left unformatted.
 - `zip-check.sh` accepts upstream's `README.txt` in `Labels/`, `Wallpapers/` and `Bezels/` (and only
