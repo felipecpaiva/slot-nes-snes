@@ -21,6 +21,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 9 | Spec (Who it's NOT for), Phase 15 | Sega 32X in the patch set on PicoDrive (patches 0090 to 0097, ADR 0096), device gate (issue 152) pending |
 | 10 | Spec (Who it's NOT for), Phase 16 | Virtual Boy in the patch set on Beetle VB (patches 0102 to 0109, ADR 0097), device gate (issue 182) pending |
 | 11 | Spec (Who it's NOT for), Phase 17 | Neo Geo, CPS1 and CPS2 in the patch set on FinalBurn Neo (patches 0110 to 0116, ADR 0099), the zip as the romset on those three shelves only, device gate (issue 193) pending |
+| 12 | Spec (Who it's NOT for), Phase 18 | PICO-8 carts in the patch set on FAKE-08 (patches 0120 to 0123, ADR 0101), no states, device gate (issue 199) pending |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 
@@ -61,7 +62,7 @@ This plan sides with the bar. Upstream constants, struct field lists and in-sour
 - **Who it's NOT for:**
   - upstream slot (no PR, no issues filed there);
   - owners of non-H700 devices (no builds, no testing);
-  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) Virtual Boy (Phase 16, ADR 0097) and Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset) so far;
+  - people who want RetroArch breadth: netplay, cheats, per-game overrides, more systems, zip ROMs. Systems are added one at a time by ADR: Sega (Phase 7), PlayStation (Phase 8, ADR 0063), TurboGrafx-16 (Phase 10, ADR 0091), WonderSwan (Phase 11, ADR 0092), Atari Lynx (Phase 12, ADR 0093), NeoGeo Pocket (Phase 9, ADR 0090), Sega 32X (Phase 15, ADR 0096), Atari 2600 and 7800 (Phase 14, ADR 0095) Virtual Boy (Phase 16, ADR 0097), Neo Geo, CPS1 and CPS2 (Phase 17, ADR 0099, the only shelves where the zip is the romset) and PICO-8 carts (Phase 18, ADR 0101, on FAKE-08; PICO-8 itself is never shipped) so far;
   - anyone redistributing commercially (snes9x is licensed for non-commercial use only).
 - **Success looks like:**
   1. **GBA, GB and GBC are byte-identical to unpatched slot v1.7.0.** A blind frame-hash compare of the same legal test carts and scripted inputs matches 100%, after a control run proves the harness is deterministic. All ~1,400 upstream tests pass with zero hunks in upstream test code, meaning both `crates/*/tests/` and the `#[cfg(test)]` modules of every patched source file. GBA `core_bench` median frame cost is within 2% (5 repeats, same ROMs).
@@ -601,6 +602,22 @@ Patches 0110 to 0116 and 0119 on upstream main 1b20432.
 | 9 | 192, done (0116) | Neo Geo AES cart, CPS2 B-board cover in its region colour, CPS1 case, arcade labels by set name |
 | 10 | done (0119) | The set table indexed once; a 20,000-file scan guard (boot regression found on the device) |
 | 11 | 193 | Device gate |
+
+### Phase 18: PICO-8 (in the patch set, device gate pending)
+
+Tracking issue 194, children 195 to 199, ADR 0101. One core, FAKE-08 (`fake08`, MIT) pinned at `814991a`
+with its z8lua submodule, built with `cores/fake08/slot.patch`; one shelf `Games/PICO8` for `.p8` and
+`<name>.p8.png` carts; no BIOS, no states. Patches 0120 to 0123 on upstream main 1b20432.
+
+| Step | Issue | Content |
+|---|---|---|
+| 1 | done | ADR 0101 and the issues |
+| 2 | 195, done | Core build with the source patch, `owner` and `source_patch` in `cores/lib.sh`, `powf`, `exp2f` and `pow` at GLIBC_2.17, licence |
+| 3 | 198, core half done | Generated text and PNG carts: picture, pad, cartdata, stderr, pause menu, runtime error, no states (patch 0120) |
+| 4 | 196, done (0121) | `Platform::Pico8`, 240x160 canvas, Screen section, Saves/PICO8 save dir, no rewind, States page hidden |
+| 5 | 197, done (0122) | Our grey PICO-8 cart; labels cropped from the cart by `fetch-labels.py` |
+| 6 | 198, done (0123) | A GBA game after a PICO-8 game equals a GBA only run |
+| 7 | 199 | Device gate |
 
 ### Phase 6+: deferred (non-blocking)
 

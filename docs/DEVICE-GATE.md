@@ -488,3 +488,33 @@ with Line and Pixel.
 2. With `cart_platform=tg16` and `cart=Bonk's Adventure (USA)` in `Config/slot.state` and a NES cart
    of the same name on the NES shelf, power on: the TurboGrafx-16 cart resumes (patch 0089 pins it in
    `resume_platform.rs`).
+
+## PICO-8 (issue 199, ADR 0101)
+
+Pending. Copy the carts listed in `docs/rom-library/best-copy/pico8-adds.tsv` (workspace) into
+`Games/PICO8/` under their target names, then `task labels:fetch -- --card <card> --only PICO8` (no network)
+for the labels. Host numbers are 0.05 to 0.67 ms a frame on the M-series; the device sets the bar.
+
+1. Speed: `task bench:device CORE=fake08 ROM_ON_DEVICE="/mnt/sdcard/Games/PICO8/<name>.p8.png" ARGS="--frames 3000
+   --warmup 600 --repeats 3"` for Cave Runners! (the slowest on the host), UFO Swamp Odyssey and Celeste;
+   record the medians.
+2. Picture: Actual is a sharp 384x384 square in the middle (3x, no shimmer when Celeste's camera moves);
+   Stretch fills the panel; SELECT+X flips between them; the Shader row walks the retro list.
+3. Controls: B is O (Celeste jumps), A is X (Celeste dashes), Y and X fire turbo O and X in Cherry Bomb,
+   START opens the pause menu (Continue, the cart's own items, Reset Cart, nothing else) and Reset Cart
+   restarts the same game; every quick tap counts in a 30 fps cart (Pico Racer menu, Ma Puzzle moves).
+4. Audio: 10 minutes each of Celeste and Witch Loves Bullets under `SLOT_TRACE`; music at the right pitch,
+   no crackle; `starved` and `dropped` stay 0.
+5. Saves: set a Pico de Pon high score (it uses cartdata), wait 2 s, power off at the switch, power on: the
+   score is kept (`Saves/PICO8/cdata/picodepon_high_scores.p8d.txt`), with no `.tmp` left beside it.
+6. No states: the in-game menu has no States page; eject, lid close and power tap leave nothing in
+   `States/PICO8/`; L2 does nothing, R2 fast-forwards.
+7. Errors: Demon Castle and Under Construction show "runtime error" and stay there; no other cart starts.
+8. Logs: `System/slot.log` keeps getting lines after a cartdata save (the stderr fix).
+
+| Cart | bench:device ms/frame | Starved / dropped | Date | Notes |
+|---|---|---|---|---|
+| Cave Runners! | | | | slowest on the host |
+| UFO Swamp Odyssey | | | | |
+| Celeste | | | | jump and dash |
+| Pico de Pon | | | | cartdata across a power cut |

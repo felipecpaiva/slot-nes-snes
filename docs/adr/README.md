@@ -117,3 +117,4 @@ the patch set looks the way it does.
 | [0098](0098-expansion-card.md) | An Expansion Card in TF2 (p1 16 MiB of zeros, p2 exFAT EXPANSION) lends whole Games folders to the main card through bind mounts made by System/expansion.sh from Config/expansion.txt | Accepted | 2026-10-20 |
 | [0099](0099-arcade-on-finalburn-neo.md) | Bring Neo Geo, CPS1 and CPS2 into scope on one pinned FinalBurn Neo, a shelf per board, the zip as the romset | Accepted. Amends 0002 and the zip non-goal for the arcade shelves | 2026-10-20 |
 | [0100](0100-shelf-order-option.md) | Offer a Shelf order option in Config/shelf_order.txt: Classic (the default, the order systems were added) or Release year (first release anywhere, oldest first, one dated row per platform) | Accepted | 2026-10-20 |
+| [0101](0101-pico8-on-fake08.md) | Bring PICO-8 carts into scope on pinned FAKE-08, a shelf of their own, no states | Accepted. Amends 0002 | 2026-10-21 |

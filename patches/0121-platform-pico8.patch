@@ -1,0 +1,2216 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 01:46:33 +0400
+Subject: [PATCH] platform-pico8
+
+PICO-8 gets one shelf, Games/PICO8, on FAKE-08 (fake08) alone.
+Platform::Pico8 is appended to SHELVES and Core::Fake08 to EVERY;
+upstream's ALL lists stay as they are. Carts are .p8 (text, or a PNG cart
+under that name) and <name>.p8.png; a bare .png never lands on the shelf.
+A text cart is titled by its first comment line, a PNG cart by its file
+name without .p8, _ read as a space. It plays like the NES: d-pad, O on B,
+X on A, Start opens the cart's pause menu, slot owns L and R, X is turbo X
+and Y turbo O. fake-08 offers no state, so rewind is off and the in-game
+States page is hidden; cartdata keeps a cart's saves. The 128x128 picture
+sits centred on a 240x160 canvas, so Actual (the default) draws it at
+exactly 3x, 384x384, and Stretch fills the panel. Its own Screen section
+holds Shader (Off and the retro list, Config/pico8_shader.txt) and
+Picture (pico8 in picture.txt). The core gets Saves/PICO8 as its save
+dir, so cartdata lands in Saves/PICO8/cdata. Released 2015-04-18 for the
+shelf order. The shelf shows the Virtual Boy cart until the PICO-8 cart
+lands.
+---
+ crates/slot-store/src/bindings.rs            |   3 +-
+ crates/slot-store/src/core.rs                |  45 ++++-
+ crates/slot-store/src/core_policy.rs         |  12 +-
+ crates/slot-store/src/lib.rs                 |   5 +-
+ crates/slot-store/src/pico8.rs               | 111 ++++++++++++
+ crates/slot-store/src/platform.rs            |   5 +
+ crates/slot-store/src/platform_policy.rs     |  31 +++-
+ crates/slot-store/src/scan.rs                |   1 +
+ crates/slot-store/src/sega_shader.rs         |   9 +-
+ crates/slot-store/tests/arcade_platform.rs   |   9 +-
+ crates/slot-store/tests/core_pairs.rs        |   4 +-
+ crates/slot-store/tests/pico8_platform.rs    | 178 +++++++++++++++++++
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-ui/src/cart.rs                   |   5 +-
+ crates/slot-ui/src/quick_menu.rs             |  23 ++-
+ crates/slot-ui/src/quick_retro.rs            |   1 +
+ crates/slot-ui/src/retro_cart.rs             |   5 +-
+ crates/slot-ui/src/shell.rs                  |   1 +
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot-ui/tests/quick_menu.rs           |   4 +-
+ crates/slot/src/app.rs                       |  19 ++
+ crates/slot/src/arcade_turn.rs               |   3 +-
+ crates/slot/src/atari_switches.rs            |   1 +
+ crates/slot/src/core.rs                      |   1 +
+ crates/slot/src/core_options_policy.rs       |  15 +-
+ crates/slot/src/ngp_flash.rs                 |   4 +
+ crates/slot/src/platform_video.rs            |  11 +-
+ crates/slot/src/retro_quick.rs               |  16 +-
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/shelf_order.rs               |   4 +-
+ crates/slot/src/snes_input.rs                |   3 +-
+ crates/slot/src/ws_input.rs                  |   3 +-
+ crates/slot/tests/arcade_screen.rs           |   6 +-
+ crates/slot/tests/crop_overscan.rs           |   3 +-
+ crates/slot/tests/gpsp.rs                    |   2 +-
+ crates/slot/tests/ngp_flash.rs               |   1 +
+ crates/slot/tests/pico8_screen.rs            | 127 +++++++++++++
+ crates/slot/tests/pico8_seat.rs              | 161 +++++++++++++++++
+ crates/slot/tests/ps1_options.rs             |   2 +-
+ crates/slot/tests/resume_platform.rs         |   1 +
+ crates/slot/tests/sega_quick_shader.rs       |   7 +-
+ crates/slot/tests/shelf_order.rs             |  11 +-
+ crates/slot/tests/snes_select.rs             |   9 +-
+ crates/slot/tests/system_picture.rs          |   3 +-
+ 44 files changed, 816 insertions(+), 58 deletions(-)
+ create mode 100644 crates/slot-store/src/pico8.rs
+ create mode 100644 crates/slot-store/tests/pico8_platform.rs
+ create mode 100644 crates/slot/tests/pico8_screen.rs
+ create mode 100644 crates/slot/tests/pico8_seat.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 23a429a..b8aa4c5 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -223,7 +223,8 @@ impl GameButton {
+             | Platform::Tg16
+             | Platform::Ngp
+             | Platform::A2600
+-            | Platform::A7800 => &GameButton::ALL[..8],
++            | Platform::A7800
++            | Platform::Pico8 => &GameButton::ALL[..8],
+         }
+     }
+ 
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index 74c8ec7..0e78ada 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -25,6 +25,7 @@ pub enum Core {
+     Prosystem,
+     MednafenVb,
+     Fbneo,
++    Fake08,
+ }
+ 
+ impl Core {
+@@ -48,6 +49,7 @@ impl Core {
+             Core::Stella2014 => "stella2014",
+             Core::Prosystem => "prosystem",
+             Core::MednafenVb => "mednafen_vb",
++            Core::Fake08 => "fake08",
+             Core::Fbneo => "fbneo",
+         }
+     }
+@@ -74,6 +76,7 @@ impl Core {
+             Core::Stella2014 => "Stella 2014",
+             Core::Prosystem => "ProSystem",
+             Core::MednafenVb => "Beetle VB",
++            Core::Fake08 => "FAKE-08",
+             Core::Fbneo => "FinalBurn Neo",
+         }
+     }
+@@ -96,6 +99,7 @@ impl Core {
+             "stella2014" => Some(Core::Stella2014),
+             "prosystem" => Some(Core::Prosystem),
+             "mednafen_vb" => Some(Core::MednafenVb),
++            "fake08" => Some(Core::Fake08),
+             "fbneo" => Some(Core::Fbneo),
+             _ => None,
+         }
+@@ -119,6 +123,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -141,6 +146,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -163,6 +169,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -185,6 +192,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -205,6 +213,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -227,6 +236,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -249,6 +259,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -271,6 +282,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -293,6 +305,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -315,6 +328,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -337,6 +351,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -359,6 +374,7 @@ impl Core {
+                 | Platform::S32x
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -381,6 +397,7 @@ impl Core {
+                 | Platform::S32x
+                 | Platform::A2600
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => false,
+@@ -405,7 +422,8 @@ impl Core {
+                 | Platform::A7800
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Pico8 => false,
+             },
+             Core::Fbneo => match platform {
+                 Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
+@@ -425,6 +443,30 @@ impl Core {
+                 | Platform::S32x
+                 | Platform::A2600
+                 | Platform::A7800
++                | Platform::Vb
++                | Platform::Pico8 => false,
++            },
++            Core::Fake08 => match platform {
++                Platform::Pico8 => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::Ps1
++                | Platform::Tg16
++                | Platform::Ws
++                | Platform::Lynx
++                | Platform::Ngp
++                | Platform::S32x
++                | Platform::A2600
++                | Platform::A7800
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2
+                 | Platform::Vb => false,
+             },
+         }
+@@ -445,6 +487,7 @@ impl Core {
+             Platform::A2600 => Core::Stella2014,
+             Platform::A7800 => Core::Prosystem,
+             Platform::Vb => Core::MednafenVb,
++            Platform::Pico8 => Core::Fake08,
+             Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => Core::Fbneo,
+         }
+     }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index 62ebbf6..d0e6abf 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 17] = [
++    pub const EVERY: [Core; 18] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -20,6 +20,7 @@ impl Core {
+         Core::Prosystem,
+         Core::MednafenVb,
+         Core::Fbneo,
++        Core::Fake08,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -40,6 +41,7 @@ impl Core {
+             Core::Stella2014 => "stella2014",
+             Core::Prosystem => "prosystem",
+             Core::MednafenVb => "vb",
++            Core::Fake08 => "fake08",
+             Core::Fbneo => "fbneo",
+         }
+     }
+@@ -59,6 +61,7 @@ impl Core {
+             Core::Stella2014 => (Core::Stella2014, Core::Stella2014),
+             Core::Prosystem => (Core::Prosystem, Core::Prosystem),
+             Core::MednafenVb => (Core::MednafenVb, Core::MednafenVb),
++            Core::Fake08 => (Core::Fake08, Core::Fake08),
+             Core::Fbneo => (Core::Fbneo, Core::Fbneo),
+         }
+     }
+@@ -85,6 +88,7 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => (360, 240),
+@@ -98,6 +102,7 @@ impl Core {
+             Core::Stella2014 => (360, 256),
+             Core::Prosystem => (360, 272),
+             Core::MednafenVb => (384, 256),
++            Core::Fake08 => (240, 160),
+             Core::Fbneo => match platform {
+                 Platform::Cps1 | Platform::Cps2 => (432, 288),
+                 Platform::Gba
+@@ -117,7 +122,8 @@ impl Core {
+                 | Platform::NeoGeo
+                 | Platform::A2600
+                 | Platform::A7800
+-                | Platform::Vb => (360, 240),
++                | Platform::Vb
++                | Platform::Pico8 => (360, 240),
+             },
+         }
+     }
+@@ -156,6 +162,7 @@ impl Core {
+             | Core::Stella2014
+             | Core::Prosystem
+             | Core::MednafenVb
++            | Core::Fake08
+             | Core::Fbneo => true,
+         }
+     }
+@@ -177,6 +184,7 @@ impl Core {
+             | Core::Stella2014
+             | Core::Prosystem
+             | Core::MednafenVb
++            | Core::Fake08
+             | Core::Fbneo => false,
+         }
+     }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 545c4a5..a44ff3d 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -13,6 +13,7 @@ pub mod ini;
+ pub mod lynx;
+ pub mod nes;
+ pub mod ngp;
++pub mod pico8;
+ mod platform;
+ mod platform_policy;
+ pub mod ps1;
+@@ -48,8 +49,8 @@ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+     read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
+     CPS1_SHADER_FILE, CPS2_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE, NGP_SHADER_FILE,
+-    PS1_SHADER_FILE, S32X_SHADER_FILE, SEGA_SHADERS_FILE, TG16_SHADER_FILE, VB_SHADER_FILE,
+-    WS_SHADER_FILE,
++    PICO8_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE, SEGA_SHADERS_FILE, TG16_SHADER_FILE,
++    VB_SHADER_FILE, WS_SHADER_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/pico8.rs b/crates/slot-store/src/pico8.rs
+new file mode 100644
+index 0000000..4152781
+--- /dev/null
++++ b/crates/slot-store/src/pico8.rs
+@@ -0,0 +1,111 @@
++use std::fs::File;
++use std::io::Read;
++use std::path::Path;
++
++const HEAD_LEN: u64 = 4096;
++
++/// A `.p8` file is a cart (text or PNG inside); a `.png` is one only when named `<name>.p8.png`, the
++/// PICO-8 export name, so a stray picture on the shelf is never offered to the core.
++pub fn admits(rom: &Path) -> bool {
++    let png = rom
++        .extension()
++        .and_then(|e| e.to_str())
++        .is_some_and(|e| e.eq_ignore_ascii_case("png"));
++    if !png || is_p8_png(rom) {
++        return true;
++    }
++    eprintln!(
++        "slot: scan: {}: a .png is a PICO-8 cart only as <name>.p8.png",
++        rom.display()
++    );
++    false
++}
++
++fn is_p8_png(rom: &Path) -> bool {
++    rom.file_stem()
++        .and_then(|s| s.to_str())
++        .is_some_and(|s| s.len() > 3 && s[s.len() - 3..].eq_ignore_ascii_case(".p8"))
++}
++
++/// The shelf title: the cart's own first comment line for a text cart (PICO-8 shows its code in
++/// capitals, so each word is capitalised), else the file stem without `.p8`, `_` read as a space.
++pub fn title(rom: &Path, stem: &str) -> String {
++    header_title(rom).unwrap_or_else(|| stem_title(stem))
++}
++
++pub fn stem_title(stem: &str) -> String {
++    let bare = match stem.len().checked_sub(3) {
++        Some(at) if stem.is_char_boundary(at) && stem[at..].eq_ignore_ascii_case(".p8") => {
++            &stem[..at]
++        }
++        _ => stem,
++    };
++    bare.replace('_', " ").trim().to_string()
++}
++
++fn header_title(rom: &Path) -> Option<String> {
++    let mut head = Vec::new();
++    File::open(rom)
++        .and_then(|f| f.take(HEAD_LEN).read_to_end(&mut head))
++        .ok()?;
++    if !head.starts_with(b"pico-8 cartridge") {
++        return None;
++    }
++    let text = String::from_utf8_lossy(&head);
++    let mut lines = text.lines().skip_while(|l| l.trim() != "__lua__").skip(1);
++    comment_title(lines.next()?)
++}
++
++pub fn comment_title(line: &str) -> Option<String> {
++    let body = line.trim().strip_prefix("--")?;
++    let body = body.trim_matches(|c: char| c == '-' || c == '~' || c == '=' || c.is_whitespace());
++    let body = match body.find(" by ") {
++        Some(at) => &body[..at],
++        None => body,
++    };
++    if body.starts_with("by ") {
++        return None;
++    }
++    let body = body.replace(':', " - ");
++    let words: Vec<&str> = body.split_whitespace().filter(|w| !is_version(w)).collect();
++    if words.is_empty() {
++        return None;
++    }
++    let title = words
++        .iter()
++        .enumerate()
++        .map(|(i, w)| capitalised(w, i == 0))
++        .collect::<Vec<_>>()
++        .join(" ");
++    let title = title.trim_matches(|c: char| c == '~').trim().to_string();
++    (!title.is_empty()).then_some(title)
++}
++
++const SMALL: [&str; 11] = [
++    "a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to",
++];
++
++/// The word with its first letter (after a leading "(") in capitals; a small word stays lower case
++/// unless it starts the title.
++fn capitalised(word: &str, first: bool) -> String {
++    let (lead, rest) = match word.strip_prefix('(') {
++        Some(rest) => ("(", rest),
++        None => ("", word),
++    };
++    if !first && SMALL.contains(&rest.to_lowercase().as_str()) {
++        return format!("{lead}{rest}");
++    }
++    let mut c = rest.chars();
++    let head: String = c
++        .next()
++        .map(|f| f.to_uppercase().collect())
++        .unwrap_or_default();
++    format!("{lead}{head}{}", c.as_str())
++}
++
++fn is_version(word: &str) -> bool {
++    let w = word.to_ascii_lowercase();
++    w == "version"
++        || w.strip_prefix('v')
++            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit() || c == '.'))
++}
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 25bb12d..cedd255 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -23,6 +23,7 @@ pub enum Platform {
+     NeoGeo,
+     Cps1,
+     Cps2,
++    Pico8,
+ }
+ 
+ impl Platform {
+@@ -47,6 +48,7 @@ impl Platform {
+             Platform::A2600 => "Atari 2600",
+             Platform::A7800 => "Atari 7800",
+             Platform::Vb => "Nintendo Virtual Boy",
++            Platform::Pico8 => "PICO-8",
+             Platform::NeoGeo => "SNK Neo Geo",
+             Platform::Cps1 => "Capcom CPS-1",
+             Platform::Cps2 => "Capcom CPS-2",
+@@ -72,6 +74,7 @@ impl Platform {
+             Platform::A2600 => "A2600",
+             Platform::A7800 => "A7800",
+             Platform::Vb => "VB",
++            Platform::Pico8 => "PICO8",
+             Platform::NeoGeo => "NEOGEO",
+             Platform::Cps1 => "CPS1",
+             Platform::Cps2 => "CPS2",
+@@ -96,6 +99,7 @@ impl Platform {
+             Platform::A2600 => &["a26", "bin"],
+             Platform::A7800 => &["a78"],
+             Platform::Vb => &["vb", "vboy"],
++            Platform::Pico8 => &["p8", "png"],
+             Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => &["zip"],
+         }
+     }
+@@ -118,6 +122,7 @@ impl Platform {
+             Platform::A2600 => (160, 210),
+             Platform::A7800 => (320, 223),
+             Platform::Vb => (384, 224),
++            Platform::Pico8 => (128, 128),
+             Platform::NeoGeo => (320, 224),
+             Platform::Cps1 | Platform::Cps2 => (384, 224),
+         }
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index 333635d..9b34d9d 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -5,7 +5,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 20] = [
++    pub const SHELVES: [Platform; 21] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -26,6 +26,7 @@ impl Platform {
+         Platform::NeoGeo,
+         Platform::Cps1,
+         Platform::Cps2,
++        Platform::Pico8,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -45,6 +46,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+@@ -73,7 +75,8 @@ impl Platform {
+             | Platform::Tg16
+             | Platform::Ngp
+             | Platform::A2600
+-            | Platform::A7800 => true,
++            | Platform::A7800
++            | Platform::Pico8 => true,
+         }
+     }
+ 
+@@ -98,7 +101,8 @@ impl Platform {
+             | Platform::Sms
+             | Platform::Tg16
+             | Platform::Lynx
+-            | Platform::Ngp => false,
++            | Platform::Ngp
++            | Platform::Pico8 => false,
+         }
+     }
+ 
+@@ -121,6 +125,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+@@ -137,6 +142,7 @@ impl Platform {
+             | Platform::Ngp
+             | Platform::S32x
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+@@ -171,6 +177,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => None,
+@@ -196,6 +203,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+@@ -220,6 +228,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => (0, 0),
+@@ -242,6 +251,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => &Shader::RETRO,
+@@ -265,6 +275,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+         }
+@@ -272,7 +283,8 @@ impl Platform {
+ 
+     pub fn rewinds(self) -> bool {
+         match self {
+-            Platform::Ps1 => false,
++            // fake-08 offers no state (ADR 0101), so there is nothing to rewind to.
++            Platform::Ps1 | Platform::Pico8 => false,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -314,6 +326,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+@@ -339,6 +352,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+@@ -364,6 +378,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+@@ -389,6 +404,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => None,
+@@ -416,7 +432,8 @@ impl Platform {
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2
+-            | Platform::Vb => false,
++            | Platform::Vb
++            | Platform::Pico8 => false,
+         }
+     }
+ 
+@@ -439,7 +456,8 @@ impl Platform {
+             | Platform::S32x
+             | Platform::A2600
+             | Platform::A7800
+-            | Platform::Vb => false,
++            | Platform::Vb
++            | Platform::Pico8 => false,
+         }
+     }
+ 
+@@ -450,6 +468,7 @@ impl Platform {
+                 Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
+                     crate::arcade::admits(self, path)
+                 }
++                Platform::Pico8 => crate::pico8::admits(path),
+                 Platform::Gba
+                 | Platform::Gb
+                 | Platform::Gbc
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index 0fd25de..a4d28a6 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -39,6 +39,7 @@ impl Cart {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb => {}
++            Platform::Pico8 => self.title = crate::pico8::title(&self.rom, &self.stem),
+             Platform::Md | Platform::S32x => {
+                 if let Some(title) = crate::sega::md_title(&self.rom) {
+                     self.title = title;
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index 2469b43..50b0968 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -17,6 +17,7 @@ pub const VB_SHADER_FILE: &str = "vb_shader.txt";
+ pub const NEOGEO_SHADER_FILE: &str = "neogeo_shader.txt";
+ pub const CPS1_SHADER_FILE: &str = "cps1_shader.txt";
+ pub const CPS2_SHADER_FILE: &str = "cps2_shader.txt";
++pub const PICO8_SHADER_FILE: &str = "pico8_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -35,6 +36,7 @@ pub struct SegaShaders {
+     pub neogeo: Shader,
+     pub cps1: Shader,
+     pub cps2: Shader,
++    pub pico8: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -55,6 +57,7 @@ impl Default for SegaShaders {
+             neogeo: Shader::Off,
+             cps1: Shader::Off,
+             cps2: Shader::Off,
++            pico8: Shader::Off,
+         }
+     }
+ }
+@@ -75,6 +78,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+         NEOGEO_SHADER_FILE,
+         CPS1_SHADER_FILE,
+         CPS2_SHADER_FILE,
++        PICO8_SHADER_FILE,
+     ] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+@@ -94,6 +98,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (NEOGEO_SHADER_FILE, "neogeo") => (&mut s.neogeo, Platform::NeoGeo),
+                 (CPS1_SHADER_FILE, "cps1") => (&mut s.cps1, Platform::Cps1),
+                 (CPS2_SHADER_FILE, "cps2") => (&mut s.cps2, Platform::Cps2),
++                (PICO8_SHADER_FILE, "pico8") => (&mut s.pico8, Platform::Pico8),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -141,7 +146,9 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let cps1 = format!("cps1={}\n", s.cps1.name());
+     write_unless_unchanged(root, CPS1_SHADER_FILE, &cps1, s.cps1 == d.cps1)?;
+     let cps2 = format!("cps2={}\n", s.cps2.name());
+-    write_unless_unchanged(root, CPS2_SHADER_FILE, &cps2, s.cps2 == d.cps2)
++    write_unless_unchanged(root, CPS2_SHADER_FILE, &cps2, s.cps2 == d.cps2)?;
++    let pico8 = format!("pico8={}\n", s.pico8.name());
++    write_unless_unchanged(root, PICO8_SHADER_FILE, &pico8, s.pico8 == d.pico8)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/arcade_platform.rs b/crates/slot-store/tests/arcade_platform.rs
+index 98543cb..a950a2d 100644
+--- a/crates/slot-store/tests/arcade_platform.rs
++++ b/crates/slot-store/tests/arcade_platform.rs
+@@ -28,11 +28,16 @@ fn stems(carts: &[Cart]) -> Vec<&str> {
+ }
+ 
+ #[test]
+-fn neo_geo_cps1_and_cps2_are_the_last_three_shelves_on_fbneo() {
++fn neo_geo_cps1_and_cps2_follow_the_virtual_boy_on_fbneo() {
++    let at = Platform::SHELVES
++        .iter()
++        .position(|p| *p == Platform::NeoGeo)
++        .expect("Neo Geo shelf");
+     assert_eq!(
+-        Platform::SHELVES[Platform::SHELVES.len() - 3..],
++        Platform::SHELVES[at..at + 3],
+         [Platform::NeoGeo, Platform::Cps1, Platform::Cps2]
+     );
++    assert_eq!(Platform::SHELVES[at - 1], Platform::Vb);
+     assert_eq!(Platform::ALL.len(), 3);
+     for (p, dir) in [
+         (Platform::NeoGeo, "NEOGEO"),
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index d3e64de..e8ca483 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_seventeen() {
++fn the_pinned_core_list_stays_two_while_every_lists_eighteen() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 17);
++    assert_eq!(Core::EVERY.len(), 18);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/pico8_platform.rs b/crates/slot-store/tests/pico8_platform.rs
+new file mode 100644
+index 0000000..397ed51
+--- /dev/null
++++ b/crates/slot-store/tests/pico8_platform.rs
+@@ -0,0 +1,178 @@
++mod common;
++
++use std::path::{Path, PathBuf};
++
++use common::tmp_root;
++use slot_store::{
++    read_sega_shaders, read_slot_state, scan, write_sega_shaders, write_slot_state, Cart, Core,
++    Platform, RetroShader, SegaShaders, Shader, SlotState, PICO8_SHADER_FILE,
++};
++
++fn put(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
++    let dir = root.join("Games/PICO8");
++    std::fs::create_dir_all(&dir).expect("create dir");
++    let p = dir.join(name);
++    std::fs::write(&p, bytes).expect("write");
++    p
++}
++
++fn pico8(root: &Path) -> Vec<Cart> {
++    let mut carts: Vec<Cart> = scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == Platform::Pico8)
++        .collect();
++    for c in &mut carts {
++        c.read_header();
++    }
++    carts
++}
++
++const TEXT: &[u8] = b"pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\n\
++-- ~celeste~ v1.2\n-- by matt thorson + noel berry\n";
++
++#[test]
++fn pico_8_is_the_last_shelf_and_upstreams_list_stays_three() {
++    assert_eq!(Platform::SHELVES.last(), Some(&Platform::Pico8));
++    assert_eq!(Platform::SHELVES.len(), 21);
++    assert_eq!(Platform::ALL.len(), 3);
++    assert_eq!(Platform::Pico8.dir_name(), "PICO8");
++    assert_eq!(Platform::Pico8.name(), "PICO-8");
++}
++
++#[test]
++fn a_p8_or_a_p8_png_lands_on_the_shelf_and_a_bare_png_does_not() {
++    let d = tmp_root();
++    put(d.path(), "Celeste.p8", TEXT);
++    put(d.path(), "Cherry_Bomb.p8.png", b"\x89PNG");
++    put(d.path(), "Pico_Racer.P8.PNG", b"\x89PNG");
++    put(d.path(), "cover.png", b"\x89PNG");
++    put(d.path(), "._Celeste.p8", TEXT);
++    let stems: Vec<String> = pico8(d.path()).into_iter().map(|c| c.stem).collect();
++    assert_eq!(stems, ["Celeste", "Cherry_Bomb.p8", "Pico_Racer.P8"]);
++}
++
++#[test]
++fn a_text_cart_is_titled_by_its_first_comment_and_a_png_cart_by_its_name() {
++    let d = tmp_root();
++    put(d.path(), "Celeste.p8", TEXT);
++    put(d.path(), "Cherry_Bomb.p8.png", b"\x89PNG");
++    put(
++        d.path(),
++        "Credits.p8",
++        b"pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\n--by someone\nx=1\n",
++    );
++    let titles: Vec<String> = pico8(d.path()).into_iter().map(|c| c.title).collect();
++    assert_eq!(titles, ["Celeste", "Cherry Bomb", "Credits"]);
++}
++
++#[test]
++fn a_comment_title_drops_dashes_tildes_versions_and_the_author() {
++    use slot_store::pico8::comment_title;
++    assert_eq!(comment_title("-- ~celeste~"), Some("Celeste".into()));
++    assert_eq!(comment_title("-- slacker v1.2"), Some("Slacker".into()));
++    assert_eq!(
++        comment_title("-- ~perisher~ by daniel linssen"),
++        Some("Perisher".into())
++    );
++    assert_eq!(
++        comment_title("--          = pico racer ="),
++        Some("Pico Racer".into())
++    );
++    assert_eq!(
++        comment_title("-- tomb of g'nir"),
++        Some("Tomb of G'nir".into())
++    );
++    assert_eq!(
++        comment_title("-- breakout hero (beta)"),
++        Some("Breakout Hero (Beta)".into())
++    );
++    assert_eq!(
++        comment_title("--valdi:beginnings"),
++        Some("Valdi - Beginnings".into())
++    );
++    assert_eq!(comment_title("-- the lair "), Some("The Lair".into()));
++    assert_eq!(comment_title("--by matthieu le gallic"), None);
++    assert_eq!(comment_title("-------------------------------"), None);
++    assert_eq!(comment_title("pr_recipe=3"), None);
++}
++
++#[test]
++fn pico_8_plays_like_the_nes_with_the_picture_toggle_and_no_rewind() {
++    let p = Platform::Pico8;
++    assert!(p.owns_shoulders());
++    assert!(p.owns_triggers());
++    assert!(!p.passes_xy_through());
++    assert!(!p.turbo_on_xy());
++    assert!(p.select_x_toggles_picture());
++    assert!(p.stretch_crops_height());
++    assert!(!p.rewinds());
++    assert_eq!(p.overscan(), (0, 0));
++    assert!(!p.follows_frame_width());
++    assert!(!p.has_gb_palettes());
++    assert!(!p.fills_canvas());
++    assert!(!p.swaps_discs());
++    assert_eq!(p.actual_scale(), None);
++    assert!(!p.flashes_on_unload());
++    assert!(!p.is_arcade());
++    assert_eq!(p.picker_cores(), None);
++    assert_eq!(p.picture(), (128, 128));
++    assert_eq!(p.shader_choices(), &Shader::RETRO);
++    assert_eq!(p.extensions(), ["p8", "png"]);
++}
++
++#[test]
++fn pico_8_runs_on_fake_08_alone_on_a_canvas_three_times_smaller_than_the_panel() {
++    assert_eq!(Core::default_for(Platform::Pico8), Core::Fake08);
++    assert_eq!(Core::EVERY.last(), Some(&Core::Fake08));
++    assert_eq!(Core::Fake08.as_str(), "fake08");
++    assert_eq!(Core::Fake08.option_prefix(), "fake08");
++    assert_eq!(Core::parse("fake08"), Some(Core::Fake08));
++    assert_eq!(Core::Fake08.text(), "FAKE-08");
++    assert_eq!(Core::Fake08.canvas(Platform::Pico8), (240, 160));
++    assert_eq!((240 * 3, 160 * 3), (720, 480));
++    assert_eq!(Core::Fake08.pair(), (Core::Fake08, Core::Fake08));
++    assert!(Core::Fake08.reports_its_frame_rate());
++    assert!(!Core::Fake08.has_colour_correction());
++    for core in Core::EVERY {
++        assert_eq!(core.runs(Platform::Pico8), core == Core::Fake08, "{core:?}");
++    }
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            Core::Fake08.runs(platform),
++            platform == Platform::Pico8,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn a_pico_8_game_resumes_as_a_pico_8_game() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Celeste".into()),
++        cart_platform: Some(Platform::Pico8),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    assert!(text.lines().any(|l| l == "cart_platform=pico8"), "{text:?}");
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn the_pico_8_shader_lives_in_its_own_file_and_leaves_the_others_alone() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        pico8: Shader::Retro(RetroShader::Sharp),
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config").join(PICO8_SHADER_FILE)).expect("read"),
++        "pico8=sharp\n"
++    );
++    assert!(!d.path().join("Config/vb_shader.txt").exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index e34ca8f..fb22ba5 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -32,6 +32,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         neogeo: Shader::Off,
+         cps1: Shader::Off,
+         cps2: Shader::Off,
++        pico8: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index 4bbfe0b..e2ea5b8 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -104,6 +104,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::A2600
+         | Platform::A7800
+         | Platform::Vb
++        | Platform::Pico8
+         | Platform::NeoGeo
+         | Platform::Cps1
+         | Platform::Cps2 => None,
+@@ -198,7 +199,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+         Platform::Md => (SEATED_W, MD_SEATED_H),
+         Platform::S32x => (SEATED_W, S32X_SEATED_H),
+         Platform::A2600 | Platform::A7800 => (SEATED_W, ATARI_SEATED_H),
+-        Platform::Vb => (SEATED_W, VB_SEATED_H),
++        Platform::Vb | Platform::Pico8 => (SEATED_W, VB_SEATED_H),
+         Platform::NeoGeo => (SEATED_W, NEOGEO_SEATED_H),
+         Platform::Cps1 => (SEATED_W, CPS1_SEATED_H),
+         Platform::Cps2 => CPS2_SEATED,
+@@ -222,7 +223,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+         Platform::S32x => return retro_box(RetroShell::S32x),
+         Platform::A2600 => return retro_box(RetroShell::A2600),
+         Platform::A7800 => return retro_box(RetroShell::A7800),
+-        Platform::Vb => return retro_box(RetroShell::Vb),
++        Platform::Vb | Platform::Pico8 => return retro_box(RetroShell::Vb),
+         Platform::NeoGeo => return retro_box(RetroShell::NeoGeo),
+         Platform::Cps1 => return retro_box(RetroShell::Cps1),
+         Platform::Cps2 => return retro_box(RetroShell::Cps2),
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index e7ba0f0..67a2d7d 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -159,11 +159,14 @@ pub enum QuickRow {
+     ScreenCps2,
+     Cps2Picture,
+     Cps2Rotation,
++    Pico8Shader,
++    ScreenPico8,
++    Pico8Picture,
+     ShelfOrder,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 150] = [
++    pub const ALL: [QuickRow; 153] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -313,6 +316,9 @@ impl QuickRow {
+         QuickRow::ScreenCps2,
+         QuickRow::Cps2Picture,
+         QuickRow::Cps2Rotation,
++        QuickRow::Pico8Shader,
++        QuickRow::ScreenPico8,
++        QuickRow::Pico8Picture,
+         QuickRow::ShelfOrder,
+     ];
+ 
+@@ -377,7 +383,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 20] = [
++    pub const SCREEN: [QuickRow; 21] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -398,6 +404,7 @@ impl QuickRow {
+         QuickRow::ScreenNeoGeo,
+         QuickRow::ScreenCps1,
+         QuickRow::ScreenCps2,
++        QuickRow::ScreenPico8,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -474,7 +481,8 @@ impl QuickRow {
+             | QuickRow::ScreenVb
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+-            | QuickRow::ScreenCps2 => crate::screen_page(),
++            | QuickRow::ScreenCps2
++            | QuickRow::ScreenPico8 => crate::screen_page(),
+             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
+                 &QuickRow::SCREEN_GBA
+             }
+@@ -561,6 +569,7 @@ impl QuickRow {
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
+             QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
++            QuickRow::Pico8Shader | QuickRow::Pico8Picture => &QuickRow::SCREEN_PICO8,
+             QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+                 &QuickRow::SCREEN_CPS1
+             }
+@@ -634,6 +643,7 @@ impl QuickRow {
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
+             QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
++            QuickRow::Pico8Shader | QuickRow::Pico8Picture => Some(QuickRow::ScreenPico8),
+             QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+                 Some(QuickRow::ScreenCps1)
+             }
+@@ -696,6 +706,7 @@ impl QuickRow {
+             QuickRow::ScreenNeoGeo => Some(QuickRow::SCREEN_NEOGEO[0]),
+             QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
+             QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
++            QuickRow::ScreenPico8 => Some(QuickRow::SCREEN_PICO8[0]),
+             _ => None,
+         }
+     }
+@@ -804,6 +815,7 @@ impl QuickRow {
+             QuickRow::A2600Shader | QuickRow::A7800Shader => "Shader",
+             QuickRow::VbShader => "Shader",
+             QuickRow::NeoGeoShader | QuickRow::Cps1Shader | QuickRow::Cps2Shader => "Shader",
++            QuickRow::Pico8Shader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -819,6 +831,7 @@ impl QuickRow {
+             QuickRow::ScreenNeoGeo => "Neo Geo",
+             QuickRow::ScreenCps1 => "CPS1",
+             QuickRow::ScreenCps2 => "CPS2",
++            QuickRow::ScreenPico8 => "PICO-8",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -835,7 +848,8 @@ impl QuickRow {
+             | QuickRow::VbPicture
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Picture
+-            | QuickRow::Cps2Picture => "Picture",
++            | QuickRow::Cps2Picture
++            | QuickRow::Pico8Picture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -902,6 +916,7 @@ impl QuickRow {
+                 | QuickRow::ScreenNeoGeo
+                 | QuickRow::ScreenCps1
+                 | QuickRow::ScreenCps2
++                | QuickRow::ScreenPico8
+         )
+     }
+ 
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index b85aa21..8f7d1f3 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -76,6 +76,7 @@ impl QuickRow {
+         QuickRow::Cps1Picture,
+         QuickRow::Cps1Rotation,
+     ];
++    pub const SCREEN_PICO8: [QuickRow; 2] = [QuickRow::Pico8Shader, QuickRow::Pico8Picture];
+     pub const SCREEN_CPS2: [QuickRow; 3] = [
+         QuickRow::Cps2Shader,
+         QuickRow::Cps2Picture,
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 31fc9de..f7bee49 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -267,7 +267,7 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+         Platform::S32x => Some(RetroShell::S32x),
+         Platform::A2600 => Some(RetroShell::A2600),
+         Platform::A7800 => Some(RetroShell::A7800),
+-        Platform::Vb => Some(RetroShell::Vb),
++        Platform::Vb | Platform::Pico8 => Some(RetroShell::Vb),
+         Platform::NeoGeo => Some(RetroShell::NeoGeo),
+         Platform::Cps1 => Some(RetroShell::Cps1),
+         Platform::Cps2 => Some(RetroShell::Cps2),
+@@ -509,7 +509,8 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         | Platform::S32x
+         | Platform::A2600
+         | Platform::A7800
+-        | Platform::Vb => {
++        | Platform::Vb
++        | Platform::Pico8 => {
+             sh.min(((sw as u64 * h as u64 + w as u64 / 2) / w.max(1) as u64).max(1) as u32)
+         }
+         Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => sh,
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index ca50ff8..3327eea 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -104,6 +104,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::A2600
+         | Platform::A7800
+         | Platform::Vb
++        | Platform::Pico8
+         | Platform::NeoGeo
+         | Platform::Cps1
+         | Platform::Cps2 => crate::retro_shell::plastic_for(cart),
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index c964fb5..b7e7e4a 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Pico8 => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index d47895c..4b9a572 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -105,7 +105,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "PICO-8"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -153,7 +153,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenPico8
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 4381119..76b7489 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1063,6 +1063,7 @@ impl App {
+             (QuickRow::Shader, Platform::A7800) => QuickRow::A7800Shader,
+             (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
+             (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
++            (QuickRow::Shader, Platform::Pico8) => QuickRow::Pico8Shader,
+             (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
+             (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+@@ -1127,6 +1128,7 @@ impl App {
+             QuickRow::A7800Shader => Some(shader_value(self.sega_shaders.a7800)),
+             QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
+             QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
++            QuickRow::Pico8Shader => Some(shader_value(self.sega_shaders.pico8)),
+             QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
+             QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
+             QuickRow::NesPicture
+@@ -1144,6 +1146,7 @@ impl App {
+             | QuickRow::A7800Picture
+             | QuickRow::VbPicture
+             | QuickRow::NeoGeoPicture
++            | QuickRow::Pico8Picture
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
+             QuickRow::NesPalSpeed
+@@ -1229,6 +1232,7 @@ impl App {
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
+             | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenPico8
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2
+             | QuickRow::GbBezel
+@@ -1308,6 +1312,7 @@ impl App {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => Vec::new(),
+@@ -1347,6 +1352,7 @@ impl App {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => &mut self.state.bezel_gba,
+@@ -1372,6 +1378,7 @@ impl App {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => &self.state.bezel_gba,
+@@ -2319,6 +2326,7 @@ impl App {
+             Platform::A2600 => self.sega_shaders.a2600,
+             Platform::A7800 => self.sega_shaders.a7800,
+             Platform::Vb => self.sega_shaders.vb,
++            Platform::Pico8 => self.sega_shaders.pico8,
+             Platform::NeoGeo => self.sega_shaders.neogeo,
+             Platform::Cps1 => self.sega_shaders.cps1,
+             Platform::Cps2 => self.sega_shaders.cps2,
+@@ -2375,6 +2383,7 @@ impl App {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+@@ -2844,6 +2853,7 @@ impl App {
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
+             | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenPico8
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2 => {
+                 if let Some(row) = row.child() {
+@@ -2965,7 +2975,9 @@ impl App {
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad
+             | QuickRow::NeoGeoShader
++            | QuickRow::Pico8Shader
+             | QuickRow::NeoGeoPicture
++            | QuickRow::Pico8Picture
+             | QuickRow::Cps1Shader
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps1Rotation
+@@ -3161,6 +3173,7 @@ impl App {
+             | QuickRow::S32xShader
+             | QuickRow::VbShader
+             | QuickRow::NeoGeoShader
++            | QuickRow::Pico8Shader
+             | QuickRow::Cps1Shader
+             | QuickRow::Cps2Shader => return,
+             QuickRow::NesPicture
+@@ -3201,6 +3214,7 @@ impl App {
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios
+             | QuickRow::NeoGeoPicture
++            | QuickRow::Pico8Picture
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps1Rotation
+             | QuickRow::Cps2Picture
+@@ -3244,6 +3258,7 @@ impl App {
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
+             | QuickRow::ScreenNeoGeo
++            | QuickRow::ScreenPico8
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2
+             | QuickRow::GbBezel
+@@ -3314,6 +3329,7 @@ impl App {
+             Platform::A2600 => (&mut self.sega_shaders.a2600, &Shader::RETRO[..]),
+             Platform::A7800 => (&mut self.sega_shaders.a7800, &Shader::RETRO[..]),
+             Platform::Vb => (&mut self.sega_shaders.vb, &Shader::RETRO[..]),
++            Platform::Pico8 => (&mut self.sega_shaders.pico8, &Shader::RETRO[..]),
+             Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
+             Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
+             Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
+@@ -3385,6 +3401,7 @@ impl App {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
++                | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2 => return false,
+@@ -3797,6 +3814,7 @@ impl App {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => [0xe6, 0xe4, 0xda],
+@@ -5993,6 +6011,7 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::A2600
+         | Platform::A7800
+         | Platform::Vb
++        | Platform::Pico8
+         | Platform::NeoGeo
+         | Platform::Cps1
+         | Platform::Cps2 => 0,
+diff --git a/crates/slot/src/arcade_turn.rs b/crates/slot/src/arcade_turn.rs
+index b07fb9c..0571f19 100644
+--- a/crates/slot/src/arcade_turn.rs
++++ b/crates/slot/src/arcade_turn.rs
+@@ -74,7 +74,8 @@ fn key(platform: Platform) -> Option<&'static str> {
+         | Platform::NeoGeo
+         | Platform::A2600
+         | Platform::A7800
+-        | Platform::Vb => None,
++        | Platform::Vb
++        | Platform::Pico8 => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/atari_switches.rs b/crates/slot/src/atari_switches.rs
+index 61545e0..bbaa434 100644
+--- a/crates/slot/src/atari_switches.rs
++++ b/crates/slot/src/atari_switches.rs
+@@ -166,6 +166,7 @@ impl AtariSwitches {
+             | Platform::Ngp
+             | Platform::S32x
+             | Platform::Vb
++            | Platform::Pico8
+             | Platform::NeoGeo
+             | Platform::Cps1
+             | Platform::Cps2 => None,
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 7bf4095..3778777 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -208,6 +208,7 @@ pub fn colour_option(
+         | Core::Stella2014
+         | Core::Prosystem
+         | Core::MednafenVb
++        | Core::Fake08
+         | Core::Fbneo => None,
+     }
+ }
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index 1c8f028..88d5b33 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -109,6 +109,15 @@ pub const BEETLE_VB: [(&str, &str); 5] = [
+     ("vb_cpu_emulation", "fast"),
+ ];
+ 
++// fake-08 hands slot its 128x128 picture unscaled and uncropped; slot scales it (ADR 0101).
++pub const FAKE08: [(&str, &str); 5] = [
++    ("fake08_video_scale", "1x"),
++    ("fake08_crop_h_left", "0"),
++    ("fake08_crop_h_right", "0"),
++    ("fake08_crop_v_top", "0"),
++    ("fake08_crop_v_bottom", "0"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -127,6 +136,7 @@ pub fn answers_declared_defaults(which: Core) -> bool {
+         | Core::Stella2014
+         | Core::Prosystem
+         | Core::MednafenVb
++        | Core::Fake08
+         | Core::Fbneo => false,
+     }
+ }
+@@ -173,6 +183,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Stella2014
+         | Core::Prosystem
+         | Core::MednafenVb
++        | Core::Fake08
+         | Core::Fbneo => &[],
+     };
+     for key in overscan {
+@@ -195,6 +206,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         Core::Stella2014 => &STELLA2014,
+         Core::Prosystem => &PROSYSTEM,
+         Core::MednafenVb => &BEETLE_VB,
++        Core::Fake08 => &FAKE08,
+         Core::Fbneo => &FBNEO,
+     };
+     for (key, value) in fixed {
+@@ -223,6 +235,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::MednafenNgp
+         | Core::Picodrive
+         | Core::Prosystem
+-        | Core::Fbneo => None,
++        | Core::Fbneo
++        | Core::Fake08 => None,
+     }
+ }
+diff --git a/crates/slot/src/ngp_flash.rs b/crates/slot/src/ngp_flash.rs
+index ba6057b..edd8142 100644
+--- a/crates/slot/src/ngp_flash.rs
++++ b/crates/slot/src/ngp_flash.rs
+@@ -22,6 +22,10 @@ pub struct Seat {
+ pub fn core_save_dir(root: &Path, platform: Platform) -> PathBuf {
+     match platform.flashes_on_unload() {
+         true => staging_dir(root),
++        // fake-08 keeps cartdata in <save dir>/cdata/<key>.p8d.txt (ADR 0101): Saves/PICO8/cdata.
++        false if platform == Platform::Pico8 => {
++            crate::root::saves_dir(root).join(platform.dir_name())
++        }
+         false => crate::root::saves_dir(root),
+     }
+ }
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 8d715d7..22f878e 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 18] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -25,6 +25,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
+     (QuickRow::A7800Picture, Platform::A7800),
+     (QuickRow::VbPicture, Platform::Vb),
+     (QuickRow::NeoGeoPicture, Platform::NeoGeo),
++    (QuickRow::Pico8Picture, Platform::Pico8),
+     (QuickRow::Cps1Picture, Platform::Cps1),
+     (QuickRow::Cps2Picture, Platform::Cps2),
+ ];
+@@ -39,7 +40,8 @@ pub fn default_video_mode(platform: Platform) -> VideoMode {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::Vb => VideoMode::Actual,
++        | Platform::Vb
++        | Platform::Pico8 => VideoMode::Actual,
+         Platform::Nes | Platform::Snes | Platform::Tg16 => VideoMode::Crop,
+         Platform::Sms
+         | Platform::Md
+@@ -82,7 +84,8 @@ pub fn offers_four_three(platform: Platform) -> bool {
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+-        | Platform::Vb => false,
++        | Platform::Vb
++        | Platform::Pico8 => false,
+     }
+ }
+ 
+@@ -197,7 +200,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 17]);
++pub struct SystemPictures([VideoMode; 18]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 90833de..d8bd707 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -25,6 +25,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::A7800Shader => (&mut shaders.a7800, Platform::A7800),
+         QuickRow::VbShader => (&mut shaders.vb, Platform::Vb),
+         QuickRow::NeoGeoShader => (&mut shaders.neogeo, Platform::NeoGeo),
++        QuickRow::Pico8Shader => (&mut shaders.pico8, Platform::Pico8),
+         QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
+         QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
+         _ => return false,
+@@ -50,6 +51,7 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::A2600
+         | Platform::A7800
+         | Platform::Vb
++        | Platform::Pico8
+         | Platform::NeoGeo
+         | Platform::Cps1
+         | Platform::Cps2 => {
+@@ -57,13 +59,17 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+             if !framed {
+                 hidden.push(QuickRow::Bezel);
+             }
++            // fake-08 offers no state (ADR 0101), so there is nothing to save or load.
++            if platform == Platform::Pico8 {
++                hidden.push(QuickRow::States);
++            }
+             hidden
+         }
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
+-    let mut seen = [false; 16];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 17] {
++    let mut seen = [false; 17];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -83,13 +89,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
+             Platform::NeoGeo => 13,
+             Platform::Cps1 => 14,
+             Platform::Cps2 => 15,
++            Platform::Pico8 => 16,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 16] = [
++const SYSTEM_ROWS: [&[QuickRow]; 17] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -106,9 +113,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 16] = [
+     &[QuickRow::ScreenNeoGeo],
+     &[QuickRow::ScreenCps1],
+     &[QuickRow::ScreenCps2],
++    &[QuickRow::ScreenPico8],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 16]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 17]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index bf7c1df..5146795 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 92] = [
++pub const DIRS: [&str; 96] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -27,6 +27,7 @@ pub const DIRS: [&str; 92] = [
+     "Games/NEOGEO",
+     "Games/CPS1",
+     "Games/CPS2",
++    "Games/PICO8",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -49,6 +50,7 @@ pub const DIRS: [&str; 92] = [
+     "Labels/NEOGEO",
+     "Labels/CPS1",
+     "Labels/CPS2",
++    "Labels/PICO8",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -70,6 +72,7 @@ pub const DIRS: [&str; 92] = [
+     "Saves/NEOGEO",
+     "Saves/CPS1",
+     "Saves/CPS2",
++    "Saves/PICO8",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -91,6 +94,7 @@ pub const DIRS: [&str; 92] = [
+     "States/NEOGEO",
+     "States/CPS1",
+     "States/CPS2",
++    "States/PICO8",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index 264be97..99abe14 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -10,7 +10,7 @@ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
+ 
+ const KEY: &str = "order";
+ 
+-pub const RELEASED: [(Platform, u16, u8, u8); 20] = [
++pub const RELEASED: [(Platform, u16, u8, u8); 21] = [
+     (Platform::A2600, 1977, 9, 0),
+     (Platform::Nes, 1983, 7, 15),
+     (Platform::Sms, 1985, 10, 20),
+@@ -31,6 +31,7 @@ pub const RELEASED: [(Platform, u16, u8, u8); 20] = [
+     (Platform::Ngp, 1998, 10, 28),
+     (Platform::Ws, 1999, 3, 4),
+     (Platform::Gba, 2001, 3, 21),
++    (Platform::Pico8, 2015, 4, 18),
+ ];
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+@@ -141,6 +142,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::A2600 => QuickRow::ScreenA2600,
+         Platform::A7800 => QuickRow::ScreenA7800,
+         Platform::Vb => QuickRow::ScreenVb,
++        Platform::Pico8 => QuickRow::ScreenPico8,
+         Platform::NeoGeo => QuickRow::ScreenNeoGeo,
+         Platform::Cps1 => QuickRow::ScreenCps1,
+         Platform::Cps2 => QuickRow::ScreenCps2,
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index c3c2a88..f07e5d5 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -16,7 +16,8 @@ impl VideoMode {
+                 | Platform::Vb
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2,
++                | Platform::Cps2
++                | Platform::Pico8,
+                 mode,
+             ) => mode.stepped(platform, true),
+             (
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index 93ed5c2..325fc58 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -36,7 +36,8 @@ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+             | Platform::Ngp
+             | Platform::S32x
+             | Platform::A2600
+-            | Platform::A7800,
++            | Platform::A7800
++            | Platform::Pico8,
+             _,
+         ) => OFF,
+     }
+diff --git a/crates/slot/tests/arcade_screen.rs b/crates/slot/tests/arcade_screen.rs
+index c746472..05abb3a 100644
+--- a/crates/slot/tests/arcade_screen.rs
++++ b/crates/slot/tests/arcade_screen.rs
+@@ -17,8 +17,12 @@ use slot_ui::{QuickRow, QuickValue};
+ #[test]
+ fn each_arcade_board_has_its_own_screen_section_after_the_virtual_boy() {
+     let screen = QuickRow::SCREEN;
++    let at = screen
++        .iter()
++        .position(|r| *r == QuickRow::ScreenVb)
++        .expect("Virtual Boy section");
+     assert_eq!(
+-        screen[screen.len() - 4..],
++        screen[at..at + 4],
+         [
+             QuickRow::ScreenVb,
+             QuickRow::ScreenNeoGeo,
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index 9ed9fac..3730e54 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -88,7 +88,8 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::Vb => &[Stretch, Actual],
++            | Platform::Vb
++            | Platform::Pico8 => &[Stretch, Actual],
+         };
+         assert_eq!(picture_choices(platform), want, "{platform:?}");
+     }
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index d5a929b..e243b73 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive | Core::Stella2014 | Core::Prosystem | Core::MednafenVb | Core::Fbneo => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive | Core::Stella2014 | Core::Prosystem | Core::MednafenVb | Core::Fbneo | Core::Fake08 => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/ngp_flash.rs b/crates/slot/tests/ngp_flash.rs
+index 2291c52..3c61cf9 100644
+--- a/crates/slot/tests/ngp_flash.rs
++++ b/crates/slot/tests/ngp_flash.rs
+@@ -125,6 +125,7 @@ fn only_the_neogeo_pocket_core_gets_a_staging_save_dir() {
+     for platform in Platform::SHELVES {
+         let want = match platform {
+             Platform::Ngp => root.join("Saves/NGP/.core"),
++            Platform::Pico8 => root.join("Saves/PICO8"),
+             _ => root.join("Saves"),
+         };
+         assert_eq!(core_save_dir(root, platform), want, "{platform:?}");
+diff --git a/crates/slot/tests/pico8_screen.rs b/crates/slot/tests/pico8_screen.rs
+new file mode 100644
+index 0000000..a5eb7a7
+--- /dev/null
++++ b/crates/slot/tests/pico8_screen.rs
+@@ -0,0 +1,127 @@
++// The PICO-8 Screen section (ADR 0101): Shader (Off and the retro list) and Picture (Actual, a 3x
++// integer 384x384 picture in the 720x480 panel, or Stretch).
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::{source_rect, VideoMode};
++use slot_gfx::WHOLE_TEXTURE;
++use slot_input::{Action, Btn};
++use slot_store::{read_sega_shaders, Core, Platform, Shader, PICO8_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_cart() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(
++        root.path().join("Games/PICO8/Celeste.p8"),
++        b"pico-8 cartridge\n",
++    )
++    .expect("write cart");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_pico8(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    while app.quick_menu() != Some(QuickRow::ScreenPico8) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++}
++
++#[test]
++fn pico_8_is_the_last_screen_section_with_shader_and_picture() {
++    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenPico8));
++    assert_eq!(QuickRow::ScreenPico8.label(), "PICO-8");
++    assert!(QuickRow::ScreenPico8.opens());
++    assert_eq!(QuickRow::ScreenPico8.child(), Some(QuickRow::Pico8Shader));
++    assert_eq!(
++        QuickRow::SCREEN_PICO8.map(QuickRow::label),
++        ["Shader", "Picture"]
++    );
++    for row in QuickRow::SCREEN_PICO8 {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenPico8));
++    }
++}
++
++#[test]
++fn the_pico_8_row_shows_only_on_a_card_with_pico_8_games() {
++    let (_root, mut app) = card_with_a_cart();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenPico8));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let without = boot(root.path());
++    assert!(without.hidden_rows().contains(&QuickRow::ScreenPico8));
++    open_pico8(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Pico8Shader));
++}
++
++#[test]
++fn the_picture_starts_actual_and_offers_stretch_and_its_own_line_in_picture_txt() {
++    assert_eq!(default_video_mode(Platform::Pico8), VideoMode::Actual);
++    assert_eq!(
++        picture_choices(Platform::Pico8),
++        [VideoMode::Stretch, VideoMode::Actual]
++    );
++    let (root, mut app) = card_with_a_cart();
++    open_pico8(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::Pico8Picture));
++    assert_eq!(
++        app.quick_value(QuickRow::Pico8Picture),
++        Some(QuickValue::Actual)
++    );
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        system_picture(root.path(), Platform::Pico8),
++        VideoMode::Stretch
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "pico8 = stretch\n"
++    );
++}
++
++#[test]
++fn actual_draws_the_128_square_at_exactly_3x_and_stretch_fills_the_panel() {
++    let canvas = Core::Fake08.canvas(Platform::Pico8);
++    assert_eq!(canvas, (240, 160));
++    assert_eq!(
++        source_rect(Platform::Pico8, (128, 128), canvas, VideoMode::Actual),
++        WHOLE_TEXTURE
++    );
++    assert_eq!((240 * 3, 160 * 3, 128 * 3), (720, 480, 384));
++    assert_eq!(
++        source_rect(Platform::Pico8, (128, 128), canvas, VideoMode::Stretch),
++        [56.0 / 240.0, 16.0 / 160.0, 128.0 / 240.0, 128.0 / 160.0]
++    );
++}
++
++#[test]
++fn the_pico_8_shader_walks_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_cart();
++    open_pico8(&mut app);
++    assert_eq!(
++        app.quick_value(QuickRow::Pico8Shader),
++        Some(QuickValue::Off)
++    );
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(read_sega_shaders(root.path()).pico8);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(PICO8_SHADER_FILE).exists());
++}
+diff --git a/crates/slot/tests/pico8_seat.rs b/crates/slot/tests/pico8_seat.rs
+new file mode 100644
+index 0000000..828a64d
+--- /dev/null
++++ b/crates/slot/tests/pico8_seat.rs
+@@ -0,0 +1,161 @@
++// A PICO-8 cart through a real session on FAKE-08 (ADR 0101): the picture, the pad, cartdata in
++// Saves/PICO8/cdata, no states, and the triggers with rewind off.
++mod common;
++mod core_common;
++mod pico8_common;
++mod real_seat;
++
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use common::core_lock;
++use pico8_common::{band, fake08, lit_columns, text_cart, CANVAS, KEY};
++use slot::session::Session;
++use slot_input::{Btn, RawEvent};
++use slot_store::{Core, Platform};
++use slot_ui::QuickRow;
++
++const STEM: &str = "Band";
++
++fn frame(session: &Session) -> Vec<u8> {
++    session
++        .emu()
++        .expect("no core in the slot")
++        .latest_frame()
++        .expect("nothing was published")
++        .to_vec()
++}
++
++fn run(session: &mut Session, frames: usize) {
++    let deadline = Instant::now() + Duration::from_secs(20);
++    let want = session.frames_published() + frames as u64;
++    while session.frames_published() < want {
++        assert!(Instant::now() < deadline, "the core stopped drawing");
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++}
++
++fn hold(session: &mut Session, b: Btn, frames: usize, at: &mut u64) {
++    *at += 20;
++    session.feed([RawEvent::Down(b)], *at);
++    run(session, frames);
++    *at += 20;
++    session.feed([RawEvent::Up(b)], *at);
++    run(session, 8);
++}
++
++fn seated(dylib: &Path) -> (tempfile::TempDir, Session) {
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = text_cart(carts.path(), STEM, "band");
++    let root = real_seat::rooted(Platform::Pico8, STEM, &rom, dylib);
++    let session = real_seat::play(root.path(), true);
++    (root, session)
++}
++
++#[test]
++fn a_pico_8_cart_seats_on_fake_08_and_draws_its_screen_in_the_middle_of_the_canvas() {
++    let _g = core_lock();
++    let Some(dylib) = fake08() else {
++        return;
++    };
++    let (_root, mut session) = seated(&dylib);
++    assert_eq!(session.app().core(), Core::Fake08);
++    assert_eq!(session.app().playing_platform(), Platform::Pico8);
++    run(&mut session, 10);
++    let frame = frame(&session);
++    assert_eq!(frame.len(), CANVAS.0 * CANVAS.1 * 4);
++    assert_eq!(lit_columns(&frame), band(0));
++    assert_eq!(
++        session.app().picture_rect(),
++        [56.0 / 240.0, 16.0 / 160.0, 184.0 / 240.0, 144.0 / 160.0]
++    );
++}
++
++#[test]
++fn the_b_button_is_o_and_cartdata_lands_in_saves_pico8_cdata_while_the_game_runs() {
++    let _g = core_lock();
++    let Some(dylib) = fake08() else {
++        return;
++    };
++    let (root, mut session) = seated(&dylib);
++    let mut at = 1000;
++    hold(&mut session, Btn::B, 6, &mut at);
++    run(&mut session, 70);
++    assert_eq!(lit_columns(&frame(&session)), band(1));
++    let file = root
++        .path()
++        .join("Saves/PICO8/cdata")
++        .join(format!("{KEY}.p8d.txt"));
++    let text = std::fs::read_to_string(&file).expect("no cartdata in Saves/PICO8/cdata");
++    assert!(text.starts_with("00010000"), "{text:?}");
++    assert!(!root.path().join("Saves/cdata").exists());
++}
++
++#[test]
++fn l2_does_not_rewind_and_r2_still_fast_forwards() {
++    let _g = core_lock();
++    let Some(dylib) = fake08() else {
++        return;
++    };
++    let (_root, mut session) = seated(&dylib);
++    assert!(!session.app().may_rewind());
++    assert!(!session.app().records_rewind());
++    let mut at = 1000;
++    session.feed([RawEvent::Down(Btn::L2)], at);
++    run(&mut session, 10);
++    assert_eq!(session.app().ff_badge(), None);
++    at += 20;
++    session.feed([RawEvent::Up(Btn::L2)], at);
++    run(&mut session, 4);
++    at += 20;
++    session.feed([RawEvent::Down(Btn::R2)], at);
++    run(&mut session, 10);
++    assert!(
++        session.app().ff_badge().is_some(),
++        "R2 did not fast-forward"
++    );
++    session.feed([RawEvent::Up(Btn::R2)], at + 20);
++}
++
++#[test]
++fn the_states_page_is_hidden_and_a_quit_leaves_no_resume_state_only_the_cartdata() {
++    let _g = core_lock();
++    let Some(dylib) = fake08() else {
++        return;
++    };
++    let carts = tempfile::tempdir().expect("tempdir");
++    let rom = text_cart(carts.path(), STEM, "band");
++    let root = real_seat::rooted(Platform::Pico8, STEM, &rom, &dylib);
++    text_cart(&root.path().join("Games/PICO8"), "Zzz", "zzz");
++    let mut session = real_seat::play(root.path(), true);
++    assert!(session.app().in_game_hidden().contains(&QuickRow::States));
++    let mut at = 1000;
++    hold(&mut session, Btn::B, 6, &mut at);
++    run(&mut session, 4);
++    at += 20;
++    session.feed([RawEvent::Down(Btn::Menu)], at);
++    let deadline = Instant::now() + Duration::from_secs(20);
++    while session.has_core() {
++        assert!(
++            Instant::now() < deadline,
++            "the eject never finished: {:?}",
++            session.app().phase()
++        );
++        at += 16;
++        session.feed([], at);
++        session.update(1.0 / 60.0);
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    let states = root.path().join("States/PICO8");
++    let left: Vec<_> = std::fs::read_dir(&states)
++        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
++        .unwrap_or_default();
++    assert!(left.is_empty(), "a state was written: {left:?}");
++    let file = root
++        .path()
++        .join("Saves/PICO8/cdata")
++        .join(format!("{KEY}.p8d.txt"));
++    let text = std::fs::read_to_string(&file).expect("the cartdata was not written at eject");
++    assert!(text.starts_with("00010000"), "{text:?}");
++}
+diff --git a/crates/slot/tests/ps1_options.rs b/crates/slot/tests/ps1_options.rs
+index 03aae53..b84723a 100644
+--- a/crates/slot/tests/ps1_options.rs
++++ b/crates/slot/tests/ps1_options.rs
+@@ -283,7 +283,7 @@ fn a_ps1_game_never_records_or_plays_rewind_while_gba_still_does() {
+     for platform in Platform::SHELVES {
+         assert_eq!(
+             platform.rewinds(),
+-            platform != Platform::Ps1,
++            !matches!(platform, Platform::Ps1 | Platform::Pico8),
+             "{platform:?}"
+         );
+     }
+diff --git a/crates/slot/tests/resume_platform.rs b/crates/slot/tests/resume_platform.rs
+index d9f9d8f..37910bb 100644
+--- a/crates/slot/tests/resume_platform.rs
++++ b/crates/slot/tests/resume_platform.rs
+@@ -24,6 +24,7 @@ fn each_new_system_resumes_its_own_cart_and_never_a_nes_cart_with_the_same_name(
+         Platform::A2600,
+         Platform::A7800,
+         Platform::Vb,
++        Platform::Pico8,
+     ] {
+         let root = common::tmp_root_with_real_carts(&[]);
+         let mut nes = b"NES\x1a\x02\x01".to_vec();
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index ef0dfb1..d77ac3c 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,10 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 16]).is_empty());
+-    for key in 0..65535u16 {
++    assert!(hidden_on_shelf([true; 17]).is_empty());
++    for key in 0..1u32 << 17 {
+         let systems =
+-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(|i| key & 1 << i != 0);
++            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -114,6 +114,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenNeoGeo), !systems[13]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[14]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[15]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenPico8), !systems[16]);
+     }
+ }
+ 
+diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
+index 4feb3fe..3dde8ea 100644
+--- a/crates/slot/tests/shelf_order.rs
++++ b/crates/slot/tests/shelf_order.rs
+@@ -9,7 +9,7 @@ use slot_input::{Action, Btn};
+ use slot_store::{write_slot_state, Platform, Recent, SlotState};
+ use tempfile::TempDir;
+ 
+-const RELEASE_YEAR: [Platform; 20] = [
++const RELEASE_YEAR: [Platform; 21] = [
+     Platform::A2600,
+     Platform::Nes,
+     Platform::Sms,
+@@ -30,6 +30,7 @@ const RELEASE_YEAR: [Platform; 20] = [
+     Platform::Ngp,
+     Platform::Ws,
+     Platform::Gba,
++    Platform::Pico8,
+ ];
+ 
+ fn card(order: Option<&str>) -> TempDir {
+@@ -124,7 +125,7 @@ fn every_shelf_platform_has_exactly_one_release_date() {
+ }
+ 
+ #[test]
+-fn release_year_runs_from_the_atari_2600_to_the_game_boy_advance() {
++fn release_year_runs_from_the_atari_2600_to_pico_8() {
+     assert_eq!(ShelfOrder::ReleaseYear.platforms(), RELEASE_YEAR);
+     assert_eq!(ShelfOrder::Classic.platforms(), Platform::SHELVES);
+ }
+@@ -136,7 +137,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(Platform::SHELVES);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 22), want);
+ }
+ 
+ #[test]
+@@ -146,7 +147,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(RELEASE_YEAR);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 22), want);
+ }
+ 
+ #[test]
+@@ -155,7 +156,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+     let mut a = boot_with(d.path(), SlotState::default());
+     let mut want = names(RELEASE_YEAR.into_iter().rev());
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::L1, 21), want);
++    assert_eq!(shelves_after(&mut a, Btn::L1, 22), want);
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 19d335a..6284379 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -260,9 +260,12 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+             Platform::Md | Platform::S32x | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => {
+                 (FourThree, Actual, Stretch)
+             }
+-            Platform::Ps1 | Platform::Ngp | Platform::Ws | Platform::Lynx | Platform::Vb => {
+-                (Stretch, Actual, Stretch)
+-            }
++            Platform::Ps1
++            | Platform::Ngp
++            | Platform::Ws
++            | Platform::Lynx
++            | Platform::Vb
++            | Platform::Pico8 => (Stretch, Actual, Stretch),
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index 312798e..658d1e3 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -161,7 +161,8 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+-            | Platform::Vb => &[Stretch, Actual],
++            | Platform::Vb
++            | Platform::Pico8 => &[Stretch, Actual],
+             Platform::Sms
+             | Platform::Md
+             | Platform::S32x

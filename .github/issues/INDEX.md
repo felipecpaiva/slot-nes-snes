@@ -165,3 +165,9 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [191](191-arcade-tests.md) | Test the arcade boards with zero-filled sets FBNeo reads from BIOS/fbneo/patched | 17 | tests | test | S | 184-arcade-core-build |
 | [192](192-arcade-carts.md) | Draw the Neo Geo AES cart and the CPS shelf objects and fetch arcade labels | 17 | ui-art | feature | M | 185-platform-arcade |
 | [193](193-arcade-device-gate.md) | Arcade device gate on the RG34XXSP | 17 | device | chore | S | 187-arcade-screen, 190-arcade-input |
+| [194](194-pico8-tracking.md) | PICO-8: FAKE-08, a shelf of its own, no states | 18 | device | tracking | L | 183-arcade-tracking |
+| [195](195-pico8-core-build.md) | Build FAKE-08 from a pinned commit for host and device with our source patch, and record its licence | 18 | cores | feature | M | 194-pico8-tracking |
+| [196](196-platform-pico8.md) | Add Platform::Pico8 on FAKE-08 with a 3x picture, its own Screen section, Saves/PICO8 and no states | 18 | platform | feature | M | 195-pico8-core-build |
+| [197](197-pico8-carts.md) | Draw the PICO-8 cart and take its label from the cart itself | 18 | ui-art | feature | S | 196-platform-pico8 |
+| [198](198-pico8-tests.md) | Test PICO-8 with generated text and PNG carts, and GBA after PICO-8 | 18 | tests | test | S | 195-pico8-core-build |
+| [199](199-pico8-device-gate.md) | PICO-8 device gate on the RG34XXSP | 18 | device | chore | S | 196-platform-pico8, 197-pico8-carts |
