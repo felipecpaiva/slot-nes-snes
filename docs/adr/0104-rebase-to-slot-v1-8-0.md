@@ -116,6 +116,10 @@ v1.8.0 is a tag, so the release is `v1.8.0-ns.1` (`SLOT_PIN` tag `v1.8.0` plus `
   Audio: the 48 kHz path did not change since 1b20432; `audio_start`, `emu_av_change`, `pal_pacing`,
   `pal_pacing_clock` and `lynx_pacing` pass in the full suite. Upstream's `rumble.rs` failed
   once under a full parallel load and passes alone (timing, both trees).
+- Upstream's new `slot/tests/render_native.rs` (exact bezel pixels on a 640x480 panel) passes in both
+  trees here and failed `a_bezel_the_size_of_the_game_area_sits_on_it_on_a_4_by_3_panel` on the
+  macOS runner (run 39573607904). It joins `run-tests.sh`'s both-trees list, locally and on CI, so it
+  gates only a failure the unpatched tree does not share.
 - `scripts/check-format.sh` fails only on files we add or change: rustfmt also walks the modules a
   changed `lib.rs` declares and reaches upstream's own `sticker.rs`, which 1.8.0 left unformatted.
 - `zip-check.sh` accepts upstream's `README.txt` in `Labels/`, `Wallpapers/` and `Bezels/` (and only
