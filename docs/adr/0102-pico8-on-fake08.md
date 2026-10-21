@@ -189,7 +189,7 @@ Apple M-series. The slowest cart is Cave Runners at 0.67 ms a frame; most are un
 
 - Four patches, 0127 to 0130. No GBA, GB or GBC path changes; a GBA game after a PICO-8 game gets the GBA
   only input and picture (`pico8_then_gba.rs`).
-- Upstream test sites (b), (e), (g) and (h) take one more token each, in order: `| Platform::Pico8`,
+- Upstream test sites (b), (e), (g) and (h) take one more token each, after the Disk System's (ADR 0101): `| Platform::Pico8`,
   `| Core::Fake08`, `"PICO-8"` and `QuickRow::ScreenPico8`, by the standing rule.
 - slot's frontend answers no environment call during `retro_get_system_av_info` (upstream
   `slot-retro/src/libretro.rs`, `load`). That is a generic frontend gap and a candidate upstream PR (ADR 0047);
