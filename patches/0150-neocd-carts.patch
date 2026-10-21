@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 17:39:48 +0400
+Subject: [PATCH] neocd-carts
+
+A Neo Geo CD game is drawn as the CD jewel case the PlayStation and PC
+Engine CD shelves draw (ADR 0069, ADR 0104): the front cover from
+Labels/NEOCD/<stem>.png in the square well, and on insert the case opens
+and the disc, printed from Labels/NEOCD/disc/<stem>.png, goes into the
+slot. Neo Geo CD games shipped in the standard jewel case, and Japanese
+releases with the paper spine strip, so a disc tagged (Japan) wears the
+strip and every other disc the plain case. The region comes from the
+file name tags only. These tests pin the box, the case per region, the
+disc art path and that a Neo Geo cart still carries no disc.
+---
+ crates/slot-ui/tests/neocd_case.rs | 79 ++++++++++++++++++++++++++++++
+ 1 file changed, 79 insertions(+)
+ create mode 100644 crates/slot-ui/tests/neocd_case.rs
+
+diff --git a/crates/slot-ui/tests/neocd_case.rs b/crates/slot-ui/tests/neocd_case.rs
+new file mode 100644
+index 0000000..23bcc94
+--- /dev/null
++++ b/crates/slot-ui/tests/neocd_case.rs
+@@ -0,0 +1,79 @@
++use std::path::PathBuf;
++
++use slot_store::{Cart, Platform};
++use slot_ui::{
++    cart_box, cart_interior, cd_case, disc_art_path, has_disc, retro_shell_of, seated_box,
++    shows_interior, Ps1Case, RetroShell, DISC_PX,
++};
++
++fn disc(stem: &str, label: Option<PathBuf>) -> Cart {
++    Cart {
++        platform: Platform::Neocd,
++        stem: stem.into(),
++        rom: format!("/card/Games/NEOCD/{stem}.chd").into(),
++        label,
++        title: String::new(),
++        code: String::new(),
++        shell: None,
++    }
++}
++
++#[test]
++fn a_neo_geo_cd_sits_in_the_playstations_jewel_case_box() {
++    assert_eq!(cart_box(Platform::Neocd), cart_box(Platform::Ps1));
++    assert_eq!(seated_box(Platform::Neocd), seated_box(Platform::Ps1));
++    assert!(has_disc(&disc("Crossed Swords II (Japan) (En,Ja)", None)));
++}
++
++#[test]
++fn a_japanese_disc_wears_the_spine_strip_and_any_other_the_plain_case() {
++    for (stem, want) in [
++        ("Crossed Swords II (Japan) (En,Ja)", Ps1Case::Jp),
++        ("Samurai Shodown RPG (Japan) (En)", Ps1Case::Jp),
++        ("Metal Slug (USA)", Ps1Case::Us),
++        ("Homebrew Demo", Ps1Case::Us),
++    ] {
++        assert_eq!(cd_case(stem), want, "{stem}");
++        assert_eq!(
++            retro_shell_of(&disc(stem, None)),
++            Some(RetroShell::Ps1(want)),
++            "{stem}"
++        );
++    }
++}
++
++#[test]
++fn the_disc_comes_out_of_the_case_with_its_scan_in_the_neo_geo_cd_disc_folder() {
++    let cart = disc("Crossed Swords II (Japan) (En,Ja)", None);
++    assert!(shows_interior(&cart));
++    let face = cart_interior(&cart);
++    assert_eq!((face.w, face.h), (DISC_PX, DISC_PX));
++    assert_eq!(
++        disc_art_path(&cart),
++        Some(PathBuf::from(
++            "/card/Labels/NEOCD/disc/Crossed Swords II (Japan) (En,Ja).png"
++        ))
++    );
++    let labelled = disc(
++        "Samurai Shodown RPG (Japan) (En)",
++        Some("/card/Labels/NEOCD/Samurai Shodown RPG (Japan) (En).png".into()),
++    );
++    assert_eq!(
++        disc_art_path(&labelled),
++        Some(PathBuf::from(
++            "/card/Labels/NEOCD/disc/Samurai Shodown RPG (Japan) (En).png"
++        ))
++    );
++}
++
++#[test]
++fn a_neo_geo_cart_still_carries_no_disc() {
++    let cart = Cart {
++        platform: Platform::NeoGeo,
++        rom: "/card/Games/NEOGEO/mslug.zip".into(),
++        ..disc("mslug", None)
++    };
++    assert!(!shows_interior(&cart));
++    assert!(!has_disc(&cart));
++    assert_eq!(retro_shell_of(&cart), Some(RetroShell::NeoGeo));
++}

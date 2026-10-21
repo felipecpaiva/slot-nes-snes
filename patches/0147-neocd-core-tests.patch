@@ -1,0 +1,299 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 16:59:20 +0400
+Subject: [PATCH] neocd-core-tests
+
+NeoCD (neocd_libretro) runs Neo Geo CD discs. These tests pin what slot
+relies on at the pin: the options it answers and their values; the BIOS
+found by content under BIOS/neocd and offered as "<file> (<model>)";
+the high-level BIOS it boots with no error when none is there; 59.60 fps
+at 44.1 kHz; 8 KB of backup RAM as SAVE_RAM; a state of about 8 MB that
+loads into a fresh core; and the shared neocd.srm the core names before
+it reads the options. A real BIOS folder and disc are read from
+SLOT_NEOCD_BIOS and SLOT_NEOCD_DISC.
+---
+ crates/slot/tests/neocd_common/mod.rs |  72 ++++++++++
+ crates/slot/tests/neocd_core.rs       | 195 ++++++++++++++++++++++++++
+ 2 files changed, 267 insertions(+)
+ create mode 100644 crates/slot/tests/neocd_common/mod.rs
+ create mode 100644 crates/slot/tests/neocd_core.rs
+
+diff --git a/crates/slot/tests/neocd_common/mod.rs b/crates/slot/tests/neocd_common/mod.rs
+new file mode 100644
+index 0000000..515af92
+--- /dev/null
++++ b/crates/slot/tests/neocd_common/mod.rs
+@@ -0,0 +1,72 @@
++#![allow(dead_code)]
++
++use std::path::{Path, PathBuf};
++
++pub const BIOS_BYTES: usize = 524_288;
++pub const MODELS: [(&str, [u8; 4]); 3] = [
++    ("front-sp1.bin", [0xc0, 0x00, 0x5e, 0xc8]),
++    ("neocd.bin", [0xc0, 0x00, 0xe8, 0xa3]),
++    ("top-sp1.bin", [0xc0, 0x00, 0x22, 0xc2]),
++];
++
++pub fn neocd() -> Option<PathBuf> {
++    crate::core_common::require_core("neocd")
++}
++
++pub fn bios_dir(root: &Path) -> PathBuf {
++    slot::root::bios_dir(root).join("neocd")
++}
++
++pub fn placeholder_bios(family: [u8; 4]) -> Vec<u8> {
++    let mut rom = vec![0u8; BIOS_BYTES];
++    rom[..4].copy_from_slice(&[0x10, 0x00, 0x00, 0xf3]);
++    rom[0x6c..0x70].copy_from_slice(&family);
++    rom
++}
++
++pub fn put_placeholders(root: &Path) {
++    let dir = bios_dir(root);
++    std::fs::create_dir_all(&dir).expect("bios dir");
++    for (name, family) in MODELS {
++        std::fs::write(dir.join(name), placeholder_bios(family)).expect("write bios");
++    }
++}
++
++pub fn disc(dir: &Path, stem: &str) -> PathBuf {
++    std::fs::create_dir_all(dir).expect("disc dir");
++    std::fs::write(dir.join(format!("{stem}.bin")), vec![0u8; 2352 * 300]).expect("write bin");
++    let cue = dir.join(format!("{stem}.cue"));
++    std::fs::write(
++        &cue,
++        format!(
++            "FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    INDEX 01 00:02:00\n"
++        ),
++    )
++    .expect("write cue");
++    cue
++}
++
++pub fn real_bios(root: &Path) -> bool {
++    let Some(from) = std::env::var_os("SLOT_NEOCD_BIOS") else {
++        eprintln!("skipping: no Neo Geo CD BIOS, set SLOT_NEOCD_BIOS to a folder holding front-sp1.bin, neocd.bin and top-sp1.bin");
++        return false;
++    };
++    let dir = bios_dir(root);
++    std::fs::create_dir_all(&dir).expect("bios dir");
++    for (name, _) in MODELS {
++        let Ok(bytes) = std::fs::read(Path::new(&from).join(name)) else {
++            eprintln!("skipping: SLOT_NEOCD_BIOS has no {name}");
++            return false;
++        };
++        std::fs::write(dir.join(name), bytes).expect("copy bios");
++    }
++    true
++}
++
++pub fn real_disc() -> Option<PathBuf> {
++    let Some(path) = std::env::var_os("SLOT_NEOCD_DISC") else {
++        eprintln!("skipping: no Neo Geo CD disc, set SLOT_NEOCD_DISC to a .chd or .cue you own");
++        return None;
++    };
++    Some(PathBuf::from(path))
++}
+diff --git a/crates/slot/tests/neocd_core.rs b/crates/slot/tests/neocd_core.rs
+new file mode 100644
+index 0000000..aa3366c
+--- /dev/null
++++ b/crates/slot/tests/neocd_core.rs
+@@ -0,0 +1,195 @@
++// NeoCD (neocd_libretro, ADR 0106) runs Neo Geo CD discs. It finds its BIOS by content under
++// <system>/neocd/ (any .bin or .rom, searched recursively) and declares neocd_bios with one value per file
++// it recognised, "<file name> (<model>)". With none it boots its own incomplete high-level BIOS with no
++// error, which slot refuses before launch. Its own backup RAM file is the shared <system>/neocd/neocd.srm,
++// named at load before the options are read, so slot keeps a game's backup RAM in its own .sav instead.
++// The placeholders here carry only the bytes the core identifies a model by; they cannot boot a game.
++// Tests that need the real BIOS and a real disc read SLOT_NEOCD_BIOS (a folder) and SLOT_NEOCD_DISC and
++// print a skip without them.
++mod common;
++mod core_common;
++mod neocd_common;
++
++use std::path::Path;
++
++use common::core_lock;
++use neocd_common::{disc, put_placeholders, real_bios, real_disc};
++use slot_retro::{ButtonMask, LibretroCore, RetroCore};
++
++fn opened(root: &Path) -> Option<LibretroCore> {
++    let dylib = neocd_common::neocd()?;
++    let saves = slot::root::saves_dir(root).join("NEOCD");
++    std::fs::create_dir_all(&saves).unwrap();
++    std::fs::create_dir_all(slot::root::bios_dir(root)).unwrap();
++    let mut core =
++        LibretroCore::open_with(&dylib, &slot::root::bios_dir(root), &saves).expect("open NeoCD");
++    core.set_canvas(360, 240);
++    Some(core)
++}
++
++fn play(core: &mut LibretroCore, frames: usize) {
++    for _ in 0..frames {
++        core.run_frame(ButtonMask::default());
++    }
++}
++
++#[test]
++fn the_core_declares_the_options_slot_answers_with_their_values() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(core) = opened(d.path()) else {
++        return;
++    };
++    let declared = core.declared_options();
++    let values = |k: &str| declared.get(k).cloned().unwrap_or_default();
++    assert_eq!(values("neocd_region"), ["Japan", "USA", "Europe"]);
++    assert_eq!(values("neocd_cdspeedhack"), ["On", "Off"]);
++    assert_eq!(values("neocd_loadskip"), ["On", "Off"]);
++    assert_eq!(values("neocd_per_content_saves"), ["Off", "On"]);
++    assert_eq!(values("neocd_aspect_ratio")[0], "1:1 PAR");
++}
++
++#[test]
++fn without_a_bios_the_core_offers_no_model_and_still_loads_a_disc() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    assert!(!core.declared_options().contains_key("neocd_bios"));
++    core.load(&disc(&d.path().join("Games/NEOCD"), "Disc"))
++        .expect("the core refused the disc");
++}
++
++#[test]
++fn each_model_is_offered_as_its_file_name_and_family() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    put_placeholders(d.path());
++    let Some(core) = opened(d.path()) else {
++        return;
++    };
++    assert_eq!(
++        core.declared_options()
++            .get("neocd_bios")
++            .cloned()
++            .unwrap_or_default(),
++        [
++            "front-sp1.bin (Front Loader)",
++            "neocd.bin (CDZ)",
++            "top-sp1.bin (Top Loader)"
++        ]
++    );
++}
++
++#[test]
++fn a_disc_runs_at_59_6_fps_with_8_kb_of_backup_ram_that_loads_back() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    core.load(&disc(&d.path().join("Games/NEOCD"), "Disc"))
++        .unwrap();
++    play(&mut core, 30);
++    let av = core.av_info();
++    assert!((59.59..59.61).contains(&av.fps), "{} fps", av.fps);
++    assert_eq!(av.sample_rate, 44100.0);
++    let bram = core.save_ram().expect("no save RAM");
++    assert_eq!(bram.len(), 8192);
++    let mut marked = bram.clone();
++    marked[0x10] = 0x5a;
++    core.load_save_ram(&marked).unwrap();
++    play(&mut core, 5);
++    assert_eq!(core.save_ram().unwrap()[0x10], 0x5a);
++}
++
++#[test]
++fn a_state_is_about_8_mb_and_loads_into_a_fresh_core() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    let game = disc(&d.path().join("Games/NEOCD"), "Disc");
++    let state = {
++        let Some(mut core) = opened(d.path()) else {
++            return;
++        };
++        core.load(&game).unwrap();
++        play(&mut core, 30);
++        core.serialize().expect("no state")
++    };
++    eprintln!("neocd state: {} bytes", state.len());
++    assert!(
++        (7 * 1024 * 1024..9 * 1024 * 1024).contains(&state.len()),
++        "{} bytes",
++        state.len()
++    );
++    let Some(mut core) = opened(d.path()) else {
++        return;
++    };
++    core.load(&game).unwrap();
++    core.unserialize(&state)
++        .expect("the state would not load into a fresh core");
++    play(&mut core, 10);
++    assert_eq!(core.serialize().unwrap().len(), state.len());
++}
++
++#[test]
++fn the_core_names_its_own_backup_ram_file_before_it_reads_the_options() {
++    let _g = core_lock();
++    let d = tempfile::tempdir().unwrap();
++    put_placeholders(d.path());
++    {
++        let Some(mut core) = opened(d.path()) else {
++            return;
++        };
++        core.set_option("neocd_per_content_saves", "On");
++        core.load(&disc(&d.path().join("Games/NEOCD"), "Disc"))
++            .unwrap();
++        play(&mut core, 5);
++    }
++    let shared = neocd_common::bios_dir(d.path()).join("neocd.srm");
++    assert_eq!(std::fs::read(shared).map(|b| b.len()).ok(), Some(8192));
++    assert!(!slot::root::saves_dir(d.path())
++        .join("NEOCD/Disc.srm")
++        .exists());
++}
++
++#[test]
++fn the_real_bios_of_every_model_starts_a_real_disc_with_picture_and_sound() {
++    let _g = core_lock();
++    let Some(game) = real_disc() else {
++        return;
++    };
++    for model in [
++        "neocd.bin (CDZ)",
++        "front-sp1.bin (Front Loader)",
++        "top-sp1.bin (Top Loader)",
++    ] {
++        let d = tempfile::tempdir().unwrap();
++        if !real_bios(d.path()) {
++            return;
++        }
++        let Some(mut core) = opened(d.path()) else {
++            return;
++        };
++        core.set_option("neocd_bios", model);
++        core.set_option("neocd_region", "USA");
++        core.load(&game).expect("the real disc did not load");
++        core.load_save_ram(&[0u8; 8192]).unwrap();
++        let mut lit = false;
++        let mut loud = false;
++        for s in 0..40 {
++            for f in 0..60 {
++                let start = s >= 12 && s % 4 == 0 && f < 6;
++                core.run_frame(ButtonMask(if start { ButtonMask::START } else { 0 }));
++            }
++            lit |= core
++                .video_xrgb8888()
++                .chunks_exact(4)
++                .any(|p| p[..3] != [0, 0, 0]);
++            loud |= core.take_audio().iter().any(|s| *s != 0);
++        }
++        assert!(lit, "{model}: 40 seconds of black");
++        assert!(loud, "{model}: 40 seconds of silence");
++    }
++}

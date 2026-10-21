@@ -44,6 +44,7 @@ PHASES = {
     "20": "Phase 20: PC Engine SuperGrafx",
     "21": "Phase 21: PC Engine CD",
     "22": "Phase 22: Sega CD",
+    "23": "Phase 23: Neo Geo CD",
 }
 COLOURS = {"phase": "5319e7", "area": "0e8a16", "type": "1d76db", "size": "fbca04"}
 FIELDS = {"Phase": list(PHASES.values()),

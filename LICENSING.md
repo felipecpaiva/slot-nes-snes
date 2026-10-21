@@ -29,6 +29,7 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `fake08-src.tar.gz`, `fake08-z8lua-src.tar.gz` and `fake08-src.meta`: FAKE-08 and its z8lua submodule,
   each the archive `SLOT_PIN` pins; the patch the build applies is `cores/fake08/slot.patch` in the
   main tarball, its sha256 in the `.meta` (below).
+- `neocd-src.tar.gz` and `neocd-src.meta`: the exact NeoCD source and its sha256 (below).
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
@@ -133,10 +134,11 @@ What follows for users:
 Notice text (README "Licences" and the release notes carry it):
 
 > snes9x, snes9x2005_plus, Genesis Plus GX, PicoDrive and FinalBurn Neo are licensed for non-commercial
-> use only and are not GPL. This release includes them, with their licences in
-> System/licenses/snes9x-LICENSE.txt, System/licenses/snes9x2005-LICENSE.txt,
-> System/licenses/genesis_plus_gx-LICENSE.txt, System/licenses/picodrive-LICENSE.txt and
-> System/licenses/fbneo-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold. This
+> use only and are not GPL, and NeoCD carries a Z80 core released for non-commercial purposes. This
+> release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
+> System/licenses/snes9x2005-LICENSE.txt, System/licenses/genesis_plus_gx-LICENSE.txt,
+> System/licenses/picodrive-LICENSE.txt, System/licenses/fbneo-LICENSE.txt and
+> System/licenses/neocd-notices.txt. Do not sell this zip or bundle it with anything that is sold. This
 > project never asks for donations.
 
 ## nestopia
@@ -765,6 +767,58 @@ under MIT, and the libraries it lists with their terms.
   to their GLIBC_2.17 versions (`cores/fake08/glibc-2.17.h`), so it needs only `libc.so.6` and
   `libm.so.6` at GLIBC_2.17 or older, which `task core:device:fake08` checks.
 - No BIOS is shipped or needed; PICO-8 carts are the player's own.
+
+## NeoCD (Neo Geo CD)
+
+Checked at commit `b1e04c738cb48a1dae0574b8877f6a116d270ca1` of libretro/neocd_libretro (its master on
+2026-10-03), the commit `SLOT_PIN` pins as `neocd_commit`, archive sha256 `neocd_tarball_sha256`. It is built
+by `cores/neocd/build.sh` for the Neo Geo CD shelf (ADR 0106), with `HAVE_CDROM=0 USE_LTO=0`, and ships from
+the platform patch (0148) in `dist:device`, checked by `zip-check.sh`. `cores/neocd/glibc-2.17.h` is the only
+build input not in the archive; it is in this repository. No NeoCD source file is changed. The exact source
+ships with the core as `neocd-src.tar.gz`, with `neocd-src.meta` recording its commit and sha256.
+`dist-device.sh` copies these from `licenses/` into the release:
+
+- `neocd-LGPL-3.0.txt`, the root `LICENSE.md` of that source, copied verbatim and whole: the GNU Lesser
+  General Public License version 3. NeoCD's own files under `src/` carry no header of their own; the
+  repository licence covers them.
+- `neocd-GPL-3.0.txt`, the GNU General Public License version 3 (this repository's `LICENSE`), which the
+  LGPL-3.0 incorporates by reference, so the release carries both texts beside the core.
+- `neocd-notices.txt`, copied verbatim from the pinned source: Musashi's MIT notice, the Z80 core's notice,
+  the YM2610 core's header, the RetroArch team's MIT statement with the 75 libretro-common files that carry
+  it, and rflac's public-domain or MIT-0 line.
+- `neocd-headerless-files.txt`, the 102 of 186 `.c`, `.h` and `.cpp` files with no licence text in their
+  first 60 lines, with the command that produced the list.
+
+What is compiled into `neocd_libretro.so` (the sources of `Makefile.common` at the pin):
+
+- NeoCD itself (a rewrite of NeoCD in C++14), LGPL-3.0. 92 of the headerless files are its own `src/`
+  files; we treat them as covered by `LICENSE.md`, a judgement, not a quote.
+- The Musashi 68000 core, version 4.60, MIT ("Permission is hereby granted, free of charge, ..."). This is
+  the relicensed Musashi, not the 3.x "non-commercial purposes" one FinalBurn Neo carries.
+- **The Z80 core (Juergen Buchmueller, from MAME) is not free software**: "This source code is released as
+  freeware for non-commercial purposes", "If you wish to use this for commercial purposes, please contact
+  me", "This entire notice must remain in the source code". The YM2610 core (Jarek Burczynski and
+  Tatsuyuki Satoh, from MAME's `fm.c`) names its authors and no licence; it came from MAME when MAME's own
+  licence was non-commercial. So the combined core is handled exactly like snes9x, PicoDrive and
+  FinalBurn Neo: LICENSING.md names it and quotes its terms, the notices ship in `System/licenses/`, the
+  pinned source ships with every release, the plugin boundary stance applies, and **the zip is never sold
+  and this project asks for no donations, anywhere** (the standing rule of ADR 0099).
+- libretro-common, vendored in `deps/`: the RetroArch team's MIT statement on every compiled file
+  (streams, file, lists, compat, encodings, features, memmap, string, time, vfs, and the CHD, LZMA, zstd,
+  deflate, FLAC and WAV readers), rflac (from dr_flac, public domain or MIT-0), and rvorbis (from
+  stb_vorbis) and rmp3 (from minimp3), which name their origin and no licence; both upstreams are public
+  domain (stb_vorbis also MIT, minimp3 CC0). The physical CD drive code (`cdrom/`, `vfs_implementation_cdrom`)
+  is not compiled (`HAVE_CDROM=0`).
+- On the device the core links the C++ runtime statically (`-static-libstdc++ -static-libgcc`) and binds
+  `exp`, `logf` and `pow` to their GLIBC_2.17 versions (`cores/neocd/glibc-2.17.h`); link-time optimisation
+  is off because it drops those bindings. It needs only `libc`, `libm` and `libpthread` at GLIBC_2.17, which
+  `task core:device:neocd` checks.
+- No BIOS is shipped or fetched. The player's own `BIOS/neocd/neocd.bin`, `front-sp1.bin` or `top-sp1.bin`
+  is checked before a disc starts (ADR 0106). NeoCD's built-in high-level BIOS is compiled in but slot never
+  lets it run a disc.
+
+The plugin boundary stance is the one for snes9x above: a separate program loaded by `dlopen` across the
+libretro C ABI, the zip an aggregate of separate works. This is our reading, not legal advice.
 
 ## Beetle SuperGrafx (PC Engine SuperGrafx)
 

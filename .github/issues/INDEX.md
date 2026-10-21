@@ -204,3 +204,9 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [230](230-segacd-tests.md) | Test Sega CD with synthetic discs, a dummy BIOS and the real BIOS when given | 22 | tests | test | S | 222-segacd-tracking |
 | [231](231-segacd-cases.md) | Draw Sega CD games as jewel cases and fetch their covers | 22 | ui-art | feature | M | 223-platform-segacd |
 | [232](232-segacd-device-gate.md) | Sega CD device gate on the RG34XXSP | 22 | device | chore | S | 224-segacd-bios-check, 227-segacd-backup-ram, 228-segacd-discs, 231-segacd-cases |
+| [233](233-neocd-tracking.md) | Neo Geo CD: discs on NeoCD, a shelf of its own | 23 | device | tracking | L | 222-segacd-tracking |
+| [234](234-neocd-core-build.md) | Pin and build NeoCD for the host and the device, and record its licences | 23 | cores | feature | S | 233-neocd-tracking |
+| [235](235-platform-neocd.md) | Add Platform::Neocd with its options, Screen section, saves and the Neo Geo pad | 23 | platform | feature | M | 234-neocd-core-build |
+| [236](236-neocd-bios.md) | Choose the Neo Geo CD model and check its BIOS before a disc starts | 23 | platform | feature | S | 235-platform-neocd |
+| [237](237-neocd-cases.md) | Draw Neo Geo CD discs in the jewel case and fetch their covers and disc scans | 23 | ui-art | feature | S | 235-platform-neocd |
+| [238](238-neocd-device-gate.md) | Neo Geo CD device gate on the RG34XXSP | 23 | device | chore | S | 235-platform-neocd, 236-neocd-bios, 237-neocd-cases |

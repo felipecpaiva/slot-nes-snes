@@ -1,0 +1,2151 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 17:26:11 +0400
+Subject: [PATCH] platform-neocd
+
+Neo Geo CD discs get their own shelf, Games/NEOCD, for .cue and .chd,
+on NeoCD (neocd_libretro) alone: Platform::Neocd after SegaCd,
+Core::Neocd after MednafenSupergrafx. Track files and playlists stay
+off the shelf, and a disc on the Neo Geo shelf is skipped there. It
+plays like the Neo Geo shelf: A, B, C and D on B, A, Y and X, SELECT
+and START to the game, L1 and R1 to the game, L2 and R2 kept by slot,
+and the picture toggle on SELECT+X.
+
+NeoCD is told the CDZ BIOS (neocd.bin, the fastest loader), the USA
+region (the English text of a dual-language disc), its CD speed hack
+and load skip on, a 1:1 picture (slot draws the aspect) and no
+overclock. Its own backup RAM file is one shared neocd.srm named before
+the options are read, so slot keeps each game's 8 KB backup RAM in
+Saves/NEOCD/<stem>.sav and hands a game without one a blank backup RAM
+rather than another game's. A state is about 8 MB, so rewind is off
+like the PlayStation; save states, resume, fast-forward and the crash
+guard work as on every shelf.
+
+The Screen page gains a Neo Geo CD section, last: Shader (the retro
+list, Config/neocd_shader.txt) and Picture, Stretch by default then
+Actual and 4:3, kept in Config/picture.txt as neocd. The release date
+for the shelf order is 9 September 1994, between CPS2 and the 32X. A
+disc wears the jewel case, the Japanese one with its spine strip for a
+disc tagged (Japan).
+---
+ crates/slot-store/src/bindings.rs            |   1 +
+ crates/slot-store/src/core.rs                |  84 +++--
+ crates/slot-store/src/core_policy.rs         |  18 +-
+ crates/slot-store/src/lib.rs                 |   8 +-
+ crates/slot-store/src/platform.rs            |   6 +-
+ crates/slot-store/src/platform_policy.rs     |  24 +-
+ crates/slot-store/src/scan.rs                |   1 +
+ crates/slot-store/src/sega_shader.rs         |   9 +-
+ crates/slot-store/tests/core_pairs.rs        |   4 +-
+ crates/slot-store/tests/md_platform.rs       |   1 +
+ crates/slot-store/tests/neocd_platform.rs    | 156 ++++++++++
+ crates/slot-store/tests/sega_shader_state.rs |   1 +
+ crates/slot-store/tests/segacd_platform.rs   |  11 +-
+ crates/slot-ui/src/cart.rs                   |   7 +-
+ crates/slot-ui/src/ps1_case.rs               |   2 +-
+ crates/slot-ui/src/quick_menu.rs             |  21 +-
+ crates/slot-ui/src/quick_retro.rs            |   1 +
+ crates/slot-ui/src/retro_cart.rs             |   5 +-
+ crates/slot-ui/src/shell.rs                  |   1 +
+ crates/slot-ui/tests/chrome.rs               |   2 +-
+ crates/slot-ui/tests/quick_menu.rs           |   4 +-
+ crates/slot/src/app.rs                       |  19 ++
+ crates/slot/src/arcade_turn.rs               |   1 +
+ crates/slot/src/atari_switches.rs            |   1 +
+ crates/slot/src/core.rs                      |   3 +-
+ crates/slot/src/core_options_policy.rs       |  20 +-
+ crates/slot/src/lib.rs                       |   1 +
+ crates/slot/src/neocd_save.rs                |  10 +
+ crates/slot/src/platform_video.rs            |   7 +-
+ crates/slot/src/retro_quick.rs               |  12 +-
+ crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/session.rs                   |   1 +
+ crates/slot/src/shelf_order.rs               |   4 +-
+ crates/slot/src/snes_input.rs                |   1 +
+ crates/slot/src/ws_input.rs                  |   1 +
+ crates/slot/tests/crop_overscan.rs           |   1 +
+ crates/slot/tests/four_three.rs              |   1 +
+ crates/slot/tests/gpsp.rs                    |   2 +-
+ crates/slot/tests/neocd_platform.rs          | 304 +++++++++++++++++++
+ crates/slot/tests/ps1_options.rs             |   2 +-
+ crates/slot/tests/sega_quick_shader.rs       |   7 +-
+ crates/slot/tests/segacd_screen.rs           |   3 +-
+ crates/slot/tests/shelf_order.rs             |   9 +-
+ crates/slot/tests/snes_select.rs             |   1 +
+ crates/slot/tests/system_picture.rs          |   1 +
+ 45 files changed, 716 insertions(+), 69 deletions(-)
+ create mode 100644 crates/slot-store/tests/neocd_platform.rs
+ create mode 100644 crates/slot/src/neocd_save.rs
+ create mode 100644 crates/slot/tests/neocd_platform.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 6f88614..a3b8588 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -214,6 +214,7 @@ impl GameButton {
+             | Platform::S32x
+             | Platform::Vb
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => &GameButton::ALL,
+             Platform::Gb
+diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
+index da62f64..8514c34 100644
+--- a/crates/slot-store/src/core.rs
++++ b/crates/slot-store/src/core.rs
+@@ -27,6 +27,7 @@ pub enum Core {
+     Fbneo,
+     Fake08,
+     MednafenSupergrafx,
++    Neocd,
+ }
+ 
+ impl Core {
+@@ -52,6 +53,7 @@ impl Core {
+             Core::MednafenVb => "mednafen_vb",
+             Core::Fake08 => "fake08",
+             Core::MednafenSupergrafx => "mednafen_supergrafx",
++            Core::Neocd => "neocd",
+             Core::Fbneo => "fbneo",
+         }
+     }
+@@ -80,6 +82,7 @@ impl Core {
+             Core::MednafenVb => "Beetle VB",
+             Core::Fake08 => "FAKE-08",
+             Core::MednafenSupergrafx => "Beetle SuperGrafx",
++            Core::Neocd => "NeoCD",
+             Core::Fbneo => "FinalBurn Neo",
+         }
+     }
+@@ -104,6 +107,7 @@ impl Core {
+             "mednafen_vb" => Some(Core::MednafenVb),
+             "fake08" => Some(Core::Fake08),
+             "mednafen_supergrafx" => Some(Core::MednafenSupergrafx),
++            "neocd" => Some(Core::Neocd),
+             "fbneo" => Some(Core::Fbneo),
+             _ => None,
+         }
+@@ -134,7 +138,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Gpsp => match platform {
+                 Platform::Gba => true,
+@@ -161,7 +166,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Fceumm | Core::Nestopia => match platform {
+                 Platform::Nes => true,
+@@ -188,7 +194,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Snes9x | Core::Snes9x2005Plus => match platform {
+                 Platform::Snes => true,
+@@ -215,7 +222,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::GenesisPlusGx => match platform {
+                 Platform::Gg | Platform::Sms | Platform::Md | Platform::SegaCd => true,
+@@ -239,7 +247,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::PcsxRearmed => match platform {
+                 Platform::Ps1 => true,
+@@ -266,7 +275,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::MednafenPceFast => match platform {
+                 Platform::Tg16 | Platform::Pcecd => true,
+@@ -292,7 +302,8 @@ impl Core {
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2
+-                | Platform::Sgx => false,
++                | Platform::Sgx
++                | Platform::Neocd => false,
+             },
+             Core::MednafenWswan => match platform {
+                 Platform::Ws => true,
+@@ -319,7 +330,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::MednafenLynx => match platform {
+                 Platform::Lynx => true,
+@@ -346,7 +358,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::MednafenNgp => match platform {
+                 Platform::Ngp => true,
+@@ -373,7 +386,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Picodrive => match platform {
+                 Platform::S32x => true,
+@@ -400,7 +414,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Stella2014 => match platform {
+                 Platform::A2600 => true,
+@@ -427,7 +442,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::Prosystem => match platform {
+                 Platform::A7800 => true,
+@@ -454,7 +470,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => false,
++                | Platform::Cps2
++                | Platform::Neocd => false,
+             },
+             Core::MednafenVb => match platform {
+                 Platform::Vb => true,
+@@ -481,7 +498,8 @@ impl Core {
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+                 | Platform::Cps2
+-                | Platform::Pico8 => false,
++                | Platform::Pico8
++                | Platform::Neocd => false,
+             },
+             Core::Fbneo => match platform {
+                 Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
+@@ -506,7 +524,8 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
+-                | Platform::Pico8 => false,
++                | Platform::Pico8
++                | Platform::Neocd => false,
+             },
+             Core::Fake08 => match platform {
+                 Platform::Pico8 => true,
+@@ -533,7 +552,8 @@ impl Core {
+                 | Platform::Cps1
+                 | Platform::Cps2
+                 | Platform::Vb
+-                | Platform::Fds => false,
++                | Platform::Fds
++                | Platform::Neocd => false,
+             },
+             Core::MednafenSupergrafx => match platform {
+                 Platform::Sgx => true,
+@@ -560,7 +580,36 @@ impl Core {
+                 | Platform::Cps2
+                 | Platform::Vb
+                 | Platform::Fds
+-                | Platform::Pcecd => false,
++                | Platform::Pcecd
++                | Platform::Neocd => false,
++            },
++            Core::Neocd => match platform {
++                Platform::Neocd => true,
++                Platform::Gba
++                | Platform::Gb
++                | Platform::Gbc
++                | Platform::Nes
++                | Platform::Fds
++                | Platform::Snes
++                | Platform::Gg
++                | Platform::Sms
++                | Platform::Md
++                | Platform::SegaCd
++                | Platform::Ps1
++                | Platform::Tg16
++                | Platform::Sgx
++                | Platform::Pcecd
++                | Platform::Ws
++                | Platform::Lynx
++                | Platform::Ngp
++                | Platform::S32x
++                | Platform::A2600
++                | Platform::A7800
++                | Platform::Vb
++                | Platform::Pico8
++                | Platform::NeoGeo
++                | Platform::Cps1
++                | Platform::Cps2 => false,
+             },
+         }
+     }
+@@ -583,6 +632,7 @@ impl Core {
+             Platform::Vb => Core::MednafenVb,
+             Platform::Pico8 => Core::Fake08,
+             Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => Core::Fbneo,
++            Platform::Neocd => Core::Neocd,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
+index db9c7ad..d3785ed 100644
+--- a/crates/slot-store/src/core_policy.rs
++++ b/crates/slot-store/src/core_policy.rs
+@@ -2,7 +2,7 @@ use crate::core::Core;
+ use crate::platform::Platform;
+ 
+ impl Core {
+-    pub const EVERY: [Core; 19] = [
++    pub const EVERY: [Core; 20] = [
+         Core::Mgba,
+         Core::Gpsp,
+         Core::Fceumm,
+@@ -22,6 +22,7 @@ impl Core {
+         Core::Fbneo,
+         Core::Fake08,
+         Core::MednafenSupergrafx,
++        Core::Neocd,
+     ];
+ 
+     pub fn option_prefix(self) -> &'static str {
+@@ -44,6 +45,7 @@ impl Core {
+             Core::MednafenVb => "vb",
+             Core::Fake08 => "fake08",
+             Core::MednafenSupergrafx => "sgx",
++            Core::Neocd => "neocd",
+             Core::Fbneo => "fbneo",
+         }
+     }
+@@ -65,6 +67,7 @@ impl Core {
+             Core::MednafenVb => (Core::MednafenVb, Core::MednafenVb),
+             Core::Fake08 => (Core::Fake08, Core::Fake08),
+             Core::MednafenSupergrafx => (Core::MednafenSupergrafx, Core::MednafenSupergrafx),
++            Core::Neocd => (Core::Neocd, Core::Neocd),
+             Core::Fbneo => (Core::Fbneo, Core::Fbneo),
+         }
+     }
+@@ -98,7 +101,8 @@ impl Core {
+                 | Platform::Pico8
+                 | Platform::NeoGeo
+                 | Platform::Cps1
+-                | Platform::Cps2 => (360, 240),
++                | Platform::Cps2
++                | Platform::Neocd => (360, 240),
+             },
+             Core::PcsxRearmed => (640, 480),
+             Core::MednafenPceFast | Core::MednafenSupergrafx => (360, 240),
+@@ -110,6 +114,7 @@ impl Core {
+             Core::Prosystem => (360, 272),
+             Core::MednafenVb => (384, 256),
+             Core::Fake08 => (240, 160),
++            Core::Neocd => (360, 240),
+             Core::Fbneo => match platform {
+                 Platform::Cps1 | Platform::Cps2 => (432, 288),
+                 Platform::Gba
+@@ -134,7 +139,8 @@ impl Core {
+                 | Platform::A2600
+                 | Platform::A7800
+                 | Platform::Vb
+-                | Platform::Pico8 => (360, 240),
++                | Platform::Pico8
++                | Platform::Neocd => (360, 240),
+             },
+         }
+     }
+@@ -175,7 +181,8 @@ impl Core {
+             | Core::Prosystem
+             | Core::MednafenVb
+             | Core::Fake08
+-            | Core::Fbneo => true,
++            | Core::Fbneo
++            | Core::Neocd => true,
+         }
+     }
+ 
+@@ -198,7 +205,8 @@ impl Core {
+             | Core::Prosystem
+             | Core::MednafenVb
+             | Core::Fake08
+-            | Core::Fbneo => false,
++            | Core::Fbneo
++            | Core::Neocd => false,
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index 3bd23ca..d88e400 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -51,10 +51,10 @@ pub use ring::{StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use sega_shader::{
+     read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
+-    CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
+-    NGP_SHADER_FILE, PCECD_SHADER_FILE, PICO8_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE,
+-    SEGACD_SHADER_FILE, SEGA_SHADERS_FILE, SGX_SHADER_FILE, TG16_SHADER_FILE, VB_SHADER_FILE,
+-    WS_SHADER_FILE,
++    CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOCD_SHADER_FILE,
++    NEOGEO_SHADER_FILE, NGP_SHADER_FILE, PCECD_SHADER_FILE, PICO8_SHADER_FILE, PS1_SHADER_FILE,
++    S32X_SHADER_FILE, SEGACD_SHADER_FILE, SEGA_SHADERS_FILE, SGX_SHADER_FILE, TG16_SHADER_FILE,
++    VB_SHADER_FILE, WS_SHADER_FILE,
+ };
+ pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
+ pub use slot_state::{
+diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
+index 171d847..b294a82 100644
+--- a/crates/slot-store/src/platform.rs
++++ b/crates/slot-store/src/platform.rs
+@@ -28,6 +28,7 @@ pub enum Platform {
+     Sgx,
+     Pcecd,
+     SegaCd,
++    Neocd,
+ }
+ 
+ impl Platform {
+@@ -60,6 +61,7 @@ impl Platform {
+             Platform::Cps2 => "Capcom CPS-2",
+             Platform::Fds => "Nintendo Famicom Disk System",
+             Platform::SegaCd => "Sega CD",
++            Platform::Neocd => "SNK Neo Geo CD",
+         }
+     }
+ 
+@@ -90,6 +92,7 @@ impl Platform {
+             Platform::Cps2 => "CPS2",
+             Platform::Fds => "FDS",
+             Platform::SegaCd => "SEGACD",
++            Platform::Neocd => "NEOCD",
+         }
+     }
+ 
+@@ -117,6 +120,7 @@ impl Platform {
+             Platform::Sgx => &["sgx", "pce"],
+             Platform::Pcecd => &["cue", "chd", "ccd"],
+             Platform::SegaCd => &["chd", "cue", "m3u", "iso"],
++            Platform::Neocd => &["cue", "chd"],
+         }
+     }
+ 
+@@ -141,7 +145,7 @@ impl Platform {
+             Platform::Pico8 => (128, 128),
+             Platform::Sgx => (256, 240),
+             Platform::Pcecd => (256, 240),
+-            Platform::NeoGeo => (320, 224),
++            Platform::NeoGeo | Platform::Neocd => (320, 224),
+             Platform::Cps1 | Platform::Cps2 => (384, 224),
+         }
+     }
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index a8efef1..372f784 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -5,7 +5,7 @@ use crate::platform::Platform;
+ use crate::slot_state::Shader;
+ 
+ impl Platform {
+-    pub const SHELVES: [Platform; 25] = [
++    pub const SHELVES: [Platform; 26] = [
+         Platform::Gba,
+         Platform::Gb,
+         Platform::Gbc,
+@@ -31,6 +31,7 @@ impl Platform {
+         Platform::Sgx,
+         Platform::Pcecd,
+         Platform::SegaCd,
++        Platform::Neocd,
+     ];
+ 
+     pub fn has_gb_palettes(self) -> bool {
+@@ -56,6 +57,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+             Platform::Gb | Platform::Gbc => true,
+@@ -74,6 +76,7 @@ impl Platform {
+             | Platform::S32x
+             | Platform::Vb
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+             Platform::Gb
+@@ -104,6 +107,7 @@ impl Platform {
+             | Platform::A7800
+             | Platform::Vb
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+             Platform::Gba
+@@ -145,6 +149,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+         }
+@@ -163,6 +168,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+             Platform::Gba
+@@ -204,6 +210,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2
+             | Platform::Fds => None,
+@@ -235,6 +242,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+         }
+@@ -261,6 +269,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => (0, 0),
+         }
+@@ -288,6 +297,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => &Shader::RETRO,
+         }
+@@ -301,7 +311,8 @@ impl Platform {
+             | Platform::Pcecd
+             | Platform::SegaCd
+             | Platform::S32x
+-            | Platform::NeoGeo => true,
++            | Platform::NeoGeo
++            | Platform::Neocd => true,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -326,7 +337,7 @@ impl Platform {
+     pub fn rewinds(self) -> bool {
+         match self {
+             // fake-08 offers no state (ADR 0102), so there is nothing to rewind to.
+-            Platform::Ps1 | Platform::Pico8 => false,
++            Platform::Ps1 | Platform::Neocd | Platform::Pico8 => false,
+             Platform::Gba
+             | Platform::Gb
+             | Platform::Gbc
+@@ -378,6 +389,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+         }
+@@ -407,6 +419,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => false,
+         }
+@@ -437,6 +450,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => true,
+         }
+@@ -467,6 +481,7 @@ impl Platform {
+             | Platform::Vb
+             | Platform::Pico8
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2 => None,
+         }
+@@ -494,6 +509,7 @@ impl Platform {
+             | Platform::A2600
+             | Platform::A7800
+             | Platform::NeoGeo
++            | Platform::Neocd
+             | Platform::Cps1
+             | Platform::Cps2
+             | Platform::Vb
+@@ -518,6 +534,7 @@ impl Platform {
+             | Platform::Tg16
+             | Platform::Sgx
+             | Platform::Pcecd
++            | Platform::Neocd
+             | Platform::Ws
+             | Platform::Lynx
+             | Platform::Ngp
+@@ -551,6 +568,7 @@ impl Platform {
+                 | Platform::Tg16
+                 | Platform::Sgx
+                 | Platform::Pcecd
++                | Platform::Neocd
+                 | Platform::Ws
+                 | Platform::Lynx
+                 | Platform::Ngp
+diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
+index a142160..0ce752a 100644
+--- a/crates/slot-store/src/scan.rs
++++ b/crates/slot-store/src/scan.rs
+@@ -37,6 +37,7 @@ impl Cart {
+             | Platform::Tg16
+             | Platform::Sgx
+             | Platform::Pcecd
++            | Platform::Neocd
+             | Platform::Ws
+             | Platform::Ngp
+             | Platform::A2600
+diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
+index cdcf82e..5fc6e41 100644
+--- a/crates/slot-store/src/sega_shader.rs
++++ b/crates/slot-store/src/sega_shader.rs
+@@ -22,6 +22,7 @@ pub const PICO8_SHADER_FILE: &str = "pico8_shader.txt";
+ pub const SGX_SHADER_FILE: &str = "sgx_shader.txt";
+ pub const PCECD_SHADER_FILE: &str = "pcecd_shader.txt";
+ pub const SEGACD_SHADER_FILE: &str = "segacd_shader.txt";
++pub const NEOCD_SHADER_FILE: &str = "neocd_shader.txt";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct SegaShaders {
+@@ -45,6 +46,7 @@ pub struct SegaShaders {
+     pub sgx: Shader,
+     pub pcecd: Shader,
+     pub segacd: Shader,
++    pub neocd: Shader,
+ }
+ 
+ impl Default for SegaShaders {
+@@ -70,6 +72,7 @@ impl Default for SegaShaders {
+             sgx: Shader::Off,
+             pcecd: Shader::Off,
+             segacd: Shader::Off,
++            neocd: Shader::Off,
+         }
+     }
+ }
+@@ -95,6 +98,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+         SGX_SHADER_FILE,
+         PCECD_SHADER_FILE,
+         SEGACD_SHADER_FILE,
++        NEOCD_SHADER_FILE,
+     ] {
+         let text = std::fs::read_to_string(list_path(root, file)).unwrap_or_default();
+         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+@@ -119,6 +123,7 @@ pub fn read_sega_shaders(root: &Path) -> SegaShaders {
+                 (SGX_SHADER_FILE, "sgx") => (&mut s.sgx, Platform::Sgx),
+                 (PCECD_SHADER_FILE, "pcecd") => (&mut s.pcecd, Platform::Pcecd),
+                 (SEGACD_SHADER_FILE, "segacd") => (&mut s.segacd, Platform::SegaCd),
++                (NEOCD_SHADER_FILE, "neocd") => (&mut s.neocd, Platform::Neocd),
+                 (_, other) => {
+                     eprintln!("slot: {file}: ignoring {other}");
+                     continue;
+@@ -176,7 +181,9 @@ pub fn write_sega_shaders(root: &Path, s: &SegaShaders) -> std::io::Result<()> {
+     let pcecd = format!("pcecd={}\n", s.pcecd.name());
+     write_unless_unchanged(root, PCECD_SHADER_FILE, &pcecd, s.pcecd == d.pcecd)?;
+     let segacd = format!("segacd={}\n", s.segacd.name());
+-    write_unless_unchanged(root, SEGACD_SHADER_FILE, &segacd, s.segacd == d.segacd)
++    write_unless_unchanged(root, SEGACD_SHADER_FILE, &segacd, s.segacd == d.segacd)?;
++    let neocd = format!("neocd={}\n", s.neocd.name());
++    write_unless_unchanged(root, NEOCD_SHADER_FILE, &neocd, s.neocd == d.neocd)
+ }
+ 
+ fn write_unless_unchanged(
+diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
+index 02144c3..346f2ab 100644
+--- a/crates/slot-store/tests/core_pairs.rs
++++ b/crates/slot-store/tests/core_pairs.rs
+@@ -12,9 +12,9 @@ fn every_picker_pair_is_the_pair_of_both_its_cores() {
+ }
+ 
+ #[test]
+-fn the_pinned_core_list_stays_two_while_every_lists_nineteen() {
++fn the_pinned_core_list_stays_two_while_every_lists_twenty() {
+     assert_eq!(Core::ALL.len(), 2);
+-    assert_eq!(Core::EVERY.len(), 19);
++    assert_eq!(Core::EVERY.len(), 20);
+     assert_eq!(
+         Platform::Nes.picker_cores(),
+         Some((Core::Fceumm, Core::Nestopia))
+diff --git a/crates/slot-store/tests/md_platform.rs b/crates/slot-store/tests/md_platform.rs
+index 15ca80c..a4b633b 100644
+--- a/crates/slot-store/tests/md_platform.rs
++++ b/crates/slot-store/tests/md_platform.rs
+@@ -53,6 +53,7 @@ fn mega_drive_plays_like_snes_and_follows_the_frame_width() {
+                     | Platform::Sgx
+                     | Platform::Pcecd
+                     | Platform::SegaCd
++                    | Platform::Neocd
+             ),
+             "{platform:?}"
+         );
+diff --git a/crates/slot-store/tests/neocd_platform.rs b/crates/slot-store/tests/neocd_platform.rs
+new file mode 100644
+index 0000000..c1003e4
+--- /dev/null
++++ b/crates/slot-store/tests/neocd_platform.rs
+@@ -0,0 +1,156 @@
++mod common;
++
++use std::path::Path;
++
++use common::tmp_root;
++use slot_store::{
++    read_sega_shaders, read_slot_state, scan, write_sega_shaders, write_slot_state, Cart, Core,
++    GameButton, Platform, RetroShader, SegaShaders, Shader, SlotState, NEOCD_SHADER_FILE,
++};
++
++fn put(root: &Path, dir: &str, name: &str) {
++    let dir = root.join("Games").join(dir);
++    std::fs::create_dir_all(&dir).expect("create dir");
++    std::fs::write(dir.join(name), [0u8; 0x200]).expect("write");
++}
++
++fn on(root: &Path, platform: Platform) -> Vec<Cart> {
++    scan(root)
++        .expect("scan")
++        .into_iter()
++        .filter(|c| c.platform == platform)
++        .collect()
++}
++
++#[test]
++fn the_neo_geo_cd_follows_the_sega_cd_and_upstreams_list_stays_three() {
++    let last = Platform::SHELVES.len() - 1;
++    assert_eq!(Platform::SHELVES[last], Platform::Neocd);
++    assert_eq!(Platform::SHELVES[last - 1], Platform::SegaCd);
++    assert_eq!(Platform::ALL.len(), 3);
++    assert_eq!(Platform::Neocd.dir_name(), "NEOCD");
++    assert_eq!(Platform::Neocd.name(), "SNK Neo Geo CD");
++}
++
++#[test]
++fn a_chd_or_cue_lands_on_the_neo_geo_cd_shelf_and_track_files_stay_off_it() {
++    let d = tmp_root();
++    for name in [
++        "Samurai Shodown RPG (Japan) (En).chd",
++        "Crossed Swords II (Japan) (En,Ja).CUE",
++        "Crossed Swords II (Japan) (En,Ja) (Track 01).bin",
++        "Crossed Swords II (Japan) (En,Ja) (Track 02).bin",
++        "._Samurai Shodown RPG (Japan) (En).chd",
++        "Last Blade.ccd",
++        "Set.m3u",
++        "mslug.zip",
++    ] {
++        put(d.path(), "NEOCD", name);
++    }
++    let mut carts = on(d.path(), Platform::Neocd);
++    let stems: Vec<&str> = carts.iter().map(|c| c.stem.as_str()).collect();
++    assert_eq!(
++        stems,
++        [
++            "Crossed Swords II (Japan) (En,Ja)",
++            "Samurai Shodown RPG (Japan) (En)"
++        ]
++    );
++    for c in &mut carts {
++        c.read_header();
++        assert!(c.title.is_empty(), "{} took a header title", c.stem);
++    }
++}
++
++#[test]
++fn a_disc_on_the_neo_geo_shelf_is_skipped_and_the_arcade_shelf_stays_sets_only() {
++    let d = tmp_root();
++    put(d.path(), "NEOGEO", "Samurai Shodown RPG (Japan) (En).chd");
++    assert!(on(d.path(), Platform::NeoGeo).is_empty());
++    assert!(on(d.path(), Platform::Neocd).is_empty());
++}
++
++#[test]
++fn the_neo_geo_cd_runs_on_neocd_alone() {
++    assert_eq!(Core::default_for(Platform::Neocd), Core::Neocd);
++    assert_eq!(Core::Neocd.canvas(Platform::Neocd), (360, 240));
++    assert_eq!(Core::Neocd.as_str(), "neocd");
++    assert_eq!(Core::Neocd.text(), "NeoCD");
++    assert_eq!(Core::parse("neocd"), Some(Core::Neocd));
++    assert_eq!(Core::Neocd.option_prefix(), "neocd");
++    assert_eq!(Core::Neocd.pair(), (Core::Neocd, Core::Neocd));
++    assert!(Core::Neocd.reports_its_frame_rate());
++    assert!(!Core::Neocd.has_colour_correction());
++    assert_eq!(Platform::Neocd.picker_cores(), None);
++    assert_eq!(Core::EVERY.last(), Some(&Core::Neocd));
++    for core in Core::EVERY {
++        assert_eq!(core.runs(Platform::Neocd), core == Core::Neocd, "{core:?}");
++    }
++    for platform in Platform::SHELVES {
++        assert_eq!(
++            Core::Neocd.runs(platform),
++            platform == Platform::Neocd,
++            "{platform:?}"
++        );
++    }
++}
++
++#[test]
++fn the_neo_geo_cd_plays_and_draws_like_the_neo_geo_without_rewind() {
++    let (c, n) = (Platform::Neocd, Platform::NeoGeo);
++    assert_eq!(c.owns_shoulders(), n.owns_shoulders());
++    assert_eq!(c.owns_triggers(), n.owns_triggers());
++    assert_eq!(c.passes_xy_through(), n.passes_xy_through());
++    assert_eq!(c.turbo_on_xy(), n.turbo_on_xy());
++    assert_eq!(c.select_x_toggles_picture(), n.select_x_toggles_picture());
++    assert_eq!(c.stretch_crops_height(), n.stretch_crops_height());
++    assert_eq!(c.overscan(), n.overscan());
++    assert_eq!(c.follows_frame_width(), n.follows_frame_width());
++    assert_eq!(c.picture(), (320, 224));
++    assert_eq!(c.shader_choices(), &Shader::RETRO);
++    assert_eq!(GameButton::of(c), GameButton::of(n));
++    assert!(!c.rewinds());
++    assert!(!c.is_arcade());
++    assert!(!c.has_gb_palettes());
++    assert!(!c.fills_canvas());
++    assert!(!c.swaps_discs());
++    assert!(!c.flashes_on_unload());
++    assert_eq!(c.actual_scale(), None);
++}
++
++#[test]
++fn a_neo_geo_cd_game_resumes_as_a_neo_geo_cd_game() {
++    let d = tmp_root();
++    let s = SlotState {
++        cart: Some("Samurai Shodown RPG (Japan) (En)".into()),
++        cart_platform: Some(Platform::Neocd),
++        clock_set: true,
++        ..SlotState::default()
++    };
++    write_slot_state(d.path(), &s).expect("write slot.state");
++    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).expect("read");
++    assert!(text.lines().any(|l| l == "cart_platform=neocd"), "{text:?}");
++    assert_eq!(read_slot_state(d.path()), s);
++}
++
++#[test]
++fn the_neo_geo_cd_shader_lives_in_its_own_file_and_leaves_the_neo_geo_alone() {
++    let d = tmp_root();
++    let s = SegaShaders {
++        neocd: Shader::Retro(RetroShader::CrtPi),
++        ..SegaShaders::default()
++    };
++    write_sega_shaders(d.path(), &s).expect("write");
++    assert_eq!(
++        std::fs::read_to_string(d.path().join("Config").join(NEOCD_SHADER_FILE)).expect("read"),
++        "neocd=crt-pi\n"
++    );
++    assert!(!d.path().join("Config/neogeo_shader.txt").exists());
++    assert_eq!(read_sega_shaders(d.path()), s);
++    std::fs::write(
++        d.path().join("Config").join(NEOCD_SHADER_FILE),
++        "neocd=lcd3x\n",
++    )
++    .unwrap();
++    assert_eq!(read_sega_shaders(d.path()).neocd, Shader::Off);
++}
+diff --git a/crates/slot-store/tests/sega_shader_state.rs b/crates/slot-store/tests/sega_shader_state.rs
+index d8d0add..bf313bb 100644
+--- a/crates/slot-store/tests/sega_shader_state.rs
++++ b/crates/slot-store/tests/sega_shader_state.rs
+@@ -37,6 +37,7 @@ fn sega_shaders_round_trip_through_their_own_file() {
+         sgx: Shader::Off,
+         pcecd: Shader::Off,
+         segacd: Shader::Off,
++        neocd: Shader::Off,
+     };
+     write_sega_shaders(d.path(), &s).expect("write");
+     assert_eq!(
+diff --git a/crates/slot-store/tests/segacd_platform.rs b/crates/slot-store/tests/segacd_platform.rs
+index 135ddc0..804d867 100644
+--- a/crates/slot-store/tests/segacd_platform.rs
++++ b/crates/slot-store/tests/segacd_platform.rs
+@@ -26,9 +26,14 @@ fn on(root: &Path, platform: Platform) -> Vec<Cart> {
+ 
+ #[test]
+ fn sega_cd_follows_the_pc_engine_cd_and_upstreams_list_stays_three() {
+-    let last = Platform::SHELVES.len() - 1;
+-    assert_eq!(Platform::SHELVES[last], Platform::SegaCd);
+-    assert_eq!(Platform::SHELVES[last - 1], Platform::Pcecd);
++    let at = Platform::SHELVES
++        .iter()
++        .position(|p| *p == Platform::SegaCd);
++    assert_eq!(at, Some(Platform::SHELVES.len() - 2));
++    assert_eq!(
++        Platform::SHELVES[Platform::SHELVES.len() - 3],
++        Platform::Pcecd
++    );
+     assert_eq!(Platform::ALL.len(), 3);
+     assert_eq!(Platform::SegaCd.dir_name(), "SEGACD");
+     assert_eq!(Platform::SegaCd.name(), "Sega CD");
+diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
+index ff8cb9a..d6e745f 100644
+--- a/crates/slot-ui/src/cart.rs
++++ b/crates/slot-ui/src/cart.rs
+@@ -100,6 +100,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+         | Platform::Tg16
+         | Platform::Sgx
+         | Platform::Pcecd
++        | Platform::Neocd
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+@@ -196,7 +197,9 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+         Platform::Ngp => (SEATED_W, NGP_SEATED_H),
+         Platform::Lynx => (SEATED_W, LYNX_SEATED_H),
+         Platform::Ws => (SEATED_W, WS_SEATED_H),
+-        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd => (SEATED_W, PS1_SEATED_H),
++        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd | Platform::Neocd => {
++            (SEATED_W, PS1_SEATED_H)
++        }
+         Platform::Nes => (SEATED_W, NES_SEATED_H),
+         Platform::Fds => (SEATED_W, FDS_SEATED_H),
+         Platform::Gg => (SEATED_W, GG_SEATED_H),
+@@ -221,7 +224,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+         Platform::Ws => return retro_box(RetroShell::Ws(WsShell::Mono)),
+         Platform::Lynx => return retro_box(RetroShell::Lynx),
+         Platform::Ngp => return retro_box(RetroShell::Ngp),
+-        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd => {
++        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd | Platform::Neocd => {
+             return retro_box(RetroShell::Ps1(Ps1Case::Us))
+         }
+         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
+index 00392b5..7ccdf6c 100644
+--- a/crates/slot-ui/src/ps1_case.rs
++++ b/crates/slot-ui/src/ps1_case.rs
+@@ -22,7 +22,7 @@ const TITLE_BOX: (u32, u32, u32, u32) = (80, 52, 200, 70);
+ pub fn has_disc(cart: &Cart) -> bool {
+     matches!(
+         cart.platform,
+-        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd
++        Platform::Ps1 | Platform::Pcecd | Platform::SegaCd | Platform::Neocd
+     )
+ }
+ 
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 41cc6b2..192ca1a 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -177,10 +177,13 @@ pub enum QuickRow {
+     ScreenSegaCd,
+     SegaCdPicture,
+     SegaCdPalSpeed,
++    NeocdShader,
++    ScreenNeocd,
++    NeocdPicture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 167] = [
++    pub const ALL: [QuickRow; 170] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -348,6 +351,9 @@ impl QuickRow {
+         QuickRow::ScreenSegaCd,
+         QuickRow::SegaCdPicture,
+         QuickRow::SegaCdPalSpeed,
++        QuickRow::NeocdShader,
++        QuickRow::ScreenNeocd,
++        QuickRow::NeocdPicture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -411,7 +417,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 25] = [
++    pub const SCREEN: [QuickRow; 26] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -437,6 +443,7 @@ impl QuickRow {
+         QuickRow::ScreenSgx,
+         QuickRow::ScreenPcecd,
+         QuickRow::ScreenSegaCd,
++        QuickRow::ScreenNeocd,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -507,6 +514,7 @@ impl QuickRow {
+             | QuickRow::ScreenSgx
+             | QuickRow::ScreenPcecd
+             | QuickRow::ScreenSegaCd
++            | QuickRow::ScreenNeocd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+             | QuickRow::ScreenNgp
+@@ -615,6 +623,7 @@ impl QuickRow {
+             }
+             QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => &QuickRow::SCREEN_SGX,
+             QuickRow::PcecdShader | QuickRow::PcecdPicture => &QuickRow::SCREEN_PCECD,
++            QuickRow::NeocdShader | QuickRow::NeocdPicture => &QuickRow::SCREEN_NEOCD,
+             QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
+                 &QuickRow::SCREEN_SEGACD
+             }
+@@ -697,6 +706,7 @@ impl QuickRow {
+                 Some(QuickRow::ScreenSgx)
+             }
+             QuickRow::PcecdShader | QuickRow::PcecdPicture => Some(QuickRow::ScreenPcecd),
++            QuickRow::NeocdShader | QuickRow::NeocdPicture => Some(QuickRow::ScreenNeocd),
+             QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
+                 Some(QuickRow::ScreenSegaCd)
+             }
+@@ -761,6 +771,7 @@ impl QuickRow {
+             QuickRow::ScreenSgx => Some(QuickRow::SCREEN_SGX[0]),
+             QuickRow::ScreenPcecd => Some(QuickRow::SCREEN_PCECD[0]),
+             QuickRow::ScreenSegaCd => Some(QuickRow::SCREEN_SEGACD[0]),
++            QuickRow::ScreenNeocd => Some(QuickRow::SCREEN_NEOCD[0]),
+             _ => None,
+         }
+     }
+@@ -874,7 +885,7 @@ impl QuickRow {
+             | QuickRow::Cps2Shader => "Shader",
+             QuickRow::Pico8Shader => "Shader",
+             QuickRow::SgxShader => "Shader",
+-            QuickRow::PcecdShader | QuickRow::SegaCdShader => "Shader",
++            QuickRow::PcecdShader | QuickRow::SegaCdShader | QuickRow::NeocdShader => "Shader",
+             QuickRow::SgxPad => "Pad",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+@@ -896,6 +907,7 @@ impl QuickRow {
+             QuickRow::ScreenSgx => "SuperGrafx",
+             QuickRow::ScreenPcecd => "PC Engine CD",
+             QuickRow::ScreenSegaCd => "Sega CD",
++            QuickRow::ScreenNeocd => "Neo Geo CD",
+             QuickRow::NesPicture
+             | QuickRow::SnesPicture
+             | QuickRow::GgPicture
+@@ -917,7 +929,7 @@ impl QuickRow {
+             | QuickRow::Pico8Picture
+             | QuickRow::SgxPicture
+             | QuickRow::PcecdPicture => "Picture",
+-            QuickRow::SegaCdPicture => "Picture",
++            QuickRow::SegaCdPicture | QuickRow::NeocdPicture => "Picture",
+             QuickRow::NesPalSpeed
+             | QuickRow::SnesPalSpeed
+             | QuickRow::SmsPalSpeed
+@@ -978,6 +990,7 @@ impl QuickRow {
+                 | QuickRow::ScreenSgx
+                 | QuickRow::ScreenPcecd
+                 | QuickRow::ScreenSegaCd
++                | QuickRow::ScreenNeocd
+                 | QuickRow::ScreenWs
+                 | QuickRow::ScreenLynx
+                 | QuickRow::ScreenNgp
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index 5f66e50..5493fa3 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -86,6 +86,7 @@ impl QuickRow {
+     pub const SCREEN_SGX: [QuickRow; 3] =
+         [QuickRow::SgxShader, QuickRow::SgxPicture, QuickRow::SgxPad];
+     pub const SCREEN_PCECD: [QuickRow; 2] = [QuickRow::PcecdShader, QuickRow::PcecdPicture];
++    pub const SCREEN_NEOCD: [QuickRow; 2] = [QuickRow::NeocdShader, QuickRow::NeocdPicture];
+     pub const SCREEN_SEGACD: [QuickRow; 3] = [
+         QuickRow::SegaCdShader,
+         QuickRow::SegaCdPicture,
+diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
+index 0332433..23d276a 100644
+--- a/crates/slot-ui/src/retro_cart.rs
++++ b/crates/slot-ui/src/retro_cart.rs
+@@ -273,7 +273,9 @@ pub fn retro_shell_of(cart: &Cart) -> Option<RetroShell> {
+         )),
+         Platform::Ps1 | Platform::SegaCd => Some(RetroShell::Ps1(crate::ps1_case::case_of(cart))),
+         Platform::Tg16 => Some(RetroShell::Hucard),
+-        Platform::Pcecd => Some(RetroShell::Ps1(crate::ps1_case::cd_case(&cart.stem))),
++        Platform::Pcecd | Platform::Neocd => {
++            Some(RetroShell::Ps1(crate::ps1_case::cd_case(&cart.stem)))
++        }
+         Platform::Ws => Some(RetroShell::Ws(crate::ws_cart::shell_of(cart))),
+         Platform::Lynx => Some(RetroShell::Lynx),
+         Platform::Ngp => Some(RetroShell::Ngp),
+@@ -540,6 +542,7 @@ pub fn label_cover(cart: &Cart, path: &Path, w: u32, h: u32) -> Option<Vec<u8>>
+         | Platform::Tg16
+         | Platform::Sgx
+         | Platform::Pcecd
++        | Platform::Neocd
+         | Platform::NeoGeo
+         | Platform::Cps1
+         | Platform::Cps2 => return box_contain(&src, sw, sh, w, h),
+diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
+index 6c8ef44..3cb5b2a 100644
+--- a/crates/slot-ui/src/shell.rs
++++ b/crates/slot-ui/src/shell.rs
+@@ -100,6 +100,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         | Platform::Tg16
+         | Platform::Sgx
+         | Platform::Pcecd
++        | Platform::Neocd
+         | Platform::Ws
+         | Platform::Lynx
+         | Platform::Ngp
+diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
+index 731be23..06a5fb0 100644
+--- a/crates/slot-ui/tests/chrome.rs
++++ b/crates/slot-ui/tests/chrome.rs
+@@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
+ fn label_band(c: &Cart) -> (f32, f32) {
+     let (y, h) = match c.platform {
+         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+-        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Fds | Platform::Pico8 | Platform::Sgx | Platform::Pcecd | Platform::SegaCd => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
++        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Fds | Platform::Pico8 | Platform::Sgx | Platform::Pcecd | Platform::SegaCd | Platform::Neocd => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
+     };
+     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
+     (y * k, h * k)
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 12f8c5f..c0a2273 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -105,7 +105,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8", "SuperGrafx", "PC Engine CD", "Sega CD"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS", "PICO-8", "SuperGrafx", "PC Engine CD", "Sega CD", "Neo Geo CD"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -153,7 +153,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8, QuickRow::ScreenSgx, QuickRow::ScreenPcecd, QuickRow::ScreenSegaCd
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds, QuickRow::ScreenPico8, QuickRow::ScreenSgx, QuickRow::ScreenPcecd, QuickRow::ScreenSegaCd, QuickRow::ScreenNeocd
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 5d7ff93..9a86eb2 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1081,6 +1081,7 @@ impl App {
+             (QuickRow::Shader, Platform::Pico8) => QuickRow::Pico8Shader,
+             (QuickRow::Shader, Platform::Sgx) => QuickRow::SgxShader,
+             (QuickRow::Shader, Platform::Pcecd) => QuickRow::PcecdShader,
++            (QuickRow::Shader, Platform::Neocd) => QuickRow::NeocdShader,
+             (QuickRow::Shader, Platform::SegaCd) => QuickRow::SegaCdShader,
+             (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
+             (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
+@@ -1153,6 +1154,7 @@ impl App {
+             QuickRow::Pico8Shader => Some(shader_value(self.sega_shaders.pico8)),
+             QuickRow::SgxShader => Some(shader_value(self.sega_shaders.sgx)),
+             QuickRow::PcecdShader => Some(shader_value(self.sega_shaders.pcecd)),
++            QuickRow::NeocdShader => Some(shader_value(self.sega_shaders.neocd)),
+             QuickRow::SegaCdShader => Some(shader_value(self.sega_shaders.segacd)),
+             QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
+             QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
+@@ -1165,6 +1167,7 @@ impl App {
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
+             | QuickRow::PcecdPicture
++            | QuickRow::NeocdPicture
+             | QuickRow::SegaCdPicture
+             | QuickRow::WsPicture
+             | QuickRow::LynxPicture
+@@ -1257,6 +1260,7 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
+             | QuickRow::ScreenPcecd
++            | QuickRow::ScreenNeocd
+             | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+@@ -1340,6 +1344,7 @@ impl App {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -1384,6 +1389,7 @@ impl App {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -1414,6 +1420,7 @@ impl App {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -2379,6 +2386,7 @@ impl App {
+             Platform::Sgx => self.sega_shaders.sgx,
+             Platform::Pcecd => self.sega_shaders.pcecd,
+             Platform::SegaCd => self.sega_shaders.segacd,
++            Platform::Neocd => self.sega_shaders.neocd,
+             Platform::NeoGeo => self.sega_shaders.neogeo,
+             Platform::Cps1 => self.sega_shaders.cps1,
+             Platform::Cps2 => self.sega_shaders.cps2,
+@@ -2435,6 +2443,7 @@ impl App {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -2910,6 +2919,7 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
+             | QuickRow::ScreenPcecd
++            | QuickRow::ScreenNeocd
+             | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+@@ -3014,9 +3024,11 @@ impl App {
+             | QuickRow::Tg16Shader
+             | QuickRow::SgxShader
+             | QuickRow::PcecdShader
++            | QuickRow::NeocdShader
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
+             | QuickRow::PcecdPicture
++            | QuickRow::NeocdPicture
+             | QuickRow::SegaCdShader
+             | QuickRow::SegaCdPicture
+             | QuickRow::WsRefresh
+@@ -3249,6 +3261,7 @@ impl App {
+             | QuickRow::Tg16Shader
+             | QuickRow::SgxShader
+             | QuickRow::PcecdShader
++            | QuickRow::NeocdShader
+             | QuickRow::SegaCdShader
+             | QuickRow::WsShader
+             | QuickRow::LynxShader
+@@ -3283,6 +3296,7 @@ impl App {
+             | QuickRow::Tg16Picture
+             | QuickRow::SgxPicture
+             | QuickRow::PcecdPicture
++            | QuickRow::NeocdPicture
+             | QuickRow::SegaCdPicture
+             | QuickRow::NgpPicture
+             | QuickRow::S32xPicture
+@@ -3342,6 +3356,7 @@ impl App {
+             | QuickRow::ScreenTg16
+             | QuickRow::ScreenSgx
+             | QuickRow::ScreenPcecd
++            | QuickRow::ScreenNeocd
+             | QuickRow::ScreenSegaCd
+             | QuickRow::ScreenWs
+             | QuickRow::ScreenLynx
+@@ -3427,6 +3442,7 @@ impl App {
+             Platform::Sgx => (&mut self.sega_shaders.sgx, &Shader::RETRO[..]),
+             Platform::Pcecd => (&mut self.sega_shaders.pcecd, &Shader::RETRO[..]),
+             Platform::SegaCd => (&mut self.sega_shaders.segacd, &Shader::RETRO[..]),
++            Platform::Neocd => (&mut self.sega_shaders.neocd, &Shader::RETRO[..]),
+             Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
+             Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
+             Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
+@@ -3492,6 +3508,7 @@ impl App {
+                 | Platform::Sms
+                 | Platform::Md
+                 | Platform::SegaCd
++                | Platform::Neocd
+                 | Platform::Ps1
+                 | Platform::Tg16
+                 | Platform::Sgx
+@@ -3909,6 +3926,7 @@ impl App {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -6115,6 +6133,7 @@ fn bezel_slot(platform: Platform) -> usize {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::SegaCd
++        | Platform::Neocd
+         | Platform::Ps1
+         | Platform::Tg16
+         | Platform::Sgx
+diff --git a/crates/slot/src/arcade_turn.rs b/crates/slot/src/arcade_turn.rs
+index 5c2208a..323d5db 100644
+--- a/crates/slot/src/arcade_turn.rs
++++ b/crates/slot/src/arcade_turn.rs
+@@ -67,6 +67,7 @@ fn key(platform: Platform) -> Option<&'static str> {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::SegaCd
++        | Platform::Neocd
+         | Platform::Ps1
+         | Platform::Tg16
+         | Platform::Sgx
+diff --git a/crates/slot/src/atari_switches.rs b/crates/slot/src/atari_switches.rs
+index 521d04e..caa7be6 100644
+--- a/crates/slot/src/atari_switches.rs
++++ b/crates/slot/src/atari_switches.rs
+@@ -161,6 +161,7 @@ impl AtariSwitches {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
+index 5e464b7..7c93734 100644
+--- a/crates/slot/src/core.rs
++++ b/crates/slot/src/core.rs
+@@ -211,7 +211,8 @@ pub fn colour_option(
+         | Core::Prosystem
+         | Core::MednafenVb
+         | Core::Fake08
+-        | Core::Fbneo => None,
++        | Core::Fbneo
++        | Core::Neocd => None,
+     }
+ }
+ 
+diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
+index e117eb4..02f7f5d 100644
+--- a/crates/slot/src/core_options_policy.rs
++++ b/crates/slot/src/core_options_policy.rs
+@@ -146,6 +146,16 @@ pub const FAKE08: [(&str, &str); 5] = [
+     ("fake08_crop_v_bottom", "0"),
+ ];
+ 
++pub const NEOCD: [(&str, &str); 7] = [
++    ("neocd_bios", "neocd.bin (CDZ)"),
++    ("neocd_region", "USA"),
++    ("neocd_cdspeedhack", "On"),
++    ("neocd_loadskip", "On"),
++    ("neocd_per_content_saves", "Off"),
++    ("neocd_aspect_ratio", "1:1 PAR"),
++    ("neocd_cpu_overclock", "100%"),
++];
++
+ pub fn answers_declared_defaults(which: Core) -> bool {
+     match which {
+         Core::PcsxRearmed => true,
+@@ -166,7 +176,8 @@ pub fn answers_declared_defaults(which: Core) -> bool {
+         | Core::Prosystem
+         | Core::MednafenVb
+         | Core::Fake08
+-        | Core::Fbneo => false,
++        | Core::Fbneo
++        | Core::Neocd => false,
+     }
+ }
+ 
+@@ -189,7 +200,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+     let frameskip = format!("{}_frameskip", which.option_prefix());
+     if core.declared_options().contains_key(&frameskip) {
+         core.set_option(&frameskip, "auto");
+-    } else if !core.declared_options().is_empty() && which != Core::Fbneo {
++    } else if !core.declared_options().is_empty() && !matches!(which, Core::Fbneo | Core::Neocd) {
+         eprintln!(
+             "slot: core: {} declares no frameskip option",
+             which.as_str()
+@@ -214,7 +225,8 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         | Core::Prosystem
+         | Core::MednafenVb
+         | Core::Fake08
+-        | Core::Fbneo => &[],
++        | Core::Fbneo
++        | Core::Neocd => &[],
+     };
+     for key in overscan {
+         core.set_option(key, "0");
+@@ -239,6 +251,7 @@ pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
+         Core::Fake08 => &FAKE08,
+         Core::MednafenSupergrafx => &SUPERGRAFX,
+         Core::Fbneo => &FBNEO,
++        Core::Neocd => &NEOCD,
+     };
+     for (key, value) in fixed {
+         core.set_option(key, value);
+@@ -268,6 +281,7 @@ pub fn analog_pad(which: Core) -> Option<u32> {
+         | Core::Picodrive
+         | Core::Prosystem
+         | Core::Fbneo
++        | Core::Neocd
+         | Core::Fake08 => None,
+     }
+ }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 5a6415e..1a2b270 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -43,6 +43,7 @@ pub mod link_screen;
+ pub mod link_start;
+ pub mod link_state;
+ pub mod lynx_turn;
++pub mod neocd_save;
+ pub mod ngp_flash;
+ pub mod no_state;
+ pub mod pal_speed;
+diff --git a/crates/slot/src/neocd_save.rs b/crates/slot/src/neocd_save.rs
+new file mode 100644
+index 0000000..c2718ec
+--- /dev/null
++++ b/crates/slot/src/neocd_save.rs
+@@ -0,0 +1,10 @@
++use slot_store::Platform;
++
++pub const BACKUP_RAM_BYTES: usize = 8192;
++
++pub fn sav_or_blank(platform: Platform, sav: Option<Vec<u8>>) -> Option<Vec<u8>> {
++    match (platform, sav) {
++        (Platform::Neocd, None) => Some(vec![0; BACKUP_RAM_BYTES]),
++        (_, sav) => sav,
++    }
++}
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index f9ec2e7..db722f1 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 22] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 23] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -31,6 +31,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 22] = [
+     (QuickRow::Pico8Picture, Platform::Pico8),
+     (QuickRow::SgxPicture, Platform::Sgx),
+     (QuickRow::PcecdPicture, Platform::Pcecd),
++    (QuickRow::NeocdPicture, Platform::Neocd),
+     (QuickRow::SegaCdPicture, Platform::SegaCd),
+ ];
+ 
+@@ -55,6 +56,7 @@ pub fn default_video_mode(platform: Platform) -> VideoMode {
+         Platform::Sms
+         | Platform::Md
+         | Platform::SegaCd
++        | Platform::Neocd
+         | Platform::S32x
+         | Platform::NeoGeo
+         | Platform::Cps1
+@@ -81,6 +83,7 @@ pub fn offers_four_three(platform: Platform) -> bool {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::SegaCd
++        | Platform::Neocd
+         | Platform::S32x
+         | Platform::A2600
+         | Platform::A7800
+@@ -214,7 +217,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 22]);
++pub struct SystemPictures([VideoMode; 23]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 17767a8..d8f5ced 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -30,6 +30,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::SgxShader => (&mut shaders.sgx, Platform::Sgx),
+         QuickRow::PcecdShader => (&mut shaders.pcecd, Platform::Pcecd),
+         QuickRow::SegaCdShader => (&mut shaders.segacd, Platform::SegaCd),
++        QuickRow::NeocdShader => (&mut shaders.neocd, Platform::Neocd),
+         QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
+         QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
+         _ => return false,
+@@ -47,6 +48,7 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+         | Platform::Sms
+         | Platform::Md
+         | Platform::SegaCd
++        | Platform::Neocd
+         | Platform::Ps1
+         | Platform::Tg16
+         | Platform::Sgx
+@@ -76,8 +78,8 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 21] {
+-    let mut seen = [false; 21];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 22] {
++    let mut seen = [false; 22];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+@@ -102,13 +104,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 21] {
+             Platform::Sgx => 18,
+             Platform::Pcecd => 19,
+             Platform::SegaCd => 20,
++            Platform::Neocd => 21,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 21] = [
++const SYSTEM_ROWS: [&[QuickRow]; 22] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -130,9 +133,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 21] = [
+     &[QuickRow::ScreenSgx],
+     &[QuickRow::ScreenPcecd],
+     &[QuickRow::ScreenSegaCd],
++    &[QuickRow::ScreenNeocd],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 21]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 22]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
+index 3176a27..138743e 100644
+--- a/crates/slot/src/root.rs
++++ b/crates/slot/src/root.rs
+@@ -1,6 +1,6 @@
+ use std::path::{Path, PathBuf};
+ 
+-pub const DIRS: [&str; 112] = [
++pub const DIRS: [&str; 116] = [
+     "BIOS",
+     "Bezels",
+     "Bezels/GB",
+@@ -32,6 +32,7 @@ pub const DIRS: [&str; 112] = [
+     "Games/SGX",
+     "Games/PCECD",
+     "Games/SEGACD",
++    "Games/NEOCD",
+     "Labels",
+     "Labels/GBA",
+     "Labels/GB",
+@@ -59,6 +60,7 @@ pub const DIRS: [&str; 112] = [
+     "Labels/SGX",
+     "Labels/PCECD",
+     "Labels/SEGACD",
++    "Labels/NEOCD",
+     "Saves",
+     "Saves/GBA",
+     "Saves/GB",
+@@ -85,6 +87,7 @@ pub const DIRS: [&str; 112] = [
+     "Saves/SGX",
+     "Saves/PCECD",
+     "Saves/SEGACD",
++    "Saves/NEOCD",
+     "States",
+     "States/GBA",
+     "States/GB",
+@@ -111,6 +114,7 @@ pub const DIRS: [&str; 112] = [
+     "States/SGX",
+     "States/PCECD",
+     "States/SEGACD",
++    "States/NEOCD",
+     "System",
+     "Wallpapers",
+ ];
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 94bd749..5391313 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -578,6 +578,7 @@ impl Session {
+                 launch("core opened");
+                 let sav = persist::read_sav(&root, platform, &stem);
+                 let sav = crate::fds_save::checked_sav(&root, platform, &stem, &rom, sav);
++                let sav = crate::neocd_save::sav_or_blank(platform, sav);
+                 launch("save read");
+                 Loaded {
+                     opened,
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index 5f07bbf..07ee511 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -10,7 +10,7 @@ pub const SHELF_ORDER_FILE: &str = "Config/shelf_order.txt";
+ 
+ const KEY: &str = "order";
+ 
+-pub const RELEASED: [(Platform, u16, u8, u8); 25] = [
++pub const RELEASED: [(Platform, u16, u8, u8); 26] = [
+     (Platform::A2600, 1977, 9, 0),
+     (Platform::Nes, 1983, 7, 15),
+     (Platform::Sms, 1985, 10, 20),
+@@ -28,6 +28,7 @@ pub const RELEASED: [(Platform, u16, u8, u8); 25] = [
+     (Platform::Snes, 1990, 11, 21),
+     (Platform::SegaCd, 1991, 12, 12),
+     (Platform::Cps2, 1993, 9, 10),
++    (Platform::Neocd, 1994, 9, 9),
+     (Platform::S32x, 1994, 11, 21),
+     (Platform::Ps1, 1994, 12, 3),
+     (Platform::Vb, 1995, 7, 21),
+@@ -150,6 +151,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::Sgx => QuickRow::ScreenSgx,
+         Platform::Pcecd => QuickRow::ScreenPcecd,
+         Platform::SegaCd => QuickRow::ScreenSegaCd,
++        Platform::Neocd => QuickRow::ScreenNeocd,
+         Platform::NeoGeo => QuickRow::ScreenNeoGeo,
+         Platform::Fds => QuickRow::ScreenFds,
+         Platform::Cps1 => QuickRow::ScreenCps1,
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 850cc60..1c59522 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -9,6 +9,7 @@ impl VideoMode {
+                 Platform::Snes
+                 | Platform::Md
+                 | Platform::SegaCd
++                | Platform::Neocd
+                 | Platform::Ps1
+                 | Platform::Ws
+                 | Platform::Lynx
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index 1714086..b14e748 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -32,6 +32,7 @@ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+             | Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
+index 6b117fe..8cf28b7 100644
+--- a/crates/slot/tests/crop_overscan.rs
++++ b/crates/slot/tests/crop_overscan.rs
+@@ -77,6 +77,7 @@ fn only_nes_and_snes_offer_crop_and_it_comes_first() {
+             Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::S32x
+             | Platform::A2600
+             | Platform::A7800
+diff --git a/crates/slot/tests/four_three.rs b/crates/slot/tests/four_three.rs
+index 489df42..2966120 100644
+--- a/crates/slot/tests/four_three.rs
++++ b/crates/slot/tests/four_three.rs
+@@ -74,6 +74,7 @@ fn only_the_tv_consoles_offer_four_three_and_it_comes_last() {
+                 | Platform::Sgx
+                 | Platform::Pcecd
+                 | Platform::SegaCd
++                | Platform::Neocd
+         );
+         assert_eq!(offers_four_three(platform), tv, "{platform:?}");
+         assert_eq!(
+diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
+index afc097a..9b1e86d 100644
+--- a/crates/slot/tests/gpsp.rs
++++ b/crates/slot/tests/gpsp.rs
+@@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
+             );
+         }
+         let theirs = match which {
+-            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive | Core::Stella2014 | Core::Prosystem | Core::MednafenVb | Core::Fbneo | Core::Fake08 | Core::MednafenSupergrafx => "gpsp_color_correction",
++            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus | Core::GenesisPlusGx | Core::PcsxRearmed | Core::MednafenPceFast | Core::MednafenWswan | Core::MednafenLynx | Core::MednafenNgp | Core::Picodrive | Core::Stella2014 | Core::Prosystem | Core::MednafenVb | Core::Fbneo | Core::Fake08 | Core::MednafenSupergrafx | Core::Neocd => "gpsp_color_correction",
+             Core::Gpsp => "mgba_color_correction",
+         };
+         assert_eq!(
+diff --git a/crates/slot/tests/neocd_platform.rs b/crates/slot/tests/neocd_platform.rs
+new file mode 100644
+index 0000000..5f83395
+--- /dev/null
++++ b/crates/slot/tests/neocd_platform.rs
+@@ -0,0 +1,304 @@
++mod common;
++mod core_common;
++mod neocd_common;
++mod real_seat;
++
++use std::path::{Path, PathBuf};
++
++use common::{boot, core_lock, tmp_root_with_real_carts};
++use neocd_common::{disc, neocd, put_placeholders};
++use slot::app::{App, Phase};
++use slot::core::apply_core_options;
++use slot::input::Pad;
++use slot::persist::Snapshot;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::session::Session;
++use slot::video_mode::VideoMode;
++use slot_input::{Action, Btn, RawEvent};
++use slot_retro::{ButtonMask, LibretroCore};
++use slot_store::{Controls, Core, Platform, Shader, NEOCD_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++const STEM: &str = "Samurai Shodown RPG (Japan) (En)";
++
++#[test]
++fn neocd_is_told_the_cdz_bios_usa_the_speed_hack_and_shared_backup_ram_off() {
++    let _g = core_lock();
++    let Some(dylib) = neocd() else {
++        return;
++    };
++    let d = tmp_root_with_real_carts(&[]);
++    put_placeholders(d.path());
++    let bios = slot::root::bios_dir(d.path());
++    let mut core = LibretroCore::open_with(&dylib, &bios, d.path()).expect("open neocd");
++    apply_core_options(
++        &mut core,
++        Core::Neocd,
++        Platform::Neocd,
++        "",
++        false,
++        false,
++        None,
++    );
++    for (key, value) in slot::core_options_policy::NEOCD {
++        assert_eq!(core.option(key).as_deref(), Some(value), "{key}");
++        let values = core
++            .declared_options()
++            .get(key)
++            .unwrap_or_else(|| panic!("the pin no longer declares {key}"));
++        assert!(values.iter().any(|v| v == value), "{key}={value}");
++    }
++}
++
++fn card_with_a_disc() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(
++        root.path().join("Games/NEOCD").join(format!("{STEM}.chd")),
++        [0u8; 0x200],
++    )
++    .expect("write disc");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_neocd(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenNeocd.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenNeocd));
++    press(app, Btn::A);
++}
++
++#[test]
++fn the_neo_geo_cd_follows_the_sega_cd_in_the_screen_list_with_shader_and_picture() {
++    let last = QuickRow::SCREEN.len() - 1;
++    assert_eq!(QuickRow::SCREEN[last], QuickRow::ScreenNeocd);
++    assert_eq!(QuickRow::SCREEN[last - 1], QuickRow::ScreenSegaCd);
++    assert_eq!(QuickRow::ScreenNeocd.label(), "Neo Geo CD");
++    assert!(QuickRow::ScreenNeocd.opens());
++    assert_eq!(QuickRow::ScreenNeocd.child(), Some(QuickRow::NeocdShader));
++    assert_eq!(
++        QuickRow::SCREEN_NEOCD[..2]
++            .iter()
++            .map(|r| r.label())
++            .collect::<Vec<_>>(),
++        ["Shader", "Picture"]
++    );
++    for row in QuickRow::SCREEN_NEOCD {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenNeocd));
++        assert_eq!(row.page(), &QuickRow::SCREEN_NEOCD);
++    }
++}
++
++#[test]
++fn the_neo_geo_cd_row_shows_only_on_a_card_with_neo_geo_cd_discs() {
++    let (_root, mut app) = card_with_a_disc();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenNeocd));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    assert!(boot(root.path())
++        .hidden_rows()
++        .contains(&QuickRow::ScreenNeocd));
++    open_neocd(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::NeocdShader));
++}
++
++#[test]
++fn the_neo_geo_cd_shader_walks_the_retro_list_into_its_own_file() {
++    let (root, mut app) = card_with_a_disc();
++    let state = std::fs::read(root.path().join("Config/slot.state")).ok();
++    open_neocd(&mut app);
++    assert_eq!(
++        app.quick_value(QuickRow::NeocdShader),
++        Some(QuickValue::Off)
++    );
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(slot_store::read_sega_shaders(root.path()).neocd);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(NEOCD_SHADER_FILE).exists());
++    assert!(!root.path().join("Config/neogeo_shader.txt").exists());
++    assert_eq!(
++        std::fs::read(root.path().join("Config/slot.state")).ok(),
++        state
++    );
++}
++
++#[test]
++fn the_neo_geo_cd_picture_starts_at_stretch_and_walks_actual_four_three_stretch() {
++    assert_eq!(default_video_mode(Platform::Neocd), VideoMode::Stretch);
++    use VideoMode::{Actual, FourThree, Stretch};
++    assert_eq!(
++        picture_choices(Platform::Neocd),
++        [Stretch, Actual, FourThree]
++    );
++    let (root, mut app) = card_with_a_disc();
++    open_neocd(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::NeocdPicture));
++    assert_eq!(
++        app.quick_value(QuickRow::NeocdPicture),
++        Some(QuickValue::Stretch)
++    );
++    for want in [Actual, FourThree, Stretch] {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        assert_eq!(
++            app.quick_value(QuickRow::NeocdPicture),
++            Some(want.quick_value())
++        );
++        assert_eq!(system_picture(root.path(), Platform::Neocd), want);
++    }
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "neocd = stretch\n"
++    );
++    assert_eq!(system_picture(root.path(), Platform::NeoGeo), Stretch);
++}
++
++#[test]
++fn a_booted_card_has_the_neo_geo_cd_folders() {
++    let (root, _app) = card_with_a_disc();
++    for dir in ["Games/NEOCD", "Saves/NEOCD", "States/NEOCD", "Labels/NEOCD"] {
++        assert!(slot::root::DIRS.contains(&dir), "{dir}");
++        assert!(root.path().join(dir).is_dir(), "{dir}");
++    }
++}
++
++fn seated(dylib: &Path) -> TempDir {
++    let discs = tempfile::tempdir().expect("tempdir");
++    let cue = disc(discs.path(), "Disc");
++    let root = real_seat::rooted(Platform::Neocd, STEM, &cue, dylib);
++    std::fs::copy(
++        discs.path().join("Disc.bin"),
++        root.path().join("Games/NEOCD/Disc.bin"),
++    )
++    .expect("copy track");
++    std::fs::write(root.path().join("Games/NEOCD/Zzz.chd"), [0u8; 0x200]).expect("second disc");
++    put_placeholders(root.path());
++    root
++}
++
++fn sav(root: &Path) -> PathBuf {
++    root.join("Saves/NEOCD").join(format!("{STEM}.sav"))
++}
++
++fn eject(session: &mut Session) {
++    session.feed([RawEvent::Down(Btn::Menu)], 100);
++    session.feed([], 1200);
++    assert!(
++        matches!(session.app().phase(), Phase::Ejecting { .. }),
++        "holding Menu did not eject: {:?}",
++        session.app().phase()
++    );
++}
++
++#[test]
++fn a_marked_backup_ram_survives_an_eject_and_a_reinsert_through_saves_neocd() {
++    let _g = core_lock();
++    let Some(dylib) = neocd() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut marked = vec![0u8; 8192];
++    marked[0x10..0x14].copy_from_slice(b"SAVE");
++    std::fs::write(sav(root.path()), &marked).expect("write sav");
++    let mut first = real_seat::play(root.path(), true);
++    let in_core = |s: &Session| s.emu().expect("no core").snapshot().save_ram();
++    assert!(in_core(&first) == Some(marked.clone()), "first insert");
++    eject(&mut first);
++    drop(first);
++    assert!(std::fs::read(sav(root.path())).expect("read sav") == marked);
++    let second = real_seat::play(root.path(), true);
++    assert!(in_core(&second) == Some(marked), "after reinsert");
++}
++
++#[test]
++fn a_first_insert_gets_blank_backup_ram_never_the_cores_shared_file() {
++    let _g = core_lock();
++    let Some(dylib) = neocd() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let shared = slot::root::bios_dir(root.path()).join("neocd/neocd.srm");
++    std::fs::write(&shared, vec![0xaa; 8192]).expect("write shared srm");
++    let mut session = real_seat::play(root.path(), true);
++    let in_core = session.emu().expect("no core").snapshot().save_ram();
++    assert!(
++        in_core == Some(vec![0u8; 8192]),
++        "another game's backup RAM"
++    );
++    eject(&mut session);
++    assert!(std::fs::read(sav(root.path())).expect("no sav after eject") == vec![0u8; 8192]);
++}
++
++fn held(btn: Btn) -> u16 {
++    let mut p = Pad::default();
++    p.apply(Action::GbaDown(btn));
++    p.mask_for(&Controls::default(), Platform::Neocd).0
++}
++
++#[test]
++fn the_neo_geo_cd_pad_puts_a_to_d_on_b_a_y_x_with_select_and_start() {
++    assert_eq!(held(Btn::B), ButtonMask::B, "A");
++    assert_eq!(held(Btn::A), ButtonMask::A, "B");
++    assert_eq!(held(Btn::Y), ButtonMask::Y, "C");
++    assert_eq!(held(Btn::X), ButtonMask::X, "D");
++    assert_eq!(held(Btn::Start), ButtonMask::START);
++    assert!(Platform::Neocd.passes_xy_through());
++    assert!(!Platform::Neocd.turbo_on_xy());
++    assert!(Platform::Neocd.select_x_toggles_picture());
++}
++
++#[test]
++fn the_in_game_shader_row_steps_the_neo_geo_cd_shader_into_its_own_file() {
++    let _g = core_lock();
++    let Some(dylib) = neocd() else {
++        return;
++    };
++    let root = seated(&dylib);
++    let mut session = real_seat::play(root.path(), true);
++    assert_eq!(session.app().screen_shader(), Shader::Off);
++    let mut now = 100;
++    for ev in [
++        RawEvent::Down(Btn::Select),
++        RawEvent::Down(Btn::A),
++        RawEvent::Up(Btn::A),
++        RawEvent::Up(Btn::Select),
++    ] {
++        now += 20;
++        session.feed([ev], now);
++    }
++    session.app().flush_state();
++    assert_eq!(session.app().screen_shader(), Shader::RETRO[1]);
++    assert_eq!(
++        slot_store::read_sega_shaders(root.path()).neocd,
++        Shader::RETRO[1]
++    );
++    assert_eq!(
++        slot_store::read_sega_shaders(root.path()).neogeo,
++        Shader::Off
++    );
++}
++
++#[test]
++fn the_neo_geo_cd_shelf_sits_between_cps2_and_the_32x_by_release_date() {
++    let released = slot::shelf_order::RELEASED;
++    let at = |p: Platform| released.iter().position(|r| r.0 == p).expect("listed");
++    assert_eq!(released[at(Platform::Neocd)], (Platform::Neocd, 1994, 9, 9));
++    assert_eq!(at(Platform::Neocd), at(Platform::Cps2) + 1);
++    assert_eq!(at(Platform::S32x), at(Platform::Neocd) + 1);
++}
+diff --git a/crates/slot/tests/ps1_options.rs b/crates/slot/tests/ps1_options.rs
+index b84723a..fb9f927 100644
+--- a/crates/slot/tests/ps1_options.rs
++++ b/crates/slot/tests/ps1_options.rs
+@@ -283,7 +283,7 @@ fn a_ps1_game_never_records_or_plays_rewind_while_gba_still_does() {
+     for platform in Platform::SHELVES {
+         assert_eq!(
+             platform.rewinds(),
+-            !matches!(platform, Platform::Ps1 | Platform::Pico8),
++            !matches!(platform, Platform::Ps1 | Platform::Pico8 | Platform::Neocd),
+             "{platform:?}"
+         );
+     }
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index 20d6a65..01016d9 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,10 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 21]).is_empty());
+-    for key in 0..1u32 << 21 {
++    assert!(hidden_on_shelf([true; 22]).is_empty());
++    for key in 0..1u32 << 22 {
+         let systems = [
+-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
++            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+         ]
+         .map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+@@ -121,6 +121,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenSgx), !systems[18]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenPcecd), !systems[19]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSegaCd), !systems[20]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenNeocd), !systems[21]);
+     }
+ }
+ 
+diff --git a/crates/slot/tests/segacd_screen.rs b/crates/slot/tests/segacd_screen.rs
+index 7360a37..4b500de 100644
+--- a/crates/slot/tests/segacd_screen.rs
++++ b/crates/slot/tests/segacd_screen.rs
+@@ -41,7 +41,8 @@ fn open_segacd(app: &mut App) {
+ 
+ #[test]
+ fn sega_cd_follows_the_pc_engine_cd_with_the_mega_drive_rows() {
+-    assert_eq!(QuickRow::SCREEN.last(), Some(&QuickRow::ScreenSegaCd));
++    let last = QuickRow::SCREEN.len() - 1;
++    assert_eq!(QuickRow::SCREEN[last - 1], QuickRow::ScreenSegaCd);
+     assert_eq!(QuickRow::ScreenSegaCd.label(), "Sega CD");
+     assert!(QuickRow::ScreenSegaCd.opens());
+     assert_eq!(QuickRow::ScreenSegaCd.child(), Some(QuickRow::SegaCdShader));
+diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
+index f837052..06110ef 100644
+--- a/crates/slot/tests/shelf_order.rs
++++ b/crates/slot/tests/shelf_order.rs
+@@ -9,7 +9,7 @@ use slot_input::{Action, Btn};
+ use slot_store::{write_slot_state, Platform, Recent, SlotState};
+ use tempfile::TempDir;
+ 
+-const RELEASE_YEAR: [Platform; 25] = [
++const RELEASE_YEAR: [Platform; 26] = [
+     Platform::A2600,
+     Platform::Nes,
+     Platform::Sms,
+@@ -27,6 +27,7 @@ const RELEASE_YEAR: [Platform; 25] = [
+     Platform::Snes,
+     Platform::SegaCd,
+     Platform::Cps2,
++    Platform::Neocd,
+     Platform::S32x,
+     Platform::Ps1,
+     Platform::Vb,
+@@ -141,7 +142,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(Platform::SHELVES);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 26), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 27), want);
+ }
+ 
+ #[test]
+@@ -151,7 +152,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(RELEASE_YEAR);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 26), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 27), want);
+ }
+ 
+ #[test]
+@@ -160,7 +161,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+     let mut a = boot_with(d.path(), SlotState::default());
+     let mut want = names(RELEASE_YEAR.into_iter().rev());
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::L1, 26), want);
++    assert_eq!(shelves_after(&mut a, Btn::L1, 27), want);
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index 4d6bcfa..4beed33 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -259,6 +259,7 @@ fn the_picture_toggle_flips_only_on_snes_and_mega_drive() {
+             Platform::Snes => (FourThree, Actual, Stretch),
+             Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::S32x
+             | Platform::NeoGeo
+             | Platform::Cps1
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index a5da82d..f457964 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -168,6 +168,7 @@ fn the_picture_row_walks_its_choices_both_ways_and_saves_only_its_own_system() {
+             Platform::Sms
+             | Platform::Md
+             | Platform::SegaCd
++            | Platform::Neocd
+             | Platform::S32x
+             | Platform::NeoGeo
+             | Platform::Cps1

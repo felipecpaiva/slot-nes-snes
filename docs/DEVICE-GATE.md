@@ -553,6 +553,49 @@ Pending. Needs the player's own `BIOS/bios_CD_U.bin`, `bios_CD_E.bin` and `bios_
 | Final Fight CD | 1 | | | | | | | many audio tracks |
 | Night Trap | 2 | | | | | | | FMV, disc swap |
 
+## Neo Geo CD (issue 238, ADR 0106)
+
+Pending. BIOS required, the model the Neo Geo CD section's BIOS row names, in `BIOS/neocd/` on the main card:
+`neocd.bin` (CDZ, the default; md5 f39572af7584cb5b3f70ae8cc848aba2), `front-sp1.bin` (md5
+5c2366f25ff92d71788468ca492ebeca) or `top-sp1.bin` (md5 122aee210324c72e8a11116e6ef9c0d0), 524,288 bytes each,
+staged in `/Volumes/B3Tb/Emulation/_staging/neocd/BIOS/neocd/`. The core is new: `System/neocd_libretro.so`
+comes with the zip. The discs go on the Expansion Card (ADR 0098): copy the staged
+`/Volumes/B3Tb/Emulation/_staging/neocd/Games/NEOCD/` into `Games/NEOCD` on `EXPANSION`, run
+`dot_clean -m /Volumes/EXPANSION`, and add the line `NEOCD` to `Config/expansion.txt` on the main card. The
+list, with sizes and data SHA1s, is `docs/rom-library/best-copy/neocd-adds.tsv` (workspace). Then fetch the
+labels (`task labels:fetch -- --device --only NEOCD --by-name --logo-fallback --aliases <file>`, the alias
+line in docs/cart-art/NEOCD.md).
+
+1. Speed: `task bench:device CORE=neocd ROM_ON_DEVICE=/mnt/sdcard/Games/NEOCD/<disc>.chd` with
+   `ARGS="--frames 3000 --warmup 1800 --repeats 3 --system /mnt/sdcard/BIOS --option 'neocd_bios=neocd.bin (CDZ)'"`
+   for both discs. The budget at 59.60 fps is 16.8 ms; the host runs 0.23 to 0.31 ms, about FinalBurn
+   Neo's Neo Geo sets.
+2. BIOS: with `BIOS/neocd/neocd.bin` renamed away a disc stays on the shelf with "Neo Geo CD needs
+   BIOS/neocd/neocd.bin"; put it back and it starts with no toast. Set the BIOS row to Front Loader and to
+   Top Loader in turn: each boots its own logo at the next insert, and the row is not on the in-game page.
+3. Boot and loads: both discs reach their title screens through the BIOS; note how long the first load
+   takes under CDZ (the load skip runs it in fast-forward, so the panel may hold a frame meanwhile) and
+   that the sound does not stutter after it.
+4. Speed in play: 10 minutes each under `SLOT_TRACE`; `starved` and `dropped` stay 0 and no missed
+   frames past the first window, during CD audio, battles and the loads between areas.
+5. CD audio: the Crossed Swords II title music and the Samurai Shodown RPG overworld music play without a
+   tick or a gap (chdman's default 8-sector hunks).
+6. Picture: Stretch by default; the Picture row walks Actual, 4:3 and back; SELECT+X toggles it in game;
+   the Neo Geo shelf keeps its own.
+7. Controls: A, B, C and D on B, A, Y and X; START and SELECT reach the game; L2 rewinds nothing (no
+   rewind) and R2 fast-forwards (note the speed).
+8. Saves: save in Samurai Shodown RPG; `Saves/NEOCD/Samurai Shodown RPG (Japan) (En).sav` (8192 bytes) is
+   written on eject and the save loads on the next start. Crossed Swords II starts with its own blank
+   backup RAM. Save and load a state; eject and power cycle resume the disc.
+9. Shelf: each disc is a jewel case with its cover and the Japanese spine strip; on insert the case opens
+   and the disc goes into the slot; the shelf sits between CPS2 and the 32X in Release Year order.
+10. Expansion Card out: the Neo Geo CD shelf is empty, nothing else changes; back in, it returns.
+
+| Title | bench:device ms/frame | First load (s) | Starved / dropped | CD audio | FF speed | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|---|
+| Crossed Swords II | | | | | | | | action RPG, English text under the US region |
+| Samurai Shodown RPG | | | | | | | | English translation 1.10, backup RAM saves |
+
 ## Shelf order (ADR 0100)
 
 Checks that Release year reorders the shelves on the device and that the choice survives a restart.
