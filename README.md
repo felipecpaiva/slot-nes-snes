@@ -17,6 +17,8 @@ GBA, GB and GBC stay byte-identical to upstream.
 >
 > **Please do not report bugs from this patch set to slot's tracker.** Open them here.
 
+There are 26 system shelves beside Recents and Favorites.
+
 The pinned base is slot v1.8.0 (`0ceac65`, `SLOT_PIN`, ADR 0106).
 Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20432-ns.1` came before).
 
@@ -26,31 +28,32 @@ Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20
 |---|---|---|---|---|---|
 | GBA, GB, GBC | `Games/GBA`, `Games/GB`, `Games/GBC` | as slot | mGBA, gpSP (slot's own) | as slot | unchanged from upstream |
 | NES | `Games/NES` | `.nes` | fceumm, or nestopia | none | device tested |
-| Famicom Disk System | `Games/FDS` | `.fds` (headered or not) | fceumm | **required**, your own `disksys.rom` | device gate pending |
+| Famicom Disk System | `Games/FDS` | `.fds` (headered or not) | fceumm | **required**, your own `disksys.rom` | device tested |
 | SNES | `Games/SNES` | `.sfc`, `.smc` | snes9x, or snes9x2005_plus | none | device tested |
 | Master System | `Games/SMS` | `.sms` | Genesis Plus GX | none | device tested |
 | Game Gear | `Games/GG` | `.gg` | Genesis Plus GX | none | device tested |
-| Mega Drive | `Games/MD` | `.md`, `.gen`, `.bin` | Genesis Plus GX | none | provisional, heavy-title gate open |
-| Sega 32X | `Games/32X` | `.32x`, `.bin` with a 32X header | PicoDrive | none | device gate pending |
+| Mega Drive | `Games/MD` | `.md`, `.gen`, `.bin` | Genesis Plus GX | none | device tested, heavy-title gate open |
+| Sega 32X | `Games/32X` | `.32x`, `.bin` with a 32X header | PicoDrive | none | device tested |
 | PlayStation | `Games/PS1` | `.chd`, `.cue`, `.pbp`, `.m3u` | pcsx_rearmed | optional, your own `scph5501.bin` or similar | device tested (CTR, Spyro) |
-| TurboGrafx-16, PC Engine | `Games/TG16` | `.pce` | Beetle PCE Fast | none (HuCards only) | device gate pending |
-| WonderSwan, WonderSwan Color | `Games/WS` | `.ws`, `.wsc` | Beetle Cygne | none | device gate pending |
-| Atari Lynx | `Games/Lynx` | `.lnx`, `.lyx` | Beetle Lynx | **required**, your own `lynxboot.img` | device gate pending |
-| NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device gate pending |
-| Atari 2600 | `Games/A2600` | `.a26`, `.bin` | Stella 2014 | none | device gate pending |
-| Atari 7800 | `Games/A7800` | `.a78` (headered or not) | ProSystem | optional, your own `7800 BIOS (U).rom`, off by default | device gate pending |
-| Virtual Boy | `Games/VB` | `.vb`, `.vboy` | Beetle VB | none | device gate pending |
-| Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device gate pending |
-| Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
-| Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device gate pending |
-| PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device gate pending |
-| PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
-| PC Engine CD, TurboGrafx-CD | `Games/PCECD` | `.chd`, `.cue`, `.ccd` | Beetle PCE Fast | **required**, your own `syscard3.pce` (System Card 3.0) | device gate pending |
-| Sega CD, Mega-CD | `Games/SEGACD` | `.chd`, `.cue`, `.iso`, `.m3u` | Genesis Plus GX | **required**, your own `bios_CD_U.bin`, `bios_CD_E.bin`, `bios_CD_J.bin` | device gate pending |
-| Neo Geo CD | `Games/NEOCD` | `.chd`, `.cue` | NeoCD | **required**, your own `neocd.bin` (CDZ), `front-sp1.bin` or `top-sp1.bin` in `BIOS/neocd/` | device gate pending |
+| TurboGrafx-16, PC Engine | `Games/TG16` | `.pce` | Beetle PCE Fast | none (HuCards only) | device tested |
+| WonderSwan, WonderSwan Color | `Games/WS` | `.ws`, `.wsc` | Beetle Cygne | none | device tested |
+| Atari Lynx | `Games/Lynx` | `.lnx`, `.lyx` | Beetle Lynx | **required**, your own `lynxboot.img` | device tested, turned carts still to check by hand |
+| NeoGeo Pocket, Pocket Color | `Games/NGP` | `.ngp`, `.ngc`, `.ngpc` | Beetle NeoPop | none | device tested, in-game save still to check by hand |
+| Atari 2600 | `Games/A2600` | `.a26`, `.bin` | Stella 2014 | none | device tested |
+| Atari 7800 | `Games/A7800` | `.a78` (headered or not) | ProSystem | optional, your own `7800 BIOS (U).rom`, off by default | device tested |
+| Virtual Boy | `Games/VB` | `.vb`, `.vboy` | Beetle VB | none | device tested |
+| Neo Geo | `Games/NEOGEO` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | **required**, your own `neogeo.zip` | device tested |
+| Capcom CPS1 | `Games/CPS1` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device tested |
+| Capcom CPS2 | `Games/CPS2` | `.zip` romsets (FinalBurn Neo sets) | FinalBurn Neo | none | device tested |
+| PICO-8 | `Games/PICO8` | `.p8`, `.p8.png` | FAKE-08 | none | device tested |
+| PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device tested |
+| PC Engine CD, TurboGrafx-CD | `Games/PCECD` | `.chd`, `.cue`, `.ccd` | Beetle PCE Fast | **required**, your own `syscard3.pce` (System Card 3.0) | device tested |
+| Sega CD, Mega-CD | `Games/SEGACD` | `.chd`, `.cue`, `.iso`, `.m3u` | Genesis Plus GX | **required**, your own `bios_CD_U.bin`, `bios_CD_E.bin`, `bios_CD_J.bin` | device tested |
+| Neo Geo CD | `Games/NEOCD` | `.chd`, `.cue` | NeoCD | **required**, your own `neocd.bin` (CDZ), `front-sp1.bin` or `top-sp1.bin` in `BIOS/neocd/` | device tested |
 
-"Device gate pending" means the system passes its host tests and runs on the device, but the full
-speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
+"Device tested" means every shelf was played on the RG34XXSP: it boots, draws, sounds right, saves and
+resumes. The timed speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) is a separate,
+longer run, and its tables are not all filled in yet.
 
 ### BIOS files
 
@@ -238,6 +241,10 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
 
 - **Cart art.** Every cart is a generated shell coloured the slot way, faced with the real printed
   label you fetch with the label fetcher (below). Nothing is ever a screenshot.
+- **Picture Next and remappable controls.** On upstream 1.8.0 every control is a row on Controls.
+  The picture flip (Crop, Stretch, Actual, 4:3) is the Shortcuts row Picture Next, SELECT+X by
+  default, and can be moved like any other shortcut. The disc and disk swap (PlayStation, Sega CD,
+  Famicom Disk System) follows Palette Back, SELECT+L2 by default.
 - **Crash guard.** A game that crashed slot while it started is kept on the shelf on the next boot
   with a "Last start failed" banner, instead of resuming into a boot loop. Tap A to resume, hold A
   to start clean. Nothing is deleted.
@@ -273,35 +280,31 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   is cropped to the 240x160 Game Gear canvas.
 - Sega 32X: the polygon games (Virtua Racing Deluxe, Star Wars Arcade, Virtua Fighter) are expected
   to sit near the frame budget on the H700. If one misses frames, set Renderer to Fast and then Sound
-  Rate to 22 kHz in the 32X Screen section. The device gate (issue 152) is still open.
+  Rate to 22 kHz in the 32X Screen section.
 - Virtual Boy: one eye only, so there is no depth. In ABXY mode L2 and R2 belong to the game, so
-  there is no rewind button and fast-forward is SELECT+R2. The device gate (issue 182) is still open.
+  there is no rewind button and fast-forward is SELECT+R2.
 - PICO-8: no save states, no resume and no rewind (cartdata keeps a cart's own saves). FAKE-08 is not
   PICO-8: of the 39 carts tried on the host, 7 stop on a Lua error FAKE-08 does not get past (they show
-  "runtime error"). The device gate is still open.
+  "runtime error").
 - PC Engine SuperGrafx: with the 6-button pad turbo is off and L1 and R1 belong to the game. Beetle
-  SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16. The device gate
-  (issue 214) is still open.
+  SuperGrafx has no frameskip, so fast-forward is slower than on the TurboGrafx-16.
 - PC Engine CD: one disc per game (Beetle PCE Fast cannot change discs, so no `.m3u`), System Card 3.0
-  only (no Games Express). The device gate (issue 221) is still open, including whether the CD audio
-  keeps time from a CHD with large hunks.
+  only (no Games Express). Discs are large: use the Expansion Card.
 - Sega CD: the backup RAM is written by reloading the disc for an instant (serialize, load, restore),
-  because the core keeps it outside save states. Its cost on the device is a device-gate item (issue
-  232); if it is too slow at lid close, that flush moves to eject, autosave and the quick menu. A
+  because the core keeps it outside save states. A
   `.chd` with no region tag is taken as a US disc. Up to 4 discs a game.
 - Neo Geo CD: no rewind (states are about 8 MB). NeoCD also writes its own shared backup RAM file,
   `BIOS/neocd/neocd.srm`, which slot never reads. Universe BIOS and the SMKDan BIOS variants are not
-  offered. The device gate (issue 238) is still open, including speed during CD audio and loads.
+  offered. The audio is silent while a disc loads.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
-- Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few
-  carts that save to an EEPROM keep progress only through the resume state and save states.
+- Atari Lynx: a short audio gap at the very first frame of a 75 Hz game. Save states only. Beetle Lynx has no EEPROM emulation at the pinned
+  commit, so the few carts that save to an EEPROM keep progress only through the resume state and save states.
 - Atari 2600 and 7800: a PAL game is shown at the NTSC picture height in 4:3 and Stretch (the middle
   210 or 223 rows); Actual shows the whole PAL frame. Keypad, driving and Mindlink 2600 games are not
-  supported. The device gates (issues 162 and 170) are still open.
+  supported.
 - Famicom Disk System: rewinding into the second the disk is out of the drive can leave it out (SELECT+L2
-  again puts the next side in). A disk that is never written still leaves a full-size `.sav`. The device
-  gate (issue 202) is still open.
+  again puts the next side in). A disk that is never written still leaves a full-size `.sav`.
 - At Native PAL speed, a 50 fps game on the 59.6 Hz panel repeats about one frame in six.
 - Settings keyed only by file name collide if the same name exists on two systems.
 - Zip ROMs are not supported.
