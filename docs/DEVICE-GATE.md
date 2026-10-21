@@ -436,7 +436,7 @@ ca30b50f880eb660a320674ed365ef7a). No new core: fceumm is already in `System/`. 
 |---|---|---|---|---|---|---|---|---|
 | Nazo no Murasamejou | 2 | | | | | | | action adventure, disk saves |
 | Esper Dream | 2 | | | | | | | action RPG, disk saves |
-| Famicom Tantei Club Part II | 4 | | | | | | | two disks, adventure |
+| Famicom Tantei Club Part II Zenpen and Kouhen | 2 each | | | | | | | adventure in two disk files |
 
 ## Shelf order (ADR 0100)
 
