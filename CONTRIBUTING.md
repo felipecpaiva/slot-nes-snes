@@ -59,7 +59,9 @@ code as possible, and prove GBA did not change.**
    `slot-gfx/tests/layout.rs` (two frame-hash tests, ADR 0045) and `slot/tests/render_in_game_menu.rs`
    (both tests failed on the macOS runner only after the 1b20432 rebase, ADR 0083). On CI
    `render_in_game_menu.rs` is information only: it steps by wall-clock time and the runner fails it
-   in the unpatched tree by a varying count (ADR 0083).
+   in the unpatched tree by a varying count (ADR 0083). Upstream's card tests run through
+   `scripts/card-tests.sh` the same way: `card/test-coresave.sh` fails in the unpatched v1.8.0 tree on
+   macOS (ADR 0104).
 3. **Never decide what the issue did not decide.** No new scope, no new dependency, no
    change to a decision in [docs/DECISIONS.md](docs/DECISIONS.md). See section 9.
 

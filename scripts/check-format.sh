@@ -30,8 +30,15 @@ fi
 echo "format: checking files we add or change (edition $edition):"
 echo "$files" | sed 's/^/  /'
 cd "$ours"
-echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --check --edition "$edition" || {
-	echo "slot-nes-snes: files we add or change are not rustfmt clean" >&2
+# rustfmt also walks the modules a file declares, so a changed lib.rs reaches upstream files we never
+# touch; upstream v1.8.0's sticker.rs is not rustfmt clean (ADR 0104). Only our files fail the check.
+out="$(echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --check --edition "$edition" 2>&1 || true)"
+bad="$(printf '%s\n' "$out" | sed -n "s|^Diff in $ours/\(.*\):[0-9]*:\$|\1|p" | sort -u | while read -r f; do
+	printf '%s\n' "$files" | grep -Fx -- "$f" || true
+done)"
+printf '%s\n' "$out" | grep -q . && printf '%s\n' "$out"
+if [ -n "$bad" ]; then
+	echo "slot-nes-snes: files we add or change are not rustfmt clean: $(echo $bad)" >&2
 	exit 1
-}
+fi
 echo "format: ok"

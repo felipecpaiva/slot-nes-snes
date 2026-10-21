@@ -110,10 +110,22 @@ v1.8.0 is a tag, so the release is `v1.8.0-ns.1` (`SLOT_PIN` tag `v1.8.0` plus `
 - Behaviour the player sees: a Picture Next row on Controls > Shortcuts; Turbo A and B on X and Y
   on the systems listed above; the turbo rows hidden in game on the X/Y systems; upstream's Screen >
   General, live Palette row (GB only), state delete question, card repair passes and SIGTERM save.
+- Harness: `harness/frame_dump.rs` follows v1.8.0 in both trees: `begin_frame()` takes no layout, and
+  `open_screen` steps past the new General row first. Checked on the M5 Max: harness control and
+  compare 0 diffs, inject ok; `bench:compare` 99.1 to 100.3% of upstream (mGBA GBA, GB, GBC and gpSP).
+  Audio: the 48 kHz path did not change since 1b20432; `audio_start`, `emu_av_change`, `pal_pacing`,
+  `pal_pacing_clock` and `lynx_pacing` pass in the full suite. Upstream's `rumble.rs` failed
+  once under a full parallel load and passes alone (timing, both trees).
+- `scripts/check-format.sh` fails only on files we add or change: rustfmt also walks the modules a
+  changed `lib.rs` declares and reaches upstream's own `sticker.rs`, which 1.8.0 left unformatted.
 - `zip-check.sh` accepts upstream's `README.txt` in `Labels/`, `Wallpapers/` and `Bezels/` (and only
   that file, equal to upstream's).
 - The About sticker prints `git describe` of the build tree; our `build/slot` has no tags, so it
   shows the crate version 0.1.0, as before ea438a0.
+- `card/test-coresave.sh` (new in 1.8.0) fails on this Mac in the unpatched tree too: macOS `sh` keeps
+  `CMDLINE` after `CMDLINE=... run ...`, so the later busybox crash reads as slot's and its log is kept.
+  `task check` now runs the card tests through `scripts/card-tests.sh`, which gates a card test only
+  when the unpatched tree passes it, like `run-tests.sh` does for the layout tests (ADR 0045).
 - Upstream-first candidates (ADR 0047), not opened: a `GameButton` list per system so extra console
   buttons become remappable rows (would replace `raw_buttons`); a context or platform filter on
   table entries so a chord can apply to some systems only (would replace `keep_applicable`); the
