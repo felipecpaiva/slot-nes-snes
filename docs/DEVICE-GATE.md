@@ -409,6 +409,35 @@ lists the device copy). Host numbers are 0.21 to 0.30 ms a frame on the M5 Max; 
 | ddtod | CPS2 | | | | | |
 | 1941 | CPS1 | | | | | vertical, both ways |
 
+## Famicom Disk System (issue 202, ADR 0101)
+
+Pending. Needs the player's own `BIOS/disksys.rom` (8192 bytes, crc32 5e607dcf, md5
+ca30b50f880eb660a320674ed365ef7a). No new core: fceumm is already in `System/`. Copy the disks into
+`Games/FDS` and fetch their labels
+(`task labels:fetch -- --device --library <library> --only FDS --by-name --logo-fallback`).
+
+1. Speed: `task bench:device CORE=fceumm ROM_ON_DEVICE=/mnt/sdcard/Games/FDS/<disk>` with
+   `ARGS="--frames 3000 --warmup 600 --repeats 3"`; the budget is 16.7 ms.
+2. Shelf: each disk is a yellow Disk Card with its label in the well; the shelf sits after the Master
+   System in Release Year order.
+3. Boot: the BIOS screen (Mario and Luigi) runs for a few seconds, then the game loads from side A.
+4. Disk flip: at the game's "set side B" screen press SELECT+L2. The banner says "Disk 1 Side B", the
+   game sees the disk go out and come back about a second later and loads on. SELECT+L2 again goes
+   back to side A (or to Disk 2 on a two-disk game). L1 and R1 never touch the drive.
+5. Picture: Crop by default; Stretch, Actual and 4:3 from the Picture row; Shader walks the retro list.
+6. States and rewind: save and load a state on side B; the next flip still names the right side.
+7. Saves: save in a game that writes the disk (Zelda no Densetsu, Nazo no Murasamejou), eject:
+   `Saves/FDS/<stem>.sav` is the disk size (65,500 bytes a side) and the `.fds` on the card has its
+   old date and size. Start again: the save is there.
+8. Missing BIOS: rename `BIOS/disksys.rom`; launching shows "FDS needs BIOS/disksys.rom" and the disk
+   stays on the shelf. Put it back.
+
+| Title | Sides | bench:device ms/frame | Flip | Save | Starved / dropped | Date | Zip version | Notes |
+|---|---|---|---|---|---|---|---|---|
+| Nazo no Murasamejou | 2 | | | | | | | action adventure, disk saves |
+| Esper Dream | 2 | | | | | | | action RPG, disk saves |
+| Famicom Tantei Club Part II | 4 | | | | | | | two disks, adventure |
+
 ## Shelf order (ADR 0100)
 
 Checks that Release year reorders the shelves on the device and that the choice survives a restart.
@@ -423,7 +452,7 @@ The maintainer's device runs Release year; every other card stays Classic.
    Without the menu: `adb shell 'printf "order = release-year\n" > /mnt/sdcard/Config/shelf_order.txt'`
    (or that line in `Config/shelf_order.txt` with the card in a computer), then restart slot
    (`adb shell 'killall slot'`, or power off and on).
-3. R1 from Recents: Atari 2600, NES, Master System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
+3. R1 from Recents: Atari 2600, NES, Master System, Famicom Disk System, Atari 7800, TurboGrafx-16, CPS1, Mega Drive,
    Game Boy, Lynx, Neo Geo, Game Gear, SNES, CPS2, 32X, PlayStation, Virtual Boy, Game Boy Color,
    Neo Geo Pocket, WonderSwan, GBA (shelves with no carts are skipped), then Recents again. L1 walks
    it backwards. The shelves peeking left and right of the current one are its neighbours in this

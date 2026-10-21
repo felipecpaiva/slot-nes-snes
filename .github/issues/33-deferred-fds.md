@@ -11,7 +11,7 @@ depends_on: [32-phase-6-deferred]
 **Deferred, not in v1.** FDS needs a BIOS and a different save model, so it is out of scope for v1 (docs/PLAN.md Phase 6+, Spec "Out of scope", Build step 23 "FDS deferred").
 
 ## Scope
-- [ ] Decide whether FDS is wanted at all; if yes, plan it as a new phase (BIOS handling, disk-side saves, an FDS cart/disk outline).
+- [x] Decide whether FDS is wanted at all; if yes, plan it as a new phase (BIOS handling, disk-side saves, an FDS cart/disk outline). Wanted: Phase 18, ADR 0101, issues 194 to 202.
 
 ## Tests
 | ID | File | Asserts |
@@ -24,7 +24,7 @@ depends_on: [32-phase-6-deferred]
 | (none) | |
 
 ## Acceptance
-- [ ] A decision recorded as an ADR in docs/adr/.
+- [x] A decision recorded as an ADR in docs/adr/ (ADR 0101).
 
 ## Device check (RG34XXSP)
 None, deferred.

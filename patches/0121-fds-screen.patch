@@ -1,0 +1,528 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Wed, 21 Oct 2026 00:50:41 +0400
+Subject: [PATCH] fds-screen
+
+The Famicom Disk System gets its own Screen section, listed after CPS2
+and shown only when the card holds disks. It has the NES rows without
+PAL Speed: fceumm loads every disk as NTSC (FDSLoad sets the video
+system to 0) and the Disk System was never sold outside Japan. Shader
+walks Off and the retro list into Config/fds_shader.txt; the in-game
+Shader row and the shader shortcut walk the same list. Picture is the
+NES picture, Crop by default, then Stretch, Actual and 4:3, stored as
+fds in Config/picture.txt. Neither row touches the NES choices.
+---
+ crates/slot-ui/src/quick_menu.rs       |  23 ++++-
+ crates/slot-ui/src/quick_retro.rs      |   1 +
+ crates/slot-ui/tests/quick_menu.rs     |   4 +-
+ crates/slot/src/app.rs                 |  10 ++
+ crates/slot/src/platform_video.rs      |   5 +-
+ crates/slot/src/retro_quick.rs         |  13 ++-
+ crates/slot/src/shelf_order.rs         |   3 +-
+ crates/slot/tests/arcade_screen.rs     |   2 +-
+ crates/slot/tests/fds_screen.rs        | 123 +++++++++++++++++++++++++
+ crates/slot/tests/sega_quick_shader.rs |   7 +-
+ 10 files changed, 174 insertions(+), 17 deletions(-)
+ create mode 100644 crates/slot/tests/fds_screen.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index e7ba0f0..b1b142c 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -160,10 +160,13 @@ pub enum QuickRow {
+     Cps2Picture,
+     Cps2Rotation,
+     ShelfOrder,
++    FdsShader,
++    ScreenFds,
++    FdsPicture,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 150] = [
++    pub const ALL: [QuickRow; 153] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -314,6 +317,9 @@ impl QuickRow {
+         QuickRow::Cps2Picture,
+         QuickRow::Cps2Rotation,
+         QuickRow::ShelfOrder,
++        QuickRow::FdsShader,
++        QuickRow::ScreenFds,
++        QuickRow::FdsPicture,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -377,7 +383,7 @@ impl QuickRow {
+         QuickRow::ScRewind,
+     ];
+ 
+-    pub const SCREEN: [QuickRow; 20] = [
++    pub const SCREEN: [QuickRow; 21] = [
+         QuickRow::ScreenGba,
+         QuickRow::ScreenGbc,
+         QuickRow::ScreenGb,
+@@ -398,6 +404,7 @@ impl QuickRow {
+         QuickRow::ScreenNeoGeo,
+         QuickRow::ScreenCps1,
+         QuickRow::ScreenCps2,
++        QuickRow::ScreenFds,
+     ];
+ 
+     pub const SCREEN_GBA: [QuickRow; 3] = [
+@@ -472,6 +479,7 @@ impl QuickRow {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenFds
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2 => crate::screen_page(),
+@@ -561,6 +569,7 @@ impl QuickRow {
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
+             QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
++            QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
+             QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+                 &QuickRow::SCREEN_CPS1
+             }
+@@ -634,6 +643,7 @@ impl QuickRow {
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
+             QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
++            QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
+             QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+                 Some(QuickRow::ScreenCps1)
+             }
+@@ -694,6 +704,7 @@ impl QuickRow {
+             QuickRow::ScreenA7800 => Some(QuickRow::SCREEN_A7800[0]),
+             QuickRow::ScreenVb => Some(QuickRow::SCREEN_VB[0]),
+             QuickRow::ScreenNeoGeo => Some(QuickRow::SCREEN_NEOGEO[0]),
++            QuickRow::ScreenFds => Some(QuickRow::SCREEN_FDS[0]),
+             QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
+             QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
+             _ => None,
+@@ -803,7 +814,10 @@ impl QuickRow {
+             QuickRow::S32xShader => "Shader",
+             QuickRow::A2600Shader | QuickRow::A7800Shader => "Shader",
+             QuickRow::VbShader => "Shader",
+-            QuickRow::NeoGeoShader | QuickRow::Cps1Shader | QuickRow::Cps2Shader => "Shader",
++            QuickRow::NeoGeoShader
++            | QuickRow::FdsShader
++            | QuickRow::Cps1Shader
++            | QuickRow::Cps2Shader => "Shader",
+             QuickRow::ScreenGg => "Game Gear",
+             QuickRow::ScreenSms => "Master System",
+             QuickRow::ScreenMd => "Mega Drive",
+@@ -817,6 +831,7 @@ impl QuickRow {
+             QuickRow::ScreenA7800 => "Atari 7800",
+             QuickRow::ScreenVb => "Virtual Boy",
+             QuickRow::ScreenNeoGeo => "Neo Geo",
++            QuickRow::ScreenFds => "FDS",
+             QuickRow::ScreenCps1 => "CPS1",
+             QuickRow::ScreenCps2 => "CPS2",
+             QuickRow::NesPicture
+@@ -833,6 +848,7 @@ impl QuickRow {
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+             | QuickRow::VbPicture
++            | QuickRow::FdsPicture
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps2Picture => "Picture",
+@@ -899,6 +915,7 @@ impl QuickRow {
+                 | QuickRow::ScreenA2600
+                 | QuickRow::ScreenA7800
+                 | QuickRow::ScreenVb
++                | QuickRow::ScreenFds
+                 | QuickRow::ScreenNeoGeo
+                 | QuickRow::ScreenCps1
+                 | QuickRow::ScreenCps2
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index b85aa21..f6ca806 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -71,6 +71,7 @@ impl QuickRow {
+         QuickRow::VbRightPad,
+     ];
+     pub const SCREEN_NEOGEO: [QuickRow; 2] = [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture];
++    pub const SCREEN_FDS: [QuickRow; 2] = [QuickRow::FdsShader, QuickRow::FdsPicture];
+     pub const SCREEN_CPS1: [QuickRow; 3] = [
+         QuickRow::Cps1Shader,
+         QuickRow::Cps1Picture,
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index d47895c..71b8149 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -105,7 +105,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN.map(QuickRow::label),
+-        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2"]
++        ["Game Boy Advance", "Game Boy Color", "Game Boy", "NES", "SNES", "Game Gear", "Master System", "Mega Drive", "PlayStation", "TurboGrafx-16", "WonderSwan", "Lynx", "Neo Geo Pocket", "32X", "Atari 2600", "Atari 7800", "Virtual Boy", "Neo Geo", "CPS1", "CPS2", "FDS"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_GBA.map(QuickRow::label),
+@@ -153,7 +153,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::Shortcuts,
+             QuickRow::Controls,
+             QuickRow::ControlsShelf,
+-            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2
++            QuickRow::ControlsInGame, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd, QuickRow::ScreenPs1, QuickRow::ScreenTg16, QuickRow::ScreenWs, QuickRow::ScreenLynx, QuickRow::ScreenNgp, QuickRow::ScreenS32x, QuickRow::ScreenA2600, QuickRow::ScreenA7800, QuickRow::ScreenVb, QuickRow::ScreenNeoGeo, QuickRow::ScreenCps1, QuickRow::ScreenCps2, QuickRow::ScreenFds
+         ]
+     );
+     for page in [
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index dfc7d27..8026f4b 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1063,6 +1063,7 @@ impl App {
+             (QuickRow::Shader, Platform::A7800) => QuickRow::A7800Shader,
+             (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
+             (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
++            (QuickRow::Shader, Platform::Fds) => QuickRow::FdsShader,
+             (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
+             (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
+             (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
+@@ -1128,6 +1129,7 @@ impl App {
+             QuickRow::A7800Shader => Some(shader_value(self.sega_shaders.a7800)),
+             QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
+             QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
++            QuickRow::FdsShader => Some(shader_value(self.sega_shaders.fds)),
+             QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
+             QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
+             QuickRow::NesPicture
+@@ -1144,6 +1146,7 @@ impl App {
+             | QuickRow::A2600Picture
+             | QuickRow::A7800Picture
+             | QuickRow::VbPicture
++            | QuickRow::FdsPicture
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
+@@ -1229,6 +1232,7 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenFds
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2
+@@ -2849,6 +2853,7 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenFds
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2 => {
+@@ -2970,7 +2975,9 @@ impl App {
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad
++            | QuickRow::FdsShader
+             | QuickRow::NeoGeoShader
++            | QuickRow::FdsPicture
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Shader
+             | QuickRow::Cps1Picture
+@@ -3166,6 +3173,7 @@ impl App {
+             | QuickRow::NgpShader
+             | QuickRow::S32xShader
+             | QuickRow::VbShader
++            | QuickRow::FdsShader
+             | QuickRow::NeoGeoShader
+             | QuickRow::Cps1Shader
+             | QuickRow::Cps2Shader => return,
+@@ -3206,6 +3214,7 @@ impl App {
+             | QuickRow::A7800LeftDifficulty
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios
++            | QuickRow::FdsPicture
+             | QuickRow::NeoGeoPicture
+             | QuickRow::Cps1Picture
+             | QuickRow::Cps1Rotation
+@@ -3249,6 +3258,7 @@ impl App {
+             | QuickRow::ScreenA2600
+             | QuickRow::ScreenA7800
+             | QuickRow::ScreenVb
++            | QuickRow::ScreenFds
+             | QuickRow::ScreenNeoGeo
+             | QuickRow::ScreenCps1
+             | QuickRow::ScreenCps2
+diff --git a/crates/slot/src/platform_video.rs b/crates/slot/src/platform_video.rs
+index 60a3787..ff63256 100644
+--- a/crates/slot/src/platform_video.rs
++++ b/crates/slot/src/platform_video.rs
+@@ -9,7 +9,7 @@ use crate::video_mode::{VideoMode, VIDEO_MODE_FILE};
+ 
+ pub const PICTURE_FILE: &str = "Config/picture.txt";
+ 
+-pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
++pub const PICTURE_ROWS: [(QuickRow, Platform); 18] = [
+     (QuickRow::NesPicture, Platform::Nes),
+     (QuickRow::SnesPicture, Platform::Snes),
+     (QuickRow::GgPicture, Platform::Gg),
+@@ -27,6 +27,7 @@ pub const PICTURE_ROWS: [(QuickRow, Platform); 17] = [
+     (QuickRow::NeoGeoPicture, Platform::NeoGeo),
+     (QuickRow::Cps1Picture, Platform::Cps1),
+     (QuickRow::Cps2Picture, Platform::Cps2),
++    (QuickRow::FdsPicture, Platform::Fds),
+ ];
+ 
+ pub fn default_video_mode(platform: Platform) -> VideoMode {
+@@ -198,7 +199,7 @@ impl VideoMode {
+ }
+ 
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+-pub struct SystemPictures([VideoMode; 17]);
++pub struct SystemPictures([VideoMode; 18]);
+ 
+ impl Default for SystemPictures {
+     fn default() -> Self {
+diff --git a/crates/slot/src/retro_quick.rs b/crates/slot/src/retro_quick.rs
+index 364024b..af67546 100644
+--- a/crates/slot/src/retro_quick.rs
++++ b/crates/slot/src/retro_quick.rs
+@@ -25,6 +25,7 @@ pub fn step_sega(shaders: &mut SegaShaders, row: QuickRow, right: bool) -> bool
+         QuickRow::A7800Shader => (&mut shaders.a7800, Platform::A7800),
+         QuickRow::VbShader => (&mut shaders.vb, Platform::Vb),
+         QuickRow::NeoGeoShader => (&mut shaders.neogeo, Platform::NeoGeo),
++        QuickRow::FdsShader => (&mut shaders.fds, Platform::Fds),
+         QuickRow::Cps1Shader => (&mut shaders.cps1, Platform::Cps1),
+         QuickRow::Cps2Shader => (&mut shaders.cps2, Platform::Cps2),
+         _ => return false,
+@@ -63,12 +64,12 @@ pub fn hidden_in_game(platform: Platform, framed: bool) -> Vec<QuickRow> {
+     }
+ }
+ 
+-pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
+-    let mut seen = [false; 16];
++pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 17] {
++    let mut seen = [false; 17];
+     for platform in platforms {
+         let at = match platform {
+             Platform::Gba | Platform::Gb | Platform::Gbc => continue,
+-            Platform::Nes | Platform::Snes | Platform::Fds => 0,
++            Platform::Nes | Platform::Snes => 0,
+             Platform::Gg => 1,
+             Platform::Sms => 2,
+             Platform::Md => 3,
+@@ -84,13 +85,14 @@ pub fn shelf_systems(platforms: impl Iterator<Item = Platform>) -> [bool; 16] {
+             Platform::NeoGeo => 13,
+             Platform::Cps1 => 14,
+             Platform::Cps2 => 15,
++            Platform::Fds => 16,
+         };
+         seen[at] = true;
+     }
+     seen
+ }
+ 
+-const SYSTEM_ROWS: [&[QuickRow]; 16] = [
++const SYSTEM_ROWS: [&[QuickRow]; 17] = [
+     &[QuickRow::ScreenNes, QuickRow::ScreenSnes],
+     &[QuickRow::ScreenGg],
+     &[QuickRow::ScreenSms],
+@@ -107,9 +109,10 @@ const SYSTEM_ROWS: [&[QuickRow]; 16] = [
+     &[QuickRow::ScreenNeoGeo],
+     &[QuickRow::ScreenCps1],
+     &[QuickRow::ScreenCps2],
++    &[QuickRow::ScreenFds],
+ ];
+ 
+-pub fn hidden_on_shelf(systems: [bool; 16]) -> Vec<QuickRow> {
++pub fn hidden_on_shelf(systems: [bool; 17]) -> Vec<QuickRow> {
+     SYSTEM_ROWS
+         .iter()
+         .zip(systems)
+diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
+index 81e0ae8..d9ca1da 100644
+--- a/crates/slot/src/shelf_order.rs
++++ b/crates/slot/src/shelf_order.rs
+@@ -128,7 +128,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::Gba => QuickRow::ScreenGba,
+         Platform::Gb => QuickRow::ScreenGb,
+         Platform::Gbc => QuickRow::ScreenGbc,
+-        Platform::Nes | Platform::Fds => QuickRow::ScreenNes,
++        Platform::Nes => QuickRow::ScreenNes,
+         Platform::Snes => QuickRow::ScreenSnes,
+         Platform::Gg => QuickRow::ScreenGg,
+         Platform::Sms => QuickRow::ScreenSms,
+@@ -143,6 +143,7 @@ pub fn screen_row(platform: Platform) -> QuickRow {
+         Platform::A7800 => QuickRow::ScreenA7800,
+         Platform::Vb => QuickRow::ScreenVb,
+         Platform::NeoGeo => QuickRow::ScreenNeoGeo,
++        Platform::Fds => QuickRow::ScreenFds,
+         Platform::Cps1 => QuickRow::ScreenCps1,
+         Platform::Cps2 => QuickRow::ScreenCps2,
+     }
+diff --git a/crates/slot/tests/arcade_screen.rs b/crates/slot/tests/arcade_screen.rs
+index c746472..25d3739 100644
+--- a/crates/slot/tests/arcade_screen.rs
++++ b/crates/slot/tests/arcade_screen.rs
+@@ -18,7 +18,7 @@ use slot_ui::{QuickRow, QuickValue};
+ fn each_arcade_board_has_its_own_screen_section_after_the_virtual_boy() {
+     let screen = QuickRow::SCREEN;
+     assert_eq!(
+-        screen[screen.len() - 4..],
++        screen[16..20],
+         [
+             QuickRow::ScreenVb,
+             QuickRow::ScreenNeoGeo,
+diff --git a/crates/slot/tests/fds_screen.rs b/crates/slot/tests/fds_screen.rs
+new file mode 100644
+index 0000000..913aa11
+--- /dev/null
++++ b/crates/slot/tests/fds_screen.rs
+@@ -0,0 +1,123 @@
++mod common;
++
++use common::{boot, tmp_root_with_real_carts};
++use slot::app::App;
++use slot::platform_video::{default_video_mode, picture_choices, system_picture, PICTURE_FILE};
++use slot::video_mode::{source_rect, VideoMode};
++use slot_input::{Action, Btn};
++use slot_store::{read_sega_shaders, read_slot_state, Core, Platform, Shader, FDS_SHADER_FILE};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++fn card_with_a_disk() -> (TempDir, App) {
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    std::fs::write(
++        root.path()
++            .join("Games/FDS/Nazo no Murasamejou (Japan).fds"),
++        [0u8; 16],
++    )
++    .expect("write disk");
++    let app = boot(root.path());
++    (root, app)
++}
++
++fn press(app: &mut App, btn: Btn) {
++    app.apply(Action::GbaDown(btn));
++    app.apply(Action::GbaUp(btn));
++}
++
++fn open_fds(app: &mut App) {
++    app.apply(Action::QuickMenu);
++    for _ in 0..QuickRow::Screen.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    press(app, Btn::A);
++    for _ in 0..QuickRow::ScreenFds.position(&app.hidden_rows()) {
++        press(app, Btn::Down);
++    }
++    assert_eq!(app.quick_menu(), Some(QuickRow::ScreenFds));
++    press(app, Btn::A);
++}
++
++#[test]
++fn the_disk_system_follows_cps2_with_the_nes_rows_but_no_pal_speed() {
++    assert_eq!(QuickRow::SCREEN[20], QuickRow::ScreenFds);
++    assert_eq!(QuickRow::ScreenFds.label(), "FDS");
++    assert!(QuickRow::ScreenFds.opens());
++    assert_eq!(QuickRow::ScreenFds.child(), Some(QuickRow::FdsShader));
++    assert_eq!(
++        QuickRow::SCREEN_FDS.map(QuickRow::label),
++        ["Shader", "Picture"]
++    );
++    assert_eq!(
++        QuickRow::SCREEN_NES.map(QuickRow::label),
++        ["Shader", "Picture", "PAL Speed"]
++    );
++    for row in QuickRow::SCREEN_FDS {
++        assert_eq!(row.parent(), Some(QuickRow::ScreenFds));
++    }
++}
++
++#[test]
++fn the_disk_system_row_shows_only_on_a_card_with_disks() {
++    let (_root, mut app) = card_with_a_disk();
++    assert!(!app.hidden_rows().contains(&QuickRow::ScreenFds));
++    assert!(app.hidden_rows().contains(&QuickRow::ScreenNes));
++    let root = tmp_root_with_real_carts(&["Emerald"]);
++    let without = boot(root.path());
++    assert!(without.hidden_rows().contains(&QuickRow::ScreenFds));
++    open_fds(&mut app);
++    assert_eq!(app.quick_menu(), Some(QuickRow::FdsShader));
++}
++
++#[test]
++fn the_picture_starts_on_the_nes_crop_and_has_its_own_line_in_picture_txt() {
++    assert_eq!(default_video_mode(Platform::Fds), VideoMode::Crop);
++    assert_eq!(
++        picture_choices(Platform::Fds),
++        picture_choices(Platform::Nes)
++    );
++    let canvas = Core::Fceumm.canvas(Platform::Fds);
++    for mode in picture_choices(Platform::Fds) {
++        assert_eq!(
++            source_rect(Platform::Fds, (256, 240), canvas, *mode),
++            source_rect(Platform::Nes, (256, 240), canvas, *mode),
++            "{mode:?}"
++        );
++    }
++    let (root, mut app) = card_with_a_disk();
++    open_fds(&mut app);
++    press(&mut app, Btn::Down);
++    assert_eq!(app.quick_menu(), Some(QuickRow::FdsPicture));
++    assert_eq!(
++        app.quick_value(QuickRow::FdsPicture),
++        Some(QuickValue::Crop)
++    );
++    press(&mut app, Btn::Right);
++    app.flush_state();
++    assert_eq!(
++        system_picture(root.path(), Platform::Fds),
++        VideoMode::Stretch
++    );
++    assert_eq!(system_picture(root.path(), Platform::Nes), VideoMode::Crop);
++    assert_eq!(
++        std::fs::read_to_string(root.path().join(PICTURE_FILE)).expect("picture.txt"),
++        "fds = stretch\n"
++    );
++}
++
++#[test]
++fn the_disk_system_shader_walks_the_retro_list_into_its_own_file_and_leaves_the_nes_alone() {
++    let (root, mut app) = card_with_a_disk();
++    open_fds(&mut app);
++    assert_eq!(app.quick_value(QuickRow::FdsShader), Some(QuickValue::Off));
++    let mut seen = Vec::new();
++    for _ in 0..Shader::RETRO.len() {
++        press(&mut app, Btn::Right);
++        app.flush_state();
++        seen.push(read_sega_shaders(root.path()).fds);
++    }
++    assert_eq!(seen, [&Shader::RETRO[1..], &Shader::RETRO[..1]].concat());
++    assert!(root.path().join("Config").join(FDS_SHADER_FILE).exists());
++    assert_eq!(read_slot_state(root.path()).shader_nes, Shader::Off);
++}
+diff --git a/crates/slot/tests/sega_quick_shader.rs b/crates/slot/tests/sega_quick_shader.rs
+index ef0dfb1..257c950 100644
+--- a/crates/slot/tests/sega_quick_shader.rs
++++ b/crates/slot/tests/sega_quick_shader.rs
+@@ -92,10 +92,10 @@ fn a_sega_system_with_no_carts_on_the_card_stays_off_the_screen_list() {
+ #[test]
+ fn every_card_mix_hides_exactly_the_absent_systems() {
+     use slot::retro_quick::hidden_on_shelf;
+-    assert!(hidden_on_shelf([true; 16]).is_empty());
+-    for key in 0..65535u16 {
++    assert!(hidden_on_shelf([true; 17]).is_empty());
++    for key in 0..131071u32 {
+         let systems =
+-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(|i| key & 1 << i != 0);
++            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(|i| key & 1 << i != 0);
+         let hidden = hidden_on_shelf(systems);
+         assert_eq!(hidden.contains(&QuickRow::ScreenNes), !systems[0]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenSnes), !systems[0]);
+@@ -114,6 +114,7 @@ fn every_card_mix_hides_exactly_the_absent_systems() {
+         assert_eq!(hidden.contains(&QuickRow::ScreenNeoGeo), !systems[13]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenCps1), !systems[14]);
+         assert_eq!(hidden.contains(&QuickRow::ScreenCps2), !systems[15]);
++        assert_eq!(hidden.contains(&QuickRow::ScreenFds), !systems[16]);
+     }
+ }
+ 
