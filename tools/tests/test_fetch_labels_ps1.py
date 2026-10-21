@@ -300,5 +300,55 @@ class Ps1(unittest.TestCase):
                                   f"{sd}/Labels/PS1/disc/Ape Escape (USA).png": DISC})
 
 
+class PcEngineCd(unittest.TestCase):
+    """The PC Engine CD shelf takes the PlayStation route: a cover and a disc scan (ADR 0104)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.card = os.path.join(self.tmp, "card")
+        self.games = os.path.join(self.card, "Games", "PCECD")
+        os.makedirs(self.games)
+
+    def run_tool(self, args):
+        self.http = Http()
+        ctx = fl.Ctx(http=self.http, env=dict(SS_ENV, SLOT_LABELS_CACHE=os.path.join(self.tmp, "cache")),
+                     sleep=lambda s: None)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            stats = fl.main(["--card", self.card, "--only", "PCECD"] + args, ctx)
+        self.out = out.getvalue()
+        return stats
+
+    def label(self, *sub):
+        p = os.path.join(self.card, "Labels", "PCECD", *sub)
+        return fl.slurp(p) if os.path.exists(p) else None
+
+    def test_the_pc_engine_cd_is_screenscraper_system_114_with_its_disc_extensions_and_no_dat(self):
+        self.assertEqual(fl.SYSTEMS["PCECD"], ("pcenginecd", {".cue", ".chd", ".ccd"}, [], 114))
+        self.assertIn("PCECD", fl.DISC)
+        self.assertEqual(fl.DISC["PCECD"], "NEC - PC Engine CD - TurboGrafx-CD")
+
+    def test_a_chd_gets_its_cover_and_its_disc_asked_under_114(self):
+        chd = b"MComprHD" + bytes(300)
+        fl.spit(os.path.join(self.games, "Ys Book I & II (USA).chd"), chd)
+        stats = self.run_tool([])
+        self.assertEqual(stats["written"], 2)
+        (p,) = self.http.jeu_params()
+        self.assertEqual((p["systemeid"], p["romnom"], p["crc"]),
+                         ("114", "Ys Book I & II (USA).chd", f"{zlib.crc32(chd) & 0xffffffff:08X}"))
+        self.assertEqual(self.label("Ys Book I & II (USA).png"), COVER)
+        self.assertEqual(self.label("disc", "Ys Book I & II (USA).png"), DISC)
+        self.assertFalse(os.path.exists(os.path.join(self.card, "Labels", "PS1")))
+        self.assertTrue(os.path.isdir(os.path.join(self.tmp, "cache", "ss", "PCECD", "box-2D")))
+
+    def test_disc_tagged_files_stay_separate_games_because_slot_never_groups_them(self):
+        fl.spit(os.path.join(self.games, "Game (Japan) (Disc 1).chd"), b"MComprHD1")
+        fl.spit(os.path.join(self.games, "Game (Japan) (Disc 2).chd"), b"MComprHD2")
+        stats = self.run_tool([])
+        self.assertEqual(stats["written"], 4)
+        self.assertEqual(self.label("Game (Japan) (Disc 1).png"), COVER)
+        self.assertEqual(self.label("Game (Japan) (Disc 2).png"), COVER)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -187,3 +187,9 @@ One file per issue. Tracking issues list their children and hold the phase gate 
 | [213](213-sgx-tests.md) | Test the SuperGrafx with a generated HuCard on Beetle SuperGrafx | 20 | tests | test | S | 210-sgx-core-build |
 | [214](214-sgx-device-gate.md) | SuperGrafx device gate on the RG34XXSP | 20 | device | chore | S | 211-platform-sgx, 212-sgx-carts |
 | [215](215-sgx-pad.md) | Add a SuperGrafx Pad row: 2 Buttons or the 6-button Avenue Pad | 20 | input | feature | M | 211-platform-sgx |
+| [216](216-pcecd-tracking.md) | PC Engine CD: CD-ROM2 and TurboGrafx-CD discs on Beetle PCE Fast, a shelf of its own | 21 | device | tracking | L | 209-sgx-tracking |
+| [217](217-pcecd-core-build.md) | Build Beetle PCE Fast with its CHD reader and record the notices it now carries | 21 | cores | feature | S | 216-pcecd-tracking |
+| [218](218-platform-pcecd.md) | Add Platform::Pcecd with its options, Screen section, saves and the TurboGrafx-16 pad | 21 | platform | feature | M | 217-pcecd-core-build |
+| [219](219-pcecd-bios.md) | Check BIOS/syscard3.pce before a PC Engine CD starts | 21 | platform | feature | S | 218-platform-pcecd |
+| [220](220-pcecd-cases.md) | Draw PC Engine CDs in the jewel case with their disc, and fetch covers and disc scans | 21 | ui-art | feature | S | 218-platform-pcecd |
+| [221](221-pcecd-device-gate.md) | PC Engine CD device gate on the RG34XXSP | 21 | device | chore | S | 218-platform-pcecd, 219-pcecd-bios, 220-pcecd-cases |

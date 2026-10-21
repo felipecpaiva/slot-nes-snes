@@ -274,7 +274,8 @@ the commit that added the build.
 
 Checked at commit `3f946f277aef3aa99a95551618bbcd1dd2bda0d9` of libretro/beetle-pce-fast-libretro, the
 commit `SLOT_PIN` pins as `mednafen_pce_fast_commit` (tarball sha256 `mednafen_pce_fast_tarball_sha256`). It
-is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091). It
+is built by `cores/mednafen_pce_fast/build.sh` for TurboGrafx-16 and PC Engine HuCards (ADR 0091) and, with
+`HAVE_CHD=1` since ADR 0104, for PC Engine CD discs. It
 joined `dist:device` and `zip-check.sh` with the TG16 platform patch (patch 0058, issue 83), and its
 licence files moved from `cores/mednafen_pce_fast/` to `licenses/`, which `dist-device.sh` copies whole
 into the release:
@@ -284,6 +285,10 @@ into the release:
   describes nelynes' `licenses/pce-GPL-2.0.txt`, not upstream's `COPYING`.
 - `mednafen_pce_fast-tremor-BSD.txt`, `mednafen/tremor/COPYING` verbatim: the Xiph.org BSD licence of the
   Tremor Vorbis decoder. The makefile always links Tremor (CD audio), so the binary must carry its notice.
+- `mednafen_pce_fast-chd-notices.txt`: the notices of the CHD reader the binary carries since ADR 0104,
+  copied verbatim from the pinned source: libchdr's `LICENSE.txt` (BSD-3-Clause), zstd's `LICENSE` (BSD),
+  the zlib licence from `zlib.h`, the LZMA SDK's public-domain `LICENSE` and dr_flac's licence block
+  (public domain or MIT-0). The BSD and zlib terms ask for their notice to travel with a binary.
 
 The exact source ships with the core as `mednafen_pce_fast-src.tar.gz`, with `mednafen_pce_fast-src.meta`
 ## Beetle Cygne (WonderSwan)
@@ -319,15 +324,17 @@ recording its sha256.
   produced the list. They include most of the `mednafen/pce_fast/` headers. `libretro.c` is on the list
   too, because its GPL-2.0-or-later block is past line 60; the other 30 have no licence text anywhere.
   We treat them as covered by `COPYING`. That is a judgement, not a quote.
-- `deps/` holds four bundled libraries, **not compiled** because the build sets `HAVE_CHD=0`. They ship
-  only inside the source tarball, each with its own notice there:
+- `deps/` holds four bundled libraries. Up to ADR 0103 the build set `HAVE_CHD=0` and none was compiled;
+  since ADR 0104 it sets `HAVE_CHD=1` and all four are linked in (libchdr with its dr_flac header, the LZMA
+  decoder and encoder files the makefile lists, the zstd decoder and six zlib inflate files). Their
+  notices are in `mednafen_pce_fast-chd-notices.txt` above:
   - `deps/zlib-1.2.11`: the zlib licence (Jean-loup Gailly and Mark Adler);
   - `deps/lzma-19.00`: public domain (Igor Pavlov), `deps/lzma-19.00/LICENSE`;
   - `deps/zstd`: dual BSD-3-Clause or GPL-2.0 at the recipient's choice (`deps/zstd/LICENSE` and
     `COPYING`). We take the BSD terms, so it is not a GPL-2.0-only file;
   - `deps/libchdr`: BSD-3-Clause (Romain Tisserand), `deps/libchdr/LICENSE.txt`.
 - `libretro-common/` carries the RetroArch team's MIT text in 56 of its 61 `.c` and `.h` files. The
-  other five are `include/compat/zlib.h`, `zconf.h` and `zutil.h` (zlib's, unused with `HAVE_CHD=0`),
+  other five are `include/compat/zlib.h`, `zconf.h` and `zutil.h` (zlib's; the CHD build compiles `deps/zlib-1.2.11` instead),
   `include/compat/ifaddrs.h` and `include/compat/msvc/stdint.h`; none of them is compiled on unix or
   osx. Every object linked from it by the pinned build is MIT:
   - `streams/file_stream`, `file_stream_transforms`, `vfs/vfs_implementation`, `file/file_path`,
@@ -339,13 +346,16 @@ recording its sha256.
 - The core is all C, but the makefile links with `$(CXX)` and `-lrt`. The device build links
   `-static-libstdc++ -static-libgcc -Wl,--as-needed` and binds `powf` to `GLIBC_2.17`
   (`cores/mednafen_pce_fast/glibc-2.17.h`). It needs only `libc.so.6` and `libm.so.6` at GLIBC_2.17
-  or older, which `task core:device:mednafen_pce_fast` checks.
-- No BIOS is shipped or needed for HuCards. CD system cards are out of scope.
+  or older, which `task core:device:mednafen_pce_fast` checks; with the CHD reader linked in it still
+  does (checked 2026-10-21). The macOS build adds `-Dfdopen=fdopen` (`host_cflags`), because zlib 1.2.11
+  reads the SDK's `TARGET_OS_MAC` as classic Mac OS and defines `fdopen` away.
+- No BIOS is shipped or needed for HuCards. A PC Engine CD needs the user's own System Card 3.0 in
+  `BIOS/syscard3.pce`; slot never ships or fetches it (ADR 0104).
 
 The build recipe facts (the core, `make platform=unix`, `-mcpu=cortex-a53`, the commit) come from
 nelynes/slotPlus ([92b7022](https://github.com/nelynes/slotPlus/commit/92b7022), GPL-3.0) and are
-credited in the commit that added the build. `HAVE_CDROM=0`, `HAVE_CHD=0`, the link flags and the
-`powf` binding are ours.
+credited in the commit that added the build. `HAVE_CDROM=0`, `HAVE_CHD=1` (`HAVE_CHD=0` until ADR 0104),
+the link flags and the `powf` binding are ours.
 - `COPYING` is the GNU GPL version 2 text. `readme.md` has no licence line. The WonderSwan files
   derive from Cygne by Dox; the CPU is Bryan McPhail's NEC V30MZ emulator; the sound buffer is Shay
   Green's Blip_Buffer.
