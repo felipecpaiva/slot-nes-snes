@@ -4,7 +4,7 @@ More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic
 NES, Famicom Disk System, SNES, Master System, Game Gear, Mega Drive, Sega 32X, PlayStation,
 TurboGrafx-16 and PC Engine, WonderSwan and WonderSwan Color, Atari Lynx, NeoGeo Pocket and Pocket Color,
 Atari 2600 and 7800, Virtual Boy, the Neo Geo, CPS1 and CPS2 arcade boards, PICO-8 carts, the PC Engine SuperGrafx,
-PC Engine CD-ROM² and TurboGrafx-CD discs, and Sega CD / Mega-CD, beside slot's own
+PC Engine CD-ROM² and TurboGrafx-CD discs, Sega CD / Mega-CD and Neo Geo CD discs, beside slot's own
 GBA, GB and GBC. It is a patch set applied to slot's source at a pinned upstream commit. Each new
 system gets its own shelf, cores, saves and settings, the same way slot treats GBA, GB and GBC, and
 GBA, GB and GBC stay byte-identical to upstream.
@@ -47,6 +47,7 @@ Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20
 | PC Engine SuperGrafx | `Games/SGX` | `.sgx`, `.pce` | Beetle SuperGrafx | none | device gate pending |
 | PC Engine CD, TurboGrafx-CD | `Games/PCECD` | `.chd`, `.cue`, `.ccd` | Beetle PCE Fast | **required**, your own `syscard3.pce` (System Card 3.0) | device gate pending |
 | Sega CD, Mega-CD | `Games/SEGACD` | `.chd`, `.cue`, `.iso`, `.m3u` | Genesis Plus GX | **required**, your own `bios_CD_U.bin`, `bios_CD_E.bin`, `bios_CD_J.bin` | device gate pending |
+| Neo Geo CD | `Games/NEOCD` | `.chd`, `.cue` | NeoCD | **required**, your own `neocd.bin` (CDZ), `front-sp1.bin` or `top-sp1.bin` in `BIOS/neocd/` | device gate pending |
 
 "Device gate pending" means the system passes its host tests and runs on the device, but the full
 speed and audio gate in [docs/DEVICE-GATE.md](docs/DEVICE-GATE.md) has not been run on it yet.
@@ -70,6 +71,11 @@ No BIOS ships in the zip and none is ever fetched. Put your own dumps in `BIOS/`
   `.chd` name. Without the file the disc stays on the shelf and slot says "Sega CD needs
   BIOS/bios_CD_U.bin" (or E, J). A 128 KB file that is not a known dump still launches, with a
   one-time toast.
+- **Neo Geo CD:** required, the model the BIOS row of the Neo Geo CD section names, in `BIOS/neocd/`:
+  `neocd.bin` (CDZ, the default and the fastest loader), `front-sp1.bin` (Front Loader) or
+  `top-sp1.bin` (Top Loader), 524288 bytes each, the libretro System.dat dumps. Without it the disc
+  stays on the shelf and slot says "Neo Geo CD needs BIOS/neocd/neocd.bin" (or the other file). A
+  512 KB file that is not the known dump still launches, with a one-time toast.
 - **Atari 7800:** optional and off by default. With the BIOS row On (7800 Screen section), ProSystem
   loads `BIOS/7800 BIOS (U).rom` (`(E)` for a PAL cart) and shows the Atari logo before a signed game;
   an unsigned cart (homebrew) does not boot with it. Off hides the file from the core.
@@ -190,6 +196,16 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   to. On the shelf every game is a jewel case with its cover, its disc inside (US, European and
   Japanese styles, the Japanese with its spine card, a double case for a set); covers and disc scans
   come by name (`--only SEGACD --by-name`). Sega CD discs fit the Expansion Card well (below).
+- **Neo Geo CD** has its own shelf, `Games/NEOCD`, on NeoCD, a Neo Geo CD emulator of its own (not
+  FinalBurn Neo). It plays like the Neo Geo shelf: A, B, C and D on B, A, Y and X, SELECT and START to
+  the game, L1 and R1 to the game, SELECT+X for the picture, Stretch by default then Actual and 4:3.
+  NeoCD runs as a US console (a dual-language disc shows its English text), with its CD speed hack and
+  its load skip on, so a load passes in fast-forward. The console's 8 KB backup RAM is each disc's own
+  `Saves/NEOCD/<game>.sav`; a game played for the first time starts with blank backup RAM, never another
+  game's. Save states, resume, fast-forward and the crash guard work as on every shelf; there is no
+  rewind, because a state is about 8 MB. On the shelf a disc is a jewel case with its cover, a Japanese
+  disc with the spine strip, and the disc slides out into the slot when it starts. Discs are large, so
+  `Games/NEOCD` suits the Expansion Card.
 
 ### The Screen page
 
@@ -198,7 +214,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Row | Systems | Values |
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
-| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
+| Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, Neo Geo CD, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, Sega CD, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -211,6 +227,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Left, Right Difficulty; BIOS | Atari 7800 | B, A; Off, On |
 | Vertical Games | CPS1, CPS2 | Upright (the default), Turned |
 | Pad | SuperGrafx | 2 Buttons (the default), 6 Buttons |
+| BIOS | Neo Geo CD | CDZ (the default), Front Loader, Top Loader; not shown in game, it applies at the next start |
 
 PICO-8 has the two common rows only: Shader and Picture (Actual, the 3x picture, is the default).
 
@@ -272,6 +289,9 @@ setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x48
   because the core keeps it outside save states. Its cost on the device is a device-gate item (issue
   232); if it is too slow at lid close, that flush moves to eject, autosave and the quick menu. A
   `.chd` with no region tag is taken as a US disc. Up to 4 discs a game.
+- Neo Geo CD: no rewind (states are about 8 MB). NeoCD also writes its own shared backup RAM file,
+  `BIOS/neocd/neocd.srm`, which slot never reads. Universe BIOS and the SMKDan BIOS variants are not
+  offered. The device gate (issue 238) is still open, including speed during CD audio and loads.
 - PlayStation: no rewind (states are 4.4 MB) and no fast-forward gesture on L2 or R2, which belong to
   the game. L3 and R3 are not mapped, and which physical stick is left is not verified yet.
 - Atari Lynx: save states only. Beetle Lynx has no EEPROM emulation at the pinned commit, so the few
@@ -346,6 +366,7 @@ per line. `#` starts a comment:
 # Systems on the Expansion Card
 PS1
 SEGACD
+NEOCD
 ```
 
 - **Without the Expansion Card** the base card's own folders show, as before. A listed system's shelf
@@ -460,14 +481,16 @@ Rules: [CONTRIBUTING.md](CONTRIBUTING.md). Decisions: [docs/DECISIONS.md](docs/D
 
 slot is GPL-3.0-or-later, so this patch set is too ([LICENSE](LICENSE)). fceumm as shipped is
 GPL-3.0-or-later, nestopia and pcsx_rearmed are GPL-2.0-or-later, and the Beetle cores (PCE Fast,
-Cygne, Lynx, NeoPop) are Mednafen's GPL code. Every release carries the complete corresponding
+Cygne, Lynx, NeoPop) are Mednafen's GPL code. NeoCD is LGPL-3.0 apart from its non-commercial Z80
+core (below). Every release carries the complete corresponding
 source in `System/licenses/`.
 
 > snes9x, snes9x2005_plus, Genesis Plus GX, PicoDrive and FinalBurn Neo are licensed for non-commercial
-> use only and are not GPL. This release includes them, with their licences in
-> System/licenses/snes9x-LICENSE.txt, System/licenses/snes9x2005-LICENSE.txt,
-> System/licenses/genesis_plus_gx-LICENSE.txt, System/licenses/picodrive-LICENSE.txt and
-> System/licenses/fbneo-LICENSE.txt. Do not sell this zip or bundle it with anything that is sold. This
+> use only and are not GPL, and NeoCD carries a Z80 core released for non-commercial purposes. This
+> release includes them, with their licences in System/licenses/snes9x-LICENSE.txt,
+> System/licenses/snes9x2005-LICENSE.txt, System/licenses/genesis_plus_gx-LICENSE.txt,
+> System/licenses/picodrive-LICENSE.txt, System/licenses/fbneo-LICENSE.txt and
+> System/licenses/neocd-notices.txt. Do not sell this zip or bundle it with anything that is sold. This
 > project never asks for donations.
 
 Each core is loaded at run time across the libretro C ABI and is a separate program; the zip is an

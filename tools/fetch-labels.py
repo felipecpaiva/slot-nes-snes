@@ -181,11 +181,18 @@ SYSTEMS = {
     # PS1. .chd, .cue, .m3u and .iso, as slot scans; libretro-thumbnails "Sega - Mega-CD - Sega CD" has
     # Named_Logos (451, checked 2026-10-21).
     "SEGACD": ("segacd", {".chd", ".cue", ".m3u", ".iso"}, [], 20),
+    # Neo Geo CD discs (ADR 0107): ScreenScraper id 70 per Skyscraper's platforms_idmap.csv (Gemba/skyscraper
+    # 290d2c0, row "neogeocd,70,54,4956"). The Redump dat (libretro-database metadat/redump "SNK - Neo Geo CD")
+    # lists only each disc's data track, which a CHD does not expose, and a translated disc has no Redump
+    # entry at all, so a disc goes by name (--by-name), as the Sega CD: the cover and the disc scan. .cue and
+    # .chd, as slot scans; libretro-thumbnails "SNK - Neo Geo CD" has Named_Logos (103, checked 2026-10-21).
+    "NEOCD": ("neogeocd", {".cue", ".chd"}, [], 70),
 }
 # Disc systems take a cover and a disc scan (DISC_MEDIA), never one label; the value is the system's
 # libretro-thumbnails folder, which their empty dat list cannot name.
 DISC = {"PS1": "Sony - PlayStation", "PCECD": "NEC - PC Engine CD - TurboGrafx-CD",
-        "SEGACD": "Sega - Mega-CD - Sega CD"}
+        "SEGACD": "Sega - Mega-CD - Sega CD", "NEOCD": "SNK - Neo Geo CD"}
+BY_NAME_DISCS = {"SEGACD", "NEOCD"}
 ARCADE = {"NEOGEO", "CPS1", "CPS2"}
 # ScreenScraper media for an arcade set, in order: the cart label scan when it has one (a Neo Geo cart), else
 # the flyer, which is what Skyscraper takes as an arcade game's cover (getCover), else the box front. Media
@@ -1780,8 +1787,9 @@ def process_ps1(ctx, roms, have, have_disc, out, args, system="PS1"):
     return left
 
 
-def discs_by_name(ctx, roms, have, have_disc, args):
-    """Sega CD games for the name pass: every game missing its cover or disc scan (--force: every game)."""
+def discs_by_name(ctx, system, roms, have, have_disc, args):
+    """Sega CD and Neo Geo CD games for the name pass: every game missing its cover or disc scan (--force: every
+    game)."""
     left = []
     for stem, _ in ps1_games(roms):
         if args.only_stem and nfc(stem) != nfc(args.only_stem):
@@ -1793,7 +1801,7 @@ def discs_by_name(ctx, roms, have, have_disc, args):
             continue
         left.append((stem, subs, None))
     if left and not args.by_name:
-        print(f"  SEGACD: {len(left)} games go by name only, rerun with --by-name")
+        print(f"  {system}: {len(left)} games go by name only, rerun with --by-name")
     return left
 
 
@@ -1882,8 +1890,8 @@ def run(args, ctx):
             for n in have_list:
                 if n.lower().endswith(".png") and not n.startswith("."):
                     ctx.sib.setdefault(title_key(n[:-4], system), []).append(n)
-            if system == "SEGACD":
-                left = discs_by_name(ctx, roms, have, {n.lower() for n in disc_list}, args)
+            if system in BY_NAME_DISCS:
+                left = discs_by_name(ctx, system, roms, have, {n.lower() for n in disc_list}, args)
             elif system in DISC:
                 left = process_ps1(ctx, roms, have, {n.lower() for n in disc_list}, root, args, system)
             elif system == "PICO8":
@@ -1940,7 +1948,7 @@ def main(argv=None, ctx=None):
     ap.add_argument("--device", action="store_true", help="work on the card inside the device over adb")
     ap.add_argument("--library", help="ROM library with nes/ snes/ gba/ gb/ gbc/ folders (needed by --device)")
     ap.add_argument("--sd", default="/mnt/sdcard", help="device content root (default /mnt/sdcard)")
-    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8, SGX, PCECD, SEGACD) or one ROM stem")
+    ap.add_argument("--only", help="one system (GBA, GB, GBC, NES, SNES, GG, SMS, MD, PS1, TG16, WS, Lynx, NGP, 32X, A2600, A7800, VB, NEOGEO, CPS1, CPS2, FDS, PICO8, SGX, PCECD, SEGACD, NEOCD) or one ROM stem")
     ap.add_argument("--dry-run", action="store_true", help="report what would happen; write and push nothing")
     ap.add_argument("--force", action="store_true", help="replace labels and cart_shell lines that already exist")
     ap.add_argument("--limit", type=int, default=0, help="per system, stop after N matched ROMs (smoke test)")

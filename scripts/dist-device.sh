@@ -59,10 +59,12 @@ check_cores() {
 		vendor/fake08-src.meta licenses/fake08-LICENSE.md licenses/fake08-miniz-LICENSE.txt licenses/fake08-lodepng-LICENSE.txt licenses/fake08-z8lua-notices.txt \
 		vendor/mednafen_supergrafx_libretro.so vendor/mednafen_supergrafx_libretro.so.meta vendor/mednafen_supergrafx-src.tar.gz \
 		vendor/mednafen_supergrafx-src.meta licenses/mednafen_supergrafx-GPL-2.0.txt licenses/mednafen_supergrafx-tremor-BSD.txt \
-		licenses/mednafen_supergrafx-headerless-files.txt; do
+		licenses/mednafen_supergrafx-headerless-files.txt \
+		vendor/neocd_libretro.so vendor/neocd_libretro.so.meta vendor/neocd-src.tar.gz vendor/neocd-src.meta \
+		licenses/neocd-LGPL-3.0.txt licenses/neocd-GPL-3.0.txt licenses/neocd-notices.txt licenses/neocd-headerless-files.txt; do
 		[ -f "$root/$f" ] || missing "$f"
 	done
-	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx; do
+	for c in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx neocd; do
 		is_aarch64 "$root/vendor/${c}_libretro.so" || {
 			echo "slot-nes-snes: vendor/${c}_libretro.so is not an aarch64 ELF" >&2
 			exit 1
@@ -113,7 +115,8 @@ build() {
 		"$root/vendor/stella2014_libretro.so" "$root/vendor/prosystem_libretro.so" \
 		"$root/vendor/mednafen_vb_libretro.so" "$root/vendor/fbneo_libretro.so" \
 		"$root/vendor/fake08_libretro.so" \
-		"$root/vendor/mednafen_supergrafx_libretro.so" "$sys/"
+		"$root/vendor/mednafen_supergrafx_libretro.so" \
+		"$root/vendor/neocd_libretro.so" "$sys/"
 	cp "$root/vendor/fceumm_libretro.so.meta" "$root/vendor/fceumm-src.tar.gz" \
 		"$root/vendor/fceumm-src.meta" "$root/vendor/snes9x_libretro.so.meta" \
 		"$root/vendor/snes9x-src.tar.gz" "$root/vendor/snes9x-src.meta" \
@@ -136,7 +139,8 @@ build() {
 		"$root/vendor/fake08_libretro.so.meta" "$root/vendor/fake08-src.tar.gz" "$root/vendor/fake08-z8lua-src.tar.gz" \
 		"$root/vendor/fake08-src.meta" \
 		"$root/vendor/mednafen_supergrafx_libretro.so.meta" "$root/vendor/mednafen_supergrafx-src.tar.gz" \
-		"$root/vendor/mednafen_supergrafx-src.meta" "$sys/licenses/"
+		"$root/vendor/mednafen_supergrafx-src.meta" \
+		"$root/vendor/neocd_libretro.so.meta" "$root/vendor/neocd-src.tar.gz" "$root/vendor/neocd-src.meta" "$sys/licenses/"
 	for f in "$root"/licenses/*; do
 		[ -f "$f" ] && [ ! -L "$f" ] && cp "$f" "$sys/licenses/"
 	done
@@ -145,7 +149,7 @@ build() {
 	done
 	(cd "$sys" && $(command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256) mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
 		nestopia_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so \
-		pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so stella2014_libretro.so prosystem_libretro.so mednafen_vb_libretro.so fbneo_libretro.so fake08_libretro.so mednafen_supergrafx_libretro.so >licenses/cores.sha256)
+		pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so stella2014_libretro.so prosystem_libretro.so mednafen_vb_libretro.so fbneo_libretro.so fake08_libretro.so mednafen_supergrafx_libretro.so neocd_libretro.so >licenses/cores.sha256)
 	echo "device tree ready at $dist"
 }
 
