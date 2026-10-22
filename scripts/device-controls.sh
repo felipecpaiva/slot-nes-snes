@@ -45,15 +45,31 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 dev() { $ADB shell "$1" </dev/null 2>/dev/null | tr -d '\r'; }
 dx() { $ADB shell "$1" </dev/null >/dev/null 2>&1; }
 
-# Default games: PLATDIR|core|stem. Stems exactly as on the card. These are game titles, they never reach a
+# Default games, one per shelf Slot does not ship (the 23 added shelves): PLATDIR|core|stem. Stems exactly as on the card. These are game titles, they never reach a
 # saved log (redacted to the id) and no ROM is ever copied off the card.
-games="CPS1|fbneo|knights
-CPS2|fbneo|ssf2t
-NEOGEO|fbneo|mslug
+games="NES|fceumm|Super Mario Bros. 3 (USA) (Rev 1)
+FDS|fceumm|Nazo no Murasamejou (Japan)
 SNES|snes9x|Super Mario World (USA)
+GG|genesis_plus_gx|Columns (USA, Europe)
+SMS|genesis_plus_gx|Alex Kidd in Miracle World (USA, Europe, Brazil) (Rev 1)
 MD|genesis_plus_gx|Street Fighter II' - Special Champion Edition (USA)
-# PS1|pcsx_rearmed|<a game using L2 and R2>
-VB|mednafen_vb|Red Alarm (Japan, USA)"
+SEGACD|genesis_plus_gx|Lunar - The Silver Star (USA)
+32X|picodrive|Mortal Kombat II 32X (JUE) (Dec 1994) [!]
+PS1|pcsx_rearmed|Ace Combat 2 (USA)
+TG16|mednafen_pce_fast|Bonk's Adventure (USA)
+PCECD|mednafen_pce_fast|Akumajou Dracula X - Chi no Rondo (Japan)
+SGX|mednafen_supergrafx|Daimakaimura (Japan) (En)
+WS|mednafen_wswan|Kaze no Klonoa - Moonlight Museum (Japan)
+Lynx|mednafen_lynx|California Games (USA, Europe)
+NGP|mednafen_ngp|SNK vs. Capcom - The Match of the Millennium (World) (En,Ja)
+A2600|stella2014|Kaboom! (USA)
+A7800|prosystem|Asteroids (USA)
+VB|mednafen_vb|Red Alarm (USA)
+NEOGEO|fbneo|mslug
+CPS1|fbneo|knights
+CPS2|fbneo|ssf2t
+NEOCD|neocd|Crossed Swords II (Japan) (En,Ja)
+PICO8|fake08|Celeste.p8"
 
 # The game list as id|PLATDIR|core|stem, comments and blank lines dropped, index counted over game lines.
 game_list() {
@@ -197,8 +213,8 @@ selftest() {
 	got="$(printf "$(frame up right)" | od -An -tx1 | tr -d ' \n' | cut -c33-48)"
 	[ "$got" = 0300100000000000 ] || die "selftest: right.up is $got, want HAT0X 0"
 
-	[ "$(printf '%s\n' "$games" | game_list | sed -n '6p')" = "vb6|VB|mednafen_vb|Red Alarm (Japan, USA)" ] ||
-		die "selftest: the default game list does not give vb6 for VB"
+	[ "$(printf '%s\n' "$games" | game_list | sed -n '18p')" = "vb18|VB|mednafen_vb|Red Alarm (USA)" ] ||
+		die "selftest: the default game list does not give vb18 for VB"
 
 	f="$mt/dc.$$"
 	# A answered, B swallowed (no GbaDown, must not shift X), X answered, L1+UP chord, polled has 9 never
