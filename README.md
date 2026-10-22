@@ -237,10 +237,39 @@ PICO-8 has the two common rows only: Shader and Picture (Actual, the 3x picture,
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.
 
+### The Controls page
+
+Settings > Controls > In-Game, opened while a game plays, lists that system's own buttons by their
+own names, and every one can be moved to any device button (ADR 0108). A change made there is kept
+for that system alone (`Config/controls/<SHELF>.txt`); the In-Game page on the main menu still sets the
+buttons every system starts from, as on stock slot. Reset on the page puts that system back to the
+factory buttons, which are unchanged. Rows a system does not use are not shown.
+
+| Shelf | Rows (device button by default) |
+|---|---|
+| GBA, GB, GBC | as stock slot: A, B, L and R (GBA), Select, Start, Turbo A on X, Turbo B on Y |
+| NES, FDS | A Button (A), B Button (B), Select, Start, Turbo A (X), Turbo B (Y) |
+| SNES | A Button, B Button, X Button (X), Y Button (Y), L Button (L1), R Button (R1), Select, Start |
+| Mega Drive, Sega CD, 32X | C Button (A), B Button (B), A Button (Y), Y Button (X), X Button (L1), Z Button (R1), Mode (SELECT), Start |
+| Game Gear, Master System | Button 2 (A), Button 1 (B), Start or Pause, Turbo Button 2 (X), Turbo Button 1 (Y) |
+| PlayStation | Circle (A), Cross (B), Triangle (X), Square (Y), L1, R1, L2, R2, Select, Start |
+| TurboGrafx-16, PC Engine CD, SuperGrafx | Button I (A), Button II (B), Run (START), Select, Turbo Button I (X), Turbo Button II (Y); SuperGrafx 6 Buttons: Button III (Y), IV (X), V (L1), VI (R1) instead of the turbo rows |
+| WonderSwan | horizontal: X1 to X4 on the D-pad, A, B, Start, Y Pad on D-Pad (L1), Y Pad on Buttons (R1), Turbo A (X), Turbo B (Y); vertical: Y1 to Y4 on the D-pad, X1 to X4 on Y, X, A, B, A Button (L1), B Button (R1), Start |
+| Lynx | A, B, Option 2 (L1), Option 1 (R1), Pause (START), Turbo A (X), Turbo B (Y) |
+| Neo Geo Pocket | A Button (B), B Button (A), Option (START), Turbo B (X), Turbo A (Y) |
+| Atari 2600 | Fire (A and B), Game Select (SELECT), Game Reset (START) |
+| Atari 7800 | Button 2 (A), Button 1 (B), Reset (X), Select, Pause (START) |
+| Virtual Boy | Left Pad on the D-pad, A Button (A), B Button (B), L, R, Select, Start; with Right Pad set to ABXY: Right Pad Up (X), Right Pad Right (A), Right Pad Down (B), Right Pad Left (Y), A Button (R2), B Button (L2) |
+| Neo Geo CD | A Button (B), B Button (A), C Button (Y), D Button (X), B+C (L1), Select, Start, and A+B and A+B+C rows on L2 and R2 (unbound by default) |
+| Neo Geo, CPS1, CPS2 | each game's own buttons as FinalBurn Neo names them, for example Knights of the Round: Attack (B), Jump (A), Coin (SELECT), Start; Street Fighter II: Weak, Medium, Strong Punch (Y, X, L1) and Kick (B, A, R1); Metal Slug: Button A to D (B, A, Y, X) |
+| PICO-8 | O Button (B), X Button (A), Pause (START), Turbo X (X), Turbo O (Y) |
+
 ## What else changes from plain slot
 
 - **Cart art.** Every cart is a generated shell coloured the slot way, faced with the real printed
   label you fetch with the label fetcher (below). Nothing is ever a screenshot.
+- **Every console button is a row.** The In-Game controls page names each system's own buttons and
+  every one can be moved, saved per system (see The Controls page above).
 - **Picture Next and remappable controls.** On upstream 1.8.0 every control is a row on Controls.
   The picture flip (Crop, Stretch, Actual, 4:3) is the Shortcuts row Picture Next, SELECT+X by
   default, and can be moved like any other shortcut. The disc and disk swap (PlayStation, Sega CD,

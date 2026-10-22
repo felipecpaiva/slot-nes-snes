@@ -1,6 +1,6 @@
 # 0106. Rebase the patch set onto slot v1.8.0 and put our chords in its control table
 
-- Status: Accepted
+- Status: Accepted. Amended by [0108](0108-console-buttons-on-the-in-game-controls-page.md) (console buttons are rows, `raw_buttons` is gone)
 - Date: 2026-10-21
 - Deciders: maintainer (Felipe Paiva)
 - Related: [REBASE.md](../REBASE.md), [ADR 0083](0083-rebase-to-slot-main-1b20432.md) (the 1b20432 move),

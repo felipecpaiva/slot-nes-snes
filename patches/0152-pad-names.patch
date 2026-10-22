@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 22 Oct 2026 11:13:57 +0400
+Subject: [PATCH] pad-names
+
+---
+ crates/slot-retro/src/canvas.rs    |  4 +++
+ crates/slot-retro/src/core.rs      |  6 ++++
+ crates/slot-retro/src/lib.rs       |  1 +
+ crates/slot-retro/src/libretro.rs  | 10 +++++++
+ crates/slot-retro/src/pad_names.rs | 44 ++++++++++++++++++++++++++++++
+ 5 files changed, 65 insertions(+)
+ create mode 100644 crates/slot-retro/src/pad_names.rs
+
+diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
+index 2ec4ccd..fb4d68a 100644
+--- a/crates/slot-retro/src/canvas.rs
++++ b/crates/slot-retro/src/canvas.rs
+@@ -31,6 +31,8 @@ pub struct HostExtra {
+     pub answers_rotation: bool,
+     pub answers_quarter: bool,
+     pub quarter: bool,
++    pub pad_names: Vec<(u32, String)>,
++    pub polled: u16,
+ }
+ 
+ impl Default for HostExtra {
+@@ -52,6 +54,8 @@ impl Default for HostExtra {
+             answers_rotation: false,
+             answers_quarter: false,
+             quarter: false,
++            pad_names: Vec::new(),
++            polled: 0,
+         }
+     }
+ }
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index ccb1274..d223033 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -119,6 +119,12 @@ pub trait RetroCore: Send {
+     fn take_disc_event(&mut self) -> Option<DiscEvent> {
+         None
+     }
++    fn pad_names(&self) -> Vec<(u32, String)> {
++        Vec::new()
++    }
++    fn polled(&self) -> u16 {
++        0
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 4c2089e..00556e7 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -12,6 +12,7 @@ mod ffi;
+ mod libretro;
+ mod link;
+ mod mock;
++mod pad_names;
+ mod rumble;
+ mod turbo_mode;
+ 
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index 3a99e57..a998abd 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -215,6 +215,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
+             .is_some()
+         }
+         canvas::SET_ROTATION => canvas::rotation_set(data as *const c_uint),
++        crate::pad_names::SET_INPUT_DESCRIPTORS => crate::pad_names::names_set(data),
+         canvas::SET_GEOMETRY => canvas::geometry_set(),
+         canvas::SET_SYSTEM_AV_INFO => canvas::av_info_set(data as *const SystemAvInfo),
+         canvas::GET_AUDIO_VIDEO_ENABLE => canvas::av_enable_get(data as *mut c_int),
+@@ -397,6 +398,7 @@ unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id
+     if device != DEVICE_JOYPAD {
+         return 0;
+     }
++    crate::pad_names::polled(port, id);
+     with_host(|h| {
+         let Some(&input) = h.inputs.get(port as usize) else {
+             return 0;
+@@ -836,6 +838,14 @@ impl RetroCore for LibretroCore {
+     fn take_disc_event(&mut self) -> Option<DiscEvent> {
+         LibretroCore::take_disc_event(self)
+     }
++
++    fn pad_names(&self) -> Vec<(u32, String)> {
++        self.extra.pad_names.clone()
++    }
++
++    fn polled(&self) -> u16 {
++        self.extra.polled
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/slot-retro/src/pad_names.rs b/crates/slot-retro/src/pad_names.rs
+new file mode 100644
+index 0000000..c2d6a87
+--- /dev/null
++++ b/crates/slot-retro/src/pad_names.rs
+@@ -0,0 +1,44 @@
++use std::ffi::{c_char, c_uint, c_void, CStr};
++
++use crate::canvas::with_extra;
++use crate::ffi::DEVICE_JOYPAD;
++
++pub const SET_INPUT_DESCRIPTORS: c_uint = 11;
++
++#[repr(C)]
++struct InputDescriptor {
++    port: c_uint,
++    device: c_uint,
++    index: c_uint,
++    id: c_uint,
++    description: *const c_char,
++}
++
++pub unsafe fn names_set(data: *const c_void) -> bool {
++    if data.is_null() {
++        return false;
++    }
++    let mut names: Vec<(u32, String)> = Vec::new();
++    let mut p = data as *const InputDescriptor;
++    for _ in 0..1024 {
++        let d = &*p;
++        if d.description.is_null() {
++            break;
++        }
++        let first = !names.iter().any(|(id, _)| *id == d.id);
++        if d.port == 0 && d.device == DEVICE_JOYPAD && d.index == 0 && d.id < 16 && first {
++            if let Ok(text) = CStr::from_ptr(d.description).to_str() {
++                names.push((d.id, text.to_string()));
++            }
++        }
++        p = p.add(1);
++    }
++    with_extra(|e| e.pad_names = names).is_some()
++}
++
++pub fn polled(port: c_uint, id: c_uint) {
++    if port != 0 || id >= 16 {
++        return;
++    }
++    with_extra(|e| e.polled |= 1 << id);
++}

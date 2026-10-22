@@ -1,0 +1,1424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 22 Oct 2026 11:13:57 +0400
+Subject: [PATCH] console-rows
+
+---
+ crates/slot-store/src/bindings.rs         |  20 +-
+ crates/slot-store/src/console_controls.rs | 129 ++++++++
+ crates/slot-store/src/lib.rs              |   4 +
+ crates/slot-ui/src/console_rows.rs        |  20 ++
+ crates/slot-ui/src/lib.rs                 |   8 +-
+ crates/slot-ui/src/quick_menu.rs          |  20 +-
+ crates/slot-ui/tests/quick_menu.rs        |   2 +-
+ crates/slot/src/app.rs                    |  37 ++-
+ crates/slot/src/app/console_controls.rs   | 208 +++++++++++++
+ crates/slot/src/console_pad.rs            | 343 ++++++++++++++++++++++
+ crates/slot/src/emu.rs                    |   7 +
+ crates/slot/src/frontend.rs               |  14 +
+ crates/slot/src/input/mask.rs             |   6 +-
+ crates/slot/src/input/mod.rs              |   2 +-
+ crates/slot/src/input/raw_buttons.rs      |  46 +--
+ crates/slot/src/lib.rs                    |   1 +
+ crates/slot/src/session.rs                |  10 +-
+ crates/slot/tests/ps1_input.rs            |   8 +-
+ crates/slot/tests/snes_raw_buttons.rs     |  13 +-
+ 19 files changed, 823 insertions(+), 75 deletions(-)
+ create mode 100644 crates/slot-store/src/console_controls.rs
+ create mode 100644 crates/slot-ui/src/console_rows.rs
+ create mode 100644 crates/slot/src/app/console_controls.rs
+ create mode 100644 crates/slot/src/console_pad.rs
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index f07d443..b5631df 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -168,7 +168,7 @@ impl Binding {
+         }
+     }
+ 
+-    fn key(binding: Option<Binding>) -> String {
++    pub(crate) fn key(binding: Option<Binding>) -> String {
+         match binding {
+             None => "none".to_string(),
+             Some(Binding {
+@@ -182,7 +182,7 @@ impl Binding {
+         }
+     }
+ 
+-    fn parse(value: &str) -> Option<Option<Binding>> {
++    pub(crate) fn parse(value: &str) -> Option<Option<Binding>> {
+         let value = value.trim();
+         if value.eq_ignore_ascii_case("none") {
+             return Some(None);
+@@ -212,6 +212,8 @@ pub enum GameButton {
+     R,
+     TurboA,
+     TurboB,
++    L2,
++    R2,
+ }
+ 
+ impl GameButton {
+@@ -288,10 +290,12 @@ impl GameButton {
+             GameButton::R => "R Button",
+             GameButton::TurboA => "Turbo A",
+             GameButton::TurboB => "Turbo B",
++            GameButton::L2 => "L2 Button",
++            GameButton::R2 => "R2 Button",
+         }
+     }
+ 
+-    fn key(self) -> &'static str {
++    pub(crate) fn key(self) -> &'static str {
+         match self {
+             GameButton::Up => "up",
+             GameButton::Down => "down",
+@@ -305,10 +309,12 @@ impl GameButton {
+             GameButton::R => "r",
+             GameButton::TurboA => "turbo_a",
+             GameButton::TurboB => "turbo_b",
++            GameButton::L2 => "l2",
++            GameButton::R2 => "r2",
+         }
+     }
+ 
+-    fn default_device(self) -> Device {
++    pub(crate) fn default_device(self) -> Device {
+         match self {
+             GameButton::Up => Device::Up,
+             GameButton::Down => Device::Down,
+@@ -322,6 +328,8 @@ impl GameButton {
+             GameButton::R => Device::R1,
+             GameButton::TurboA => Device::X,
+             GameButton::TurboB => Device::Y,
++            GameButton::L2 => Device::L2,
++            GameButton::R2 => Device::R2,
+         }
+     }
+ 
+@@ -431,13 +439,13 @@ impl Shortcut {
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct Controls {
+-    game: [Option<Binding>; 12],
++    game: [Option<Binding>; 14],
+ }
+ 
+ impl Default for Controls {
+     fn default() -> Self {
+         Controls {
+-            game: GameButton::ALL.map(|g| Binding::plain(g.default_device())),
++            game: crate::console_controls::factory(),
+         }
+     }
+ }
+diff --git a/crates/slot-store/src/console_controls.rs b/crates/slot-store/src/console_controls.rs
+new file mode 100644
+index 0000000..9e93505
+--- /dev/null
++++ b/crates/slot-store/src/console_controls.rs
+@@ -0,0 +1,129 @@
++use std::path::Path;
++
++use crate::bindings::read_controls;
++use crate::{ini, Binding, Controls, GameButton, Platform};
++
++impl GameButton {
++    pub const EVERY: [GameButton; 14] = [
++        GameButton::Up,
++        GameButton::Down,
++        GameButton::Left,
++        GameButton::Right,
++        GameButton::A,
++        GameButton::B,
++        GameButton::Select,
++        GameButton::Start,
++        GameButton::L,
++        GameButton::R,
++        GameButton::TurboA,
++        GameButton::TurboB,
++        GameButton::L2,
++        GameButton::R2,
++    ];
++
++    pub fn only_on_consoles(self) -> bool {
++        matches!(self, GameButton::L2 | GameButton::R2)
++    }
++}
++
++impl Platform {
++    pub fn keeps_own_controls(self) -> bool {
++        match self {
++            Platform::Gba | Platform::Gb | Platform::Gbc => false,
++            Platform::Nes
++            | Platform::Fds
++            | Platform::Snes
++            | Platform::Gg
++            | Platform::Sms
++            | Platform::Md
++            | Platform::SegaCd
++            | Platform::Neocd
++            | Platform::Ps1
++            | Platform::Tg16
++            | Platform::Sgx
++            | Platform::Pcecd
++            | Platform::Ws
++            | Platform::Lynx
++            | Platform::Ngp
++            | Platform::S32x
++            | Platform::A2600
++            | Platform::A7800
++            | Platform::Vb
++            | Platform::Pico8
++            | Platform::NeoGeo
++            | Platform::Cps1
++            | Platform::Cps2 => true,
++        }
++    }
++
++    fn triggers_by_default(self) -> bool {
++        !self.owns_triggers() || self == Platform::Vb
++    }
++}
++
++pub(crate) fn factory() -> [Option<Binding>; 14] {
++    GameButton::EVERY.map(|g| match g.only_on_consoles() {
++        true => None,
++        false => Binding::plain(g.default_device()),
++    })
++}
++
++fn factory_on(platform: Platform, g: GameButton) -> Option<Binding> {
++    match g.only_on_consoles() && platform.triggers_by_default() {
++        true => Binding::plain(g.default_device()),
++        false => Controls::default().game(g),
++    }
++}
++
++pub fn console_factory(platform: Platform) -> Controls {
++    let mut c = Controls::default();
++    for g in GameButton::EVERY {
++        c.set_game(g, factory_on(platform, g));
++    }
++    c
++}
++
++fn own_file(platform: Platform) -> String {
++    format!("Config/controls/{}.txt", platform.dir_name())
++}
++
++pub fn read_console_controls(root: &Path, platform: Platform) -> Controls {
++    let mut c = read_controls(root);
++    if !platform.keeps_own_controls() {
++        return c;
++    }
++    let file = own_file(platform);
++    let own = ini::read(root, &file);
++    for g in GameButton::EVERY {
++        let inherited = match g.only_on_consoles() {
++            true => factory_on(platform, g),
++            false => c.game(g),
++        };
++        let binding = match own.get(g.key()).map(|v| (v, Binding::parse(v))) {
++            Some((_, Some(binding))) => binding,
++            Some((v, None)) => {
++                eprintln!("slot: {file}: ignoring {}={v}", g.key());
++                inherited
++            }
++            None => inherited,
++        };
++        c.set_game(g, binding);
++    }
++    c
++}
++
++pub fn write_console_binding(
++    root: &Path,
++    platform: Platform,
++    g: GameButton,
++    binding: Option<Binding>,
++) -> std::io::Result<()> {
++    ini::write(root, &own_file(platform), g.key(), &Binding::key(binding))
++}
++
++pub fn reset_console_controls(root: &Path, platform: Platform) -> std::io::Result<()> {
++    let factory = console_factory(platform);
++    GameButton::EVERY
++        .into_iter()
++        .try_for_each(|g| write_console_binding(root, platform, g, factory.game(g)))
++}
+diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
+index cce7e68..8df01fa 100644
+--- a/crates/slot-store/src/lib.rs
++++ b/crates/slot-store/src/lib.rs
+@@ -11,6 +11,7 @@ mod bindings;
+ mod bios_dump;
+ pub mod cart_shell;
+ mod config;
++mod console_controls;
+ mod core;
+ mod core_policy;
+ pub mod fds;
+@@ -48,6 +49,9 @@ pub use bindings::{
+ };
+ pub use cart_shell::{Outline, ShellChoice, ShellFinish, CART_SHELL_FILE, LABELS_SHELL_FILE};
+ pub use config::{move_config, CONFIG_DIR};
++pub use console_controls::{
++    console_factory, read_console_controls, reset_console_controls, write_console_binding,
++};
+ pub use core::{
+     core_for, core_for_platform, read_selected_cores, write_selected_core, Core, SELECTED_CORE_FILE,
+ };
+diff --git a/crates/slot-ui/src/console_rows.rs b/crates/slot-ui/src/console_rows.rs
+new file mode 100644
+index 0000000..e22fcf9
+--- /dev/null
++++ b/crates/slot-ui/src/console_rows.rs
+@@ -0,0 +1,20 @@
++use crate::QuickRow;
++
++impl QuickRow {
++    pub const IN_GAME: [QuickRow; 14] = [
++        QuickRow::GameUp,
++        QuickRow::GameDown,
++        QuickRow::GameLeft,
++        QuickRow::GameRight,
++        QuickRow::GameA,
++        QuickRow::GameB,
++        QuickRow::GameSelect,
++        QuickRow::GameStart,
++        QuickRow::GameL,
++        QuickRow::GameR,
++        QuickRow::GameTurboA,
++        QuickRow::GameTurboB,
++        QuickRow::GameL2,
++        QuickRow::GameR2,
++    ];
++}
+diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
+index 275f09c..66dea8d 100644
+--- a/crates/slot-ui/src/lib.rs
++++ b/crates/slot-ui/src/lib.rs
+@@ -14,6 +14,7 @@ mod battery_toast;
+ mod board;
+ mod cart;
+ mod clock;
++mod console_rows;
+ mod disc_insert;
+ mod disc_toast;
+ mod draw;
+@@ -108,9 +109,10 @@ pub use ps1_case::{
+ pub use quick_menu::{
+     core_button_legends, delete_legends, draw_menu_ground, link_button_legends, prompt_legends,
+     quick_caret_face, quick_description_face, quick_label_face, quick_legend_faces,
+-    quick_pointer_face, quick_row_top, quick_row_top_at, quick_scroll, quick_value_face,
+-    quick_warning_value_face, quick_window, repair_legends, QuickMenu, QuickMenuFaces, QuickRow,
+-    QuickScroll, QuickValue, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH, QUICK_VISIBLE,
++    quick_pointer_face, quick_row_top, quick_row_top_at, quick_scroll, quick_text_label_face,
++    quick_value_face, quick_warning_value_face, quick_window, repair_legends, QuickMenu,
++    QuickMenuFaces, QuickRow, QuickScroll, QuickValue, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH,
++    QUICK_VISIBLE,
+ };
+ pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
+ pub use refusal::Refusal;
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index ae620e1..6379d4e 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -190,10 +190,12 @@ pub enum QuickRow {
+     ScreenNeocd,
+     NeocdPicture,
+     NeocdBios,
++    GameL2,
++    GameR2,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 179] = [
++    pub const ALL: [QuickRow; 181] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -373,6 +375,8 @@ impl QuickRow {
+         QuickRow::ScreenNeocd,
+         QuickRow::NeocdPicture,
+         QuickRow::NeocdBios,
++        QuickRow::GameL2,
++        QuickRow::GameR2,
+     ];
+ 
+     pub const MAIN: [QuickRow; 5] = [
+@@ -592,7 +596,7 @@ impl QuickRow {
+             QuickRow::PlayScreen | QuickRow::PlayGameplay | QuickRow::PlayControls => {
+                 &QuickRow::SETTINGS
+             }
+-            r if r.game_button().is_some() => &QuickRow::CONTROLS,
++            r if r.game_button().is_some() => &QuickRow::IN_GAME,
+             r if r.shortcut().is_some() => &QuickRow::SHORTCUTS,
+             r if r.carousel_action().is_some() => &QuickRow::SHELF_KEYS,
+             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
+@@ -877,7 +881,9 @@ impl QuickRow {
+             | QuickRow::GameL
+             | QuickRow::GameR
+             | QuickRow::GameTurboA
+-            | QuickRow::GameTurboB => self.game_button().map_or("", GameButton::label),
++            | QuickRow::GameTurboB
++            | QuickRow::GameL2
++            | QuickRow::GameR2 => self.game_button().map_or("", GameButton::label),
+             QuickRow::ScSave
+             | QuickRow::ScLoad
+             | QuickRow::ScBrightUp
+@@ -1063,6 +1069,8 @@ impl QuickRow {
+             QuickRow::GameR => GameButton::R,
+             QuickRow::GameTurboA => GameButton::TurboA,
+             QuickRow::GameTurboB => GameButton::TurboB,
++            QuickRow::GameL2 => GameButton::L2,
++            QuickRow::GameR2 => GameButton::R2,
+             _ => return None,
+         })
+     }
+@@ -1440,6 +1448,10 @@ pub fn quick_label_face(row: QuickRow, lit: bool) -> UndoFace {
+     quick_text_face(row.label(), if lit { MENU_INK } else { DIM_INK })
+ }
+ 
++pub fn quick_text_label_face(text: &str, lit: bool) -> UndoFace {
++    quick_text_face(text, if lit { MENU_INK } else { DIM_INK })
++}
++
+ fn cap_centre(label: &fontdue::Font, h: u32) -> f32 {
+     match label.horizontal_line_metrics(MENU_PX) {
+         Some(v) => {
+@@ -1916,7 +1928,7 @@ pub struct QuickScroll {
+ 
+ fn scrolls(page: &[QuickRow]) -> bool {
+     [
+-        &QuickRow::CONTROLS[..],
++        &QuickRow::IN_GAME[..],
+         &QuickRow::SHORTCUTS,
+         &QuickRow::GENERAL,
+         &QuickRow::PLAY_SCREEN,
+diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
+index 9de7837..9629ab1 100644
+--- a/crates/slot-ui/tests/quick_menu.rs
++++ b/crates/slot-ui/tests/quick_menu.rs
+@@ -473,7 +473,7 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
+ 
+ #[test]
+ fn the_thumb_reaches_the_bottom_only_on_the_last_row() {
+-    let rows = QuickRow::CONTROLS;
++    let rows = QuickRow::IN_GAME;
+     let mut last_y = f32::MIN;
+     for (i, row) in rows.iter().enumerate() {
+         let bar = slot_ui::quick_scroll(*row, &[]).expect("the controls page scrolls");
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 68e56b1..ed6c42b 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -1,6 +1,7 @@
+ mod arcade_bios;
+ mod atari_pad;
+ mod battery_warn;
++mod console_controls;
+ mod fast_scroll;
+ mod fds_bios;
+ mod lynx_bios;
+@@ -393,6 +394,7 @@ pub struct App {
+     capture: Option<BindCapture>,
+     plugged_face: Option<TexId>,
+     binding_faces: HashMap<String, [(TexId, u32, u32); 2]>,
++    console: console_controls::ConsoleState,
+     carousel: CarouselKeys,
+     shortcuts: ShortcutKeys,
+     vol_before: Vec<(u8, bool, Millis)>,
+@@ -602,6 +604,7 @@ impl App {
+             capture: None,
+             plugged_face: None,
+             binding_faces: HashMap::new(),
++            console: Default::default(),
+             carousel: CarouselKeys::default(),
+             shortcuts: ShortcutKeys::default(),
+             vol_before: Vec::new(),
+@@ -1071,7 +1074,7 @@ impl App {
+         if !self.state.turbo || self.xy_to_game() {
+             hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
+         }
+-        hidden
++        self.console_rows(hidden)
+     }
+ 
+     pub fn gb_colors_label(&self) -> &'static str {
+@@ -1333,6 +1336,8 @@ impl App {
+             | QuickRow::GameR
+             | QuickRow::GameTurboA
+             | QuickRow::GameTurboB
++            | QuickRow::GameL2
++            | QuickRow::GameR2
+             | QuickRow::ScSave
+             | QuickRow::ScLoad
+             | QuickRow::ScBrightUp
+@@ -1355,6 +1360,7 @@ impl App {
+ 
+     pub fn set_quick_menu_faces(&mut self, faces: QuickMenuFaces) {
+         self.quick_menu_faces = Some(faces);
++        self.forget_upstream_labels();
+     }
+ 
+     pub fn set_quick_clock_faces(&mut self, dim: (TexId, u32, u32), lit: (TexId, u32, u32)) {
+@@ -1639,6 +1645,7 @@ impl App {
+         if !self.state.turbo {
+             hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
+         }
++        hidden.extend([QuickRow::GameL2, QuickRow::GameR2]);
+         hidden
+     }
+ 
+@@ -1958,7 +1965,7 @@ impl App {
+ 
+     fn bound_to_game(&self, b: Btn) -> bool {
+         GameButton::of(self.platform).iter().any(|g| {
+-            self.controls
++            self.active_controls()
+                 .game(*g)
+                 .is_some_and(|x| x.modifier.is_none() && crate::input::device_btn(x.button) == b)
+         })
+@@ -2034,7 +2041,9 @@ impl App {
+     }
+ 
+     pub fn clash(&self, row: QuickRow) -> Option<QuickRow> {
+-        self.binding_table().clash(row)
++        self.console_clash_table()
++            .unwrap_or_else(|| self.binding_table())
++            .clash(row)
+     }
+ 
+     pub fn binding_table(&self) -> crate::input::Table {
+@@ -2064,7 +2073,7 @@ impl App {
+ 
+     fn binding_of(&self, row: QuickRow) -> Option<Binding> {
+         if let Some(g) = row.game_button() {
+-            return self.controls.game(g);
++            return self.active_controls().game(g);
+         }
+         if let Some(s) = row.shortcut() {
+             return self.shortcuts.get(s);
+@@ -2074,6 +2083,9 @@ impl App {
+ 
+     fn reset_page(&mut self, row: QuickRow) {
+         self.reset_prompt = None;
++        if row.game_button().is_some() && self.console_reset() {
++            return;
++        }
+         let (what, written) = if row.game_button().is_some() {
+             self.controls = Controls::default();
+             let Some(root) = &self.root else {
+@@ -2101,7 +2113,8 @@ impl App {
+ 
+     fn page_is_default(&self, row: QuickRow) -> bool {
+         if row.game_button().is_some() {
+-            self.controls == Controls::default()
++            self.console_is_default()
++                .unwrap_or(self.controls == Controls::default())
+         } else if row.shortcut().is_some() {
+             self.shortcuts == ShortcutKeys::default()
+         } else {
+@@ -2135,6 +2148,12 @@ impl App {
+     }
+ 
+     fn set_binding(&mut self, row: QuickRow, binding: Option<Binding>) {
++        if row
++            .game_button()
++            .is_some_and(|g| self.console_set(g, binding))
++        {
++            return;
++        }
+         if let Some(g) = row.game_button() {
+             self.controls.set_game(g, binding);
+             if let Some(root) = &self.root {
+@@ -2960,7 +2979,7 @@ impl App {
+     }
+ 
+     fn in_game_menu_input(&mut self, row: QuickRow, action: Action) {
+-        let hidden = self.in_game_hidden();
++        let hidden = self.in_game_rows_hidden();
+         let hidden = &hidden[..];
+         if row.binds() {
+             match action {
+@@ -3130,6 +3149,8 @@ impl App {
+             | QuickRow::GameR
+             | QuickRow::GameTurboA
+             | QuickRow::GameTurboB
++            | QuickRow::GameL2
++            | QuickRow::GameR2
+             | QuickRow::ScSave
+             | QuickRow::ScLoad
+             | QuickRow::ScBrightUp
+@@ -3571,6 +3592,8 @@ impl App {
+             | QuickRow::GameR
+             | QuickRow::GameTurboA
+             | QuickRow::GameTurboB
++            | QuickRow::GameL2
++            | QuickRow::GameR2
+             | QuickRow::ScSave
+             | QuickRow::ScLoad
+             | QuickRow::ScBrightUp
+@@ -4692,7 +4715,7 @@ impl App {
+         if let (Some(row), Phase::Playing { .. }, true) =
+             (self.in_game_menu_shown(), &self.phase, self.screen >= 1.0)
+         {
+-            let hidden = self.in_game_hidden();
++            let hidden = self.in_game_rows_hidden();
+             let bound = self.bound_faces();
+             QuickMenu {
+                 row,
+diff --git a/crates/slot/src/app/console_controls.rs b/crates/slot/src/app/console_controls.rs
+new file mode 100644
+index 0000000..8da710d
+--- /dev/null
++++ b/crates/slot/src/app/console_controls.rs
+@@ -0,0 +1,208 @@
++use std::collections::HashMap;
++
++use slot_store::{
++    console_factory, read_console_controls, reset_console_controls, write_console_binding, Binding,
++    Controls, Device, GameButton, Platform, Shortcut,
++};
++use slot_ui::{QuickRow, TexId};
++
++use super::{App, Phase};
++use crate::console_pad::{self, PadMode};
++
++type FacePair = [(TexId, u32, u32); 2];
++
++#[derive(Default)]
++pub struct ConsoleState {
++    platform: Option<Platform>,
++    controls: Controls,
++    names: Vec<(u32, String)>,
++    faces: HashMap<String, FacePair>,
++    upstream: Vec<(QuickRow, FacePair)>,
++}
++
++impl App {
++    pub fn latch_console(&mut self, platform: Platform) {
++        self.console.names.clear();
++        self.console.platform = platform.keeps_own_controls().then_some(platform);
++        self.console.controls = match &self.root {
++            Some(root) => read_console_controls(root, platform),
++            None => console_factory(platform),
++        };
++    }
++
++    pub fn pad_mode(&self) -> Option<PadMode> {
++        if !matches!(self.phase, Phase::Playing { .. }) {
++            return None;
++        }
++        let platform = self
++            .console
++            .platform
++            .filter(|p| *p == self.playing_platform())?;
++        Some(PadMode {
++            platform,
++            code: self.pad_code(platform),
++            pass_through: self.xy_to_game(),
++            six: self.sgx_six_seated,
++        })
++    }
++
++    pub fn wants_pad_names(&self) -> bool {
++        self.console.names.is_empty() && self.pad_mode().is_some_and(|m| m.platform.is_arcade())
++    }
++
++    pub fn set_pad_names(&mut self, names: Vec<(u32, String)>) {
++        self.console.names = names;
++    }
++
++    pub fn pad_names(&self) -> &[(u32, String)] {
++        &self.console.names
++    }
++
++    pub fn active_controls(&self) -> Controls {
++        match self.pad_mode() {
++            Some(_) => self.console.controls,
++            None => self.controls,
++        }
++    }
++
++    pub fn console_triggers(&self) -> bool {
++        self.pad_mode()
++            .is_some_and(|m| console_pad::triggers(m, &self.console.names))
++    }
++
++    pub fn console_labels(&self) -> Vec<(QuickRow, String)> {
++        self.pad_mode()
++            .map(|m| console_pad::labels(m, &self.console.names))
++            .unwrap_or_default()
++    }
++
++    fn console_hidden(&self, mode: PadMode) -> Vec<QuickRow> {
++        let labels = console_pad::labels(mode, &self.console.names);
++        QuickRow::IN_GAME
++            .into_iter()
++            .filter(|r| match labels.iter().find(|(l, _)| l == r) {
++                Some((_, text)) => text.starts_with("Turbo ") && !self.state.turbo,
++                None => true,
++            })
++            .collect()
++    }
++
++    pub(super) fn console_rows(&self, mut hidden: Vec<QuickRow>) -> Vec<QuickRow> {
++        if let Some(mode) = self.pad_mode() {
++            hidden.retain(|r| r.game_button().is_none());
++            hidden.extend(self.console_hidden(mode));
++        }
++        hidden
++    }
++
++    pub(super) fn in_game_rows_hidden(&self) -> Vec<QuickRow> {
++        let mut hidden = self.in_game_hidden();
++        if self.pad_mode().is_none() {
++            hidden.extend([QuickRow::GameL2, QuickRow::GameR2]);
++        }
++        hidden
++    }
++
++    pub(super) fn console_set(&mut self, g: GameButton, binding: Option<Binding>) -> bool {
++        let Some(mode) = self.pad_mode() else {
++            return false;
++        };
++        self.console.controls.set_game(g, binding);
++        if let Some(root) = &self.root {
++            let written = write_console_binding(root, mode.platform, g, binding);
++            if let Err(e) = &written {
++                eprintln!("slot: controls: {e}");
++            }
++            self.card_writes.wrote("controls", &written);
++        }
++        true
++    }
++
++    pub(super) fn console_reset(&mut self) -> bool {
++        let Some(mode) = self.pad_mode() else {
++            return false;
++        };
++        self.console.controls = console_factory(mode.platform);
++        if let Some(root) = &self.root {
++            let written = reset_console_controls(root, mode.platform);
++            if let Err(e) = &written {
++                eprintln!("slot: controls: {e}");
++            }
++            self.card_writes.wrote("controls", &written);
++        }
++        true
++    }
++
++    pub(super) fn console_is_default(&self) -> Option<bool> {
++        let mode = self.pad_mode()?;
++        Some(self.console.controls == console_factory(mode.platform))
++    }
++
++    pub(super) fn console_clash_table(&self) -> Option<crate::input::Table> {
++        let mode = self.pad_mode()?;
++        let mut controls = self.console.controls;
++        for row in self.console_hidden(mode) {
++            if let Some(g) = row.game_button() {
++                controls.set_game(g, None);
++            }
++        }
++        let mut keys = self.shortcuts;
++        if self.triggers_to_game() {
++            for s in Shortcut::ALL {
++                let on_trigger = keys.get(s).is_some_and(|b| {
++                    b.modifier.is_none() && matches!(b.button, Device::L2 | Device::R2)
++                });
++                if on_trigger {
++                    keys.set(s, None);
++                }
++            }
++        }
++        Some(crate::input::Table::new(
++            &controls,
++            &keys,
++            &self.carousel,
++            true,
++        ))
++    }
++
++    pub fn console_label_texts(&self) -> Vec<String> {
++        self.console_labels()
++            .into_iter()
++            .map(|(_, text)| text)
++            .filter(|text| !self.console.faces.contains_key(text))
++            .collect()
++    }
++
++    pub fn add_console_label_face(&mut self, text: String, faces: FacePair) {
++        self.console.faces.insert(text, faces);
++    }
++
++    pub(super) fn forget_upstream_labels(&mut self) {
++        self.console.upstream.clear();
++    }
++
++    pub fn apply_console_labels(&mut self) {
++        let wanted = self.console_labels();
++        let console = &mut self.console;
++        let Some(faces) = self.quick_menu_faces.as_mut() else {
++            return;
++        };
++        if console.upstream.is_empty() {
++            console.upstream = QuickRow::IN_GAME
++                .into_iter()
++                .filter_map(|r| faces.labels.get(r.index()).map(|f| (r, *f)))
++                .collect();
++        }
++        for (row, upstream) in &console.upstream {
++            let face = wanted
++                .iter()
++                .find(|(r, _)| r == row)
++                .and_then(|(_, text)| console.faces.get(text))
++                .copied()
++                .unwrap_or(*upstream);
++            if let Some(slot) = faces.labels.get_mut(row.index()) {
++                *slot = face;
++            }
++        }
++    }
++}
+diff --git a/crates/slot/src/console_pad.rs b/crates/slot/src/console_pad.rs
+new file mode 100644
+index 0000000..3b5eb7e
+--- /dev/null
++++ b/crates/slot/src/console_pad.rs
+@@ -0,0 +1,343 @@
++use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
++use std::sync::Mutex;
++
++use slot_retro::{ButtonMask as M, RetroCore};
++use slot_store::{GameButton, Platform};
++use slot_ui::QuickRow;
++
++use crate::app::App;
++use crate::emu::EmuHandle;
++use crate::ws_input::{self, Layout};
++
++#[derive(Default)]
++pub struct PadSeen {
++    named: AtomicBool,
++    names: Mutex<Option<Vec<(u32, String)>>>,
++    polled: AtomicU16,
++    answered: AtomicU16,
++    last_answer: AtomicU16,
++}
++
++impl PadSeen {
++    pub fn note(&self, core: &dyn RetroCore, sent: M) {
++        let polled = core.polled();
++        let answer = sent.0 & polled;
++        self.answered.fetch_or(answer, Ordering::Relaxed);
++        let trace = crate::session::trace();
++        if self.polled.swap(polled, Ordering::Relaxed) != polled && trace {
++            eprintln!("slot: pad polled {polled:#06x}");
++        }
++        if self.last_answer.swap(answer, Ordering::Relaxed) != answer && trace {
++            eprintln!("slot: pad answered {answer:#06x}");
++        }
++        if self.named.load(Ordering::Relaxed) {
++            return;
++        }
++        let names = core.pad_names();
++        if names.is_empty() {
++            return;
++        }
++        if trace {
++            eprintln!("slot: pad names {names:?}");
++        }
++        if let Ok(mut slot) = self.names.lock() {
++            *slot = Some(names);
++            self.named.store(true, Ordering::Relaxed);
++        }
++    }
++
++    pub fn names(&self) -> Option<Vec<(u32, String)>> {
++        self.names.lock().ok().and_then(|n| n.clone())
++    }
++
++    pub fn polled(&self) -> u16 {
++        self.polled.load(Ordering::Relaxed)
++    }
++
++    pub fn take_answered(&self) -> u16 {
++        self.answered.swap(0, Ordering::Relaxed)
++    }
++}
++
++pub fn sync_names(app: &mut App, emu: &EmuHandle) {
++    if !app.wants_pad_names() {
++        return;
++    }
++    if let Some(names) = emu.pad_seen().names() {
++        app.set_pad_names(names);
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub struct PadMode {
++    pub platform: Platform,
++    pub code: u8,
++    pub pass_through: bool,
++    pub six: bool,
++}
++
++impl PadMode {
++    pub fn plain(platform: Platform) -> PadMode {
++        PadMode {
++            platform,
++            code: crate::atari_switches::AtariSwitches::default()
++                .pad_code(platform)
++                .unwrap_or_else(|| ws_input::pad_code(platform, false, false)),
++            pass_through: platform.passes_xy_through(),
++            six: false,
++        }
++    }
++
++    pub fn passes(self) -> bool {
++        self.pass_through && !ws_input::turns(self.code)
++    }
++
++    pub fn delivered(self, mask: M) -> M {
++        let layout = ws_input::starting_layout(self.code);
++        let out = ws_input::pass(self.code, layout, mask);
++        match self.passes() {
++            true => out,
++            false => M(out.0 & !(M::X | M::Y)),
++        }
++    }
++
++    fn turbo_of(self, mask: M) -> u16 {
++        let out = ws_input::pass(self.code, ws_input::starting_layout(self.code), mask);
++        match self.passes() {
++            true => 0,
++            false => out.0 & (M::X | M::Y),
++        }
++    }
++
++    fn shifts(self, g: GameButton) -> Option<&'static str> {
++        let horizontal = self.platform == Platform::Ws
++            && ws_input::starting_layout(self.code) == Layout::Horizontal;
++        match (horizontal, g) {
++            (true, GameButton::L) => Some("Y Pad on D-Pad"),
++            (true, GameButton::R) => Some("Y Pad on Buttons"),
++            _ => None,
++        }
++    }
++}
++
++pub fn ids(bits: u16) -> impl Iterator<Item = u32> {
++    (0..16u32).filter(move |id| bits & (1 << id) != 0)
++}
++
++pub fn row_bits(mode: PadMode, g: GameButton) -> u16 {
++    let bit = M(crate::input::bit(g));
++    let turbo = mode.turbo_of(bit);
++    let pulse = |from: u16, to: u16| if turbo & from != 0 { to } else { 0 };
++    mode.delivered(bit).0 | pulse(M::X, M::A) | pulse(M::Y, M::B)
++}
++
++pub fn label(mode: PadMode, names: &[(u32, String)], g: GameButton) -> Option<String> {
++    if let Some(shift) = mode.shifts(g) {
++        return Some(shift.to_string());
++    }
++    let bit = M(crate::input::bit(g));
++    let name = |id: u32| name_of(mode, names, id);
++    let turbo: Vec<String> = ids(mode.turbo_of(bit))
++        .filter_map(|id| match id {
++            1 => name(0),
++            _ => name(8),
++        })
++        .map(|n| format!("Turbo {}", n.strip_suffix(" Button").unwrap_or(&n)))
++        .collect();
++    let plain: Vec<String> = ids(mode.delivered(bit).0).filter_map(name).collect();
++    let all: Vec<String> = plain.into_iter().chain(turbo).collect();
++    (!all.is_empty()).then(|| all.join(" + "))
++}
++
++pub fn triggers(mode: PadMode, names: &[(u32, String)]) -> bool {
++    [GameButton::L2, GameButton::R2]
++        .into_iter()
++        .any(|g| label(mode, names, g).is_some())
++}
++
++pub fn hidden(mode: PadMode, names: &[(u32, String)]) -> Vec<QuickRow> {
++    QuickRow::IN_GAME
++        .into_iter()
++        .filter(|r| {
++            r.game_button()
++                .is_some_and(|g| label(mode, names, g).is_none())
++        })
++        .collect()
++}
++
++pub fn labels(mode: PadMode, names: &[(u32, String)]) -> Vec<(QuickRow, String)> {
++    QuickRow::IN_GAME
++        .into_iter()
++        .filter_map(|r| Some((r, label(mode, names, r.game_button()?)?)))
++        .collect()
++}
++
++fn name_of(mode: PadMode, names: &[(u32, String)], id: u32) -> Option<String> {
++    if mode.platform.is_arcade() && !names.is_empty() {
++        return names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone());
++    }
++    core_name(mode.platform, mode.six, id).map(str::to_string)
++}
++
++fn direction(id: u32) -> Option<&'static str> {
++    match id {
++        4 => Some("Up"),
++        5 => Some("Down"),
++        6 => Some("Left"),
++        7 => Some("Right"),
++        _ => None,
++    }
++}
++
++pub fn core_name(platform: Platform, six: bool, id: u32) -> Option<&'static str> {
++    let face = |b: &'static str, y: &'static str, a: &'static str, x: &'static str| match id {
++        0 => Some(b),
++        1 => Some(y),
++        8 => Some(a),
++        9 => Some(x),
++        _ => None,
++    };
++    let start_select = |start: &'static str, select: Option<&'static str>| match id {
++        3 => Some(start),
++        2 => select,
++        _ => None,
++    };
++    let none = || None::<&'static str>;
++    match platform {
++        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Fds => {
++            match id {
++                0 => Some("B Button"),
++                8 => Some("A Button"),
++                10 if platform == Platform::Gba => Some("L Button"),
++                11 if platform == Platform::Gba => Some("R Button"),
++                _ => start_select("Start", Some("Select")),
++            }
++        }
++        .or_else(|| direction(id)),
++        Platform::Snes => face("B Button", "Y Button", "A Button", "X Button")
++            .or_else(|| match id {
++                10 => Some("L Button"),
++                11 => Some("R Button"),
++                _ => start_select("Start", Some("Select")),
++            })
++            .or_else(|| direction(id)),
++        Platform::Md | Platform::SegaCd | Platform::S32x => {
++            face("B Button", "A Button", "C Button", "Y Button")
++                .or_else(|| match id {
++                    10 => Some("X Button"),
++                    11 => Some("Z Button"),
++                    _ => start_select("Start", Some("Mode")),
++                })
++                .or_else(|| direction(id))
++        }
++        Platform::Gg | Platform::Sms => match id {
++            0 => Some("Button 1"),
++            8 => Some("Button 2"),
++            3 if platform == Platform::Sms => Some("Pause"),
++            3 => Some("Start"),
++            _ => none(),
++        }
++        .or_else(|| direction(id)),
++        Platform::Ps1 => face("Cross", "Square", "Circle", "Triangle")
++            .or_else(|| match id {
++                10 => Some("L1"),
++                11 => Some("R1"),
++                12 => Some("L2"),
++                13 => Some("R2"),
++                _ => start_select("Start", Some("Select")),
++            })
++            .or_else(|| direction(id)),
++        Platform::Tg16 | Platform::Pcecd | Platform::Sgx => match (id, six) {
++            (0, _) => Some("Button II"),
++            (8, _) => Some("Button I"),
++            (1, true) => Some("Button III"),
++            (9, true) => Some("Button IV"),
++            (10, true) => Some("Button V"),
++            (11, true) => Some("Button VI"),
++            _ => start_select("Run", Some("Select")),
++        }
++        .or_else(|| direction(id)),
++        Platform::Ws => match id {
++            4 => Some("X1"),
++            7 => Some("X2"),
++            5 => Some("X3"),
++            6 => Some("X4"),
++            13 => Some("Y1"),
++            11 => Some("Y2"),
++            12 => Some("Y3"),
++            10 => Some("Y4"),
++            0 => Some("B Button"),
++            8 => Some("A Button"),
++            _ => start_select("Start", None),
++        },
++        Platform::Lynx => match id {
++            0 => Some("B Button"),
++            8 => Some("A Button"),
++            10 => Some("Option 2"),
++            11 => Some("Option 1"),
++            _ => start_select("Pause", None),
++        }
++        .or_else(|| direction(id)),
++        Platform::Ngp => match id {
++            0 => Some("A Button"),
++            8 => Some("B Button"),
++            _ => start_select("Option", None),
++        }
++        .or_else(|| direction(id)),
++        Platform::A2600 => match id {
++            0 => Some("Fire"),
++            _ => start_select("Game Reset", Some("Game Select")),
++        }
++        .or_else(|| direction(id)),
++        Platform::A7800 => match id {
++            0 => Some("Button 1"),
++            8 => Some("Button 2"),
++            9 => Some("Reset"),
++            _ => start_select("Pause", Some("Select")),
++        }
++        .or_else(|| direction(id)),
++        Platform::Vb => match id {
++            4 => Some("Left Pad Up"),
++            5 => Some("Left Pad Down"),
++            6 => Some("Left Pad Left"),
++            7 => Some("Left Pad Right"),
++            12 => Some("Right Pad Up"),
++            15 => Some("Right Pad Right"),
++            14 => Some("Right Pad Down"),
++            13 => Some("Right Pad Left"),
++            0 => Some("B Button"),
++            8 => Some("A Button"),
++            10 => Some("L Button"),
++            11 => Some("R Button"),
++            _ => start_select("Start", Some("Select")),
++        },
++        Platform::Neocd => face("A Button", "C Button", "B Button", "D Button")
++            .or_else(|| match id {
++                10 => Some("B+C"),
++                12 => Some("A+B"),
++                13 => Some("A+B+C"),
++                _ => start_select("Start", Some("Select")),
++            })
++            .or_else(|| direction(id)),
++        Platform::NeoGeo => face("A Button", "C Button", "B Button", "D Button")
++            .or_else(|| match id {
++                10 => Some("Buttons CD"),
++                11 => Some("Buttons AB"),
++                _ => start_select("Start", Some("Coin")),
++            })
++            .or_else(|| direction(id)),
++        Platform::Cps1 | Platform::Cps2 => face("Button 1", "Button 3", "Button 2", "Button 4")
++            .or_else(|| match id {
++                11 => Some("Button 5"),
++                10 => Some("Button 6"),
++                _ => start_select("Start", Some("Coin")),
++            })
++            .or_else(|| direction(id)),
++        Platform::Pico8 => match id {
++            0 => Some("O Button"),
++            8 => Some("X Button"),
++            _ => start_select("Pause", None),
++        }
++        .or_else(|| direction(id)),
++    }
++}
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index a6c3ea0..1ca248d 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -120,6 +120,7 @@ struct Shared {
+     disc_event: Mutex<Option<DiscEvent>>,
+     fds_flip: AtomicU32,
+     flash: Mutex<Option<crate::ngp_flash::Seat>>,
++    pad: crate::console_pad::PadSeen,
+ }
+ 
+ #[derive(Default)]
+@@ -205,6 +206,7 @@ impl EmuHandle {
+             disc_event: Mutex::new(None),
+             fds_flip: AtomicU32::new(0),
+             flash: Mutex::new(None),
++            pad: Default::default(),
+         });
+         let (tx, rx) = channel();
+         let worker = Worker {
+@@ -398,6 +400,10 @@ impl EmuHandle {
+         self.shared.pass_through.store(on, Ordering::Relaxed);
+     }
+ 
++    pub fn pad_seen(&self) -> &crate::console_pad::PadSeen {
++        &self.shared.pad
++    }
++
+     pub fn set_ws_pad(&self, code: u8) {
+         self.shared.ws_pad.store(code, Ordering::Relaxed);
+     }
+@@ -840,6 +846,7 @@ impl Worker {
+                     if flipped {
+                         self.keep_fds_side(core.as_mut());
+                     }
++                    self.shared.pad.note(core.as_ref(), input);
+                     let took = frame_began.elapsed();
+                     if last {
+                         drawn = took;
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index a8d24a0..e28f769 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -568,6 +568,7 @@ impl Frontend {
+         self.cart_faces.sync(self.session.app_mut(), compositor);
+         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
+         sync_binding_faces(self.session.app_mut(), compositor);
++        sync_console_labels(self.session.app_mut(), compositor);
+         sync_about(self.session.app_mut(), compositor, &mut self.about);
+         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
+         sync_quick_palette(self.session.app_mut(), compositor, &mut self.quick_palette);
+@@ -984,6 +985,19 @@ fn sync_binding_faces(app: &mut App, compositor: &mut Compositor) {
+     }
+ }
+ 
++fn sync_console_labels(app: &mut App, compositor: &mut Compositor) {
++    if app.in_game_menu().is_some() {
++        for text in app.console_label_texts() {
++            let faces = [false, true].map(|lit| {
++                let f = slot_ui::quick_text_label_face(&text, lit);
++                (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
++            });
++            app.add_console_label_face(text, faces);
++        }
++    }
++    app.apply_console_labels();
++}
++
+ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
+     let ink = app.status_ink();
+     if clocks.ink != ink {
+diff --git a/crates/slot/src/input/mask.rs b/crates/slot/src/input/mask.rs
+index 9015020..3ed7a66 100644
+--- a/crates/slot/src/input/mask.rs
++++ b/crates/slot/src/input/mask.rs
+@@ -26,7 +26,7 @@ impl Pad {
+     }
+ 
+     pub fn mask(&self, controls: &Controls) -> ButtonMask {
+-        let bits = GameButton::ALL
++        let bits = GameButton::EVERY
+             .into_iter()
+             .filter(|g| {
+                 controls.game(*g).is_some_and(|binding| {
+@@ -52,7 +52,7 @@ impl Pad {
+     }
+ }
+ 
+-fn bit(g: GameButton) -> u16 {
++pub fn bit(g: GameButton) -> u16 {
+     match g {
+         GameButton::Up => ButtonMask::UP,
+         GameButton::Down => ButtonMask::DOWN,
+@@ -66,5 +66,7 @@ fn bit(g: GameButton) -> u16 {
+         GameButton::R => ButtonMask::R,
+         GameButton::TurboA => ButtonMask::X,
+         GameButton::TurboB => ButtonMask::Y,
++        GameButton::L2 => ButtonMask::L2,
++        GameButton::R2 => ButtonMask::R2,
+     }
+ }
+diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
+index 7bf9002..792f106 100644
+--- a/crates/slot/src/input/mod.rs
++++ b/crates/slot/src/input/mod.rs
+@@ -17,5 +17,5 @@ pub use bind::{btn_device, device_btn};
+ pub use device::DeviceInput;
+ #[cfg(feature = "host")]
+ pub use host::HostInput;
+-pub use mask::Pad;
++pub use mask::{bit, Pad};
+ pub use table::Table;
+diff --git a/crates/slot/src/input/raw_buttons.rs b/crates/slot/src/input/raw_buttons.rs
+index dbf55a0..c423390 100644
+--- a/crates/slot/src/input/raw_buttons.rs
++++ b/crates/slot/src/input/raw_buttons.rs
+@@ -1,53 +1,25 @@
+-use slot_input::Btn;
+ use slot_retro::ButtonMask;
+ use slot_store::{Controls, GameButton, Platform};
+ 
+-use super::bind::btn_device;
+ use super::mask::Pad;
++use crate::console_pad::{self, PadMode};
+ 
+-fn raw_buttons(xy: bool, triggers: bool) -> Vec<(Btn, u16)> {
+-    let mut raw = Vec::new();
+-    if xy {
+-        raw.extend([(Btn::X, ButtonMask::X), (Btn::Y, ButtonMask::Y)]);
+-    }
+-    if triggers {
+-        raw.extend([(Btn::L2, ButtonMask::L2), (Btn::R2, ButtonMask::R2)]);
+-    }
+-    raw
+-}
+-
+-fn bound_to_game(controls: &Controls, b: Btn) -> bool {
+-    GameButton::ALL.into_iter().any(|g| {
+-        controls
+-            .game(g)
+-            .is_some_and(|x| x.modifier.is_none() && Some(x.button) == btn_device(b))
+-    })
+-}
+-
+-fn game_buttons(controls: &Controls, xy: bool) -> Controls {
++fn game_buttons(controls: &Controls, triggers: bool) -> Controls {
+     let mut c = *controls;
+-    if xy {
+-        c.set_game(GameButton::TurboA, None);
+-        c.set_game(GameButton::TurboB, None);
++    if !triggers {
++        c.set_game(GameButton::L2, None);
++        c.set_game(GameButton::R2, None);
+     }
+     c
+ }
+ 
+ impl Pad {
+     pub fn mask_for(&self, controls: &Controls, platform: Platform) -> ButtonMask {
+-        self.mask_with(
+-            controls,
+-            platform.passes_xy_through(),
+-            !platform.owns_triggers(),
+-        )
++        let mode = PadMode::plain(platform);
++        self.mask_with(controls, console_pad::triggers(mode, &[]))
+     }
+ 
+-    pub fn mask_with(&self, controls: &Controls, xy: bool, triggers: bool) -> ButtonMask {
+-        let controls = game_buttons(controls, xy);
+-        let raw = raw_buttons(xy, triggers)
+-            .into_iter()
+-            .filter(|(b, _)| self.holds(*b) && !bound_to_game(&controls, *b))
+-            .fold(0, |bits, (_, bit)| bits | bit);
+-        ButtonMask(self.mask(&controls).0 | raw)
++    pub fn mask_with(&self, controls: &Controls, triggers: bool) -> ButtonMask {
++        self.mask(&game_buttons(controls, triggers))
+     }
+ }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 8d7699c..c3d8821 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -18,6 +18,7 @@ pub mod build_info;
+ pub mod cable;
+ pub mod card_log;
+ pub mod cart_faces;
++pub mod console_pad;
+ pub mod core;
+ pub mod core_faces;
+ pub mod core_options_policy;
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index e47d3ec..0198e2e 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -232,11 +232,10 @@ impl Session {
+             self.pad.apply(Action::GbaUp(btn));
+         }
+         if let Some(emu) = &self.emu {
+-            let mask = self.pad.mask_with(
+-                &self.app.controls(),
+-                self.app.xy_to_game(),
+-                self.app.triggers_to_game(),
+-            );
++            let mask = self
++                .pad
++                .mask_with(&self.app.active_controls(), self.app.console_triggers());
++            crate::console_pad::sync_names(&mut self.app, emu);
+             if trace() && mask.0 != self.sent {
+                 eprintln!("slot: pad {:#06x}", mask.0);
+             }
+@@ -658,6 +657,7 @@ impl Session {
+         let sgx_six = self.app.latch_sgx_pad(loaded.platform);
+         emu.set_pass_through(loaded.platform.passes_xy_through() || sgx_six);
+         let vb_buttons = self.app.latch_vb_pad(loaded.platform);
++        self.app.latch_console(loaded.platform);
+         emu.set_ws_pad(self.app.pad_code(loaded.platform));
+         self.gestures
+             .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
+diff --git a/crates/slot/tests/ps1_input.rs b/crates/slot/tests/ps1_input.rs
+index 8131d9e..1285d69 100644
+--- a/crates/slot/tests/ps1_input.rs
++++ b/crates/slot/tests/ps1_input.rs
+@@ -13,7 +13,7 @@ use slot::session::Session;
+ use slot::video_mode::VideoMode;
+ use slot_input::{Action, Btn, RawEvent};
+ use slot_retro::{ButtonMask, TurboMode};
+-use slot_store::{Controls, Platform};
++use slot_store::{console_factory, Platform};
+ 
+ const STEM: &str = "Tekken";
+ 
+@@ -47,7 +47,7 @@ fn the_ps1_face_buttons_go_to_the_core_by_position() {
+         let mut p = Pad::default();
+         p.apply(Action::GbaDown(btn));
+         assert_eq!(
+-            p.mask_for(&Controls::default(), Platform::Ps1).0,
++            p.mask_for(&console_factory(Platform::Ps1), Platform::Ps1).0,
+             bit,
+             "{pad}"
+         );
+@@ -60,13 +60,13 @@ fn l2_and_r2_are_the_libretro_ids_12_and_13() {
+         let mut p = Pad::default();
+         p.apply(Action::GbaDown(btn));
+         assert_eq!(
+-            p.mask_for(&Controls::default(), Platform::Ps1).0,
++            p.mask_for(&console_factory(Platform::Ps1), Platform::Ps1).0,
+             1 << id,
+             "{btn:?}"
+         );
+         p.apply(Action::GbaUp(btn));
+         assert_eq!(
+-            p.mask_for(&Controls::default(), Platform::Ps1).0,
++            p.mask_for(&console_factory(Platform::Ps1), Platform::Ps1).0,
+             0,
+             "{btn:?}"
+         );
+diff --git a/crates/slot/tests/snes_raw_buttons.rs b/crates/slot/tests/snes_raw_buttons.rs
+index 9fe20ee..74218ac 100644
+--- a/crates/slot/tests/snes_raw_buttons.rs
++++ b/crates/slot/tests/snes_raw_buttons.rs
+@@ -22,18 +22,21 @@ fn x_on_a_gba_game_is_upstreams_turbo_a() {
+ }
+ 
+ #[test]
+-fn turbo_a_moved_off_x_never_moves_the_snes_x_button() {
++fn the_snes_x_button_follows_its_row_off_x() {
+     let mut c = Controls::default();
+     c.set_game(GameButton::TurboA, Binding::plain(Device::L2));
+-    assert_eq!(x_held().mask_for(&c, Platform::Snes).0, ButtonMask::X);
++    assert_eq!(x_held().mask_for(&c, Platform::Snes).0, 0);
+     let mut pad = Pad::default();
+     pad.apply(Action::GbaDown(Btn::L2));
+-    assert_eq!(pad.mask_for(&c, Platform::Snes).0 & ButtonMask::X, 0);
++    assert_eq!(pad.mask_for(&c, Platform::Snes).0, ButtonMask::X);
+ }
+ 
+ #[test]
+-fn x_bound_to_a_presses_only_a_on_snes() {
++fn x_bound_to_a_presses_a_and_the_x_row_still_on_x() {
+     let mut c = Controls::default();
+     c.set_game(GameButton::A, Binding::plain(Device::X));
+-    assert_eq!(x_held().mask_for(&c, Platform::Snes).0, ButtonMask::A);
++    assert_eq!(
++        x_held().mask_for(&c, Platform::Snes).0,
++        ButtonMask::A | ButtonMask::X
++    );
+ }
