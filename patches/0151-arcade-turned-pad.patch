@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Thu, 22 Oct 2026 11:13:56 +0400
+Subject: [PATCH] arcade-turned-pad
+
+---
+ crates/slot/src/ws_input.rs            | 52 +++++++++++++++++---------
+ crates/slot/tests/arcade_turned_pad.rs | 30 +++++++++++++++
+ 2 files changed, 65 insertions(+), 17 deletions(-)
+ create mode 100644 crates/slot/tests/arcade_turned_pad.rs
+
+diff --git a/crates/slot/src/ws_input.rs b/crates/slot/src/ws_input.rs
+index b14e748..39cc952 100644
+--- a/crates/slot/src/ws_input.rs
++++ b/crates/slot/src/ws_input.rs
+@@ -12,7 +12,7 @@ const SIDEWAYS_DPAD: [u16; 4] = [M::LEFT, M::UP, M::RIGHT, M::DOWN];
+ pub const OFF: u8 = 0;
+ pub const HORIZONTAL: u8 = 1;
+ pub const VERTICAL: u8 = 2;
+-pub const SIDEWAYS: u8 = 3;
++pub const SIDEWAYS: u8 = 5;
+ 
+ pub fn pad_code(platform: Platform, vertical: bool, vb_buttons: bool) -> u8 {
+     match (platform, vertical) {
+@@ -114,6 +114,33 @@ pub struct WsPad {
+     alone: bool,
+ }
+ 
++pub fn turns(code: u8) -> bool {
++    matches!(code, HORIZONTAL | VERTICAL)
++}
++
++pub fn starting_layout(code: u8) -> Layout {
++    match code {
++        VERTICAL => Layout::Upright,
++        _ => Layout::Horizontal,
++    }
++}
++
++pub fn pass(code: u8, layout: Layout, mask: M) -> M {
++    if let Some(switched) = crate::atari_switches::remap(code, mask) {
++        return switched;
++    }
++    if code == OFF {
++        return mask;
++    }
++    if crate::vb_input::owns(code) {
++        return crate::vb_input::remap(code, mask);
++    }
++    if code == SIDEWAYS {
++        return Layout::Sideways.remap(mask);
++    }
++    layout.remap(mask)
++}
++
+ impl Default for WsPad {
+     fn default() -> Self {
+         WsPad {
+@@ -127,7 +154,7 @@ impl Default for WsPad {
+ 
+ impl WsPad {
+     pub fn on(&self) -> bool {
+-        matches!(self.code, HORIZONTAL | VERTICAL)
++        turns(self.code)
+     }
+ 
+     pub fn layout(&self) -> Layout {
+@@ -135,28 +162,19 @@ impl WsPad {
+     }
+ 
+     pub fn remap(&mut self, core: &mut dyn RetroCore, code: u8, mask: M) -> M {
+-        if let Some(switched) = crate::atari_switches::remap(code, mask) {
++        if crate::atari_switches::remap(code, mask).is_some() {
+             self.code = code;
+-            return switched;
++            return pass(code, self.layout, mask);
+         }
+         if code != self.code {
+             *self = WsPad {
+                 code,
+-                layout: match code {
+-                    VERTICAL => Layout::Upright,
+-                    _ => Layout::Horizontal,
+-                },
++                layout: starting_layout(code),
+                 ..WsPad::default()
+             };
+         }
+-        if code == OFF {
+-            return mask;
+-        }
+-        if crate::vb_input::owns(code) {
+-            return crate::vb_input::remap(code, mask);
+-        }
+-        if code == SIDEWAYS {
+-            return Layout::Sideways.remap(mask);
++        if !turns(code) {
++            return pass(code, self.layout, mask);
+         }
+         let select = mask.0 & M::SELECT != 0;
+         let others = mask.0 & !M::SELECT != 0;
+@@ -174,6 +192,6 @@ impl WsPad {
+             (true, false) | (false, false) => {}
+         }
+         self.select = select;
+-        self.layout.remap(mask)
++        pass(code, self.layout, mask)
+     }
+ }
+diff --git a/crates/slot/tests/arcade_turned_pad.rs b/crates/slot/tests/arcade_turned_pad.rs
+new file mode 100644
+index 0000000..7d1e00b
+--- /dev/null
++++ b/crates/slot/tests/arcade_turned_pad.rs
+@@ -0,0 +1,30 @@
++// A vertical CPS game turned sideways (CPS Vertical Games: Turned) keeps every button and has its
++// D-pad turned. Its pad code used to be the Virtual Boy's stick code, so the Virtual Boy filter took
++// X, Y, L2 and R2 away and left the D-pad as it was (ADR 0108).
++use slot::vb_input;
++use slot::ws_input::{pass, starting_layout, SIDEWAYS};
++use slot_retro::ButtonMask as M;
++
++fn turned(mask: u16) -> u16 {
++    pass(SIDEWAYS, starting_layout(SIDEWAYS), M(mask)).0
++}
++
++#[test]
++fn the_sideways_code_is_not_a_virtual_boy_code() {
++    assert!(!vb_input::owns(SIDEWAYS));
++}
++
++#[test]
++fn a_turned_game_keeps_x_y_l2_and_r2() {
++    for bit in [M::X, M::Y, M::L2, M::R2, M::A, M::B, M::L, M::R] {
++        assert_eq!(turned(bit), bit, "{bit:#06x}");
++    }
++}
++
++#[test]
++fn a_turned_game_has_its_d_pad_turned() {
++    assert_eq!(turned(M::UP), M::LEFT);
++    assert_eq!(turned(M::RIGHT), M::UP);
++    assert_eq!(turned(M::DOWN), M::RIGHT);
++    assert_eq!(turned(M::LEFT), M::DOWN);
++}

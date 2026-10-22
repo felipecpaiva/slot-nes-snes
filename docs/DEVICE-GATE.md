@@ -628,6 +628,38 @@ The maintainer's device runs Release year; every other card stays Classic.
 |---|---|---|---|---|
 | 1 to 6 | needs device | | | |
 
+## Controls page per shelf (ADR 0108)
+
+Run after any change to input, controls, the control table or a remap, and after every upstream rebase
+(CONTRIBUTING section 10). Named checks every time: **Knights of the Round** (CPS1, `knights`) and an
+**SNES game that uses X and Y** (Super Mario World).
+
+1. `task deploy:device`, then `task controls:device` (`scripts/device-controls.sh`): it boots each game of its
+   list with `SLOT_TRACE`, presses every device button and the WonderSwan Y-pad chords, ejects, puts the
+   device back, and fails on a button the core reads (`harness/controls-reads.tsv`) that no press reached.
+   Paste its per-game summary in the table.
+2. By hand, on every shelf with a game on the card: start a game, MENU > Settings > Controls > In-Game.
+   - The rows carry the console's own names (README "The Controls page"), and no row says Turbo on SNES,
+     Mega Drive, Sega CD, 32X, PlayStation, Atari, Virtual Boy, Neo Geo, Neo Geo CD, CPS1 or CPS2.
+   - SNES: X Button on X and Y Button on Y. Move X Button to L2 (A on the row, then L2): in game L2 is X,
+     X does nothing; `adb shell cat /mnt/sdcard/Config/controls/SNES.txt` says `turbo_a = l2`;
+     `Config/controls.txt` did not change; a GBA game still has Turbo A on X. Reset (Y) on the page puts
+     X Button back on X.
+   - PlayStation: L2 and R2 rows on L2 and R2, no warning triangle on any row or on Controls > Shortcuts.
+   - Virtual Boy: with Right Pad on ABXY, Right Pad Up/Right/Down/Left on X, A, B, Y and A and B Button on R2
+     and L2.
+3. Knights of the Round: the page shows Attack (B), Jump (A), Coin (SELECT), Start, and nothing else.
+   In game: SELECT gives CREDIT 1, START joins (the player select screen), B picks a knight, then B
+   attacks and A jumps, and B with A together does the special. Checked on the host on 2026-10-22
+   (`controls_real_games.rs` and a frame dump: coin, start and Attack all reach the board).
+4. A vertical CPS game turned (Settings > Screen > CPS1 or CPS2 > Vertical Games: Turned), for example 19XX:
+   the D-pad follows the turned screen and every shot and bomb button works.
+5. Ssf2t or another six-button CPS2 game: Weak, Medium, Strong Punch on Y, X, L1, the kicks on B, A, R1.
+
+| Step | Result | Date | Zip version | Notes |
+|---|---|---|---|---|
+| 1 to 5 | needs device | | main after ADR 0108 | device busy on 2026-10-22; host check `task test:controls` passed for all 26 shelves |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

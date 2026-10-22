@@ -16,7 +16,7 @@ code as possible, and prove GBA did not change.**
 2. **Upstream tests stay unmodified.** Every file under upstream `crates/*/tests/` and
    every `#[cfg(test)]` block in an upstream source file is byte-identical to the pinned
    release. `scripts/check-upstream-tests.sh` enforces it. The only allowed sites are these
-   nine, and the guard checks each one exactly:
+   ten (site (l) awaiting approval), and the guard checks each one exactly:
    - (a) `crates/slot-retro/src/libretro.rs`: one new `#[cfg(test)] mod env_tests;` declaration (issue 14). It is compared after whitespace is collapsed, so rustfmt's one-line and two-line forms both pass.
    - (b) `label_band` in `crates/slot-ui/tests/chrome.rs`: its Game Boy arm `Platform::Gb | Platform::Gbc` gains `| Platform::Nes` and then optionally `| Platform::Snes`, `| Platform::Gg`, `| Platform::Sms`, `| Platform::Md`, `| Platform::Ps1`, `| Platform::Tg16`, `| Platform::Ws`, `| Platform::Lynx`, `| Platform::Ngp`, `| Platform::S32x`, `| Platform::A2600`, `| Platform::A7800`, `| Platform::Vb`, `| Platform::NeoGeo`, `| Platform::Cps1`, `| Platform::Cps2`, `| Platform::Fds`, `| Platform::Pico8`, `| Platform::Sgx`, `| Platform::Pcecd`, `| Platform::SegaCd` and `| Platform::Neocd`, in that order (the Sega, PlayStation, TurboGrafx-16, WonderSwan, Lynx, Neo Geo Pocket, 32X, Atari, Virtual Boy, arcade, Disk System, PICO-8, SuperGrafx, PC Engine CD, Sega CD and Neo Geo CD tokens by the standing rule below, ADR 0055, ADR 0065, ADR 0091, ADR 0092, ADR 0093, ADR 0090, ADR 0096, ADR 0095, ADR 0097, ADR 0099, ADR 0101, ADR 0102, ADR 0103, ADR 0104, ADR 0105 and ADR 0107). The file must equal upstream byte for byte once those tokens are removed from that one line, so a reflowed arm, a whitespace edit or a token on the GBA arm fails. (Site (c), `label_top` in `render_shelves.rs`, was retired in v1.7.0-ns.1 when upstream deleted that helper, ADR 0044; the letters of the other sites stay as they were.)
    - (d) `an_unreadable_platform_reads_as_a_card_that_never_said` in `crates/slot-store/tests/durability.rs`: the single value `cart_platform=nes` becomes `cart_platform=pce` (a system this project will never add), because `nes` is now a real platform.
@@ -46,6 +46,16 @@ code as possible, and prove GBA did not change.**
      accepts the file without either.
      The Screen page following the shelf order (ADR 0100) needs no site: `QuickRow::SCREEN`, which
      site (g) pins, keeps the classic order, and the page reads `slot_ui::screen_page()`.
+
+   - (l) proposed on 2026-10-22 (ADR 0108), awaiting the maintainer's approval: `the_thumb_reaches_the_bottom_only_on_the_last_row`
+     in `crates/slot-ui/tests/quick_menu.rs` has its line `    let rows = QuickRow::CONTROLS;` read
+     `    let rows = QuickRow::IN_GAME;`, because the In-Game page gains the L2 and R2 rows after Turbo B
+     (`QuickRow::IN_GAME`, 14 rows; `QuickRow::CONTROLS` keeps its pinned 12 labels). The test asks that the
+     page's last row is the only one whose thumb touches the bottom, so it has to walk the whole page. Any other
+     place for the two rows breaks `turbo_b_moves_off_y_from_the_in_game_page` or
+     `in_game_buttons_are_set_from_the_main_menu_and_reach_a_game` in `slot/tests/bindings.rs` instead, which step
+     through the page by `position(&[])`. The guard turns exactly that line back before comparing and accepts the
+     file without it. Together with (g), (h), (j) and (k), any other line of that file changing still fails.
 
    **Standing rule for future sites:** a new site may be added without asking only if it
    appends a new variant token to an existing arm of an existing exhaustive match. It must
@@ -151,7 +161,7 @@ drop it on the next rebase.
   Sega platforms, `ps1_common/mod.rs` for PlayStation (`pcsx_rearmed()`, `disc(dir, stem)`:
   a generated PS-X EXE on a generated ISO9660 `.bin` and `.cue`; tests force
   `pcsx_rearmed_bios=HLE`, so no BIOS is ever needed), and `tg16_common/mod.rs` for TurboGrafx-16
-  (`pce_fast()`, `hucard(dir, stem)`: a generated 8 KB HuCard that paints the screen red), `sgx_common/mod.rs` for the SuperGrafx (`supergrafx()`, `card(dir, stem, ext)`: the same HuCard as `.sgx` or `.pce`, and `work_ram_size(dylib)`, which reads the core's 8 or 32 KB of work RAM), `pcecd_common/mod.rs` for the PC Engine CD (`pce_fast()`, `disc(dir, stem)`: a generated cue and bin, an audio track then a data track, `placeholder_card()`: the TurboGrafx-16 paint program padded to a 256 KB System Card, `put_card(root, bytes)`, `real_card()` and `real_disc()`: the maintainer's own `syscard3.pce` and disc from `SLOT_PCECD_BIOS` and `SLOT_PCECD_DISC`), `atari_common/mod.rs` for the Atari 2600 and 7800 (`stella()`, `prosystem()`, `a26(dir, stem, bg, lines)`, `a78(dir, stem, colour, pal, header)`: generated carts that paint the background), and `s32x_common/mod.rs` for the 32X (`picodrive()`, `Cart`, `cart(dir, stem)`: a generated cart whose 68000 waits for the SH-2s' M_OK before it paints the screen red), `vb_common/mod.rs` for the Virtual Boy (`beetle_vb()`, `Cart`, `cart(dir, stem)`: a generated cart that draws a different band in each eye's frame buffer, and `keypad_cart(dir, stem)`, which copies the pad word into cart RAM), and `arcade_common/mod.rs` for the arcade boards (`fbneo()`, `Set`, `install(root, set)`, `install_neogeo_bios(root)`: zero-filled zips with the pinned dat's member names and sizes, which FBNeo reads from `BIOS/fbneo/patched/` without the CRC check), and `fds_common/mod.rs` for the Famicom Disk System (`fceumm()`, `disk(dir, stem, sides, headered)`: a generated disk with `*NINTENDO-HVC*` on every side, `placeholder_bios()`: 8 KB of zeros fceumm loads a disk under, `fds_bios()`: the maintainer's own `disksys.rom` from `SLOT_FDS_BIOS`), and `pico8_common/mod.rs` for PICO-8 (`fake08()`, `text_cart(dir, stem, title)` and `png_cart(dir, file, title)`: a generated text cart and `.p8.png` cart whose red band is as wide as cartdata slot 0), and `segacd_common/mod.rs` for Sega CD (`genesis_plus_gx()`, `iso_disc(dir, stem, region)`, `cue_disc` and `chd_disc`: a generated data track with the Sega CD volume header and the region byte at 0x20b but no security code, so it never runs a program, `dummy_bios()`: a 128 KB boot ROM that spins, which the core accepts because it checks nothing in the BIOS, `real_bios()`: the maintainer's own `bios_CD_U.bin` from `SLOT_SEGACD_BIOS`, `put_bios(root, file, bytes)`, `assert_formatted_bram(path)`), `neocd_common/mod.rs` for the Neo Geo CD (`neocd()`, `disc(dir, stem)`: a generated cue and bin, `placeholder_bios(family)` and `put_placeholders(root)`: 512 KB files carrying only the bytes NeoCD identifies a model by, `real_bios(root)` from the folder `SLOT_NEOCD_BIOS`, `real_disc()` from `SLOT_NEOCD_DISC`). A shared test module starts with `#![allow(dead_code)]`, as upstream's
+  (`pce_fast()`, `hucard(dir, stem)`: a generated 8 KB HuCard that paints the screen red), `sgx_common/mod.rs` for the SuperGrafx (`supergrafx()`, `card(dir, stem, ext)`: the same HuCard as `.sgx` or `.pce`, and `work_ram_size(dylib)`, which reads the core's 8 or 32 KB of work RAM), `pcecd_common/mod.rs` for the PC Engine CD (`pce_fast()`, `disc(dir, stem)`: a generated cue and bin, an audio track then a data track, `placeholder_card()`: the TurboGrafx-16 paint program padded to a 256 KB System Card, `put_card(root, bytes)`, `real_card()` and `real_disc()`: the maintainer's own `syscard3.pce` and disc from `SLOT_PCECD_BIOS` and `SLOT_PCECD_DISC`), `atari_common/mod.rs` for the Atari 2600 and 7800 (`stella()`, `prosystem()`, `a26(dir, stem, bg, lines)`, `a78(dir, stem, colour, pal, header)`: generated carts that paint the background), and `s32x_common/mod.rs` for the 32X (`picodrive()`, `Cart`, `cart(dir, stem)`: a generated cart whose 68000 waits for the SH-2s' M_OK before it paints the screen red), `vb_common/mod.rs` for the Virtual Boy (`beetle_vb()`, `Cart`, `cart(dir, stem)`: a generated cart that draws a different band in each eye's frame buffer, and `keypad_cart(dir, stem)`, which copies the pad word into cart RAM), and `arcade_common/mod.rs` for the arcade boards (`fbneo()`, `Set`, `install(root, set)`, `install_neogeo_bios(root)`: zero-filled zips with the pinned dat's member names and sizes, which FBNeo reads from `BIOS/fbneo/patched/` without the CRC check), and `fds_common/mod.rs` for the Famicom Disk System (`fceumm()`, `disk(dir, stem, sides, headered)`: a generated disk with `*NINTENDO-HVC*` on every side, `placeholder_bios()`: 8 KB of zeros fceumm loads a disk under, `fds_bios()`: the maintainer's own `disksys.rom` from `SLOT_FDS_BIOS`), and `pico8_common/mod.rs` for PICO-8 (`fake08()`, `text_cart(dir, stem, title)` and `png_cart(dir, file, title)`: a generated text cart and `.p8.png` cart whose red band is as wide as cartdata slot 0), and `segacd_common/mod.rs` for Sega CD (`genesis_plus_gx()`, `iso_disc(dir, stem, region)`, `cue_disc` and `chd_disc`: a generated data track with the Sega CD volume header and the region byte at 0x20b but no security code, so it never runs a program, `dummy_bios()`: a 128 KB boot ROM that spins, which the core accepts because it checks nothing in the BIOS, `real_bios()`: the maintainer's own `bios_CD_U.bin` from `SLOT_SEGACD_BIOS`, `put_bios(root, file, bytes)`, `assert_formatted_bram(path)`), `neocd_common/mod.rs` for the Neo Geo CD (`neocd()`, `disc(dir, stem)`: a generated cue and bin, `placeholder_bios(family)` and `put_placeholders(root)`: 512 KB files carrying only the bytes NeoCD identifies a model by, `real_bios(root)` from the folder `SLOT_NEOCD_BIOS`, `real_disc()` from `SLOT_NEOCD_DISC`), and `controls_common/mod.rs` for the controls tests (`reads(mode)`: the RetroPad ids each core reads, `modes(platform)`: the pad modes to walk, ADR 0108). A shared test module starts with `#![allow(dead_code)]`, as upstream's
   `common/mod.rs` does, because each test binary uses only part of it; nothing else allows it.
 - **Names:** a plain sentence, like upstream:
   `fn a_nes_cart_lands_on_its_own_shelf()`, `fn select_x_never_reaches_the_snes_game()`.
@@ -228,7 +238,30 @@ Stop, write the question on the issue, and wait when:
 
 Guessing and moving on is the one thing that costs more than asking.
 
-## 10. Writing (docs, issues, PR text)
+## 10. Controls (ADR 0108)
+
+Every button a system's core reads is a row on that system's In-Game Controls page, named after the
+console's own button, and reaches the core from its row's device button. Keep it that way:
+
+- **Any change to input, controls, the control table, a remap (`ws_input.rs`, `vb_input.rs`,
+  `atari_switches.rs`, `arcade_turn.rs`), a core's input options, or an upstream rebase** runs, before the pull
+  request is ready:
+  - `task check`, which includes `slot/tests/controls_pages.rs` (every shelf, every pad mode, no cores),
+    `slot/tests/arcade_controls.rs` (FBNeo's own input list per set) and `slot/tests/console_controls.rs`;
+  - `task test:controls` on a machine with the maintainer's library (one real game per shelf from
+    `harness/controls-games.tsv`, the core's own answers read back); paste its summary lines in the PR;
+  - DEVICE-GATE "Controls page per shelf", or `task controls:device`, with **Knights of the Round (CPS1,
+    `knights`)** and **an SNES game that uses X and Y (Super Mario World)** as the named device checks. Mark it
+    "needs device" when the device is not free, never skip it silently.
+- **A new `Platform`** is not done until it has: its list of the ids its core reads in `reads` in
+  `controls_common/mod.rs` (`controls_pages.rs` does not compile without it) and in `harness/controls-reads.tsv`, its names in `console_pad::core_name` taken from
+  the core's input code at the pinned commit (cite the lines in its ADR), a line in `harness/controls-games.tsv`,
+  and a row in DEVICE-GATE "Controls page per shelf".
+- What a core reads lives in one place, `controls_common::reads` (`crates/slot/tests/controls_common/mod.rs`),
+  mirrored as hex masks in `harness/controls-reads.tsv` for the device script (`controls_pages.rs` fails if they
+  drift). Change it only from the core's input code at the pinned commit, never to make a run pass.
+
+## 11. Writing (docs, issues, PR text)
 
 - Plain, short sentences. Concrete numbers and file paths.
 - No em dashes or en dashes. Use commas, periods or parentheses.
