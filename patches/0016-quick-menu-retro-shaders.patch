@@ -21,11 +21,11 @@ Subject: [PATCH] quick-menu-retro-shaders
  create mode 100644 crates/slot/tests/render_quick_retro.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 1621e45..31b917f 100644
+index e9058c3..63dfa70 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -21,6 +21,7 @@ mod plate;
- mod polaroids;
+@@ -22,6 +22,7 @@ mod polaroids;
+ mod shot_viewer;
  mod power_menu;
  mod quick_menu;
 +mod quick_retro;
@@ -33,33 +33,33 @@ index 1621e45..31b917f 100644
  mod refusal;
  mod retro_cart;
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 968db45..f18d465 100644
+index 4cd949c..9f39e1f 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -91,10 +91,12 @@ pub enum QuickRow {
-     PlayBrightness,
-     PlayBlueLight,
+@@ -96,10 +96,12 @@ pub enum QuickRow {
+     UndoSave,
+     UndoLoad,
      ScPictureNext,
 +    NesShader,
 +    SnesShader,
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 80] = [
-+    pub const ALL: [QuickRow; 82] = [
+-    pub const ALL: [QuickRow; 85] = [
++    pub const ALL: [QuickRow; 87] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -175,6 +177,8 @@ impl QuickRow {
-         QuickRow::PlayBrightness,
-         QuickRow::PlayBlueLight,
+@@ -185,6 +187,8 @@ impl QuickRow {
+         QuickRow::UndoSave,
+         QuickRow::UndoLoad,
          QuickRow::ScPictureNext,
 +        QuickRow::NesShader,
 +        QuickRow::SnesShader,
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -350,6 +354,8 @@ impl QuickRow {
+@@ -370,6 +374,8 @@ impl QuickRow {
              QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
                  &QuickRow::PLAY_SCREEN
              }
@@ -68,7 +68,7 @@ index 968db45..f18d465 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -369,6 +375,7 @@ impl QuickRow {
+@@ -389,6 +395,7 @@ impl QuickRow {
              QuickRow::Theme => Some(QuickRow::General),
              QuickRow::ControlsShelf => Some(QuickRow::Controls),
              QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
@@ -76,7 +76,7 @@ index 968db45..f18d465 100644
              _ => None,
          }
      }
-@@ -508,6 +515,8 @@ impl QuickRow {
+@@ -533,6 +540,8 @@ impl QuickRow {
              QuickRow::GbcBezel => "Bezel",
              QuickRow::GbaBezel => "Bezel",
              QuickRow::Bezel => "Bezel",
@@ -152,10 +152,10 @@ index 0000000..4f5fd2e
 +    );
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 472aabc..8012b87 100644
+index ca50376..b9c29f4 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -901,7 +901,8 @@ impl App {
+@@ -999,7 +999,8 @@ impl App {
  
      pub fn in_game_hidden(&self) -> Vec<QuickRow> {
          let no_bezel = self.playing_platform() == Platform::Gba && !self.framed_panel();
@@ -165,7 +165,7 @@ index 472aabc..8012b87 100644
          if !self.palette_live {
              hidden.push(QuickRow::Palette);
          }
-@@ -936,10 +937,12 @@ impl App {
+@@ -1104,10 +1105,12 @@ impl App {
              (QuickRow::Shader, Platform::Gba) => QuickRow::GbaShader,
              (QuickRow::Shader, Platform::Gb) => QuickRow::GbShader,
              (QuickRow::Shader, Platform::Gbc) => QuickRow::GbcShader,
@@ -179,7 +179,7 @@ index 472aabc..8012b87 100644
              (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
              (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
              (QuickRow::PlayBrightness, _) => QuickRow::Brightness,
-@@ -953,7 +956,9 @@ impl App {
+@@ -1121,7 +1124,9 @@ impl App {
              QuickRow::Shader
              | QuickRow::ColourCorrection
              | QuickRow::PlayBrightness
@@ -190,7 +190,7 @@ index 472aabc..8012b87 100644
              QuickRow::Brightness => Some(QuickValue::level(self.state.brightness)),
              QuickRow::BlueLight => Some(match self.state.blue_light {
                  0 => QuickValue::Off,
-@@ -972,6 +977,8 @@ impl App {
+@@ -1140,6 +1145,8 @@ impl App {
              QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
              QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
              QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
@@ -198,8 +198,8 @@ index 472aabc..8012b87 100644
 +            QuickRow::SnesShader => Some(shader_value(self.state.shader_snes)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
-             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
-@@ -2567,7 +2574,7 @@ impl App {
+             QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
+@@ -2763,7 +2770,7 @@ impl App {
              | QuickRow::Controls
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame => {
@@ -208,7 +208,7 @@ index 472aabc..8012b87 100644
                      let row = row.shown(&self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
                  }
-@@ -2638,7 +2645,9 @@ impl App {
+@@ -2839,7 +2846,9 @@ impl App {
              | QuickRow::ScFastForward
              | QuickRow::ScRewind
              | QuickRow::ScPictureNext
@@ -219,7 +219,7 @@ index 472aabc..8012b87 100644
          }
      }
  
-@@ -2763,6 +2772,7 @@ impl App {
+@@ -2965,6 +2974,7 @@ impl App {
              QuickRow::Turbo => s.turbo = !s.turbo,
              QuickRow::Rewind => s.rewind = !s.rewind,
              QuickRow::Theme => s.appearance = s.appearance.toggle(),
@@ -228,10 +228,10 @@ index 472aabc..8012b87 100644
              QuickRow::ScreenGeneral
              | QuickRow::Brightness
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index cb7ad3d..f54eb7c 100644
+index 5dc519d..e5ad142 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -47,6 +47,7 @@ pub mod persist;
+@@ -48,6 +48,7 @@ pub mod persist;
  pub mod platform_video;
  pub mod prefetch;
  pub mod resample;

@@ -122,6 +122,7 @@ the patch set looks the way it does.
 | [0103](0103-supergrafx-on-beetle-supergrafx.md) | Bring the PC Engine SuperGrafx into scope on pinned Beetle SuperGrafx, a shelf of its own beside an unchanged TurboGrafx-16 | Accepted. Amends 0002 and 0091 | 2026-10-21 |
 | [0104](0104-pc-engine-cd-on-beetle-pce-fast.md) | Bring the PC Engine CD into scope on the shipped Beetle PCE Fast, built with its CHD reader, a disc shelf of its own | Accepted. Amends 0002 and 0091 | 2026-10-21 |
 | [0105](0105-sega-cd-on-genesis-plus-gx.md) | Bring Sega CD / Mega-CD into scope on the Genesis Plus GX already shipped, with a BIOS check and the core's backup RAM made durable | Accepted. Amends 0053 | 2026-10-21 |
-| [0106](0106-rebase-to-slot-v1-8-0.md) | Rebase the patch set onto slot v1.8.0 and put our chords in its control table | Accepted. Amended by 0108 | 2026-10-21 |
+| [0106](0106-rebase-to-slot-v1-8-0.md) | Rebase the patch set onto slot v1.8.0 and put our chords in its control table | Accepted. Amended by 0108 and 0109 | 2026-10-21 |
 | [0107](0107-neo-geo-cd-on-neocd.md) | Bring the Neo Geo CD into scope on pinned NeoCD, a disc shelf of its own with a BIOS model row | Accepted. Amends 0002 | 2026-10-21 |
 | [0108](0108-console-buttons-on-the-in-game-controls-page.md) | Every console button is a row on the In-Game Controls page, named and saved per system | Accepted. Amends 0099 and 0106 | 2026-10-22 |
+| [0109](0109-rebase-to-slot-v1-9-0.md) | Rebase onto slot v1.9.0, give SELECT+X to upstream's Screenshot and let upstream's loading mark carry the crash guard | Accepted. Amends 0084 and 0106 | 2026-10-25 |

@@ -660,6 +660,27 @@ Run after any change to input, controls, the control table or a remap, and after
 |---|---|---|---|---|
 | 1 to 5 | needs device | | main after ADR 0108 | device busy on 2026-10-22; host check `task test:controls` passed for all 26 shelves |
 
+## Rebase onto slot v1.9.0 (ADR 0109)
+
+Needs device. Each row is an overlap with something upstream changed; "pending" until the maintainer ticks it.
+
+| Check | How | Result |
+|---|---|---|
+| Crash guard with each CD system | for PS1, PC Engine CD, Sega CD and Neo Geo CD: start a disc, kill slot (`kill -9`) during the load, boot again: shelf, that cart selected, "Last start failed", the resume state moved to `resume-refused-*.state`; a second start plays and the next boot resumes | pending |
+| Resume after a clean stop | play 15 s on a GBA game, power tap, boot: it resumes, no banner | pending |
+| Game save every minute | NGP (flash), PS1 (memory card), FDS, PICO-8 (cartdata), Neo Geo CD and Sega CD (backup RAM): save in game, wait 70 s, pull the card image or read it over ADB: the `.sav` or card file changed | pending |
+| Resume every five minutes | same games, wait 5 min: `States/.../resume.state` appears | pending |
+| Expansion Card repair | with the Expansion Card in, trigger a card repair (`touch` the dirty flag as in the Expansion Card section): binds unmounted, repair result clean, device restarts, no hang | pending |
+| Audio at boot | cold boot to the shelf: the BaseOS startup sound plays; start a game: sound as before, no new clip at the start | pending |
+| Fast Forward Off | Settings > Gameplay > Fast Forward Off: R2 held does nothing and refuses, on a GBA and a PS1 game (also SELECT+R2 on PS1); a set speed still works | pending |
+| Load State on Insert | off: inserting and booting with a cart starts it clean, including a PS1 multi-disc game; on: it resumes | pending |
+| Undo Save and Undo Load | save with SELECT+R1, open the in-game menu: Undo Save under Resume for 30 s; the same for Load | pending |
+| Picture Next and Screenshot | SNES, MD, PS1, WS, Lynx, NGP, 32X, VB, arcade, PICO-8, SuperGrafx: SELECT+Y flips the picture, SELECT+X takes a screenshot; GBA: SELECT+X screenshot, SELECT+Y colour correction; no clash triangle on Controls > Shortcuts on a fresh card | pending |
+| Slow cores under the new limits | load and eject Neo Geo CD and a 489600-hunk CHD game; save a state on each CD system: `slot.log` has no "no state after 2 s" and no "has not stopped after 10 s" | pending |
+| Label caching on the 20k-game card | boot with the labels cache cold: the shelf comes up, "label cache" lines show progress, no 20 s stall line | pending |
+| Boot time | `task readout:device` boot lines against the v1.8.0 run | pending |
+| Controls | `task controls:device` and DEVICE-GATE "Controls page per shelf" (Knights of the Round, Super Mario World) | pending |
+
 ## Core bench on the device (test carts)
 
 `task bench:device CORE=<core> ROM=<path>`. Emulation only, no video or audio, so it shows headroom, not the gate. Generated test carts (`harness/make_assets.py nes|snes`) are tiny, so real games cost more. Use your own dumps of the 11 titles for real numbers.

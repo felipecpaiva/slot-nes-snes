@@ -1,8 +1,8 @@
-# slot NES/SNES: patch set over pinned slot v1.8.0, phased build plan (RG34XXSP reference)
+# slot NES/SNES: patch set over pinned slot v1.9.0, phased build plan (RG34XXSP reference)
 
 > Built against slot v1.6.0 (`9d7c795`), rebased onto v1.7.0 (`34ac380`) on 2026-10-15 (ADR 0038) and
 > onto upstream main `1b20432` (no 1.8.0 tag yet) on 2026-10-18 (ADR 0083) and onto v1.8.0 (`0ceac65`)
-> on 2026-10-21 (ADR 0106).
+> on 2026-10-21 (ADR 0106) and onto v1.9.0 (`20703ed`) on 2026-10-25 (ADR 0109).
 > Version numbers below follow `SLOT_PIN`; the phase history is unchanged.
 
 ## Plan changelog
@@ -28,6 +28,7 @@ Each row is one editing round. Read only the rows you haven't seen.
 | 15 | Spec (Who it's NOT for), Phase 21 | PC Engine CD in the patch set on the shipped Beetle PCE Fast built with CHD (patches 0135 to 0138, ADR 0104), device gate (issue 221) pending |
 | 16 | Spec (Who it's NOT for), Phase 22 | Sega CD / Mega-CD in the patch set on the shipped Genesis Plus GX (patches 0139 to 0146, ADR 0105), device gate (issue 232) pending |
 | 17 | Spec (Who it's NOT for), Phase 23 | Neo Geo CD in the patch set on NeoCD (patches 0147 to 0150, ADR 0107), device gate (issue 238) pending |
+| 18 | Header | Base moves to slot v1.9.0 (patches 0155 and 0156 added, ADR 0109): Picture Next on SELECT+Y, crash guard on upstream's loading mark |
 
 From now on, every edit round adds one row above and posts the same diff in chat.
 

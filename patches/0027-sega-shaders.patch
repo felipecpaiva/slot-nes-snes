@@ -4,7 +4,7 @@ Date: Fri, 16 Oct 2026 09:29:02 +0400
 Subject: [PATCH] sega-shaders
 
 ---
- crates/slot-store/src/lib.rs                 |   2 +
+ crates/slot-store/src/lib.rs                 |   4 +-
  crates/slot-store/src/sega_shader.rs         |  59 ++++++
  crates/slot-store/tests/sega_shader_state.rs |  57 ++++++
  crates/slot-ui/src/quick_menu.rs             |  42 ++++-
@@ -17,7 +17,7 @@ Subject: [PATCH] sega-shaders
  crates/slot/tests/render_sega_quick.rs       |  90 +++++++++
  crates/slot/tests/sega_ingame_shader.rs      |  75 ++++++++
  crates/slot/tests/sega_quick_shader.rs       | 187 +++++++++++++++++++
- 13 files changed, 648 insertions(+), 30 deletions(-)
+ 13 files changed, 649 insertions(+), 31 deletions(-)
  create mode 100644 crates/slot-store/src/sega_shader.rs
  create mode 100644 crates/slot-store/tests/sega_shader_state.rs
  create mode 100644 crates/slot/tests/render_sega_quick.rs
@@ -25,7 +25,7 @@ Subject: [PATCH] sega-shaders
  create mode 100644 crates/slot/tests/sega_quick_shader.rs
 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 13fb7e4..e4b37e2 100644
+index b7ddb4b..4a62d23 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
 @@ -22,6 +22,7 @@ mod retro_shader;
@@ -34,16 +34,19 @@ index 13fb7e4..e4b37e2 100644
  pub mod sega;
 +mod sega_shader;
  mod shelf_carts;
+ mod shots;
  mod slot_state;
- pub mod snes;
-@@ -44,6 +45,7 @@ pub use platform::Platform;
+@@ -45,8 +46,9 @@ pub use platform::Platform;
  pub use retro_shader::RetroShader;
  pub use ring::{StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+-pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 +pub use sega_shader::{read_sega_shaders, write_sega_shaders, SegaShaders, SEGA_SHADERS_FILE};
  pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
++pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
  pub use slot_state::{
      read_slot_state, write_slot_state, Appearance, BezelPick, Recent, Shader, SlotState,
+     WallpaperPick, WallpaperTint, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, FF_SPEED_DEFAULT,
 diff --git a/crates/slot-store/src/sega_shader.rs b/crates/slot-store/src/sega_shader.rs
 new file mode 100644
 index 0000000..1c05bbb
@@ -173,10 +176,10 @@ index 0000000..61c40b0
 +    assert_eq!(read_slot_state(d.path()), SlotState::default());
 +}
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index abdf2d5..781fc6a 100644
+index c96a844..02862eb 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -95,10 +95,16 @@ pub enum QuickRow {
+@@ -100,10 +100,16 @@ pub enum QuickRow {
      SnesShader,
      ScreenNes,
      ScreenSnes,
@@ -189,12 +192,12 @@ index abdf2d5..781fc6a 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 84] = [
-+    pub const ALL: [QuickRow; 90] = [
+-    pub const ALL: [QuickRow; 89] = [
++    pub const ALL: [QuickRow; 95] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -183,6 +189,12 @@ impl QuickRow {
+@@ -193,6 +199,12 @@ impl QuickRow {
          QuickRow::SnesShader,
          QuickRow::ScreenNes,
          QuickRow::ScreenSnes,
@@ -207,7 +210,7 @@ index abdf2d5..781fc6a 100644
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -247,13 +259,16 @@ impl QuickRow {
+@@ -258,13 +270,16 @@ impl QuickRow {
          QuickRow::ScPictureNext,
      ];
  
@@ -225,7 +228,7 @@ index abdf2d5..781fc6a 100644
      ];
  
      pub const SCREEN_GENERAL: [QuickRow; 2] = [QuickRow::Brightness, QuickRow::BlueLight];
-@@ -320,7 +335,10 @@ impl QuickRow {
+@@ -335,7 +350,10 @@ impl QuickRow {
              | QuickRow::ScreenGbc
              | QuickRow::ScreenGb
              | QuickRow::ScreenNes
@@ -237,7 +240,7 @@ index abdf2d5..781fc6a 100644
              QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
              QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
              QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-@@ -364,6 +382,9 @@ impl QuickRow {
+@@ -384,6 +402,9 @@ impl QuickRow {
              }
              QuickRow::NesShader => &QuickRow::SCREEN_NES,
              QuickRow::SnesShader => &QuickRow::SCREEN_SNES,
@@ -247,7 +250,7 @@ index abdf2d5..781fc6a 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -385,6 +406,9 @@ impl QuickRow {
+@@ -405,6 +426,9 @@ impl QuickRow {
              QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
              QuickRow::NesShader => Some(QuickRow::ScreenNes),
              QuickRow::SnesShader => Some(QuickRow::ScreenSnes),
@@ -257,7 +260,7 @@ index abdf2d5..781fc6a 100644
              _ => None,
          }
      }
-@@ -427,6 +451,9 @@ impl QuickRow {
+@@ -447,6 +471,9 @@ impl QuickRow {
              QuickRow::ScreenGb => Some(QuickRow::SCREEN_GB[0]),
              QuickRow::ScreenNes => Some(QuickRow::SCREEN_NES[0]),
              QuickRow::ScreenSnes => Some(QuickRow::SCREEN_SNES[0]),
@@ -267,7 +270,7 @@ index abdf2d5..781fc6a 100644
              _ => None,
          }
      }
-@@ -530,6 +557,12 @@ impl QuickRow {
+@@ -555,6 +582,12 @@ impl QuickRow {
              QuickRow::SnesShader => "Shader",
              QuickRow::ScreenNes => "NES",
              QuickRow::ScreenSnes => "SNES",
@@ -280,7 +283,7 @@ index abdf2d5..781fc6a 100644
          }
      }
  
-@@ -558,6 +591,9 @@ impl QuickRow {
+@@ -586,6 +619,9 @@ impl QuickRow {
                  | QuickRow::ScreenGeneral
                  | QuickRow::ScreenNes
                  | QuickRow::ScreenSnes
@@ -305,10 +308,10 @@ index ce24cc4..f1fbe6b 100644
  
  impl QuickValue {
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index cc37267..8f107ad 100644
+index 3d7ea9c..d6d3c58 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -103,7 +103,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
@@ -317,12 +320,12 @@ index cc37267..8f107ad 100644
      );
      assert_eq!(
          QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-@@ -156,7 +156,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             QuickRow::Controls,
-             QuickRow::ControlsShelf,
+@@ -161,7 +161,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              QuickRow::ControlsInGame,
--            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes
-+            QuickRow::ScreenGeneral, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd
+             QuickRow::ScreenGeneral,
+             QuickRow::UndoSave,
+-            QuickRow::UndoLoad, QuickRow::ScreenNes, QuickRow::ScreenSnes
++            QuickRow::UndoLoad, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenGg, QuickRow::ScreenSms, QuickRow::ScreenMd
          ]
      );
      for page in [
@@ -377,18 +380,18 @@ index 6762304..e95a0e8 100644
          assert_eq!(console.child(), Some(row));
          assert_eq!(row.page(), [row]);
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 330e2ce..52b631e 100644
+index 350c0f6..66ef0a2 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -455,6 +455,7 @@ pub struct App {
-     state_writer: crate::state_writer::StateWriter,
+@@ -474,6 +474,7 @@ pub struct App {
+     delete_shot_text: Option<[(TexId, u32, u32); 2]>,
      shelf_carts: Vec<(String, Recent)>,
      frame_w: u32,
 +    sega_shaders: slot_store::SegaShaders,
      rested: Option<(usize, usize)>,
  }
  
-@@ -636,6 +637,7 @@ impl App {
+@@ -671,6 +672,7 @@ impl App {
              powering_off: false,
              shelf_carts: Vec::new(),
              frame_w: 0,
@@ -396,7 +399,7 @@ index 330e2ce..52b631e 100644
              rested: None,
          }
      }
-@@ -652,6 +654,7 @@ impl App {
+@@ -692,6 +694,7 @@ impl App {
          app.shortcuts = read_shortcuts(root);
          app.controls = read_controls(root);
          app.shelf_carts = slot_store::read_shelf_carts(root);
@@ -404,7 +407,7 @@ index 330e2ce..52b631e 100644
          app.restock_recents();
          app.restock_favorites();
          for at in 0..app.shelves.len() {
-@@ -1008,6 +1011,9 @@ impl App {
+@@ -1176,6 +1179,9 @@ impl App {
              (QuickRow::Shader, Platform::Gbc) => QuickRow::GbcShader,
              (QuickRow::Shader, Platform::Nes) => QuickRow::NesShader,
              (QuickRow::Shader, Platform::Snes) => QuickRow::SnesShader,
@@ -414,7 +417,7 @@ index 330e2ce..52b631e 100644
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gb) => QuickRow::GbColourCorrection,
              (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
-@@ -1056,6 +1062,9 @@ impl App {
+@@ -1224,6 +1230,9 @@ impl App {
              QuickRow::GbcShader => Some(shader_value(self.state.shader_gbc)),
              QuickRow::NesShader => Some(shader_value(self.state.shader_nes)),
              QuickRow::SnesShader => Some(shader_value(self.state.shader_snes)),
@@ -423,8 +426,8 @@ index 330e2ce..52b631e 100644
 +            QuickRow::MdShader => Some(shader_value(self.sega_shaders.md)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
-             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
-@@ -1103,6 +1112,9 @@ impl App {
+             QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
+@@ -1275,6 +1284,9 @@ impl App {
              | QuickRow::ScreenGb
              | QuickRow::ScreenNes
              | QuickRow::ScreenSnes
@@ -434,7 +437,7 @@ index 330e2ce..52b631e 100644
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -1362,10 +1374,9 @@ impl App {
+@@ -1541,10 +1553,9 @@ impl App {
              self.state.wallpaper,
              WallpaperPick::File(_) | WallpaperPick::Random
          );
@@ -448,7 +451,7 @@ index 330e2ce..52b631e 100644
          if !own {
              hidden.push(QuickRow::WallpaperTint);
          }
-@@ -2177,7 +2188,9 @@ impl App {
+@@ -2356,7 +2367,9 @@ impl App {
              Platform::Gbc => self.state.shader_gbc,
              Platform::Nes => self.state.shader_nes,
              Platform::Snes => self.state.shader_snes,
@@ -459,7 +462,7 @@ index 330e2ce..52b631e 100644
          }
      }
  
-@@ -2682,7 +2695,10 @@ impl App {
+@@ -2878,7 +2891,10 @@ impl App {
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame
              | QuickRow::ScreenNes
@@ -471,7 +474,7 @@ index 330e2ce..52b631e 100644
                  if let Some(row) = row.child() {
                      let row = row.shown(&self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
-@@ -2756,12 +2772,19 @@ impl App {
+@@ -2957,12 +2973,19 @@ impl App {
              | QuickRow::ScPictureNext
              | QuickRow::LidOff
              | QuickRow::NesShader
@@ -492,7 +495,7 @@ index 330e2ce..52b631e 100644
          if let QuickRow::Brightness | QuickRow::BlueLight = row {
              let (kind, now, max) = match row {
                  QuickRow::Brightness => {
-@@ -2882,6 +2905,7 @@ impl App {
+@@ -3084,6 +3107,7 @@ impl App {
              QuickRow::Rewind => s.rewind = !s.rewind,
              QuickRow::Theme => s.appearance = s.appearance.toggle(),
              QuickRow::NesShader | QuickRow::SnesShader => crate::retro_quick::step(s, row, right),
@@ -500,7 +503,7 @@ index 330e2ce..52b631e 100644
              QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
              QuickRow::ScreenGeneral
              | QuickRow::Brightness
-@@ -2910,6 +2934,9 @@ impl App {
+@@ -3115,6 +3139,9 @@ impl App {
              | QuickRow::ScreenGb
              | QuickRow::ScreenNes
              | QuickRow::ScreenSnes
@@ -510,7 +513,7 @@ index 330e2ce..52b631e 100644
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -2969,7 +2996,9 @@ impl App {
+@@ -3175,7 +3202,9 @@ impl App {
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
              Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
              Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
@@ -521,7 +524,7 @@ index 330e2ce..52b631e 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -2981,6 +3010,7 @@ impl App {
+@@ -3187,6 +3216,7 @@ impl App {
              Shader::Retro(s) => Toast::Retro(s),
          };
          self.persist();
@@ -529,7 +532,7 @@ index 330e2ce..52b631e 100644
          self.hud.toast(said, self.now());
      }
  
-@@ -3704,6 +3734,13 @@ impl App {
+@@ -3924,6 +3954,13 @@ impl App {
          self.card_writes.wrote("slot.state", &written);
      }
  

@@ -1,6 +1,6 @@
 # 0084. Keep a cart whose last start never finished on the shelf
 
-- Status: Accepted. Drop when the upstream PR lands (0047)
+- Status: Accepted. Amended by [0109](0109-rebase-to-slot-v1-9-0.md): upstream's loading mark (v1.9.0) replaced the detection, only the banner and the selected cart are ours
 - Date: 2026-10-18
 - Deciders: maintainer (Felipe Paiva)
 - Related: [ADR 0047](0047-upstream-first-fixes.md), issue 67 (#130), patch `patches/0052-crash-guard.patch`, oauramos/omega-zero be6eb11 (the idea), upstream PR text in [docs/contributions/upstream-crash-guard-pr.md](../contributions/upstream-crash-guard-pr.md)

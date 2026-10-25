@@ -882,14 +882,7 @@ impl<R: Rig> Run<R> {
         self.mark("shelf idle");
         match self.leg {
             "H2" => {
-                self.tap(Btn::R1, 6);
-                self.wait(SETTLE);
-                self.mark("gb shelf idle");
-                self.enter();
-                self.in_game(Shader::GB.len(), true, 300);
-                self.leave();
-                self.screen_row(2, 2, "gb palettes on");
-                self.palette_visit();
+                // v1.9.0 shelves the Game Boy family as GBA, GBC, GB (Platform::ALL, ADR 0109).
                 self.tap(Btn::R1, 6);
                 self.wait(SETTLE);
                 self.mark("gbc shelf idle");
@@ -898,6 +891,14 @@ impl<R: Rig> Run<R> {
                 self.enter();
                 self.in_game(Shader::GB.len(), true, 300);
                 self.leave();
+                self.tap(Btn::R1, 6);
+                self.wait(SETTLE);
+                self.mark("gb shelf idle");
+                self.enter();
+                self.in_game(Shader::GB.len(), true, 300);
+                self.leave();
+                self.screen_row(2, 2, "gb palettes on");
+                self.palette_visit();
                 self.output();
             }
             "B1" => {

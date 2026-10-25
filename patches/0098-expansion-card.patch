@@ -6,9 +6,9 @@ Subject: [PATCH] expansion-card
 ---
  card/System/expansion.sh       |  70 ++++++++++++++
  card/System/launch_frontend.sh |   2 +
- card/System/repair.sh          |   3 +
+ card/System/repair.sh          |   6 ++
  card/test-expansion.sh         | 167 +++++++++++++++++++++++++++++++++
- 4 files changed, 242 insertions(+)
+ 4 files changed, 245 insertions(+)
  create mode 100644 card/System/expansion.sh
  create mode 100644 card/test-expansion.sh
 
@@ -89,10 +89,10 @@ index 0000000..0a7544e
 +	fi
 +done
 diff --git a/card/System/launch_frontend.sh b/card/System/launch_frontend.sh
-index 60254d3..011a88c 100644
+index 03d7c96..4b63d9b 100644
 --- a/card/System/launch_frontend.sh
 +++ b/card/System/launch_frontend.sh
-@@ -36,6 +36,8 @@ echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/
+@@ -37,6 +37,8 @@ echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/
  
  [ -f "$RUN/slotlink.session" ] && sh "$SYS/slotlink.sh" link down > /dev/null 2>&1
  
@@ -102,19 +102,22 @@ index 60254d3..011a88c 100644
  log "exec $SYS/slot"
  
 diff --git a/card/System/repair.sh b/card/System/repair.sh
-index df853ba..9623925 100644
+index f6c6280..3931bc4 100644
 --- a/card/System/repair.sh
 +++ b/card/System/repair.sh
-@@ -78,6 +78,9 @@ finish() {
+@@ -99,6 +99,12 @@ finish() {
  }
  
  unmount() {
-+	awk -v m="$1/" 'index($2, m) == 1 { print $2 }' "$MOUNTS" | sort -r | while read -r sub; do
-+		$UMOUNT "$sub" 2>/dev/null
-+	done
- 	$UMOUNT "$1" 2>/dev/null
++	subs="$(awk -v m="$1/" 'index($2, m) == 1 { print $2 }' "$MOUNTS" | sort -r)"
++	while read -r sub; do
++		[ -n "$sub" ] && bounded "$STEP_WAIT" $UMOUNT "$sub" 2>/dev/null
++	done <<EOF
++$subs
++EOF
+ 	bounded "$STEP_WAIT" $UMOUNT "$1" 2>/dev/null
  	if [ -n "$(options "$1")" ]; then
- 		$FUSER -km "$1" 2>/dev/null
+ 		bounded "$STEP_WAIT" $FUSER -km "$1" 2>/dev/null
 diff --git a/card/test-expansion.sh b/card/test-expansion.sh
 new file mode 100644
 index 0000000..a376de7

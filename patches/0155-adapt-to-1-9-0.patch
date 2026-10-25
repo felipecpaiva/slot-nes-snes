@@ -1,0 +1,440 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 25 Oct 2026 15:53:53 +0400
+Subject: [PATCH] adapt-to-1-9-0
+
+Brings the series onto slot v1.9.0: upstream's Screenshot takes SELECT+X, so Picture Next defaults to SELECT+Y (the colour entry steps aside on the systems that flip the picture, and the two rows never clash), the classic shelf order follows upstream's Game Boy Color before Game Boy, the array lengths follow the new rows, and the controls and picture tests follow. ADR 0109.
+---
+ crates/slot-store/src/bindings.rs        |  6 +++---
+ crates/slot-store/src/platform_policy.rs |  2 +-
+ crates/slot-store/tests/gg_platform.rs   |  2 +-
+ crates/slot-store/tests/nes_platform.rs  |  4 ++--
+ crates/slot-store/tests/snes_platform.rs |  4 ++--
+ crates/slot-ui/src/quick_menu.rs         |  4 ++--
+ crates/slot/src/audio/hold.rs            |  5 ++++-
+ crates/slot/src/input/table.rs           | 14 +++++++++++++-
+ crates/slot/src/snes_input.rs            |  5 +++++
+ crates/slot/tests/crash_guard.rs         |  8 ++++++--
+ crates/slot/tests/md_seat.rs             |  8 ++++----
+ crates/slot/tests/ngp_input.rs           |  6 +++---
+ crates/slot/tests/ps1_input.rs           |  6 +++---
+ crates/slot/tests/sega_then_gba.rs       |  4 ++--
+ crates/slot/tests/select_x_gba.rs        |  7 ++++---
+ crates/slot/tests/snes_select.rs         | 17 +++++++++--------
+ crates/slot/tests/snes_then_gba.rs       |  4 ++--
+ crates/slot/tests/system_picture.rs      |  6 +++---
+ 18 files changed, 69 insertions(+), 43 deletions(-)
+
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index 41ec39a..cc3807a 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -358,7 +358,7 @@ pub enum Shortcut {
+ }
+ 
+ impl Shortcut {
+-    pub const ALL: [Shortcut; 14] = [
++    pub const ALL: [Shortcut; 15] = [
+         Shortcut::SaveState,
+         Shortcut::LoadState,
+         Shortcut::Screenshot,
+@@ -433,7 +433,7 @@ impl Shortcut {
+             Shortcut::ShaderBack => select(Device::B),
+             Shortcut::FastForward => Binding::plain(Device::R2),
+             Shortcut::Rewind => Binding::plain(Device::L2),
+-            Shortcut::PictureNext => select(Device::X),
++            Shortcut::PictureNext => select(Device::Y),
+         }
+     }
+ 
+@@ -487,7 +487,7 @@ impl Controls {
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct ShortcutKeys {
+-    keys: [Option<Binding>; 14],
++    keys: [Option<Binding>; 15],
+ }
+ 
+ impl Default for ShortcutKeys {
+diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
+index c7035d6..201a69f 100644
+--- a/crates/slot-store/src/platform_policy.rs
++++ b/crates/slot-store/src/platform_policy.rs
+@@ -7,8 +7,8 @@ use crate::slot_state::Shader;
+ impl Platform {
+     pub const SHELVES: [Platform; 26] = [
+         Platform::Gba,
+-        Platform::Gb,
+         Platform::Gbc,
++        Platform::Gb,
+         Platform::Nes,
+         Platform::Snes,
+         Platform::Gg,
+diff --git a/crates/slot-store/tests/gg_platform.rs b/crates/slot-store/tests/gg_platform.rs
+index 0794619..7826cbe 100644
+--- a/crates/slot-store/tests/gg_platform.rs
++++ b/crates/slot-store/tests/gg_platform.rs
+@@ -10,7 +10,7 @@ use slot_store::{
+ #[test]
+ fn game_gear_is_the_shelf_after_snes_and_the_pinned_list_stays_three() {
+     assert_eq!(Platform::SHELVES[5], Platform::Gg);
+-    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gb, Platform::Gbc]);
++    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gbc, Platform::Gb]);
+ }
+ 
+ #[test]
+diff --git a/crates/slot-store/tests/nes_platform.rs b/crates/slot-store/tests/nes_platform.rs
+index ade64d1..e713e9d 100644
+--- a/crates/slot-store/tests/nes_platform.rs
++++ b/crates/slot-store/tests/nes_platform.rs
+@@ -6,13 +6,13 @@ use slot_store::Platform;
+ fn the_shelves_are_the_three_game_boy_platforms_then_nes() {
+     assert_eq!(
+         Platform::SHELVES[..4],
+-        [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes]
++        [Platform::Gba, Platform::Gbc, Platform::Gb, Platform::Nes]
+     );
+ }
+ 
+ #[test]
+ fn the_pinned_platform_list_still_has_three_entries() {
+-    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gb, Platform::Gbc]);
++    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gbc, Platform::Gb]);
+ }
+ 
+ #[test]
+diff --git a/crates/slot-store/tests/snes_platform.rs b/crates/slot-store/tests/snes_platform.rs
+index acb0667..ad22ff2 100644
+--- a/crates/slot-store/tests/snes_platform.rs
++++ b/crates/slot-store/tests/snes_platform.rs
+@@ -8,8 +8,8 @@ fn the_shelves_are_the_three_game_boy_platforms_then_nes_then_snes() {
+         Platform::SHELVES[..5],
+         [
+             Platform::Gba,
+-            Platform::Gb,
+             Platform::Gbc,
++            Platform::Gb,
+             Platform::Nes,
+             Platform::Snes
+         ]
+@@ -18,7 +18,7 @@ fn the_shelves_are_the_three_game_boy_platforms_then_nes_then_snes() {
+ 
+ #[test]
+ fn the_pinned_platform_list_does_not_grow_for_snes() {
+-    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gb, Platform::Gbc]);
++    assert_eq!(Platform::ALL, [Platform::Gba, Platform::Gbc, Platform::Gb]);
+ }
+ 
+ #[test]
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 016a750..9045b53 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -200,7 +200,7 @@ pub enum QuickRow {
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 181] = [
++    pub const ALL: [QuickRow; 186] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -436,7 +436,7 @@ impl QuickRow {
+         QuickRow::GameTurboB,
+     ];
+ 
+-    pub const SHORTCUTS: [QuickRow; 14] = [
++    pub const SHORTCUTS: [QuickRow; 15] = [
+         QuickRow::ScSave,
+         QuickRow::ScLoad,
+         QuickRow::ScScreenshot,
+diff --git a/crates/slot/src/audio/hold.rs b/crates/slot/src/audio/hold.rs
+index b20c899..2559b7e 100644
+--- a/crates/slot/src/audio/hold.rs
++++ b/crates/slot/src/audio/hold.rs
+@@ -119,7 +119,10 @@ mod tests {
+             );
+         }
+         ring.push(&[0; PERIOD * 2]);
+-        assert!(hold.listen(&ring, &mut out, span()), "a feed did not claim it");
++        assert!(
++            hold.listen(&ring, &mut out, span()),
++            "a feed did not claim it"
++        );
+     }
+ 
+     #[test]
+diff --git a/crates/slot/src/input/table.rs b/crates/slot/src/input/table.rs
+index af91022..ebc5d01 100644
+--- a/crates/slot/src/input/table.rs
++++ b/crates/slot/src/input/table.rs
+@@ -81,7 +81,9 @@ impl Table {
+         let console = |r: &Row| r.action.is_none();
+         self.rows
+             .iter()
+-            .filter(|r| r.row != row && r.contexts.meets(mine.contexts))
++            .filter(|r| {
++                r.row != row && r.contexts.meets(mine.contexts) && !never_together(row, r.row)
++            })
+             .find(|r| {
+                 r.binding == mine.binding
+                     || (!console(mine)
+@@ -92,6 +94,16 @@ impl Table {
+     }
+ }
+ 
++// Color Correction (Game Boy family) and Picture Next (the systems that flip the picture) start on
++// the same chord and never play together, so the shared chord is no clash (ADR 0109).
++fn never_together(a: QuickRow, b: QuickRow) -> bool {
++    matches!(
++        (a, b),
++        (QuickRow::ScColour, QuickRow::ScPictureNext)
++            | (QuickRow::ScPictureNext, QuickRow::ScColour)
++    )
++}
++
+ fn shelf_action(a: CarouselAction) -> Action {
+     match a {
+         CarouselAction::PreviousShelf => Action::PreviousShelf,
+diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
+index 6f61e32..d3ec495 100644
+--- a/crates/slot/src/snes_input.rs
++++ b/crates/slot/src/snes_input.rs
+@@ -45,6 +45,11 @@ impl VideoMode {
+ pub fn keep_applicable(entries: &mut Vec<Entry>, platform: Platform, picture: bool) {
+     if !picture {
+         entries.retain(|e| e.action != Action::VideoModeToggle);
++    } else {
++        // SELECT+Y is Color Correction on the Game Boy family and Picture Next on the systems that
++        // flip the picture (upstream 1.9.0 gave SELECT+X to Screenshot, ADR 0109). The two never
++        // play together, so the picture systems drop the colour entry.
++        entries.retain(|e| e.action != Action::ColourCorrectionToggle);
+     }
+     if platform.swaps_discs() || crate::fds_disk::flips(platform) {
+         entries
+diff --git a/crates/slot/tests/crash_guard.rs b/crates/slot/tests/crash_guard.rs
+index b956292..3503dda 100644
+--- a/crates/slot/tests/crash_guard.rs
++++ b/crates/slot/tests/crash_guard.rs
+@@ -100,10 +100,14 @@ fn a_start_that_never_got_through_moves_its_resume_state_aside() {
+         None,
+         "the state it crashed on would load again"
+     );
+-    let kept = std::fs::read_dir(d.path().join("States/GBA/Emerald"))
++    let kept = std::fs::read_dir(d.path().join("States/GBA/mgba/Emerald"))
+         .map(|dir| {
+             dir.flatten()
+-                .filter(|e| e.file_name().to_string_lossy().starts_with("resume-refused-"))
++                .filter(|e| {
++                    e.file_name()
++                        .to_string_lossy()
++                        .starts_with("resume-refused-")
++                })
+                 .count()
+         })
+         .unwrap_or(0);
+diff --git a/crates/slot/tests/md_seat.rs b/crates/slot/tests/md_seat.rs
+index b31b0b5..4842866 100644
+--- a/crates/slot/tests/md_seat.rs
++++ b/crates/slot/tests/md_seat.rs
+@@ -128,18 +128,18 @@ fn x_y_l_and_r_reach_the_mega_drive_game_as_its_six_button_row() {
+ }
+ 
+ #[test]
+-fn select_and_x_on_mega_drive_toggles_the_picture_and_never_sends_x() {
++fn select_and_y_on_mega_drive_toggles_the_picture_and_never_sends_y() {
+     let mut p = Pad::new();
+     assert_ne!(p.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     for ev in [
+         RawEvent::Down(Btn::Select),
+-        RawEvent::Down(Btn::X),
+-        RawEvent::Up(Btn::X),
++        RawEvent::Down(Btn::Y),
++        RawEvent::Up(Btn::Y),
+         RawEvent::Up(Btn::Select),
+     ] {
+         p.feed(ev);
+     }
+     assert_eq!(p.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    assert_eq!(p.ever & ButtonMask::X, 0, "X was sent to the game");
++    assert_eq!(p.ever & ButtonMask::Y, 0, "Y was sent to the game");
+     assert_eq!(VideoMode::Stretch.flipped(Platform::Md), VideoMode::Actual);
+ }
+diff --git a/crates/slot/tests/ngp_input.rs b/crates/slot/tests/ngp_input.rs
+index ae51382..97fc561 100644
+--- a/crates/slot/tests/ngp_input.rs
++++ b/crates/slot/tests/ngp_input.rs
+@@ -110,16 +110,16 @@ fn a_select_tap_carries_only_the_select_id_which_neopop_never_reads() {
+ }
+ 
+ #[test]
+-fn select_x_flips_the_ngp_picture_and_never_reaches_the_game() {
++fn select_y_flips_the_ngp_picture_and_never_reaches_the_game() {
+     let _g = core_lock();
+     let Some((root, mut session)) = playing() else {
+         return;
+     };
+     assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     session.feed([RawEvent::Down(Btn::Select)], 5000);
+-    session.feed([RawEvent::Down(Btn::X)], 5016);
++    session.feed([RawEvent::Down(Btn::Y)], 5016);
+     assert_eq!(input_of(&session), 0);
+-    session.feed([RawEvent::Up(Btn::X)], 5100);
++    session.feed([RawEvent::Up(Btn::Y)], 5100);
+     session.feed([RawEvent::Up(Btn::Select)], 5116);
+     assert_eq!(
+         session.app().source_rect(),
+diff --git a/crates/slot/tests/ps1_input.rs b/crates/slot/tests/ps1_input.rs
+index 1285d69..1c15161 100644
+--- a/crates/slot/tests/ps1_input.rs
++++ b/crates/slot/tests/ps1_input.rs
+@@ -109,16 +109,16 @@ fn l1_r1_l2_and_r2_reach_the_ps1_core() {
+ }
+ 
+ #[test]
+-fn select_x_flips_the_ps1_picture_and_never_reaches_the_game() {
++fn select_y_flips_the_ps1_picture_and_never_reaches_the_game() {
+     let _g = core_lock();
+     let Some((root, mut session)) = playing() else {
+         return;
+     };
+     assert!(session.app().source_rect()[0] < 0.0, "Actual has its bars");
+     session.feed([RawEvent::Down(Btn::Select)], 5000);
+-    session.feed([RawEvent::Down(Btn::X)], 5016);
++    session.feed([RawEvent::Down(Btn::Y)], 5016);
+     assert_eq!(input_of(&session), 0);
+-    session.feed([RawEvent::Up(Btn::X)], 5100);
++    session.feed([RawEvent::Up(Btn::Y)], 5100);
+     session.feed([RawEvent::Up(Btn::Select)], 5116);
+     assert_eq!(session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     assert_eq!(
+diff --git a/crates/slot/tests/sega_then_gba.rs b/crates/slot/tests/sega_then_gba.rs
+index 3c54f44..bdb717c 100644
+--- a/crates/slot/tests/sega_then_gba.rs
++++ b/crates/slot/tests/sega_then_gba.rs
+@@ -90,8 +90,8 @@ fn a_gba_game_after_a_mega_drive_game_gets_gba_input_and_picture_back() {
+     r.feed(RawEvent::Down(Btn::X));
+     assert_eq!(
+         r.pad() & ButtonMask::X,
+-        ButtonMask::X,
+-        "X is Turbo A on GBA"
++        0,
++        "SELECT+X is the screenshot on GBA since 1.9.0, it never reaches the game"
+     );
+     r.feed(RawEvent::Up(Btn::X));
+     r.feed(RawEvent::Up(Btn::Select));
+diff --git a/crates/slot/tests/select_x_gba.rs b/crates/slot/tests/select_x_gba.rs
+index 304e8c9..709eb5d 100644
+--- a/crates/slot/tests/select_x_gba.rs
++++ b/crates/slot/tests/select_x_gba.rs
+@@ -10,9 +10,9 @@ const STEM: &str = "ZZZ";
+ 
+ const EXPECTED: [(&str, u16); 13] = [
+     ("select down", 0),
+-    ("x down in the chord window", 516),
+-    ("x up", 4),
+-    ("select up", 4),
++    ("x down in the chord window", 0),
++    ("x up", 0),
++    ("select up", 0),
+     ("settle", 0),
+     ("select down again", 0),
+     ("select held past the chord window", 4),
+@@ -54,6 +54,7 @@ wallpaper_tint=off
+ show_recents=0
+ show_titles=0
+ left_stick_dpad=1
++auto_load=1
+ bezel_gba=ags-102
+ bezel_gb=ags-102
+ bezel_gbc=ags-102
+diff --git a/crates/slot/tests/snes_select.rs b/crates/slot/tests/snes_select.rs
+index dfc97cd..53fac9d 100644
+--- a/crates/slot/tests/snes_select.rs
++++ b/crates/slot/tests/snes_select.rs
+@@ -202,26 +202,26 @@ fn select_and_y_still_flip_colour_correction_on_a_gba_cart() {
+ }
+ 
+ #[test]
+-fn select_and_x_on_snes_never_sends_x_and_cycles_crop_stretch_actual_and_four_three() {
++fn select_and_y_on_snes_never_sends_y_and_cycles_crop_stretch_actual_and_four_three() {
+     use slot::video_mode::VideoMode::{Actual, Crop, FourThree, Stretch};
+     let mut r = rig(Platform::Snes);
+     let cropped = r.session.app().source_rect();
+     assert_ne!(cropped, slot_gfx::WHOLE_TEXTURE);
+-    r.chord(Btn::X);
++    r.chord(Btn::Y);
+     assert_eq!(r.picture(Platform::Snes), Stretch);
+     assert_ne!(r.session.app().source_rect(), cropped);
+     assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    r.chord(Btn::X);
++    r.chord(Btn::Y);
+     assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     assert_eq!(r.picture(Platform::Snes), Actual);
+-    r.chord(Btn::X);
++    r.chord(Btn::Y);
+     assert_eq!(r.picture(Platform::Snes), FourThree);
+     assert_ne!(r.session.app().source_rect(), cropped);
+     assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+-    r.chord(Btn::X);
++    r.chord(Btn::Y);
+     assert_eq!(r.session.app().source_rect(), cropped);
+     assert_eq!(r.picture(Platform::Snes), Crop);
+-    assert_eq!(r.ever & ButtonMask::X, 0, "X was sent to the game");
++    assert_eq!(r.ever & ButtonMask::Y, 0, "Y was sent to the game");
+ }
+ 
+ #[test]
+@@ -235,11 +235,12 @@ fn l1_and_r1_do_not_change_the_snes_picture_mode() {
+ }
+ 
+ #[test]
+-fn select_and_x_on_nes_leave_the_picture_alone_and_x_is_turbo_a() {
++fn select_and_y_on_nes_leave_the_picture_alone_and_x_is_turbo_a() {
+     let mut r = rig(Platform::Nes);
+-    r.chord(Btn::X);
++    r.chord(Btn::Y);
+     assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+     assert_eq!(r.picture(Platform::Nes), slot::video_mode::VideoMode::Crop);
++    r.press(Btn::X);
+     assert_eq!(r.ever & ButtonMask::X, ButtonMask::X);
+ }
+ 
+diff --git a/crates/slot/tests/snes_then_gba.rs b/crates/slot/tests/snes_then_gba.rs
+index d55714d..6375f38 100644
+--- a/crates/slot/tests/snes_then_gba.rs
++++ b/crates/slot/tests/snes_then_gba.rs
+@@ -89,8 +89,8 @@ fn a_gba_game_after_a_snes_game_gets_gba_input_behaviour_back() {
+     r.feed(RawEvent::Down(Btn::X));
+     assert_eq!(
+         r.pad() & ButtonMask::X,
+-        ButtonMask::X,
+-        "X is Turbo A on GBA"
++        0,
++        "SELECT+X is the screenshot on GBA since 1.9.0, it never reaches the game"
+     );
+     r.feed(RawEvent::Up(Btn::X));
+     r.feed(RawEvent::Up(Btn::Select));
+diff --git a/crates/slot/tests/system_picture.rs b/crates/slot/tests/system_picture.rs
+index f457964..6f1e235 100644
+--- a/crates/slot/tests/system_picture.rs
++++ b/crates/slot/tests/system_picture.rs
+@@ -299,15 +299,15 @@ fn a_cart_seats_in_its_system_picture() {
+ }
+ 
+ #[test]
+-fn select_x_still_sets_the_running_snes_cart_and_leaves_the_system_picture() {
++fn select_y_still_sets_the_running_snes_cart_and_leaves_the_system_picture() {
+     for platform in [Platform::Snes, Platform::Md] {
+         let key = platform.dir_name().to_ascii_lowercase();
+         let picture = format!("{key} = actual\n");
+         let mut r = Rig::seated(platform, &picture);
+         assert_eq!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+         r.feed(RawEvent::Down(Btn::Select));
+-        r.feed(RawEvent::Down(Btn::X));
+-        r.feed(RawEvent::Up(Btn::X));
++        r.feed(RawEvent::Down(Btn::Y));
++        r.feed(RawEvent::Up(Btn::Y));
+         r.feed(RawEvent::Up(Btn::Select));
+         assert_ne!(r.session.app().source_rect(), slot_gfx::WHOLE_TEXTURE);
+         let first = "4:3";

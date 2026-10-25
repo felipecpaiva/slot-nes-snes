@@ -1,12 +1,11 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic H700 handhelds
 (tested on the RG34XXSP), as a patch set on slot's own source. The base is in the tag: this release is
-built on slot's tagged release 1.8.0 (`0ceac65`), and `-ns.1` is our first release on it. GBA, GB and
+built on slot's tagged release 1.9.0 (`20703ed`), and `-ns.1` is our first release on it. GBA, GB and
 GBC stay byte-identical to that slot.
 
 ## What is new
 
-The release before this one was never published, so this is the first public build. Since slot's own
-1.8.0, the patch set adds:
+Since slot's own 1.9.0, the patch set adds:
 
 - **More shelves**: Famicom Disk System, Sega CD / Mega-CD, PC Engine CD, PC Engine SuperGrafx,
   Atari 2600, Atari 7800, Virtual Boy, Neo Geo CD, PICO-8, and arcade boards on FinalBurn Neo (Neo Geo,
@@ -16,13 +15,15 @@ The release before this one was never published, so this is the first public bui
   Screen page follows the same order.
 - **Expansion Card**: a second TF card holds whole systems' game folders, for the large disc shelves.
   Setup is below.
-- **Slot 1.8.0 controls**: the picture flip is the Shortcuts row Picture Next (SELECT+X by default)
-  and every control can be remapped. Disc and disk swap follows Palette Back (SELECT+L2).
+- **Slot's controls**: the picture flip is the Shortcuts row Picture Next (SELECT+Y by default, since
+  slot 1.9.0 gives SELECT+X to Screenshot) and every control can be remapped. Disc and disk swap
+  follows Palette Back (SELECT+L2).
 - **Label fetcher**: `--by-name` for games no CRC finds, and `--logo-fallback` for a game's logo on a
   plain ground when no art exists. PICO-8 labels come from the cart itself, offline.
 - **ROM hack tool**: `tools/hacks.py` can keep rollback backups off the card.
-- **Crash guard and fast scroll**: a game that crashed slot while starting stays on the shelf, and long
-  shelves scroll 3 carts at a time when you hold Left or Right.
+- **Crash guard and fast scroll**: a game that took slot down while it loaded comes back as a shelf with
+  that cart selected and a "Last start failed" banner (slot 1.9.0's guard moves its resume state
+  aside), and long shelves scroll 3 carts at a time when you hold Left or Right.
 - A faster scan of the arcade shelves, and [BIOS] files kept off every shelf.
 
 ## Shelves

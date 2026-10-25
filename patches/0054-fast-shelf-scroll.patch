@@ -36,7 +36,7 @@ stevolarn/slot, GPL-3.0.
  create mode 100644 crates/slot/tests/fast_scroll.rs
 
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index 03572c8..08465a2 100644
+index 9b5e737..1651087 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
 @@ -13,6 +13,8 @@ use crate::retro_shadows::published;
@@ -48,7 +48,7 @@ index 03572c8..08465a2 100644
  const SIDE_SCALE: f32 = 0.78;
  const SIDE_ALPHA: f32 = 1.0;
  
-@@ -352,7 +354,7 @@ impl Shelf {
+@@ -354,7 +356,7 @@ impl Shelf {
          if now < due {
              return;
          }
@@ -57,7 +57,7 @@ index 03572c8..08465a2 100644
          self.held = Some((by, now + repeat_gap(fired), fired + 1));
      }
  
-@@ -426,6 +428,7 @@ impl Shelf {
+@@ -428,6 +430,7 @@ impl Shelf {
          let accel = -2.0 * OMEGA * self.vel - OMEGA * OMEGA * (self.scroll - self.scroll_target());
          self.vel += accel * dt;
          self.scroll += self.vel * dt;
@@ -211,7 +211,7 @@ index 0000000..7be704a
 +    assert!((s.scroll - s.scroll_target()).abs() < 1e-3);
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index f01e7c1..99ba508 100644
+index 915cdae..844b85c 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,4 +1,5 @@
@@ -220,23 +220,23 @@ index f01e7c1..99ba508 100644
  mod ps1_discs;
  mod silent_start;
  mod start_guard;
-@@ -468,6 +469,7 @@ pub struct App {
+@@ -486,6 +487,7 @@ pub struct App {
+     sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
      rested: Option<(usize, usize)>,
-     start_marked: bool,
 +    fast_trail: bool,
  }
  
  const FACE_AHEAD: i32 = 8;
-@@ -656,6 +658,7 @@ impl App {
+@@ -689,6 +691,7 @@ impl App {
+             sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
              rested: None,
-             start_marked: false,
 +            fast_trail: false,
          }
      }
  
-@@ -1614,6 +1617,9 @@ impl App {
+@@ -1789,6 +1792,9 @@ impl App {
      }
  
      pub fn face_wants(&self) -> Vec<FaceWant> {
@@ -246,7 +246,7 @@ index f01e7c1..99ba508 100644
          let here = self.shelf();
          let screen = here.on_screen();
          let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
-@@ -1632,7 +1638,9 @@ impl App {
+@@ -1807,7 +1813,9 @@ impl App {
              .map(|(shelf, index)| FaceWant {
                  shelf,
                  index,
@@ -257,7 +257,7 @@ index f01e7c1..99ba508 100644
              })
              .collect()
      }
-@@ -3365,6 +3373,7 @@ impl App {
+@@ -3567,6 +3575,7 @@ impl App {
          if !self.on_shelf() {
              self.shelf_mut().release_hold();
          }
@@ -265,7 +265,7 @@ index f01e7c1..99ba508 100644
          let mut touched = false;
          let at = self.shelf_at;
          let next = match &mut self.phase {
-@@ -4818,7 +4827,7 @@ impl App {
+@@ -5060,7 +5069,7 @@ impl App {
      }
  
      pub fn browsed_rom(&self) -> Option<&std::path::Path> {
@@ -330,10 +330,10 @@ index 0000000..29fe1d2
 +    }
 +}
 diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
-index 9cb5ce6..7cb08e0 100644
+index 5fb079f..de1f606 100644
 --- a/crates/slot/src/device_app.rs
 +++ b/crates/slot/src/device_app.rs
-@@ -152,6 +152,7 @@ pub fn run() {
+@@ -157,6 +157,7 @@ pub fn run() {
      let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
      let mut frame_trace = slot::frame_trace::FrameTrace::new();
      let mut doze = slot::doze_rest::DozeRest::new();
@@ -341,7 +341,7 @@ index 9cb5ce6..7cb08e0 100644
      loop {
          let dozing = !frontend.rebuilding_labels() && slot::doze_rest::rests(frontend.app());
          if let Some(line) = doze.step(dozing, Instant::now()) {
-@@ -195,6 +196,10 @@ pub fn run() {
+@@ -200,6 +201,10 @@ pub fn run() {
          }
          let swap_took = swap.elapsed();
          slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
@@ -432,10 +432,10 @@ index 0000000..3a38d74
 +    }
 +}
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index ac44fde..72af5b0 100644
+index d246e68..3a68815 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -1217,7 +1217,7 @@ fn sync_core_picker(
+@@ -1424,7 +1424,7 @@ fn sync_core_picker(
      tex: &mut CoreTextures,
      built: &mut Option<String>,
  ) {
@@ -445,7 +445,7 @@ index ac44fde..72af5b0 100644
          if let Some(cart) = app
              .carts()
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 933ab86..665f00d 100644
+index 3ae5934..307d339 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
 @@ -31,6 +31,7 @@ pub mod doze_rest;

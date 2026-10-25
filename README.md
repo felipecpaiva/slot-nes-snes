@@ -19,8 +19,8 @@ GBA, GB and GBC stay byte-identical to upstream.
 
 There are 26 system shelves beside Recents and Favorites.
 
-The pinned base is slot v1.8.0 (`0ceac65`, `SLOT_PIN`, ADR 0106).
-Releases are named after it: `v1.8.0-ns.1` is the first on this base (`main-1b20432-ns.1` came before).
+The pinned base is slot v1.9.0 (`20703ed`, `SLOT_PIN`, ADR 0109).
+Releases are named after it: `v1.9.0-ns.1` is the first on this base (`v1.8.0-ns.1` and `main-1b20432-ns.1` came before).
 
 ## Systems
 
@@ -96,13 +96,13 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
 - **NES.** fceumm by default, nestopia in the core picker. NES and Famicom cart shells by region.
   L1 cycles Crop, Stretch and 4:3, R1 is Actual.
 - **SNES.** snes9x by default, snes9x2005_plus for heavy titles. SNES and Super Famicom shells from
-  the header region. L and R belong to the game, so the picture toggle is SELECT+X (Crop, Stretch,
+  the header region. L and R belong to the game, so the picture toggle is SELECT+Y (Crop, Stretch,
   Actual, 4:3).
 - **Master System and Game Gear** play like NES (X and Y are turbo, START is Pause on Master System).
   Game Gear is drawn at 3x like Game Boy and adds the LCD3x filter. Master System shows the whole
   front box, and its Region row (Auto, Japan, USA, Europe) runs European carts the core does not
   know at 50 Hz.
-- **Mega Drive** plays like SNES: a six-button pad (SELECT is MODE), SELECT+X for the picture, and Stretch follows the game's 256 or 320 wide frame.
+- **Mega Drive** plays like SNES: a six-button pad (SELECT is MODE), SELECT+Y for the picture, and Stretch follows the game's 256 or 320 wide frame.
 - **Sega 32X** plays like Mega Drive, on its own shelf. A `.32x` always lists; a `.bin` lists only if
   its header says 32X, because `.bin` is also a Mega Drive extension. The Mega Drive shelf stays on
   Genesis Plus GX, so a 32X game left in `Games/MD` does not run: move it to `Games/32X`. Its Screen
@@ -153,7 +153,7 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   (FinalBurn Neo then shows which one). The shelf shows each game's full title. SELECT is Coin and START
   is Start. Neo Geo A, B, C, D are on B, A, Y, X; the six-button CPS games have the punches on Y, X, L1
   and the kicks on B, A, R1 (FinalBurn Neo's own Street Fighter layout), so L1 and R1 belong to the game
-  and the picture toggle is SELECT+X. Vertical games (1941, Varth, 19XX...) stand upright in the
+  and the picture toggle is SELECT+Y. Vertical games (1941, Varth, 19XX...) stand upright in the
   middle of the screen; the CPS Vertical Games row turns them sideways at full size, with the D-pad
   turned for a handheld held with its right edge up. On the shelf a Neo Geo game is a black AES cart, a
   CPS2 game its B-board case in its region's colour (Japan green, USA and Europe blue, Asia grey), and a
@@ -174,7 +174,7 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   `.pce`), every one run on the SuperGrafx hardware. It plays and saves like the TurboGrafx-16 (B is II,
   A is I, START is Run, X and Y are turbo, a 2 KB `.sav` per card); Picture is Crop by default, then
   Stretch, Actual and 4:3. The Pad row switches to the 6-button pad (III and IV on Y and X, V and VI
-  on L1 and R1, the picture toggle on SELECT+X) from the next start. A SuperGrafx card is drawn as a
+  on L1 and R1, the picture toggle on SELECT+Y) from the next start. A SuperGrafx card is drawn as a
   Super HuCard, its label the other way up from a standard HuCard's. A `.pce` card on the TG16 shelf
   stays a TurboGrafx-16 game.
 - **PC Engine CD and TurboGrafx-CD** have their own shelf, `Games/PCECD`, on the same Beetle PCE Fast
@@ -187,7 +187,7 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   strip, and the disc slides out into the slot when it starts. Discs are large, so `Games/PCECD` is a
   good folder for the Expansion Card.
 - **Sega CD, Mega-CD** has its own shelf, `Games/SEGACD`, on Genesis Plus GX, the Mega Drive core. It
-  plays like the Mega Drive: the six-button pad, SELECT+X for the picture, Stretch following the 256
+  plays like the Mega Drive: the six-button pad, SELECT+Y for the picture, Stretch following the 256
   or 320 wide frame, PAL Speed for European discs, CD audio, rewind and fast-forward. A game of
   several discs is one game: discs named `(Disc 1)`, `(Disc 2)` become one, SELECT+L2 swaps to the
   next disc, and the disc in play is remembered and kept in save states. The game's saves live in the
@@ -201,7 +201,7 @@ dump) is never shown as a cart on any shelf, so a ROM set copied in whole stays 
   come by name (`--only SEGACD --by-name`). Sega CD discs fit the Expansion Card well (below).
 - **Neo Geo CD** has its own shelf, `Games/NEOCD`, on NeoCD, a Neo Geo CD emulator of its own (not
   FinalBurn Neo). It plays like the Neo Geo shelf: A, B, C and D on B, A, Y and X, SELECT and START to
-  the game, L1 and R1 to the game, SELECT+X for the picture, Stretch by default then Actual and 4:3.
+  the game, L1 and R1 to the game, SELECT+Y for the picture, Stretch by default then Actual and 4:3.
   NeoCD runs as a US console (a dual-language disc shows its English text), with its CD speed hack and
   its load skip on, so a load passes in fast-forward. The console's 8 KB backup RAM is each disc's own
   `Saves/NEOCD/<game>.sav`; a game played for the first time starts with blank backup RAM, never another
@@ -270,13 +270,14 @@ factory buttons, which are unchanged. Rows a system does not use are not shown.
   label you fetch with the label fetcher (below). Nothing is ever a screenshot.
 - **Every console button is a row.** The In-Game controls page names each system's own buttons and
   every one can be moved, saved per system (see The Controls page above).
-- **Picture Next and remappable controls.** On upstream 1.8.0 every control is a row on Controls.
-  The picture flip (Crop, Stretch, Actual, 4:3) is the Shortcuts row Picture Next, SELECT+X by
-  default, and can be moved like any other shortcut. The disc and disk swap (PlayStation, Sega CD,
+- **Picture Next and remappable controls.** On upstream every control is a row on Controls.
+  The picture flip (Crop, Stretch, Actual, 4:3) is the Shortcuts row Picture Next, SELECT+Y by
+  default (SELECT+X is upstream's Screenshot since 1.9.0; SELECT+Y is Color Correction on the Game
+  Boy family and never plays together with Picture Next), and can be moved like any other shortcut. The disc and disk swap (PlayStation, Sega CD,
   Famicom Disk System) follows Palette Back, SELECT+L2 by default.
-- **Crash guard.** A game that crashed slot while it started is kept on the shelf on the next boot
-  with a "Last start failed" banner, instead of resuming into a boot loop. Tap A to resume, hold A
-  to start clean. Nothing is deleted.
+- **Crash guard.** A game that took slot down while it loaded starts on the shelf on the next boot
+  (upstream's loading mark, 1.9.0), with that cart selected and a "Last start failed" banner. Its
+  resume state is moved aside to `resume-refused-<stamp>.state`, not deleted, so the next start is clean.
 - **Fast shelf scroll.** Holding Left or Right on a long shelf moves 3 carts at a time after about 2
   seconds, drawing placeholders instead of waiting for cart faces. Measured on a 1014-cart shelf:
   p99 frame time 17 ms, no empty frames.

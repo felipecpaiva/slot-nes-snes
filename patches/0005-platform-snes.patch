@@ -22,14 +22,14 @@ Subject: [PATCH] platform-snes
  crates/slot-ui/src/shell.rs              |   1 +
  crates/slot-ui/tests/chrome.rs           |   2 +-
  crates/slot-ui/tests/snes_shell.rs       |  20 ++++
- crates/slot/src/app.rs                   |  18 ++--
+ crates/slot/src/app.rs                   |  27 +++--
  crates/slot/src/core.rs                  |   2 +-
  crates/slot/src/root.rs                  |   6 +-
  crates/slot/tests/gpsp.rs                |   2 +-
  crates/slot/tests/nes_shelf_memory.rs    | 132 +++++++++++++++++++++++
  crates/slot/tests/snes_common/mod.rs     |  49 +++++++++
  crates/slot/tests/snes_rom.rs            |  32 ++++++
- 25 files changed, 666 insertions(+), 30 deletions(-)
+ 25 files changed, 673 insertions(+), 32 deletions(-)
  create mode 100644 crates/slot-store/src/snes.rs
  create mode 100644 crates/slot-store/tests/snes_core.rs
  create mode 100644 crates/slot-store/tests/snes_header.rs
@@ -41,7 +41,7 @@ Subject: [PATCH] platform-snes
  create mode 100644 crates/slot/tests/snes_rom.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 6aab293..5b9f116 100644
+index 6d5f5d7..62c477d 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -245,7 +245,7 @@ impl GameButton {
@@ -158,19 +158,19 @@ index 442fbd4..cbe489b 100644
      }
  }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 0ae07ce..b71fcf6 100644
+index e164968..215f89a 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -20,6 +20,7 @@ mod platform_policy;
- mod ring;
+@@ -21,6 +21,7 @@ mod ring;
  mod scan;
+ mod shots;
  mod slot_state;
 +pub mod snes;
  mod stamp;
  
  pub use atomic::{atomic_write, sweep_temps};
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index 605833a..beaa8c8 100644
+index 1440597..9c765bc 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -7,6 +7,7 @@ pub enum Platform {
@@ -748,7 +748,7 @@ index 62b5872..1ffd0c7 100644
  }
  
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index e02c011..2fff3ea 100644
+index 349363c..b07b692 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -787,19 +787,29 @@ index 0000000..b3e5c56
 +    assert_eq!(shell.finish, Finish::Solid);
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 3c8891e..94f93d4 100644
+index a617706..1bf9889 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1081,7 +1081,7 @@ impl App {
+@@ -1253,10 +1253,15 @@ impl App {
+     }
  
      pub fn bezel_files(&self, platform: Platform) -> Vec<String> {
++        if platform == Platform::Gba && self.framed_panel() {
++            return self
++                .root()
++                .map(|root| crate::bezel::list(root, platform))
++                .unwrap_or_default();
++        }
          match platform {
--            Platform::Gba | Platform::Nes => Vec::new(),
+-            Platform::Nes => Vec::new(),
+-            _ if platform == Platform::Gba && !self.framed_panel() => Vec::new(),
+-            _ => self
 +            Platform::Gba | Platform::Nes | Platform::Snes => Vec::new(),
-             Platform::Gb | Platform::Gbc => self
++            Platform::Gb | Platform::Gbc => self
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
-@@ -1103,7 +1103,7 @@ impl App {
+                 .unwrap_or_default(),
+@@ -1277,7 +1282,7 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
@@ -808,7 +818,7 @@ index 3c8891e..94f93d4 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -1111,7 +1111,7 @@ impl App {
+@@ -1285,7 +1290,7 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
@@ -817,7 +827,7 @@ index 3c8891e..94f93d4 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -2059,7 +2059,7 @@ impl App {
+@@ -2233,7 +2238,7 @@ impl App {
      pub fn screen_shader(&self) -> Shader {
          match self.playing_platform() {
              Platform::Gba => self.state.shader_gba,
@@ -826,7 +836,7 @@ index 3c8891e..94f93d4 100644
              Platform::Gbc => self.state.shader_gbc,
          }
      }
-@@ -2077,7 +2077,7 @@ impl App {
+@@ -2251,7 +2256,7 @@ impl App {
              Platform::Gba => self.state.colour_correction_gba,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
@@ -835,7 +845,7 @@ index 3c8891e..94f93d4 100644
          }
      }
  
-@@ -2838,7 +2838,7 @@ impl App {
+@@ -3039,7 +3044,7 @@ impl App {
          }
          let (shader, choices) = match self.playing_platform() {
              Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
@@ -844,7 +854,7 @@ index 3c8891e..94f93d4 100644
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
          };
          *shader = shader.step(choices, right);
-@@ -2892,7 +2892,7 @@ impl App {
+@@ -3093,7 +3098,7 @@ impl App {
                  Platform::Gba => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
@@ -853,7 +863,7 @@ index 3c8891e..94f93d4 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -3326,7 +3326,7 @@ impl App {
+@@ -3527,7 +3532,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
@@ -862,7 +872,7 @@ index 3c8891e..94f93d4 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -5539,7 +5539,7 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
+@@ -6061,7 +6066,7 @@ fn free_stamp(taken: &[String], now: i64) -> String {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {
@@ -885,18 +895,18 @@ index 877bf6b..87036ac 100644
  }
  
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 768abad..6d33f59 100644
+index ddb5440..8b4d19d 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
  use std::path::{Path, PathBuf};
  
--pub const DIRS: [&str; 28] = [
-+pub const DIRS: [&str; 32] = [
+-pub const DIRS: [&str; 29] = [
++pub const DIRS: [&str; 33] = [
      "BIOS",
      "Bezels",
-     "Bezels/GB",
-@@ -11,22 +11,26 @@ pub const DIRS: [&str; 28] = [
+     "Bezels/GBA",
+@@ -12,22 +12,26 @@ pub const DIRS: [&str; 29] = [
      "Games/GB",
      "Games/GBC",
      "Games/NES",
@@ -924,7 +934,7 @@ index 768abad..6d33f59 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index f1ce377..8e48202 100644
+index 304557e..21136da 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

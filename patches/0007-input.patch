@@ -8,10 +8,10 @@ Subject: [PATCH] input
  crates/slot-retro/src/lib.rs             |   2 +
  crates/slot-retro/src/turbo_mode.rs      |  28 +++
  crates/slot-retro/tests/snes_turbo.rs    |  35 +++
- crates/slot-store/src/bindings.rs        |   9 +-
+ crates/slot-store/src/bindings.rs        |   5 +
  crates/slot-store/src/platform_policy.rs |  18 +-
  crates/slot-store/tests/snes_platform.rs |   5 +-
- crates/slot-ui/src/quick_menu.rs         |  11 +-
+ crates/slot-ui/src/quick_menu.rs         |   9 +-
  crates/slot/src/app.rs                   |   6 +-
  crates/slot/src/emu.rs                   |  23 +-
  crates/slot/src/input/bind.rs            |   1 +
@@ -28,7 +28,7 @@ Subject: [PATCH] input
  crates/slot/tests/snes_select.rs         | 263 +++++++++++++++++++++++
  crates/slot/tests/snes_shoulders.rs      |  30 +++
  crates/slot/tests/snes_then_gba.rs       | 125 +++++++++++
- 24 files changed, 904 insertions(+), 16 deletions(-)
+ 24 files changed, 901 insertions(+), 13 deletions(-)
  create mode 100644 crates/slot-retro/src/turbo_mode.rs
  create mode 100644 crates/slot-retro/tests/snes_turbo.rs
  create mode 100644 crates/slot/src/input/raw_buttons.rs
@@ -42,10 +42,10 @@ Subject: [PATCH] input
  create mode 100644 crates/slot/tests/snes_then_gba.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index 0915b15..7f501fa 100644
+index 2bc7b78..abd7874 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -54,6 +54,7 @@ pub enum Action {
+@@ -55,6 +55,7 @@ pub enum Action {
      PreviousShelf,
      NextShelf,
      Favorite,
@@ -146,10 +146,10 @@ index 0000000..e526493
 +    assert_eq!(TurboMode::from_flags(false, false), TurboMode::Off);
 +}
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 5b9f116..9e786ee 100644
+index 62c477d..6f98131 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -321,10 +321,11 @@ pub enum Shortcut {
+@@ -322,6 +322,7 @@ pub enum Shortcut {
      ShaderBack,
      FastForward,
      Rewind,
@@ -157,12 +157,7 @@ index 5b9f116..9e786ee 100644
  }
  
  impl Shortcut {
--    pub const ALL: [Shortcut; 13] = [
-+    pub const ALL: [Shortcut; 14] = [
-         Shortcut::SaveState,
-         Shortcut::LoadState,
-         Shortcut::BrightnessUp,
-@@ -338,6 +339,7 @@ impl Shortcut {
+@@ -340,6 +341,7 @@ impl Shortcut {
          Shortcut::ShaderBack,
          Shortcut::FastForward,
          Shortcut::Rewind,
@@ -170,7 +165,7 @@ index 5b9f116..9e786ee 100644
      ];
  
      pub fn label(self) -> &'static str {
-@@ -355,6 +357,7 @@ impl Shortcut {
+@@ -358,6 +360,7 @@ impl Shortcut {
              Shortcut::ShaderBack => "Shader Back",
              Shortcut::FastForward => "Fast Forward",
              Shortcut::Rewind => "Rewind",
@@ -178,7 +173,7 @@ index 5b9f116..9e786ee 100644
          }
      }
  
-@@ -373,6 +376,7 @@ impl Shortcut {
+@@ -377,6 +380,7 @@ impl Shortcut {
              Shortcut::ShaderBack => "shader_back",
              Shortcut::FastForward => "fast_forward",
              Shortcut::Rewind => "rewind",
@@ -186,7 +181,7 @@ index 5b9f116..9e786ee 100644
          }
      }
  
-@@ -392,6 +396,7 @@ impl Shortcut {
+@@ -397,6 +401,7 @@ impl Shortcut {
              Shortcut::ShaderBack => select(Device::B),
              Shortcut::FastForward => Binding::plain(Device::R2),
              Shortcut::Rewind => Binding::plain(Device::L2),
@@ -194,15 +189,6 @@ index 5b9f116..9e786ee 100644
          }
      }
  
-@@ -445,7 +450,7 @@ impl Controls {
- 
- #[derive(Copy, Clone, PartialEq, Eq, Debug)]
- pub struct ShortcutKeys {
--    keys: [Option<Binding>; 13],
-+    keys: [Option<Binding>; 14],
- }
- 
- impl Default for ShortcutKeys {
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 index bbde823..711b787 100644
 --- a/crates/slot-store/src/platform_policy.rs
@@ -247,40 +233,31 @@ index 2ea6532..fba322b 100644
 +    assert!(Platform::Nes.owns_shoulders());
  }
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 47bbda6..968db45 100644
+index a9419bd..4cd949c 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -90,10 +90,11 @@ pub enum QuickRow {
-     BlueLight,
-     PlayBrightness,
-     PlayBlueLight,
+@@ -95,10 +95,11 @@ pub enum QuickRow {
+     AutoLoad,
+     UndoSave,
+     UndoLoad,
 +    ScPictureNext,
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 79] = [
-+    pub const ALL: [QuickRow; 80] = [
+-    pub const ALL: [QuickRow; 84] = [
++    pub const ALL: [QuickRow; 85] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -173,6 +174,7 @@ impl QuickRow {
-         QuickRow::BlueLight,
-         QuickRow::PlayBrightness,
-         QuickRow::PlayBlueLight,
+@@ -183,6 +184,7 @@ impl QuickRow {
+         QuickRow::AutoLoad,
+         QuickRow::UndoSave,
+         QuickRow::UndoLoad,
 +        QuickRow::ScPictureNext,
      ];
  
      pub const MAIN: [QuickRow; 5] = [
-@@ -220,7 +222,7 @@ impl QuickRow {
-         QuickRow::GameTurboB,
-     ];
- 
--    pub const SHORTCUTS: [QuickRow; 13] = [
-+    pub const SHORTCUTS: [QuickRow; 14] = [
-         QuickRow::ScSave,
-         QuickRow::ScLoad,
-         QuickRow::ScBrightUp,
-@@ -234,6 +236,7 @@ impl QuickRow {
+@@ -245,6 +247,7 @@ impl QuickRow {
          QuickRow::ScShaderBack,
          QuickRow::ScFastForward,
          QuickRow::ScRewind,
@@ -288,7 +265,7 @@ index 47bbda6..968db45 100644
      ];
  
      pub const SCREEN: [QuickRow; 4] = [
-@@ -488,7 +491,8 @@ impl QuickRow {
+@@ -513,7 +516,8 @@ impl QuickRow {
              | QuickRow::ScShaderNext
              | QuickRow::ScShaderBack
              | QuickRow::ScFastForward
@@ -298,7 +275,7 @@ index 47bbda6..968db45 100644
              QuickRow::ShelfPrev | QuickRow::ShelfNext | QuickRow::ShelfFavorite => {
                  self.carousel_action().map_or("", CarouselAction::label)
              }
-@@ -566,6 +570,7 @@ impl QuickRow {
+@@ -595,6 +599,7 @@ impl QuickRow {
              QuickRow::ScShaderBack => Shortcut::ShaderBack,
              QuickRow::ScFastForward => Shortcut::FastForward,
              QuickRow::ScRewind => Shortcut::Rewind,
@@ -307,10 +284,10 @@ index 47bbda6..968db45 100644
          })
      }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 94f93d4..368cc47 100644
+index 1bf9889..067855a 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -917,7 +917,7 @@ impl App {
+@@ -1015,7 +1015,7 @@ impl App {
          if !self.left_stick {
              hidden.push(QuickRow::LeftStick);
          }
@@ -318,8 +295,8 @@ index 94f93d4..368cc47 100644
 +        if !self.state.turbo || self.playing_platform().passes_xy_through() {
              hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
          }
-         hidden
-@@ -1052,6 +1052,7 @@ impl App {
+         if !self.has_states || self.link_active() {
+@@ -1225,6 +1225,7 @@ impl App {
              | QuickRow::ScShaderBack
              | QuickRow::ScFastForward
              | QuickRow::ScRewind
@@ -327,7 +304,7 @@ index 94f93d4..368cc47 100644
              | QuickRow::Controls
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame => None,
-@@ -2402,6 +2403,7 @@ impl App {
+@@ -2584,6 +2585,7 @@ impl App {
                  {
                      self.set_picture(VideoMode::Actual)
                  }
@@ -335,7 +312,7 @@ index 94f93d4..368cc47 100644
                  Action::Eject => self.eject(),
                  Action::GameMenu => self.game_menu_shortcut(),
                  Action::QuickMenu => self.tap_in_game_menu(Some(QuickRow::PLAY[0])),
-@@ -2633,6 +2635,7 @@ impl App {
+@@ -2834,6 +2836,7 @@ impl App {
              | QuickRow::ScShaderBack
              | QuickRow::ScFastForward
              | QuickRow::ScRewind
@@ -343,7 +320,7 @@ index 94f93d4..368cc47 100644
              | QuickRow::LidOff => {}
          }
      }
-@@ -2819,6 +2822,7 @@ impl App {
+@@ -3025,6 +3028,7 @@ impl App {
              | QuickRow::ScShaderBack
              | QuickRow::ScFastForward
              | QuickRow::ScRewind
@@ -352,7 +329,7 @@ index 94f93d4..368cc47 100644
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index f666e03..5298352 100644
+index 2bad47a..652db6c 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
@@ -364,7 +341,7 @@ index f666e03..5298352 100644
  };
  
  use crate::audio::Ring;
-@@ -91,6 +91,7 @@ struct Shared {
+@@ -95,6 +95,7 @@ struct Shared {
      rewind: AtomicBool,
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
@@ -372,7 +349,7 @@ index f666e03..5298352 100644
      recording: AtomicBool,
      stop: AtomicBool,
      volume: AtomicU8,
-@@ -167,6 +168,7 @@ impl EmuHandle {
+@@ -171,6 +172,7 @@ impl EmuHandle {
              rewind: AtomicBool::new(false),
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
@@ -380,7 +357,7 @@ index f666e03..5298352 100644
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
              volume: AtomicU8::new(100),
-@@ -362,6 +364,14 @@ impl EmuHandle {
+@@ -366,6 +368,14 @@ impl EmuHandle {
          self.shared.rewind.store(on, Ordering::Relaxed);
      }
  
@@ -395,7 +372,7 @@ index f666e03..5298352 100644
      pub fn set_turbo(&self, on: bool) {
          self.shared.turbo.store(on, Ordering::Relaxed);
      }
-@@ -671,10 +681,13 @@ impl Worker {
+@@ -703,10 +713,13 @@ impl Worker {
                  loop {
                      ran += 1;
                      let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -414,10 +391,10 @@ index f666e03..5298352 100644
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
 diff --git a/crates/slot/src/input/bind.rs b/crates/slot/src/input/bind.rs
-index 48bcfc2..3705df5 100644
+index d02afed..4eaefb2 100644
 --- a/crates/slot/src/input/bind.rs
 +++ b/crates/slot/src/input/bind.rs
-@@ -55,5 +55,6 @@ pub(super) fn shortcut_action(s: Shortcut) -> Action {
+@@ -56,5 +56,6 @@ pub(super) fn shortcut_action(s: Shortcut) -> Action {
          Shortcut::ShaderBack => Action::ShaderPrev,
          Shortcut::FastForward => Action::FfStart,
          Shortcut::Rewind => Action::RewindStart,
@@ -500,13 +477,13 @@ index 0000000..4687249
 +    }
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index bfef6df..7b302b6 100644
+index 8430276..34c4172 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -47,6 +47,7 @@ pub mod resample;
- pub mod rewind;
- pub mod root;
+@@ -50,6 +50,7 @@ pub mod root;
  pub mod session;
+ pub mod shot_loader;
+ pub mod shot_writer;
 +pub mod snes_input;
  pub mod state_writer;
  pub mod thumb;
