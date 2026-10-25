@@ -66,8 +66,11 @@ fi
 # Upstream's rumble.rs times a motor pulse by wall clock; in the full parallel run of the 146-patch suite
 # tests it failed a_buzz_is_cut_off_at_the_longest_the_motor_runs three times and passes run alone in
 # both trees, so it runs apart in both trees too (ADR 0106).
-both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble"
+# Upstream's render_gallery_stress.rs (v1.9.0) times the screenshot gallery's frame opening and closing
+# on the runner's GPU and failed `the_gallery_holds_up_under_a_thousand_shots` on the macOS runner (run
+# 40197311183); it runs in both trees too (ADR 0109).
+both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress"
 up="$(dirname "$1")/slot-upstream"
 [ -d "$up/crates" ] || {
 	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2
