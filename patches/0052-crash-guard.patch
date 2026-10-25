@@ -3,33 +3,25 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Sun, 18 Oct 2026 19:32:10 +0400
 Subject: [PATCH] crash-guard
 
-slot writes Config/starting.txt (platform and stem) before it opens a
-core, and removes it once the game has published 300 frames or a
-resume state is written (flush, autosave). A boot that finds the mark
-naming the cart it would put back leaves that cart selected on the
-shelf with a Last start failed banner, so a game that crashes while
-starting no longer crashes every boot. The resume state stays on the
-card. Upstream-first (ADR 0047, ADR 0084): drop this patch when the
-upstream PR lands. Idea from oauramos/omega-zero be6eb11.
+A game that took slot down while it loaded starts on the shelf next time. Detection is upstream's (v1.9.0 loading_mark.rs: a mark in SLOT_RUN, set when a cart goes in, cleared after 10 s of play, on the shelf or on a clean stop). Ours is what the player sees: the cart that crashed is selected on the shelf and the banner Last start failed says why. Upstream also moves the resume state aside (resume-refused-*) and unseats the cart, where our first guard kept both. The Config/starting.txt mark is gone. ADR 0084, ADR 0109.
 ---
  crates/slot-ui/src/lib.rs          |   1 +
  crates/slot-ui/src/quick_retro.rs  |   3 +-
  crates/slot-ui/src/start_toast.rs  |   7 ++
  crates/slot-ui/src/toast.rs        |   3 +
- crates/slot/src/app.rs             |   8 ++
- crates/slot/src/app/start_guard.rs |  67 +++++++++++
- crates/slot/src/session.rs         |   2 +
- crates/slot/tests/crash_guard.rs   | 174 +++++++++++++++++++++++++++++
- 8 files changed, 264 insertions(+), 1 deletion(-)
+ crates/slot/src/app.rs             |   2 +
+ crates/slot/src/app/start_guard.rs |  16 +++
+ crates/slot/tests/crash_guard.rs   | 173 +++++++++++++++++++++++++++++
+ 7 files changed, 204 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot-ui/src/start_toast.rs
  create mode 100644 crates/slot/src/app/start_guard.rs
  create mode 100644 crates/slot/tests/crash_guard.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index f26ebde..2e4ae7d 100644
+index 2c9be6e..b439936 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -38,6 +38,7 @@ mod shelf;
+@@ -39,6 +39,7 @@ mod shelf;
  mod shell;
  mod silhouette;
  mod slot_chrome;
@@ -72,10 +64,10 @@ index 0000000..97f4b59
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index bed2a6e..d27cb16 100644
+index cc84414..71dd549 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -32,6 +32,7 @@ pub enum Toast {
+@@ -34,6 +34,7 @@ pub enum Toast {
      Retro(slot_store::RetroShader),
      Disc(crate::DiscToast),
      Battery(crate::BatteryToast),
@@ -83,7 +75,7 @@ index bed2a6e..d27cb16 100644
  }
  
  impl Toast {
-@@ -76,6 +77,7 @@ impl Toast {
+@@ -80,6 +81,7 @@ impl Toast {
              Toast::Retro(s) => Toast::all().len() + s.index(),
              Toast::Disc(d) => Toast::disc_index(d),
              Toast::Battery(b) => Toast::battery_index(b),
@@ -91,7 +83,7 @@ index bed2a6e..d27cb16 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -146,6 +148,7 @@ impl Toast {
+@@ -153,6 +155,7 @@ impl Toast {
              Toast::Retro(s) => s.toast(),
              Toast::Disc(d) => d.text(),
              Toast::Battery(b) => b.text(),
@@ -100,7 +92,7 @@ index bed2a6e..d27cb16 100644
      }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index c745f09..63e1958 100644
+index 6eb820b..6cc8066 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,6 +1,7 @@
@@ -111,167 +103,64 @@ index c745f09..63e1958 100644
  
  use std::collections::HashMap;
  use std::path::{Path, PathBuf};
-@@ -465,6 +466,7 @@ pub struct App {
-     pal_speeds: crate::pal_speed::PalSpeeds,
-     sms_region: crate::sms_region::Region,
-     rested: Option<(usize, usize)>,
-+    start_marked: bool,
- }
- 
- const FACE_AHEAD: i32 = 8;
-@@ -651,6 +653,7 @@ impl App {
-             pal_speeds: crate::pal_speed::PalSpeeds::default(),
-             sms_region: crate::sms_region::Region::Auto,
-             rested: None,
-+            start_marked: false,
-         }
-     }
- 
-@@ -709,6 +712,9 @@ impl App {
-             Some((at, i)) => {
-                 self.shelf_at = at;
-                 self.shelf_mut().select(i);
-+                if self.start_crashed() {
-+                    return;
-+                }
-                 self.insert(false);
-                 if let Phase::Inserting { resumed, t, .. } = &mut self.phase {
-                     *resumed = true;
-@@ -5396,6 +5402,7 @@ impl App {
+@@ -780,6 +781,7 @@ impl App {
+         self.state.cart_platform = None;
+         self.name_pending = true;
+         self.persist_soon();
++        self.show_start_failed(stem, platform);
+         let (Some(root), Some(platform)) = (&self.root, platform) else {
+             return;
          };
-         let (root, platform, core, cart) =
-             (root.clone(), self.platform, self.core, cart.to_owned());
-+        self.settle_start_now();
-         let failing = self.card_writes.clone();
-         let write = move || {
-             let written = persist::flush(
-@@ -5443,6 +5450,7 @@ impl App {
-             eprintln!("slot: flush: {e}");
-         }
-         self.card_writes.wrote("flush", &written);
-+        self.settle_start_now();
-     }
- 
-     fn ring(&self) -> Option<StateRing> {
 diff --git a/crates/slot/src/app/start_guard.rs b/crates/slot/src/app/start_guard.rs
 new file mode 100644
-index 0000000..cd6373b
+index 0000000..203a03c
 --- /dev/null
 +++ b/crates/slot/src/app/start_guard.rs
-@@ -0,0 +1,67 @@
-+use std::path::{Path, PathBuf};
-+
+@@ -0,0 +1,16 @@
 +use slot_store::Platform;
 +use slot_ui::Toast;
 +
 +use super::App;
 +
-+const START_SETTLED_FRAMES: u64 = 300;
-+
-+fn mark_file(root: &Path) -> PathBuf {
-+    root.join("Config/starting.txt")
-+}
-+
-+fn mark_line(platform: Platform, stem: &str) -> String {
-+    format!("{}/{stem}", platform.dir_name())
-+}
-+
 +impl App {
-+    pub fn mark_start(&mut self, platform: Platform, stem: &str) {
-+        let Some(root) = &self.root else {
-+            return;
-+        };
-+        let line = mark_line(platform, stem);
-+        match std::fs::write(mark_file(root), format!("{line}\n")) {
-+            Ok(()) => self.start_marked = true,
-+            Err(e) => eprintln!("slot: start guard: {e}"),
++    // Called from upstream's start_after_a_crash (loading_mark.rs, v1.9.0): the shelf comes up with
++    // the cart that took slot down selected, and the banner says why (ADR 0084, ADR 0109).
++    pub(super) fn show_start_failed(&mut self, stem: &str, platform: Option<Platform>) {
++        if let Some((at, i)) = self.seat_of(stem, platform) {
++            self.shelf_at = at;
++            self.shelf_mut().select(i);
 +        }
-+    }
-+
-+    pub fn settle_start(&mut self, frames: u64) {
-+        if !self.start_marked || frames < START_SETTLED_FRAMES {
-+            return;
-+        }
-+        self.start_marked = false;
-+        let Some(root) = &self.root else {
-+            return;
-+        };
-+        if let Err(e) = std::fs::remove_file(mark_file(root)) {
-+            if e.kind() != std::io::ErrorKind::NotFound {
-+                eprintln!("slot: start guard: {e}");
-+            }
-+        }
-+    }
-+
-+    pub(super) fn settle_start_now(&mut self) {
-+        self.settle_start(START_SETTLED_FRAMES);
-+    }
-+
-+    pub(super) fn start_crashed(&mut self) -> bool {
-+        let Some(root) = &self.root else {
-+            return false;
-+        };
-+        let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
-+            return false;
-+        };
-+        let line = mark_line(cart.platform, &cart.stem);
-+        let marked = std::fs::read_to_string(mark_file(root))
-+            .is_ok_and(|m| m.trim_end_matches('\n') == line);
-+        if !marked {
-+            return false;
-+        }
-+        eprintln!("slot: start guard: {line} did not finish its last start, kept on the shelf");
-+        self.name_pending = true;
 +        self.hud.toast(Toast::StartFailed, self.now());
-+        true
 +    }
 +}
-diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 1653724..dd91c5f 100644
---- a/crates/slot/src/session.rs
-+++ b/crates/slot/src/session.rs
-@@ -357,6 +357,7 @@ impl Session {
-             launch("first frame shown");
-         }
-         self.app.set_game_ready(ready);
-+        self.app.settle_start(self.frames_published());
-         self.sync_speed();
-         self.sync_rewind_hud();
-         self.sync_ff_hud();
-@@ -531,6 +532,7 @@ impl Session {
-         crate::audio::wake_device();
-         let core = slot_store::core_for_platform(&self.root, stem, platform);
-         launch(&format!("opening {stem} on {}", core.as_str()));
-+        self.app.mark_start(platform, stem);
-         self.app.set_core(core);
-         self.app.set_platform(platform);
-         self.app
 diff --git a/crates/slot/tests/crash_guard.rs b/crates/slot/tests/crash_guard.rs
 new file mode 100644
-index 0000000..b74720c
+index 0000000..b956292
 --- /dev/null
 +++ b/crates/slot/tests/crash_guard.rs
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,173 @@
++// ADR 0084 and ADR 0109: the detection is upstream's (loading_mark.rs, v1.9.0), the banner and the
++// selected cart are ours. Every test here boots through upstream's mark, so a future upstream change
++// to the mark breaks one of them instead of silently dropping the guard.
 +mod common;
 +
 +use std::path::Path;
-+use std::time::{Duration, Instant};
 +
 +use common::{tmp_root_with_carts, StubSnapshot};
 +use slot::app::{App, Phase};
++use slot::loading_mark::LoadingMark;
 +use slot::persist;
-+use slot::session::Session;
 +use slot_store::{write_slot_state, Core, Platform, SlotState};
 +use slot_ui::Toast;
 +
-+fn left_running(stem: &str) -> tempfile::TempDir {
-+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
-+    seat(d.path(), stem);
++fn left_running(stems: &[&str], seated: &str) -> tempfile::TempDir {
++    let d = tmp_root_with_carts(stems);
++    seat(d.path(), seated);
 +    persist::flush(
 +        d.path(),
 +        Platform::Gba,
 +        Core::Mgba,
-+        "Emerald",
++        seated,
 +        Some(&500_000u64.to_le_bytes()),
 +        None,
 +    )
@@ -293,9 +182,8 @@ index 0000000..b74720c
 +    .expect("write slot.state");
 +}
 +
-+fn crash_while_starting(root: &Path) {
-+    let s = Session::boot(root.to_path_buf());
-+    assert!(s.has_core(), "the game was not started");
++fn mark_in(run: &tempfile::TempDir) -> LoadingMark {
++    LoadingMark::in_dir(run.path())
 +}
 +
 +fn inserting(a: &App) -> Option<&str> {
@@ -305,12 +193,20 @@ index 0000000..b74720c
 +    }
 +}
 +
++fn crashed_on(root: &Path, stem: &str, run: &tempfile::TempDir) {
++    let mark = mark_in(run);
++    let a = App::boot_marked(root, Some(mark.clone()));
++    assert_eq!(inserting(&a), Some(stem), "the cart was not put back");
++    assert_eq!(mark.left().as_deref(), Some(stem), "no mark while it loads");
++}
++
 +#[test]
 +fn a_start_that_never_got_through_leaves_the_cart_on_the_shelf() {
-+    let d = left_running("Emerald");
-+    crash_while_starting(d.path());
++    let d = left_running(&["Emerald", "Fusion"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    crashed_on(d.path(), "Emerald", &run);
 +
-+    let a = App::boot(d.path());
++    let a = App::boot_marked(d.path(), Some(mark_in(&run)));
 +
 +    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
 +    assert_eq!(a.selected_stem(), Some("Emerald"));
@@ -318,103 +214,93 @@ index 0000000..b74720c
 +}
 +
 +#[test]
-+fn a_start_that_never_got_through_keeps_its_resume_state() {
-+    let d = left_running("Emerald");
-+    crash_while_starting(d.path());
++fn a_single_cart_that_never_got_through_still_shows_the_shelf() {
++    let d = left_running(&["Emerald"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    crashed_on(d.path(), "Emerald", &run);
 +
-+    let _ = App::boot(d.path());
++    let a = App::boot_marked(d.path(), Some(mark_in(&run)));
++
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.selected_stem(), Some("Emerald"));
++    assert_eq!(a.toast(), Some(Toast::StartFailed));
++}
++
++#[test]
++fn a_start_that_never_got_through_moves_its_resume_state_aside() {
++    let d = left_running(&["Emerald", "Fusion"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    crashed_on(d.path(), "Emerald", &run);
++
++    let _ = App::boot_marked(d.path(), Some(mark_in(&run)));
 +
 +    assert_eq!(
 +        persist::read_resume(d.path(), Platform::Gba, Core::Mgba, "Emerald")
 +            .ok()
 +            .flatten(),
-+        Some(500_000u64.to_le_bytes().to_vec())
++        None,
++        "the state it crashed on would load again"
 +    );
++    let kept = std::fs::read_dir(d.path().join("States/GBA/Emerald"))
++        .map(|dir| {
++            dir.flatten()
++                .filter(|e| e.file_name().to_string_lossy().starts_with("resume-refused-"))
++                .count()
++        })
++        .unwrap_or(0);
++    assert_eq!(kept, 1, "the state was deleted, not moved aside");
 +}
 +
 +#[test]
 +fn a_cart_kept_on_the_shelf_stays_there_until_a_start_gets_through() {
-+    let d = left_running("Emerald");
-+    crash_while_starting(d.path());
++    let d = left_running(&["Emerald", "Fusion"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    crashed_on(d.path(), "Emerald", &run);
 +
-+    let _ = App::boot(d.path());
-+    let a = App::boot(d.path());
++    let _ = App::boot_marked(d.path(), Some(mark_in(&run)));
++    let a = App::boot_marked(d.path(), Some(mark_in(&run)));
 +
 +    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    assert_eq!(a.toast(), None, "the banner outlived the boot it explained");
 +}
 +
 +#[test]
-+fn the_mark_stays_down_until_the_300th_published_frame() {
-+    let d = left_running("Emerald");
-+    let mut a = App::boot(d.path());
-+    a.mark_start(Platform::Gba, "Emerald");
-+    a.settle_start(299);
-+    drop(a);
-+    let a = App::boot(d.path());
-+    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
-+
-+    let mut a = App::boot(d.path());
-+    a.mark_start(Platform::Gba, "Emerald");
-+    a.settle_start(300);
-+    drop(a);
-+    let a = App::boot(d.path());
-+    assert_eq!(inserting(&a), Some("Emerald"));
-+    assert_eq!(a.toast(), None);
-+}
-+
-+#[test]
-+fn a_start_that_runs_its_first_frames_resumes_on_the_next_boot() {
-+    let d = left_running("Emerald");
-+    let mut s = Session::boot(d.path().to_path_buf());
-+    let deadline = Instant::now() + Duration::from_secs(120);
-+    while s.frames_published() < 300 {
-+        assert!(
-+            Instant::now() < deadline,
-+            "the game ran only {} of 300 frames in 120 s",
-+            s.frames_published()
-+        );
-+        s.update(1.0 / 60.0);
-+        std::thread::sleep(Duration::from_millis(1));
-+    }
-+    s.update(1.0 / 60.0);
-+    drop(s);
-+
-+    let a = App::boot(d.path());
-+
-+    assert_eq!(inserting(&a), Some("Emerald"));
-+    assert_eq!(a.toast(), None);
-+}
-+
-+#[test]
-+fn a_flush_before_the_first_frames_also_clears_the_mark() {
-+    let d = left_running("Emerald");
-+    let mut a = App::boot(d.path());
-+    a.mark_start(Platform::Gba, "Emerald");
++fn ten_seconds_of_play_lets_the_next_boot_resume_without_a_banner() {
++    let d = left_running(&["Emerald", "Fusion"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    let mark = mark_in(&run);
++    let mut a = App::boot_marked(d.path(), Some(mark.clone()));
 +    a.set_snapshot(StubSnapshot::boxed());
 +    a.on_core_ready();
-+    for _ in 0..600 {
-+        if matches!(a.phase(), Phase::Playing { .. }) {
-+            break;
-+        }
++    for _ in 0..120 {
 +        a.update(1.0 / 60.0);
 +    }
-+    a.flush_resume();
++    assert!(matches!(a.phase(), Phase::Playing { .. }));
++    let now = a.now();
++    a.tick_ms(now + 10_000);
++    assert_eq!(mark.left(), None, "a settled game left the mark down");
 +    drop(a);
 +
-+    let a = App::boot(d.path());
++    let a = App::boot_marked(d.path(), Some(mark));
 +
 +    assert_eq!(inserting(&a), Some("Emerald"));
++    assert_eq!(a.toast(), None);
 +}
 +
 +#[test]
-+fn the_mark_holds_back_only_the_cart_it_names() {
-+    let d = left_running("Emerald");
-+    crash_while_starting(d.path());
-+    seat(d.path(), "Fusion");
++fn a_clean_stop_lets_the_next_boot_resume() {
++    let d = left_running(&["Emerald", "Fusion"], "Emerald");
++    let run = tempfile::tempdir().unwrap();
++    let mark = mark_in(&run);
++    let mut a = App::boot_marked(d.path(), Some(mark.clone()));
++    assert_eq!(mark.left().as_deref(), Some("Emerald"));
++    a.clear_loading_mark();
++    drop(a);
 +
-+    let a = App::boot(d.path());
++    let a = App::boot_marked(d.path(), Some(mark));
 +
-+    assert_eq!(inserting(&a), Some("Fusion"));
++    assert_eq!(inserting(&a), Some("Emerald"));
++    assert_eq!(a.toast(), None);
 +}
 +
 +#[test]

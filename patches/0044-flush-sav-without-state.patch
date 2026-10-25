@@ -10,49 +10,55 @@ progress held in save RAM. The missing state is logged.
 Generic half of suprsomething/slot.advance dbbadae (GPL-3.0),
 https://github.com/suprsomething/slot.advance/commit/dbbadae
 ---
- crates/slot/src/app.rs                   | 21 ++++----
+ crates/slot/src/app.rs                   | 29 ++++++-----
  crates/slot/src/lib.rs                   |  1 +
  crates/slot/src/no_state.rs              |  7 +++
  crates/slot/tests/flush_without_state.rs | 65 ++++++++++++++++++++++++
- 4 files changed, 82 insertions(+), 12 deletions(-)
+ 4 files changed, 88 insertions(+), 14 deletions(-)
  create mode 100644 crates/slot/src/no_state.rs
  create mode 100644 crates/slot/tests/flush_without_state.rs
 
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index a3e2fcb..8b1de1a 100644
+index bd76ac2..a66838f 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -4854,11 +4854,10 @@ impl App {
-         let (Some(root), Some(snapshot)) = (&self.root, &self.snapshot) else {
-             return;
+@@ -5108,10 +5108,7 @@ impl App {
          };
--        let Some(state) = snapshot.state() else {
--            eprintln!("slot: eject: the core gave up no state");
--            return;
-+        let (state, sav) = match snapshot.state() {
-+            Some(state) => trusted_write(snapshot.as_ref(), state, "eject"),
+         let (state, sav) = match snapshot.state() {
+             Some(state) => trusted_write(snapshot.as_ref(), state, "eject"),
+-            None => {
+-                eprintln!("slot: eject: the core gave up no state");
+-                (None, None)
+-            }
 +            None => crate::no_state::save_ram_alone(snapshot.as_ref(), "eject"),
          };
--        let (state, sav) = trusted_write(snapshot.as_ref(), state, "eject");
          let state = state.filter(|_| self.state.eject_save);
          self.state_writer.flush();
-         match persist::eject(
-@@ -5365,11 +5364,10 @@ impl App {
-         else {
+@@ -5631,12 +5628,17 @@ impl App {
              return;
          };
--        let Some(state) = snapshot.state() else {
--            eprintln!("slot: autosave: the core gave up no state");
--            return;
-+        let (state, sav) = match snapshot.state() {
-+            Some(state) => trusted_write(snapshot.as_ref(), state, "autosave"),
-+            None => crate::no_state::save_ram_alone(snapshot.as_ref(), "autosave"),
-         };
--        let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
-         let (root, platform, core, cart) =
-             (root.clone(), self.platform, self.core, cart.to_owned());
-         let failing = self.card_writes.clone();
-@@ -5403,11 +5401,10 @@ impl App {
+         let (state, sav, what) = if resume {
+-            let Some(state) = snapshot.state() else {
+-                eprintln!("slot: autosave: the core gave up no state");
+-                return;
+-            };
+-            let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
+-            (state, sav, "autosave")
++            match snapshot.state() {
++                Some(state) => {
++                    let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
++                    (state, sav, "autosave")
++                }
++                None => {
++                    let (state, sav) =
++                        crate::no_state::save_ram_alone(snapshot.as_ref(), "autosave");
++                    (state, sav, "autosave")
++                }
++            }
+         } else {
+             match trusted_sav(snapshot.as_ref(), "autosave") {
+                 Some(sav) => (None, Some(sav), "in-game save"),
+@@ -5677,11 +5679,10 @@ impl App {
          else {
              return;
          };
@@ -68,13 +74,13 @@ index a3e2fcb..8b1de1a 100644
              root,
              self.platform,
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 05b6a26..25c686a 100644
+index 15ed246..1c1b583 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -42,6 +42,7 @@ pub mod link_radio;
- pub mod link_screen;
+@@ -43,6 +43,7 @@ pub mod link_screen;
  pub mod link_start;
  pub mod link_state;
+ pub mod loading_mark;
 +pub mod no_state;
  pub mod pal_speed;
  pub mod panel_turn;

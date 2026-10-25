@@ -33,8 +33,17 @@ cd "$ours"
 # rustfmt also walks the modules a file declares, so a changed lib.rs reaches upstream files we never
 # touch; upstream v1.8.0's sticker.rs is not rustfmt clean (ADR 0106). Only our files fail the check.
 out="$(echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --check --edition "$edition" 2>&1 || true)"
+# A file upstream also has fails only when we add rustfmt diffs to it: v1.9.0's own app.rs, frontend.rs and
+# slot-ui lib.rs are not rustfmt clean (screenshots), and reflowing upstream's lines would widen every hunk
+# of the touch-point map (ADR 0109). Same count of diffs as the upstream file = nothing of ours is unformatted.
 bad="$(printf '%s\n' "$out" | sed -n "s|^Diff in $ours/\(.*\):[0-9]*:\$|\1|p" | sort -u | while read -r f; do
-	printf '%s\n' "$files" | grep -Fx -- "$f" || true
+	printf '%s\n' "$files" | grep -Fx -- "$f" >/dev/null || continue
+	n_ours="$(printf '%s\n' "$out" | grep "^Diff in $ours/$f:" | sort -u | wc -l | tr -d ' ')"
+	n_up=0
+	if [ -f "$up/$f" ]; then
+		n_up="$(cd "$up" && rustfmt --check --edition "$edition" "$f" 2>&1 | grep "^Diff in $up/$f:" | sort -u | wc -l | tr -d ' ')"
+	fi
+	[ "$n_ours" -gt "$n_up" ] && echo "$f"
 done)"
 printf '%s\n' "$out" | grep -q . && printf '%s\n' "$out"
 if [ -n "$bad" ]; then

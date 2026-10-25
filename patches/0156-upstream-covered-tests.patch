@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 25 Oct 2026 15:58:17 +0400
+Subject: [PATCH] upstream-covered-tests
+
+Tests that pin what slot 1.9.0 and 1.8.1 now give us in place of our own code: the game save every minute and the resume every five (also for a core with no state), Fast Forward Off refusing the PS1 latch and the plain hold, a bind mount whose unmount hangs not holding the card repair. ADR 0109.
+---
+ card/test-expansion.sh            |  22 +++++++
+ crates/slot/tests/ff_off.rs       |  52 +++++++++++++++
+ crates/slot/tests/save_cadence.rs | 102 ++++++++++++++++++++++++++++++
+ 3 files changed, 176 insertions(+)
+ create mode 100644 crates/slot/tests/ff_off.rs
+ create mode 100644 crates/slot/tests/save_cadence.rs
+
+diff --git a/card/test-expansion.sh b/card/test-expansion.sh
+index a376de7..1af8a76 100644
+--- a/card/test-expansion.sh
++++ b/card/test-expansion.sh
+@@ -164,4 +164,26 @@ AGS_DATA="$TMP/data" AGS_RUN="$TMP/run" AGS_MOUNTS="$TMP/mounts" \
+ ! grep -q 'mmcblk1' "$TMP/calls" || fail "repair touched the expansion card"
+ grep -q '/mnt/expansion' "$TMP/mounts" || fail "repair unmounted the expansion card itself"
+ 
++# 1.9.0 bounds every repair step (upstream 47bd0e6): a bind mount whose unmount hangs must not hold the
++# repair, the other folders and the card are still tried, and the log says which step was given up on.
++setup
++mkdir -p "$TMP/data" "$TMP/run"
++cat > "$TMP/mounts" <<-M
++	/dev/mmcblk0p7 /mnt/sdcard vfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/sdcard/Games/PS1 exfat rw,noatime 0 0
++	/dev/mmcblk1p2 /mnt/sdcard/Games/MD exfat rw,noatime 0 0
++M
++fake umount 'case "$1" in */Games/PS1) exec /bin/sleep 30 ;; esac; grep -q " $1/" "$TMP/mounts" && exit 32; grep -v " $1 " "$TMP/mounts" > "$TMP/m"; mv "$TMP/m" "$TMP/mounts"'
++for f in fuser sync reboot splash rmmod fsck.fat fsck.exfat; do fake "$f" 'exit 0'; done
++AGS_DATA="$TMP/data" AGS_RUN="$TMP/run" AGS_MOUNTS="$TMP/mounts" \
++	AGS_UMOUNT="$TMP/bin/umount" AGS_MOUNT="$TMP/bin/mount" AGS_FUSER="$TMP/bin/fuser" \
++	AGS_SYNC="$TMP/bin/sync" AGS_REBOOT="$TMP/bin/reboot" AGS_RMMOD="$TMP/bin/rmmod" AGS_SPLASH="$TMP/bin/splash" \
++	AGS_FSCK_FAT="$TMP/bin/fsck.fat" AGS_FSCK_EXFAT="$TMP/bin/fsck.exfat" \
++	AGS_OUT="$TMP/out" AGS_UPTIME="$TMP/uptime" AGS_SLEEP=sleep AGS_HOLD=0 AGS_WIFI_WAIT=1 AGS_STEP_WAIT=1 \
++	sh "$HERE/System/repair.sh" /dev/mmcblk0p7 /mnt/sdcard vfat
++grep -q "still running after 1s" "$TMP/data/slot-repair.log" || fail "a hung bind unmount was not given up on"
++called "umount /mnt/sdcard/Games/MD" || fail "the folder after a hung one was not tried"
++called "umount /mnt/sdcard" || fail "the card was not tried after a hung bind unmount"
++called "reboot -f -n" || fail "a hung bind unmount did not reboot without waiting on the card"
++
+ echo "expansion: all passed"
+diff --git a/crates/slot/tests/ff_off.rs b/crates/slot/tests/ff_off.rs
+new file mode 100644
+index 0000000..5fe23cb
+--- /dev/null
++++ b/crates/slot/tests/ff_off.rs
+@@ -0,0 +1,52 @@
++// ADR 0109: slot 1.8.1 lets Fast Forward be Off (FF_SPEEDS starts at 0). Our PS1 SELECT+R2 latch and
++// the plain R2 both start fast forward through Action::FfStart, so one gate has to refuse both.
++mod common;
++
++use common::{tmp_root_with_carts, StubSnapshot};
++use slot::app::App;
++use slot_input::Action;
++use slot_store::{write_slot_state, SlotState};
++
++fn playing(ff_speed: u8) -> (tempfile::TempDir, App) {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            cart: Some("Emerald".into()),
++            clock_set: true,
++            utc_offset_min: 0,
++            ff_speed,
++            ..Default::default()
++        },
++    )
++    .expect("write slot.state");
++    let mut a = App::boot(d.path());
++    a.set_snapshot(StubSnapshot::boxed());
++    a.on_core_ready();
++    for _ in 0..120 {
++        a.update(1.0 / 60.0);
++    }
++    (d, a)
++}
++
++#[test]
++fn a_fast_forward_start_runs_at_a_set_speed() {
++    let (_d, mut a) = playing(6);
++    a.apply(Action::FfStart);
++    assert!(a.may_fast_forward());
++    assert!(
++        !a.refusal_active(a.now()),
++        "a start at a set speed was refused"
++    );
++}
++
++#[test]
++fn with_fast_forward_off_the_latch_and_the_plain_hold_both_start_nothing() {
++    let (_d, mut a) = playing(0);
++    a.apply(Action::FfStart);
++    assert!(!a.may_fast_forward(), "fast forward is allowed with it off");
++    assert!(
++        a.refusal_active(a.now()),
++        "the refused start did not say so"
++    );
++}
+diff --git a/crates/slot/tests/save_cadence.rs b/crates/slot/tests/save_cadence.rs
+new file mode 100644
+index 0000000..a479937
+--- /dev/null
++++ b/crates/slot/tests/save_cadence.rs
+@@ -0,0 +1,102 @@
++// ADR 0109: slot 1.9.0 splits the autosave. The game's own save is written every minute, the resume
++// state every five minutes. Every system of this project keeps its battery or card save (NGP flash,
++// PS1 memory cards, FDS disks, PICO-8 cartdata, Neo Geo CD and Sega CD backup RAM) behind
++// Snapshot::save_ram, so these tests pin that the minute reaches it and that a core with no state
++// still gets its save written (flush-sav-without-state, 0072).
++mod common;
++
++use common::{app_playing_with, tmp_root_with_carts};
++use slot::persist::{self, Snapshot};
++use slot_store::{Core, Platform};
++
++struct Stub {
++    state: Option<Vec<u8>>,
++    sav: Vec<u8>,
++}
++
++impl Snapshot for Stub {
++    fn state(&self) -> Option<Vec<u8>> {
++        self.state.clone()
++    }
++
++    fn save_ram(&self) -> Option<Vec<u8>> {
++        Some(self.sav.clone())
++    }
++
++    fn thumb(&self) -> Option<Vec<u8>> {
++        None
++    }
++
++    fn load(&self, _state: Vec<u8>) {}
++}
++
++fn sav(d: &std::path::Path) -> Option<Vec<u8>> {
++    persist::read_sav(d, Platform::Gba, "Emerald")
++        .ok()
++        .flatten()
++}
++
++fn resume(d: &std::path::Path) -> Option<Vec<u8>> {
++    persist::read_resume(d, Platform::Gba, Core::Mgba, "Emerald")
++        .ok()
++        .flatten()
++}
++
++#[test]
++fn the_game_save_reaches_the_card_within_a_minute_and_the_resume_waits_for_five() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let snap = Stub {
++        state: Some(vec![9u8; 64]),
++        sav: vec![7u8; 32],
++    };
++    let mut a = app_playing_with(d.path(), "Emerald", Box::new(snap));
++
++    a.tick_ms(59_000);
++    a.settle_saves();
++    assert_eq!(sav(d.path()), None, "written before the minute");
++
++    a.tick_ms(60_000);
++    a.settle_saves();
++    assert_eq!(
++        sav(d.path()),
++        Some(vec![7u8; 32]),
++        "no game save after a minute"
++    );
++    assert_eq!(
++        resume(d.path()),
++        None,
++        "the resume state was written after a minute"
++    );
++
++    a.tick_ms(300_000);
++    a.settle_saves();
++    assert_eq!(
++        resume(d.path()),
++        Some(vec![9u8; 64]),
++        "no resume state after five minutes"
++    );
++}
++
++#[test]
++fn a_core_with_no_state_still_gets_its_save_written_every_minute_and_at_five() {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    let snap = Stub {
++        state: None,
++        sav: vec![5u8; 16],
++    };
++    let mut a = app_playing_with(d.path(), "Emerald", Box::new(snap));
++
++    a.tick_ms(60_000);
++    a.settle_saves();
++    assert_eq!(sav(d.path()), Some(vec![5u8; 16]), "no save after a minute");
++    std::fs::remove_file(slot::root::saves_dir(d.path()).join("GBA/Emerald.sav")).expect("sav");
++    assert_eq!(sav(d.path()), None);
++
++    a.tick_ms(300_000);
++    a.settle_saves();
++    assert_eq!(
++        sav(d.path()),
++        Some(vec![5u8; 16]),
++        "the five minute tick dropped the save of a core with no state"
++    );
++}

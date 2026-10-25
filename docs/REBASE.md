@@ -54,6 +54,7 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
 | 2026-10-15 | v1.6.0 | v1.7.0 | one session, device steps pending (no tag yet) | cart.rs, app.rs, quick_menu.rs, shelf.rs, board.rs, silhouette.rs, art.rs, lib.rs (slot-ui), slot_state.rs, durability.rs, platform_policy.rs, pipeline.rs, emu.rs, frontend.rs, video_mode.rs, gesture.rs, root.rs, alsa.rs, render_shelves.rs, retro_pipeline.rs, retro_cart.rs |
 | 2026-10-18 | v1.7.0 | main 1b20432 (no 1.8.0 tag yet) | one session, device steps pending (no tag) | libretro.rs, emu.rs, lib.rs (slot), gesture.rs, gesture/ps1.rs, snes_select.rs, frontend.rs, quick_menu.rs (slot-ui src and tests), app.rs, pipeline.rs, retro_quick.rs, sega_quick_shader.rs, session.rs, mask.rs, lib.rs (slot-ui), device.rs, input/mod.rs |
 | 2026-10-21 | main 1b20432 | v1.8.0 | one session, device steps pending | bindings.rs, gesture.rs, input/mod.rs, session.rs, quick_menu.rs (slot-ui src and tests), toast.rs, app.rs, frontend.rs, lib.rs (slot-retro, slot-store, slot-ui), device_app.rs, launch_frontend.sh, snes_select.rs, retro_pipeline.rs |
+| 2026-10-25 | v1.8.0 | v1.9.0 (v1.8.1 on the way) | one session, device steps pending (no tag) | app.rs, root.rs, quick_menu.rs (slot-ui src and tests), lib.rs (slot, slot-store), alsa.rs, libretro.rs, repair.sh, console rows in app.rs |
 
 ## Lessons
 
@@ -91,3 +92,12 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
   panics when the measured tick rate makes the sound ratio tiny; `frame_dump.rs` spaces ticks 2 ms
   apart. The core now opens on its own thread, joined by an update, so any harness wait for a
   loading core must keep updating.
+- v1.9.0 (ADR 0109): a new upstream shortcut can take the chord one of our rows had, and upstream tests that
+  pin a default fail in our tree with no compile error (`screenshot_defaults_to_select_x`). After a release that adds a
+  shortcut, list every default chord against ours. A clean merge can also leave array lengths wrong
+  (`Shortcut::ALL`, `QuickRow::ALL`, `DIRS`): run `cargo check --all-targets` before the first test run.
+- v1.9.0: our own tests that press a chord on a GBA cart and expect X as Turbo A in the window (and
+  `select_x_gba.rs`, which says "as upstream") must be re-derived from the unpatched tree, not edited by hand.
+- v1.9.0: upstream reordered `Platform::ALL` (GBC before GB); our `Platform::SHELVES` follows it.
+- When a release lands a feature we already carry in another shape (crash guard, quiet audio start),
+  keep upstream's, shrink ours to the part it lacks, and add the ADR 0109 style test table.

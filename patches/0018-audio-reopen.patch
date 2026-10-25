@@ -3,19 +3,20 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 17:37:55 +0400
 Subject: [PATCH] audio-reopen
 
+Keep the ALSA device open while a game feeds the ring, reopen it as soon as a cart starts loading and top the ring up with silence when the sound starts flowing. The device starts released, like upstream's Silence::quiet (v1.8.1, #135), so the BaseOS startup sound plays at boot: the first feed or a wake claims it. ADR 0030, ADR 0109.
 ---
  crates/slot/src/audio/alsa.rs    |  10 +-
- crates/slot/src/audio/hold.rs    | 182 +++++++++++++++++++++++++++++++
+ crates/slot/src/audio/hold.rs    | 210 +++++++++++++++++++++++++++++++
  crates/slot/src/audio/mod.rs     |   2 +
  crates/slot/src/emu.rs           |  12 +-
  crates/slot/src/session.rs       |   1 +
- crates/slot/tests/audio_start.rs | 180 ++++++++++++++++++++++++++++++
- 6 files changed, 382 insertions(+), 5 deletions(-)
+ crates/slot/tests/audio_start.rs | 180 ++++++++++++++++++++++++++
+ 6 files changed, 410 insertions(+), 5 deletions(-)
  create mode 100644 crates/slot/src/audio/hold.rs
  create mode 100644 crates/slot/tests/audio_start.rs
 
 diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
-index 7d7af27..02ccb7b 100644
+index 588fe9f..bd26299 100644
 --- a/crates/slot/src/audio/alsa.rs
 +++ b/crates/slot/src/audio/alsa.rs
 @@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
@@ -29,11 +30,11 @@ index 7d7af27..02ccb7b 100644
  use super::sink::{AudioError, AudioSink};
  
  const SND_PCM_STREAM_PLAYBACK: c_int = 0;
-@@ -221,11 +221,13 @@ impl Playback {
+@@ -214,11 +214,13 @@ impl Playback {
      fn run(&mut self, ring: &Ring, stop: &AtomicBool) {
          let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
          let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
--        let mut silence = Silence::new(RELEASE_AFTER);
+-        let mut silence = Silence::quiet(RELEASE_AFTER);
 +        let mut silence = Hold::new(RELEASE_AFTER);
          let mut pace = Pacer::new(span);
          while !stop.load(Ordering::Relaxed) {
@@ -48,10 +49,10 @@ index 7d7af27..02ccb7b 100644
                      self.release();
 diff --git a/crates/slot/src/audio/hold.rs b/crates/slot/src/audio/hold.rs
 new file mode 100644
-index 0000000..693181b
+index 0000000..b20c899
 --- /dev/null
 +++ b/crates/slot/src/audio/hold.rs
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,210 @@
 +use std::sync::atomic::{AtomicBool, Ordering};
 +use std::time::Duration;
 +
@@ -85,9 +86,11 @@ index 0000000..693181b
 +}
 +
 +impl Hold {
++    // Starts released like upstream's Silence::quiet (#135): slot holds no device at boot, so the
++    // BaseOS startup sound plays. The first feed of the ring or a wake claims it.
 +    pub fn new(after: Duration) -> Self {
 +        Hold {
-+            silence: Silence::new(after),
++            silence: Silence::quiet(after),
 +            after,
 +            left: 0,
 +        }
@@ -160,9 +163,34 @@ index 0000000..693181b
 +    }
 +
 +    #[test]
++    fn a_quiet_boot_holds_no_device_until_something_is_fed() {
++        let ring = opened();
++        let mut hold = Hold::new(AFTER);
++        let mut out = vec![0i16; PERIOD * 2];
++        for _ in 0..4 * three_seconds_of_periods() {
++            assert!(
++                !hold.listen(&ring, &mut out, span()),
++                "slot claimed the device at boot"
++            );
++        }
++        ring.push(&[0; PERIOD * 2]);
++        assert!(hold.listen(&ring, &mut out, span()), "a feed did not claim it");
++    }
++
++    #[test]
++    fn a_wake_after_a_quiet_boot_claims_the_device() {
++        let ring = opened();
++        let mut hold = Hold::new(AFTER);
++        hold.wake();
++        let mut out = vec![0i16; PERIOD * 2];
++        assert!(hold.listen(&ring, &mut out, span()));
++    }
++
++    #[test]
 +    fn nothing_feeding_releases_after_three_seconds() {
 +        let ring = opened();
 +        let mut hold = Hold::new(AFTER);
++        hold.wake();
 +        let released =
 +            periods_until_release(&ring, &mut hold, 4 * three_seconds_of_periods(), |_| {});
 +        assert_eq!(released, Some(three_seconds_of_periods()));
@@ -193,6 +221,7 @@ index 0000000..693181b
 +    fn a_wake_restarts_the_three_seconds() {
 +        let ring = opened();
 +        let mut hold = Hold::new(AFTER);
++        hold.wake();
 +        let almost = three_seconds_of_periods() - 2;
 +        assert_eq!(
 +            periods_until_release(&ring, &mut hold, almost, |_| {}),
@@ -253,10 +282,10 @@ index e364017..4e09de0 100644
  pub use host::HostAudio;
  pub use pacer::Pacer;
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 5298352..9198649 100644
+index 652db6c..d555f4b 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -549,6 +549,7 @@ impl Worker {
+@@ -581,6 +581,7 @@ impl Worker {
              hz => hz as f64,
          };
          let mut resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
@@ -264,7 +293,7 @@ index 5298352..9198649 100644
          ring.clear_faults();
          self.shared
              .state
-@@ -557,6 +558,7 @@ impl Worker {
+@@ -589,6 +590,7 @@ impl Worker {
  
          let mut out = Vec::new();
          let mut gated = (false, false);
@@ -272,7 +301,7 @@ index 5298352..9198649 100644
          let rewind = RewindThread::spawn(REWIND_BYTES);
          let mut since_snapshot = 0;
          let mut cost = FrameCost::seed();
-@@ -633,8 +635,9 @@ impl Worker {
+@@ -665,8 +667,9 @@ impl Worker {
              );
              if gate != gated {
                  ring.set_muted(gate.0);
@@ -283,7 +312,7 @@ index 5298352..9198649 100644
              }
              let lock = self.shared.driven.load(Ordering::Relaxed)
                  && speed == Speed::Normal
-@@ -823,6 +826,13 @@ impl Worker {
+@@ -855,6 +858,13 @@ impl Worker {
                          &mut out,
                          self.shared.volume.load(Ordering::Relaxed),
                      );

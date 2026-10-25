@@ -1,3 +1,6 @@
+> Superseded on 2026-10-25 (ADR 0109): upstream v1.9.0 shipped its own guard (`loading_mark.rs`). This text stays as
+> history. What is still ours is the banner and the selected cart, see docs/upstream/start-failed-banner-issue.md.
+
 # PR title
 
 Leave a game on the shelf when its last start crashed

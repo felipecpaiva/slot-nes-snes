@@ -17,11 +17,11 @@ Subject: [PATCH] platform-nes
  crates/slot-ui/src/cart.rs               |  6 ++--
  crates/slot-ui/src/shell.rs              |  1 +
  crates/slot-ui/tests/chrome.rs           |  2 +-
- crates/slot/src/app.rs                   | 20 ++++++-----
+ crates/slot/src/app.rs                   | 23 +++++++------
  crates/slot/src/root.rs                  |  6 +++-
  crates/slot/tests/nes_dist.rs            | 42 ++++++++++++++++++++++++
  crates/slot/tests/nes_palette.rs         | 25 ++++++++++++++
- 17 files changed, 175 insertions(+), 23 deletions(-)
+ 17 files changed, 177 insertions(+), 24 deletions(-)
  create mode 100644 crates/slot-store/tests/nes_platform.rs
  create mode 100644 crates/slot-store/tests/nes_scan.rs
  create mode 100644 crates/slot-store/tests/nes_state.rs
@@ -29,7 +29,7 @@ Subject: [PATCH] platform-nes
  create mode 100644 crates/slot/tests/nes_palette.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 3d0994b..6aab293 100644
+index d7dbcb9..6d5f5d7 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -246,7 +246,7 @@ impl GameButton {
@@ -63,7 +63,7 @@ index 51f6ab7..727973c 100644
      }
  }
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index 3dfccff..605833a 100644
+index 77d201a..1440597 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -6,6 +6,7 @@ pub enum Platform {
@@ -162,10 +162,10 @@ index f479047..2d6d3a7 100644
          let entries = match std::fs::read_dir(&dir) {
              Ok(d) => d,
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index fee49eb..8c1c9bd 100644
+index 30ce1d2..8afcdfb 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -627,7 +627,7 @@ fn recent_value(value: &str) -> Option<Recent> {
+@@ -633,7 +633,7 @@ fn recent_value(value: &str) -> Option<Recent> {
  }
  
  fn platform_value(value: &str) -> Option<Platform> {
@@ -175,10 +175,10 @@ index fee49eb..8c1c9bd 100644
          .find(|p| value.eq_ignore_ascii_case(p.dir_name()))
  }
 diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
-index 15f622f..cd1a34a 100644
+index adf112b..9757991 100644
 --- a/crates/slot-store/tests/durability.rs
 +++ b/crates/slot-store/tests/durability.rs
-@@ -450,7 +450,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
+@@ -453,7 +453,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
      let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
      for (line, want) in [
          ("cart_platform=\n", None),
@@ -318,7 +318,7 @@ index 6f6ab88..62b5872 100644
  }
  
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index f028af5..e02c011 100644
+index 14cb55a..349363c 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -331,10 +331,10 @@ index f028af5..e02c011 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 1280ed6..66de6ab 100644
+index 7f0fd6f..9754ddb 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -468,7 +468,7 @@ pub struct FaceWant {
+@@ -487,7 +487,7 @@ pub struct FaceWant {
  fn shelves_of(carts: Vec<Cart>) -> Vec<(Rack, Shelf)> {
      let mut rows: Vec<(Rack, Vec<Cart>)> = [Rack::Recents, Rack::Favorites]
          .into_iter()
@@ -343,18 +343,21 @@ index 1280ed6..66de6ab 100644
          .map(|r| (r, Vec::new()))
          .collect();
      for cart in carts {
-@@ -1081,8 +1081,8 @@ impl App {
+@@ -1253,9 +1253,10 @@ impl App {
+     }
  
      pub fn bezel_files(&self, platform: Platform) -> Vec<String> {
-         match platform {
--            Platform::Gba => Vec::new(),
--            _ => self
-+            Platform::Gba | Platform::Nes => Vec::new(),
-+            Platform::Gb | Platform::Gbc => self
+-        match platform == Platform::Gba && !self.framed_panel() {
+-            true => Vec::new(),
+-            false => self
++        match platform {
++            Platform::Nes => Vec::new(),
++            _ if platform == Platform::Gba && !self.framed_panel() => Vec::new(),
++            _ => self
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
                  .unwrap_or_default(),
-@@ -1103,7 +1103,7 @@ impl App {
+@@ -1276,7 +1277,7 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
@@ -363,7 +366,7 @@ index 1280ed6..66de6ab 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -1111,7 +1111,7 @@ impl App {
+@@ -1284,7 +1285,7 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
@@ -372,7 +375,7 @@ index 1280ed6..66de6ab 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -2059,7 +2059,7 @@ impl App {
+@@ -2232,7 +2233,7 @@ impl App {
      pub fn screen_shader(&self) -> Shader {
          match self.playing_platform() {
              Platform::Gba => self.state.shader_gba,
@@ -381,7 +384,7 @@ index 1280ed6..66de6ab 100644
              Platform::Gbc => self.state.shader_gbc,
          }
      }
-@@ -2077,6 +2077,7 @@ impl App {
+@@ -2250,6 +2251,7 @@ impl App {
              Platform::Gba => self.state.colour_correction_gba,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
@@ -389,7 +392,7 @@ index 1280ed6..66de6ab 100644
          }
      }
  
-@@ -2837,7 +2838,7 @@ impl App {
+@@ -3037,7 +3039,7 @@ impl App {
          }
          let (shader, choices) = match self.playing_platform() {
              Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
@@ -398,7 +401,7 @@ index 1280ed6..66de6ab 100644
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
          };
          *shader = shader.step(choices, right);
-@@ -2891,6 +2892,7 @@ impl App {
+@@ -3091,6 +3093,7 @@ impl App {
                  Platform::Gba => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
@@ -406,7 +409,7 @@ index 1280ed6..66de6ab 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -3324,7 +3326,7 @@ impl App {
+@@ -3524,7 +3527,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
@@ -415,7 +418,7 @@ index 1280ed6..66de6ab 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -5537,7 +5539,7 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
+@@ -6058,7 +6061,7 @@ fn free_stamp(taken: &[String], now: i64) -> String {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {
@@ -425,18 +428,18 @@ index 1280ed6..66de6ab 100644
          Platform::Gbc => 2,
      }
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 8f3f02e..768abad 100644
+index e7ad2bc..ddb5440 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
  use std::path::{Path, PathBuf};
  
--pub const DIRS: [&str; 24] = [
-+pub const DIRS: [&str; 28] = [
+-pub const DIRS: [&str; 25] = [
++pub const DIRS: [&str; 29] = [
      "BIOS",
      "Bezels",
-     "Bezels/GB",
-@@ -10,19 +10,23 @@ pub const DIRS: [&str; 24] = [
+     "Bezels/GBA",
+@@ -11,19 +11,23 @@ pub const DIRS: [&str; 25] = [
      "Games/GBA",
      "Games/GB",
      "Games/GBC",
