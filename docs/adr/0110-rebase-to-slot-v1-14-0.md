@@ -43,17 +43,20 @@ adaptation patch (0157) was added, as 0155 did for 1.9.0.
 `house_label::tests::a_game_boy_label_is_the_shape_of_its_own_well` and `the_link_screen_uses_the_whole_4_by_3_panel`
 fail on pristine v1.14.0 here too (two of them depend on test order in a shared index). They are not ours.
 
-## Open work (checked off in the log below as it lands)
+## Open work (checked off as it lands)
 
-- [ ] `task check` green: fmt, both clippy passes, `check-upstream-tests.sh` (its hard-coded Core lists need
-      `Core::Gambatte`), `diffsurface` rows for the new hunks.
-- [ ] Gambatte in the dist: device `.so` from `cores/gambatte/build.sh`, host dylib (upstream fetches it from the
-      libretro buildbot with no hash, we pin `gambatte_host_sha256_<arch>` like gpSP), licence files,
-      `cores.sha256`, zip-check, SUPPLY-CHAIN and LICENSING.
-- [ ] Patch: hide the slot update row (and a test that the row is hidden and the BaseOS row is not).
-- [ ] Two Gamebit sound tests (`the_buzz_plays_and_a_lid_close_silences_it`, `the_tear_plays_after_the_print`)
-      pass on pristine upstream but flake here (the print cue fires early). Cause not found yet.
-- [ ] Tests for what upstream now covers (CONTRIBUTING rule), device gate, release notes, tag `v1.14.0-ns.1`.
+- [x] `task check` through the test, format, guard, lint, touch point and harness steps (2026-11-06): the
+      upstream failures on a macOS host (two header index tests, the link screen frame, a house label shape)
+      run in both trees, the Gamebit tests run one at a time, the harness had to learn that `step_emulator`
+      returns late and that the Game Boy Advance shader list is one short on a 3:2 panel.
+- [x] Patch 0158 hides the slot update row (`update_slot_hidden.rs` tests it, upstream's update tests use a
+      fake runner and are untouched).
+- [x] Gambatte host dylib fetched through upstream's task and pinned (`gambatte_host_sha256_arm64`).
+- [ ] Gambatte in the dist: device `.so` from upstream's `core:gambatte`, `gambatte_tarball_sha256` pin,
+      `cores.sha256`, `zip-check.sh`, LICENSING and SUPPLY-CHAIN.
+- [ ] Tests for what upstream now covers (CONTRIBUTING rule), `task test:controls`, device gate on the
+      RG34XXSP, release notes, `VERSION`, tag `v1.14.0-ns.1` (Felipe pushes it).
+- [ ] Why the two Gamebit sound tests flake only in the patched tree under load (they pass one at a time).
 
 ## Consequences
 
