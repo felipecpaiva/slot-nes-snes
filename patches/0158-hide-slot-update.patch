@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Fri, 6 Nov 2026 14:30:27 +0400
+Subject: [PATCH] hide-slot-update
+
+---
+ crates/slot/src/update.rs               | 20 ++++++++++++--
+ crates/slot/tests/update_slot_hidden.rs | 35 +++++++++++++++++++++++++
+ 2 files changed, 53 insertions(+), 2 deletions(-)
+ create mode 100644 crates/slot/tests/update_slot_hidden.rs
+
+diff --git a/crates/slot/src/update.rs b/crates/slot/src/update.rs
+index 2a82a90..1205d60 100644
+--- a/crates/slot/src/update.rs
++++ b/crates/slot/src/update.rs
+@@ -627,6 +627,21 @@ pub(crate) fn now_unix() -> u64 {
+         .map_or(0, |d| d.as_secs())
+ }
+ 
++/// This build is slot-nes-snes: upstream's list names upstream's zip, which would replace it with plain
++/// slot. Only the BaseOS offer goes through (ADR 0110).
++pub fn without_slot_offers(event: UpdateEvent) -> UpdateEvent {
++    match event {
++        UpdateEvent::Available(offers) => {
++            let kept: Vec<Release> = offers.into_iter().filter(|r| r.kind != Kind::Slot).collect();
++            match kept.is_empty() {
++                true => UpdateEvent::UpToDate,
++                false => UpdateEvent::Available(kept),
++            }
++        }
++        other => other,
++    }
++}
++
+ fn run(root: &Path, job: &UpdateJob, ticket: &Ticket, tx: &Sender<UpdateEvent>) -> UpdateEvent {
+     if clock_is_wrong(now_unix()) {
+         return UpdateEvent::Failed(UpdateFail::Clock);
+@@ -638,14 +653,15 @@ fn run(root: &Path, job: &UpdateJob, ticket: &Ticket, tx: &Sender<UpdateEvent>)
+         UpdateJob::Check => {
+             let target = crate::baseos::var("BASEOS_TARGET");
+             let version = crate::baseos::var("BASEOS_VERSION");
+-            check_with(
++            let event = check_with(
+                 now_unix(),
+                 &mut |url| fetch(url, API_TIMEOUT, &mut |_| {}),
+                 Running {
+                     slot: crate::build_info::Build::current().version,
+                     baseos: target.as_deref().zip(version.as_deref()),
+                 },
+-            )
++            );
++            without_slot_offers(event)
+         }
+         UpdateJob::Install(release) => {
+             let mut report = |got| {
+diff --git a/crates/slot/tests/update_slot_hidden.rs b/crates/slot/tests/update_slot_hidden.rs
+new file mode 100644
+index 0000000..4b725b8
+--- /dev/null
++++ b/crates/slot/tests/update_slot_hidden.rs
+@@ -0,0 +1,35 @@
++//! This build is updated from slot-nes-snes releases, never from upstream's list (ADR 0110): a newer
++//! upstream slot is not offered, a newer BaseOS still is.
++
++use slot::update::{without_slot_offers, Kind, Release, UpdateEvent};
++
++fn release(kind: Kind) -> Release {
++    Release {
++        kind,
++        running: "1.14.0".to_string(),
++        version: "1.15.0".to_string(),
++        url: "https://example.invalid/zip".to_string(),
++        sha256: [0; 32],
++        size: 1,
++    }
++}
++
++#[test]
++fn a_newer_upstream_slot_is_not_offered() {
++    let event = without_slot_offers(UpdateEvent::Available(vec![release(Kind::Slot)]));
++    assert_eq!(event, UpdateEvent::UpToDate);
++}
++
++#[test]
++fn a_newer_baseos_still_is() {
++    let event = without_slot_offers(UpdateEvent::Available(vec![
++        release(Kind::Slot),
++        release(Kind::BaseOs),
++    ]));
++    assert_eq!(event, UpdateEvent::Available(vec![release(Kind::BaseOs)]));
++}
++
++#[test]
++fn nothing_else_is_touched() {
++    assert_eq!(without_slot_offers(UpdateEvent::UpToDate), UpdateEvent::UpToDate);
++}
