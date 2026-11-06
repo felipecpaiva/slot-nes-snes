@@ -4,6 +4,8 @@ Date: Tue, 13 Oct 2026 17:37:55 +0400
 Subject: [PATCH] audio-reopen
 
 Keep the ALSA device open while a game feeds the ring, reopen it as soon as a cart starts loading and top the ring up with silence when the sound starts flowing. The device starts released, like upstream's Silence::quiet (v1.8.1, #135), so the BaseOS startup sound plays at boot: the first feed or a wake claims it. ADR 0030, ADR 0109.
+
+(cherry picked from commit f9c63d1bdc6aaae831d423973a0862c9b7b17a3c)
 ---
  crates/slot/src/audio/alsa.rs    |  10 +-
  crates/slot/src/audio/hold.rs    | 210 +++++++++++++++++++++++++++++++
@@ -16,7 +18,7 @@ Keep the ALSA device open while a game feeds the ring, reopen it as soon as a ca
  create mode 100644 crates/slot/tests/audio_start.rs
 
 diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
-index 588fe9f..bd26299 100644
+index 1d2834e..af88d1f 100644
 --- a/crates/slot/src/audio/alsa.rs
 +++ b/crates/slot/src/audio/alsa.rs
 @@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
@@ -30,8 +32,8 @@ index 588fe9f..bd26299 100644
  use super::sink::{AudioError, AudioSink};
  
  const SND_PCM_STREAM_PLAYBACK: c_int = 0;
-@@ -214,11 +214,13 @@ impl Playback {
-     fn run(&mut self, ring: &Ring, stop: &AtomicBool) {
+@@ -221,11 +221,13 @@ impl Playback {
+     fn run(&mut self, ring: &Ring, stop: &AtomicBool, held: &AtomicBool) {
          let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
          let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
 -        let mut silence = Silence::quiet(RELEASE_AFTER);
@@ -45,7 +47,7 @@ index 588fe9f..bd26299 100644
 +            }
 +            let hold = silence.listen(ring, &mut buf, span);
              match (self.pcm, hold) {
-                 (Some(_), false) => {
+                 (Some(_), false) if !held.load(Ordering::Relaxed) => {
                      self.release();
 diff --git a/crates/slot/src/audio/hold.rs b/crates/slot/src/audio/hold.rs
 new file mode 100644
@@ -282,10 +284,10 @@ index e364017..4e09de0 100644
  pub use host::HostAudio;
  pub use pacer::Pacer;
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 652db6c..d555f4b 100644
+index b92a0c7..b680223 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -581,6 +581,7 @@ impl Worker {
+@@ -586,6 +586,7 @@ impl Worker {
              hz => hz as f64,
          };
          let mut resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
@@ -293,7 +295,7 @@ index 652db6c..d555f4b 100644
          ring.clear_faults();
          self.shared
              .state
-@@ -589,6 +590,7 @@ impl Worker {
+@@ -594,6 +595,7 @@ impl Worker {
  
          let mut out = Vec::new();
          let mut gated = (false, false);
@@ -301,7 +303,7 @@ index 652db6c..d555f4b 100644
          let rewind = RewindThread::spawn(REWIND_BYTES);
          let mut since_snapshot = 0;
          let mut cost = FrameCost::seed();
-@@ -665,8 +667,9 @@ impl Worker {
+@@ -671,8 +673,9 @@ impl Worker {
              );
              if gate != gated {
                  ring.set_muted(gate.0);
@@ -312,7 +314,7 @@ index 652db6c..d555f4b 100644
              }
              let lock = self.shared.driven.load(Ordering::Relaxed)
                  && speed == Speed::Normal
-@@ -855,6 +858,13 @@ impl Worker {
+@@ -869,6 +872,13 @@ impl Worker {
                          &mut out,
                          self.shared.volume.load(Ordering::Relaxed),
                      );
@@ -327,15 +329,15 @@ index 652db6c..d555f4b 100644
                      paced += 1;
                      if crate::session::trace() && paced.is_multiple_of(TRACE_EVERY) {
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index ada6132..918423e 100644
+index 151b82b..e78277a 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -517,6 +517,7 @@ impl Session {
+@@ -577,6 +577,7 @@ impl Session {
          else {
              return;
          };
 +        crate::audio::wake_device();
-         let core = slot_store::core_for_platform(&self.root, stem, platform);
+         let core = slot_store::core_for_platform(&self.root, stem, platform, self.app.gb_core());
          launch(&format!("opening {stem} on {}", core.as_str()));
          self.app.set_core(core);
 diff --git a/crates/slot/tests/audio_start.rs b/crates/slot/tests/audio_start.rs

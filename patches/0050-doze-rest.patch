@@ -13,6 +13,8 @@ spent. From marghost/slot_modded b1f9e24, adapted from
 suprsomething/slot.advance bf810b6 (both GPL-3.0),
 https://github.com/marghost/slot_modded/commit/b1f9e24
 https://github.com/suprsomething/slot.advance/commit/bf810b6
+
+(cherry picked from commit 84fadafafc258c5967d8259e2aa0bcc7ce66ae3a)
 ---
  crates/slot/src/device_app.rs  |  15 +++-
  crates/slot/src/doze_rest.rs   |  82 +++++++++++++++++++
@@ -23,12 +25,12 @@ https://github.com/suprsomething/slot.advance/commit/bf810b6
  create mode 100644 crates/slot/tests/doze_rest.rs
 
 diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
-index e2a23d0..7d99a25 100644
+index 520589f..4604199 100644
 --- a/crates/slot/src/device_app.rs
 +++ b/crates/slot/src/device_app.rs
 @@ -155,8 +155,17 @@ pub fn run() {
      let mut pacer = Pacer::new();
-     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+     let (mut frames, mut missed, mut early, mut stale) = (0u32, 0u32, 0u32, 0u32);
      let mut frame_trace = slot::frame_trace::FrameTrace::new();
 +    let mut doze = slot::doze_rest::DozeRest::new();
      loop {
@@ -45,7 +47,7 @@ index e2a23d0..7d99a25 100644
          let began = Instant::now();
          input.steer_with_stick(frontend.app().left_stick_dpad());
          frontend.advance(&mut input);
-@@ -175,6 +184,10 @@ pub fn run() {
+@@ -179,6 +188,10 @@ pub fn run() {
              frontend.stop();
              return;
          }
@@ -53,7 +55,7 @@ index e2a23d0..7d99a25 100644
 +            (pacer.last_return, pacer.seen) = (None, None);
 +            continue;
 +        }
-         frontend.step_emulator(pacer.period, STEP_TIMEOUT);
+         let late = frontend.step_emulator(pacer.period, STEP_TIMEOUT);
          frontend.render(&mut compositor, window);
          let swap = Instant::now();
 diff --git a/crates/slot/src/doze_rest.rs b/crates/slot/src/doze_rest.rs
@@ -145,10 +147,10 @@ index 0000000..92c760e
 +    cpu_ms(&std::fs::read_to_string("/proc/self/stat").ok()?)
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 3298f4f..b6c60de 100644
+index 0354a1d..a17604b 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -26,6 +26,7 @@ pub mod crash;
+@@ -27,6 +27,7 @@ pub mod crash;
  pub mod crash {
      pub fn install() {}
  }

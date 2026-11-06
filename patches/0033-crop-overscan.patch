@@ -3,12 +3,13 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Fri, 16 Oct 2026 23:34:29 +0400
 Subject: [PATCH] crop-overscan
 
+(cherry picked from commit 12ae39bab4318ad165e33efe49cbc0f5061a17ed)
 ---
  crates/slot-store/src/platform_policy.rs |  13 ++
  crates/slot-ui/src/quick_menu.rs         |   3 +
  crates/slot-ui/src/quick_retro.rs        |   2 +-
  crates/slot-ui/tests/retro_faces.rs      |  10 +-
- crates/slot/src/app.rs                   |   8 +-
+ crates/slot/src/app.rs                   |  19 +-
  crates/slot/src/platform_video.rs        |  50 ++++-
  crates/slot/src/snes_input.rs            |   3 +-
  crates/slot/src/video_mode.rs            |   3 +
@@ -16,14 +17,14 @@ Subject: [PATCH] crop-overscan
  crates/slot/tests/nes_video_mode.rs      |  12 +-
  crates/slot/tests/snes_select.rs         |  35 ++--
  crates/slot/tests/system_picture.rs      |  57 ++++--
- 12 files changed, 374 insertions(+), 59 deletions(-)
+ 12 files changed, 379 insertions(+), 65 deletions(-)
  create mode 100644 crates/slot/tests/crop_overscan.rs
 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 1d001d3..970033d 100644
+index f1f0320..0bec9b2 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -73,6 +73,19 @@ impl Platform {
+@@ -75,6 +75,19 @@ impl Platform {
          }
      }
  
@@ -44,10 +45,10 @@ index 1d001d3..970033d 100644
          match self {
              Platform::Gba => &Shader::GBA,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 8940947..9f6693c 100644
+index d790fca..c93b85d 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -743,6 +743,7 @@ pub enum QuickValue {
+@@ -987,6 +987,7 @@ pub enum QuickValue {
      Retro(slot_store::RetroShader),
      Stretch,
      Actual,
@@ -55,7 +56,7 @@ index 8940947..9f6693c 100644
  }
  
  impl QuickValue {
-@@ -809,6 +810,7 @@ impl QuickValue {
+@@ -1076,6 +1077,7 @@ impl QuickValue {
              QuickValue::Retro(s) => Self::ALL.len() + s.index(),
              QuickValue::Stretch => Self::ALL.len() + slot_store::RetroShader::ALL.len(),
              QuickValue::Actual => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 1,
@@ -63,7 +64,7 @@ index 8940947..9f6693c 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -851,6 +853,7 @@ impl QuickValue {
+@@ -1135,6 +1137,7 @@ impl QuickValue {
              QuickValue::Retro(s) => s.label(),
              QuickValue::Stretch => "Stretch",
              QuickValue::Actual => "Actual",
@@ -108,28 +109,59 @@ index 53277cb..0d62155 100644
      for (i, v) in every.iter().enumerate() {
          assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index b45289c..02d63c1 100644
+index 3166833..c3d08db 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1444,7 +1444,7 @@ impl App {
+@@ -2544,14 +2544,13 @@ impl App {
+         self.picture().1
      }
  
-     pub fn shown_game_bezel(&self) -> Option<TexId> {
--        if self.video_mode == VideoMode::Stretch {
-+        if self.video_mode != VideoMode::Actual {
-             return None;
-         }
-         self.game_bezel
-@@ -1852,7 +1852,7 @@ impl App {
-     pub fn source_rect(&self) -> [f32; 4] {
-         video_mode::source_rect(
-             self.platform,
--            crate::platform_video::picture(self.platform, self.frame_w),
-+            crate::platform_video::shown(self.platform, self.frame_w, self.video_mode),
-             self.core.canvas(self.platform),
+-    fn picture_size(&self, platform: Platform) -> (u32, u32) {
+-        crate::platform_video::picture(platform, self.frame_w)
++    fn picture_size(&self, platform: Platform, mode: VideoMode) -> (u32, u32) {
++        crate::platform_video::shown(platform, self.frame_w, mode)
+     }
+ 
+     fn picture(&self) -> (Sizing, [f32; 4]) {
+         let platform = self.playing_platform();
+-        video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform),
+-            self.core.canvas(platform),
++        video_mode::picture_for(platform, self.picture_size(platform, self.video_mode), self.core.canvas(platform),
              self.video_mode,
-         )
-@@ -2715,7 +2715,7 @@ impl App {
+             self.drawn_scale(platform),
+             self.resolved_stretch(platform),
+@@ -2582,7 +2581,7 @@ impl App {
+     fn layout_of(&self, platform: Platform, sizing: Sizing, source: [f32; 4]) -> GameLayout {
+         let picture = match source == WHOLE_TEXTURE {
+             true => self.core.canvas(platform),
+-            false => self.picture_size(platform),
++            false => self.picture_size(platform, VideoMode::Actual),
+         };
+         slot_gfx::game_layout(self.panel, picture, sizing)
+     }
+@@ -2594,10 +2593,10 @@ impl App {
+         scale: Scale,
+         stretch: Stretch,
+     ) -> (bool, [i32; 4]) {
+-        let (sizing, source) = video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform), mode, scale, stretch);
++        let (sizing, source) = video_mode::picture_for(platform, self.picture_size(platform, mode), self.core.canvas(platform), mode, scale, stretch);
+         let layout = self.layout_of(platform, sizing, source);
+         let (_, crop) =
+-            video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform),
++            video_mode::picture_for(platform, self.picture_size(platform, VideoMode::Actual), self.core.canvas(platform),
+             VideoMode::Actual,
+             Scale::Integer,
+             stretch,
+@@ -2734,7 +2733,7 @@ impl App {
+     pub fn picture_fills(&self) -> bool {
+         match self.playing_platform().hardware() {
+             Platform::Gba => self.picture().0 == Sizing::Panel && self.game_layout().panel,
+-            _ => self.video_mode == VideoMode::Stretch,
++            _ => self.video_mode != VideoMode::Actual,
+         }
+     }
+ 
+@@ -3698,7 +3697,7 @@ impl App {
                  Action::GbaDown(Btn::L1)
                      if self.slot_owns_the_shoulders() && !self.bound_to_game(Btn::L1) =>
                  {
@@ -138,7 +170,7 @@ index b45289c..02d63c1 100644
                  }
                  Action::GbaDown(Btn::R1)
                      if self.slot_owns_the_shoulders() && !self.bound_to_game(Btn::R1) =>
-@@ -2999,7 +2999,7 @@ impl App {
+@@ -4081,7 +4080,7 @@ impl App {
              self.save_sega_shaders();
              return;
          }
@@ -240,7 +272,7 @@ index 7526c5f..d22889b 100644
                  Platform::Gba
                  | Platform::Gb
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 62129ed..3bb96dd 100644
+index d033b30..bfb855b 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
 @@ -10,6 +10,7 @@ pub enum VideoMode {

@@ -17,6 +17,8 @@ shaders draw black there. Every 3:2 canvas keeps the whole texture, so no
 other system changes. Stretch fills the panel. The polaroid fits a 4:3
 thumbnail between black bars instead of cropping it, and a 3:2 thumbnail
 fits exactly as before.
+
+(cherry picked from commit 45a593dedc89484ebf8068d3b689c2d62f4ea480)
 ---
  crates/slot-gfx/src/pipeline/retro.rs    |   1 +
  crates/slot-gfx/src/shaders.rs           |   1 +
@@ -28,13 +30,13 @@ fits exactly as before.
  crates/slot-ui/src/lib.rs                |   1 +
  crates/slot-ui/src/polaroids.rs          |   4 +-
  crates/slot/src/core.rs                  |   3 +
- crates/slot/src/video_mode.rs            |  16 +-
+ crates/slot/src/video_mode.rs            |  13 +-
  crates/slot/tests/ps1_canvas.rs          | 159 ++++++++++++++
  crates/slot/tests/ps1_common/mod.rs      |  25 ++-
  crates/slot/tests/ps1_emu.rs             |  15 +-
  crates/slot/tests/ps1_options.rs         |   4 +-
  crates/slot/tests/ps1_seat.rs            |   4 +-
- 16 files changed, 639 insertions(+), 20 deletions(-)
+ 16 files changed, 636 insertions(+), 20 deletions(-)
  create mode 100644 crates/slot-gfx/tests/ps1_pipeline.rs
  create mode 100644 crates/slot-ui/src/art_fit.rs
  create mode 100644 crates/slot/tests/ps1_canvas.rs
@@ -52,10 +54,10 @@ index 3d99536..0ce9ba0 100644
  }
  "#;
 diff --git a/crates/slot-gfx/src/shaders.rs b/crates/slot-gfx/src/shaders.rs
-index b545a69..7aa03a1 100644
+index 4396e69..9ea0735 100644
 --- a/crates/slot-gfx/src/shaders.rs
 +++ b/crates/slot-gfx/src/shaders.rs
-@@ -111,6 +111,7 @@ void main() {
+@@ -130,6 +130,7 @@ void main() {
          vec3 xfactors = (4.0 + sin(angle.x + offsets)) / 5.0;
          c *= yfactor * xfactors;
      }
@@ -437,7 +439,7 @@ index 1c8281c..11b39f6 100644
 +    }
  }
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index 074a123..67eaa5e 100644
+index 30d61f7..61339e7 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
 @@ -323,7 +323,7 @@ unsafe extern "C" fn video_refresh(
@@ -449,7 +451,7 @@ index 074a123..67eaa5e 100644
                  &mut h.video,
                  size,
                  data as *const u8,
-@@ -438,6 +438,10 @@ impl LibretroCore {
+@@ -447,6 +447,10 @@ impl LibretroCore {
          self.host.video = vec![0; w as usize * h as usize * 4];
      }
  
@@ -461,10 +463,10 @@ index 074a123..67eaa5e 100644
          self.extra.answers_av = true;
      }
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index c1e4edd..fea6c42 100644
+index 6a9081a..1d8dcf4 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -132,4 +132,18 @@ impl Platform {
+@@ -129,4 +129,18 @@ impl Platform {
              | Platform::Md => true,
          }
      }
@@ -559,17 +561,17 @@ index 0000000..58cc5be
 +    }
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 0e67abb..cfb0585 100644
+index fef1344..2811e49 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
 @@ -1,4 +1,5 @@
  mod art;
 +mod art_fit;
- pub use art::cover;
+ pub use art::{cover, cover_bytes, decode_png_bytes};
  mod bitmaps;
  pub use bitmaps::{
 diff --git a/crates/slot-ui/src/polaroids.rs b/crates/slot-ui/src/polaroids.rs
-index 376dacd..c19cb13 100644
+index f8a57a0..1d633b1 100644
 --- a/crates/slot-ui/src/polaroids.rs
 +++ b/crates/slot-ui/src/polaroids.rs
 @@ -2,7 +2,7 @@ use slot_gfx::{Canvas, Draw, TexId};
@@ -591,10 +593,10 @@ index 376dacd..c19cb13 100644
              [BLANK[0], BLANK[1], BLANK[2], 255],
              (PHOTO_W * PHOTO_H) as usize,
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 99d1404..16c8385 100644
+index 2f8833b..3759a32 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -106,6 +106,9 @@ fn open_named(
+@@ -127,6 +127,9 @@ fn open_named(
              Ok(mut opened) => {
                  let (w, h) = core.canvas(platform);
                  opened.set_canvas(w, h);
@@ -605,32 +607,26 @@ index 99d1404..16c8385 100644
                      opened.answer_av();
                  }
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 3bb96dd..96d8837 100644
+index bfb855b..16cd3c9 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
 @@ -1,6 +1,6 @@
  use std::path::Path;
  
--use slot_gfx::WHOLE_TEXTURE;
-+use slot_gfx::{OUT_H, OUT_W, WHOLE_TEXTURE};
- use slot_store::{ini, Platform};
+-use slot_gfx::{Sizing, WHOLE_TEXTURE};
++use slot_gfx::{Sizing, OUT_H, OUT_W, WHOLE_TEXTURE};
+ use slot_store::{ini, Platform, Scale, Stretch};
  
  pub const VIDEO_MODE_FILE: &str = "Config/video_mode.txt";
-@@ -50,7 +50,10 @@ pub fn source_rect(
-     mode: VideoMode,
- ) -> [f32; 4] {
-     let (canvas_w, canvas_h) = canvas;
--    if mode == VideoMode::Actual || (w, h) == canvas {
-+    if mode == VideoMode::Actual {
-+        return actual_rect(canvas);
-+    }
-+    if (w, h) == canvas {
-         return WHOLE_TEXTURE;
+@@ -68,8 +68,17 @@ pub fn picture_for(
+     match (mode, scale, stretch) {
+         (VideoMode::Actual, Scale::Integer, _) => (Sizing::Integer, crop),
+         (VideoMode::Actual, Scale::Fit, _) => (Sizing::Fit, crop),
+-        (VideoMode::Actual, _, _) => (Sizing::Band, WHOLE_TEXTURE),
++        (VideoMode::Actual, _, _) => (Sizing::Band, actual_rect(canvas)),
+         (VideoMode::Stretch, _, Stretch::Classic) => (Sizing::Band, window),
+         (VideoMode::Stretch, _, Stretch::FullScreen) => (Sizing::Panel, crop),
      }
-     let x = canvas_w.saturating_sub(w) / 2;
-@@ -70,3 +73,12 @@ pub fn source_rect(
-         h as f32 / canvas_h as f32,
-     ]
  }
 +
 +fn actual_rect((canvas_w, canvas_h): (u32, u32)) -> [f32; 4] {

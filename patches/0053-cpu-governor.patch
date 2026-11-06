@@ -11,8 +11,10 @@ Every write logs `slot: cpu:` with what each policy reads back.
 
 Idea from pvaibhav/slot ad7ce10 and 320ac44 (launch_frontend.sh writes
 schedutil), GPL-3.0, Copyright Prashant Vaibhav; here it is a user option.
+
+(cherry picked from commit c2c77a9cfa70ceb9be6a03f34259d3441cf46bf7)
 ---
- crates/slot-ui/src/quick_menu.rs        |  17 ++-
+ crates/slot-ui/src/quick_menu.rs        |  15 ++-
  crates/slot-ui/src/quick_retro.rs       |   2 +
  crates/slot-ui/tests/quick_menu.rs      |   1 +
  crates/slot-ui/tests/retro_faces.rs     |  22 +++-
@@ -22,16 +24,16 @@ schedutil), GPL-3.0, Copyright Prashant Vaibhav; here it is a user option.
  crates/slot/src/lib.rs                  |   1 +
  crates/slot/tests/cpu_governor.rs       | 122 ++++++++++++++++++++
  crates/slot/tests/cpu_governor_start.rs |  52 +++++++++
- 10 files changed, 370 insertions(+), 8 deletions(-)
+ 10 files changed, 369 insertions(+), 7 deletions(-)
  create mode 100644 crates/slot/src/cpu_governor.rs
  create mode 100644 crates/slot/tests/cpu_governor.rs
  create mode 100644 crates/slot/tests/cpu_governor_start.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 5e67bb0..da40179 100644
+index 792d18e..5ad3956 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -120,10 +120,11 @@ pub enum QuickRow {
+@@ -156,10 +156,11 @@ pub enum QuickRow {
      MdPalSpeed,
      Ps1PalSpeed,
      SmsRegion,
@@ -39,45 +41,38 @@ index 5e67bb0..da40179 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 104] = [
-+    pub const ALL: [QuickRow; 105] = [
+-    pub const ALL: [QuickRow; 143] = [
++    pub const ALL: [QuickRow; 144] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -233,6 +234,7 @@ impl QuickRow {
+@@ -307,6 +308,7 @@ impl QuickRow {
          QuickRow::MdPalSpeed,
          QuickRow::Ps1PalSpeed,
          QuickRow::SmsRegion,
 +        QuickRow::Cpu,
      ];
  
-     pub const MAIN: [QuickRow; 5] = [
-@@ -243,12 +245,13 @@ impl QuickRow {
-         QuickRow::About,
-     ];
- 
--    pub const GENERAL: [QuickRow; 7] = [
-+    pub const GENERAL: [QuickRow; 8] = [
-         QuickRow::Theme,
-         QuickRow::Wallpaper,
+     pub const MAIN: [QuickRow; 6] = [
+@@ -324,6 +326,7 @@ impl QuickRow {
          QuickRow::WallpaperTint,
          QuickRow::Recents,
          QuickRow::ShowTitles,
 +        QuickRow::Cpu,
          QuickRow::LidOff,
          QuickRow::DateTime,
-     ];
-@@ -410,7 +413,8 @@ impl QuickRow {
-             | QuickRow::Theme
+         QuickRow::Wifi,
+@@ -561,7 +564,8 @@ impl QuickRow {
              | QuickRow::Recents
              | QuickRow::ShowTitles
--            | QuickRow::LidOff => &QuickRow::GENERAL,
-+            | QuickRow::LidOff
+             | QuickRow::LidOff
+-            | QuickRow::Wifi => &QuickRow::GENERAL,
++            | QuickRow::Wifi
 +            | QuickRow::Cpu => &QuickRow::GENERAL,
-             QuickRow::ControlsShelf | QuickRow::Shortcuts | QuickRow::ControlsInGame => {
-                 &QuickRow::CONTROL_PAGES
-             }
-@@ -655,6 +659,7 @@ impl QuickRow {
+             QuickRow::WifiPower | QuickRow::Networks => &QuickRow::WIFI,
+             QuickRow::CheckUpdates
+             | QuickRow::FetchArt
+@@ -864,6 +868,7 @@ impl QuickRow {
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed => "PAL Speed",
              QuickRow::SmsRegion => "Region",
@@ -85,7 +80,7 @@ index 5e67bb0..da40179 100644
          }
      }
  
-@@ -803,6 +808,8 @@ pub enum QuickValue {
+@@ -1047,6 +1052,8 @@ pub enum QuickValue {
      Japan,
      Usa,
      Europe,
@@ -94,7 +89,7 @@ index 5e67bb0..da40179 100644
  }
  
  impl QuickValue {
-@@ -876,6 +883,8 @@ impl QuickValue {
+@@ -1143,6 +1150,8 @@ impl QuickValue {
              QuickValue::Japan => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 6,
              QuickValue::Usa => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 7,
              QuickValue::Europe => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 8,
@@ -103,7 +98,7 @@ index 5e67bb0..da40179 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -925,6 +934,8 @@ impl QuickValue {
+@@ -1209,6 +1218,8 @@ impl QuickValue {
              QuickValue::Japan => "Japan",
              QuickValue::Usa => "USA",
              QuickValue::Europe => "Europe",
@@ -126,17 +121,17 @@ index df91a80..ba54532 100644
              .collect()
      }
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index 71cbdf1..5125a3f 100644
+index 0c39989..ca90859 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -90,6 +90,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -92,6 +92,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              "Wallpaper Tint",
              "Recents",
              "Game Titles",
 +            "CPU",
              "Lid Power Off",
-             "Date & Time"
-         ]
+             "Date & Time",
+             "Wi-Fi"
 diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
 index fd99f87..eb94f01 100644
 --- a/crates/slot-ui/tests/retro_faces.rs
@@ -179,10 +174,10 @@ index fd99f87..eb94f01 100644
      for (i, v) in every.iter().enumerate() {
          assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6cc8066..915cdae 100644
+index 26251bd..6d5bd89 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -484,6 +484,7 @@ pub struct App {
+@@ -760,6 +760,7 @@ pub struct App {
      pictures: crate::platform_video::SystemPictures,
      pal_speeds: crate::pal_speed::PalSpeeds,
      sms_region: crate::sms_region::Region,
@@ -190,7 +185,7 @@ index 6cc8066..915cdae 100644
      rested: Option<(usize, usize)>,
  }
  
-@@ -686,6 +687,7 @@ impl App {
+@@ -1094,6 +1095,7 @@ impl App {
              pictures: crate::platform_video::SystemPictures::default(),
              pal_speeds: crate::pal_speed::PalSpeeds::default(),
              sms_region: crate::sms_region::Region::Auto,
@@ -198,7 +193,7 @@ index 6cc8066..915cdae 100644
              rested: None,
          }
      }
-@@ -711,6 +713,7 @@ impl App {
+@@ -1123,6 +1125,7 @@ impl App {
          app.pictures = crate::platform_video::SystemPictures::read(root);
          app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
          app.sms_region = crate::sms_region::Region::read(root);
@@ -206,7 +201,7 @@ index 6cc8066..915cdae 100644
          app.restock_recents();
          app.restock_favorites();
          for at in 0..app.shelves.len() {
-@@ -1265,6 +1268,7 @@ impl App {
+@@ -1765,6 +1768,7 @@ impl App {
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
@@ -214,7 +209,7 @@ index 6cc8066..915cdae 100644
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
              QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
-@@ -3040,7 +3044,8 @@ impl App {
+@@ -4091,7 +4095,8 @@ impl App {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed
@@ -224,7 +219,7 @@ index 6cc8066..915cdae 100644
          }
      }
  
-@@ -3069,6 +3074,14 @@ impl App {
+@@ -4150,6 +4155,14 @@ impl App {
              }
              return;
          }
@@ -236,10 +231,10 @@ index 6cc8066..915cdae 100644
 +            crate::cpu_governor::changed(self.cpu_mode);
 +            return;
 +        }
-         if let QuickRow::Brightness | QuickRow::BlueLight = row {
-             let (kind, now, max) = match row {
-                 QuickRow::Brightness => {
-@@ -3204,7 +3217,8 @@ impl App {
+         if let QuickRow::Saturation | QuickRow::Contrast = row {
+             let (level, max) = match row {
+                 QuickRow::Saturation => (&mut self.state.saturation, SATURATION_MAX),
+@@ -4324,7 +4337,8 @@ impl App {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed
@@ -398,7 +393,7 @@ index 0000000..a6fb632
 +    }
 +}
 diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
-index 7d99a25..5fb079f 100644
+index 4604199..02ec69d 100644
 --- a/crates/slot/src/device_app.rs
 +++ b/crates/slot/src/device_app.rs
 @@ -131,6 +131,7 @@ pub fn run() {
@@ -410,10 +405,10 @@ index 7d99a25..5fb079f 100644
      let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
      frontend.set_left_stick(slot::input::evdev::has_left_stick(&target));
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index b6c60de..3ae5934 100644
+index a17604b..a95c463 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -26,6 +26,7 @@ pub mod crash;
+@@ -27,6 +27,7 @@ pub mod crash;
  pub mod crash {
      pub fn install() {}
  }

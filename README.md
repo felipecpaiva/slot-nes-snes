@@ -19,8 +19,8 @@ GBA, GB and GBC stay byte-identical to upstream.
 
 There are 26 system shelves beside Recents and Favorites.
 
-The pinned base is slot v1.9.0 (`20703ed`, `SLOT_PIN`, ADR 0109).
-Releases are named after it: `v1.9.0-ns.1` is the first on this base (`v1.8.0-ns.1` and `main-1b20432-ns.1` came before).
+The pinned base is slot v1.14.0 (`e66715d`, `SLOT_PIN`, ADR 0110).
+Releases are named after it: `v1.14.0-ns.1` is the first on this base (`v1.9.0-ns.1`, `v1.8.0-ns.1` and `main-1b20432-ns.1` came before).
 
 ## Systems
 
@@ -357,6 +357,10 @@ Download `slot-nes-snes-<release>-h700.zip` from the
 1. Delete `System/` from the SD card.
 2. Copy the new `System/` from the zip in its place.
 3. Keep `Config/`, `Saves/` and `States/`: they hold your settings, saves and save states.
+
+Since v1.14.0 slot has a **Network** menu with **Check for Updates**. On this build it only offers
+BaseOS updates: upstream's list names upstream's slot zip, which would replace this build with plain
+slot and drop the added shelves. Update slot-nes-snes by copying the zip as above (ADR 0110).
 
 ### Going back to stock slot
 

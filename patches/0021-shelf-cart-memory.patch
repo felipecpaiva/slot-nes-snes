@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Thu, 15 Oct 2026 22:00:21 +0400
 Subject: [PATCH] shelf-cart-memory
 
+(cherry picked from commit fb9088923f695ab3623e21727729416edfccae0d)
 ---
  crates/slot-store/src/lib.rs           |   2 +
  crates/slot-store/src/shelf_carts.rs   |  32 +++++
@@ -18,10 +19,10 @@ Subject: [PATCH] shelf-cart-memory
  create mode 100644 crates/slot/tests/shelf_cart_memory.rs
 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 67dc311..091dcc4 100644
+index 7caf49d..1c655d0 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -22,6 +22,7 @@ mod retro_shader;
+@@ -24,6 +24,7 @@ mod retro_shader;
  mod ring;
  mod scan;
  mod shots;
@@ -29,14 +30,14 @@ index 67dc311..091dcc4 100644
  mod slot_state;
  pub mod snes;
  mod stamp;
-@@ -44,6 +45,7 @@ pub use retro_shader::RetroShader;
- pub use ring::{StateEntry, StateRing, RING_MAX};
- pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+@@ -51,6 +52,7 @@ pub use retro_shader::RetroShader;
+ pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart, StoreError};
  pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 +pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
  pub use slot_state::{
-     read_slot_state, write_slot_state, Appearance, BezelPick, Recent, Shader, SlotState,
-     WallpaperPick, WallpaperTint, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, FF_SPEED_DEFAULT,
+     bezel_for_scale, bezel_scale, read_slot_state, write_slot_state, Appearance, BezelPick,
+     Blending, Recent, Scale, Shader, SlotState, Stretch, WallpaperPick, WallpaperTint,
 diff --git a/crates/slot-store/src/shelf_carts.rs b/crates/slot-store/src/shelf_carts.rs
 new file mode 100644
 index 0000000..882578d
@@ -76,10 +77,10 @@ index 0000000..882578d
 +    atomic_write(&path, text.as_bytes())
 +}
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 0808bc4..bf3bc04 100644
+index a139ac0..35928a5 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -392,7 +392,7 @@ fn state_path(root: &Path) -> PathBuf {
+@@ -587,7 +587,7 @@ fn state_path(root: &Path) -> PathBuf {
  const RECENTS_FILE: &str = "recents.txt";
  const FAVORITES_FILE: &str = "favorites.txt";
  
@@ -88,7 +89,7 @@ index 0808bc4..bf3bc04 100644
      root.join("Config").join(name)
  }
  
-@@ -639,11 +639,11 @@ fn parse(text: &str) -> Option<SlotState> {
+@@ -898,11 +898,11 @@ fn parse(text: &str) -> Option<SlotState> {
      })
  }
  
@@ -165,10 +166,10 @@ index 0000000..f467332
 +    );
 +}
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index 2aea133..30e618d 100644
+index 1cf3cbf..f99afc3 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
-@@ -333,6 +333,10 @@ impl Shelf {
+@@ -339,6 +339,10 @@ impl Shelf {
          self.held = None;
      }
  
@@ -180,19 +181,19 @@ index 2aea133..30e618d 100644
          let Some((by, due, fired)) = self.held else {
              return;
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 0d6c430..b750a5a 100644
+index c846d9c..422243c 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -472,6 +472,8 @@ pub struct App {
-     shot_opens: u64,
-     shot_tick_face: Option<(TexId, u32, u32)>,
-     delete_shot_text: Option<[(TexId, u32, u32); 2]>,
+@@ -748,6 +748,8 @@ pub struct App {
+     guide: Option<(Guide, PathBuf)>,
+     guide_hint_faces: Vec<TexId>,
+     guide_help_face: Option<((TexId, u32, u32), TexId)>,
 +    shelf_carts: Vec<(String, Recent)>,
 +    rested: Option<(usize, usize)>,
  }
  
  const FACE_AHEAD: i32 = 8;
-@@ -666,6 +668,8 @@ impl App {
+@@ -1074,6 +1076,8 @@ impl App {
              battery: None,
              last_led: None,
              powering_off: false,
@@ -201,7 +202,7 @@ index 0d6c430..b750a5a 100644
          }
      }
  
-@@ -685,8 +689,12 @@ impl App {
+@@ -1097,8 +1101,12 @@ impl App {
          app.carousel = read_carousel(root);
          app.shortcuts = read_shortcuts(root);
          app.controls = read_controls(root);
@@ -214,7 +215,7 @@ index 0d6c430..b750a5a 100644
          if let Some((at, i)) = app.remembered_seat() {
              app.shelf_at = at;
              app.shelves[at].1.select(i);
-@@ -922,9 +930,68 @@ impl App {
+@@ -1363,9 +1371,68 @@ impl App {
              stem: cart.stem.clone(),
          });
          self.state.shelf = Some(self.shelves[self.shelf_at].0.key());
@@ -283,7 +284,7 @@ index 0d6c430..b750a5a 100644
      fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
          self.shelves
              .iter()
-@@ -3594,6 +3661,7 @@ impl App {
+@@ -4841,6 +4908,7 @@ impl App {
          if let Some(v) = &mut self.shot_viewer {
              v.tick(now, canvas);
          }
@@ -291,7 +292,7 @@ index 0d6c430..b750a5a 100644
          let offer = self.undo_label();
          if let Some(p) = &mut self.polaroids {
              p.set_undo(offer);
-@@ -3751,6 +3819,7 @@ impl App {
+@@ -5000,6 +5068,7 @@ impl App {
              return;
          }
          let old = self.shelves[at].1.restock(carts);

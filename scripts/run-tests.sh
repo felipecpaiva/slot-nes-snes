@@ -14,7 +14,7 @@ trap 'rm -f "$log" "$log.skips"' EXIT
 # check promises real-core tests: with SLOT_REQUIRE_CORES=1 every host dylib below must exist inside the
 # tree under test (build/slot/vendor is a symlink to the shared vendor/, -f follows it).
 if [ "${SLOT_REQUIRE_CORES:-}" = 1 ]; then
-	for core in mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx neocd; do
+	for core in mgba gpsp gambatte fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx neocd; do
 		[ -f "$1/vendor/${core}_libretro.dylib" ] || {
 			echo "slot-nes-snes: $1/vendor/${core}_libretro.dylib is missing, run task core:host" >&2
 			exit 1
@@ -69,18 +69,44 @@ fi
 # Upstream's render_gallery_stress.rs (v1.9.0) times the screenshot gallery's frame opening and closing
 # on the runner's GPU and failed `the_gallery_holds_up_under_a_thousand_shots` on the macOS runner (run
 # 40197311183); it runs in both trees too (ADR 0109).
-both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress"
+# Upstream's header index tests (v1.14.0: slot header_index_boot, slot-store header_index) fail on the
+# unpatched tree on this Mac every time, `Here.gb`'s seeded entry is not found after boot; they run in
+# both trees too, and so does upstream's house_label unit test a_game_boy_label_is_the_shape_of_its_own_well
+# (a label shape off by 1.4 percent here, ADR 0110). Upstream's render_unwrap.rs (v1.13) compares where a
+# cart's pixels fall on the unwrap scene's wall and failed cart_stays_behind_the_front_wall on the macOS
+# runner only (PR 186), so it runs in both trees too.
+both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+# crate:file is a test file under tests/, crate:lib is the crate's unit tests.
+sel() { if [ "${1#*:}" = lib ]; then echo --lib; else echo "--test ${1#*:}"; fi; }
 up="$(dirname "$1")/slot-upstream"
 [ -d "$up/crates" ] || {
 	echo "slot-nes-snes: $up is missing, run task upstream:build" >&2
 	exit 1
 }
 for pt in $both_trees; do
-	names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
+	# shellcheck disable=SC2046
+	names="$(cd "$1" && cargo test -q -p "${pt%%:*}" $(sel "$pt") -- --list --format terse 2>/dev/null |
 		sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
 	[ -n "$names" ] || {
 		echo "slot-nes-snes: could not list the $pt tests to run them in both trees" >&2
+		exit 1
+	}
+	[ -n "$ci_skips" ] || ci_skips="--exact"
+	ci_skips="$ci_skips $names"
+done
+
+# Upstream's Gamebit tests (v1.14.0: slot server_ui, server_carts) count threads and sleeps against the wall
+# clock: server_carts at_most_two_render_at_once expects its six threads to overlap twice, server_ui's
+# print cues expect the scene clock to run in step with the test's. Both pass on the unpatched tree in the
+# parallel run on this Mac but flake in the patched one (it boots a little slower, 26 shelves more), and
+# pass every time one test at a time. They gate that way, after the parallel run (ADR 0110).
+serial="slot:server_ui slot:server_carts"
+for pt in $serial; do
+	names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
+		sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
+	[ -n "$names" ] || {
+		echo "slot-nes-snes: could not list the $pt tests to run them one at a time" >&2
 		exit 1
 	}
 	[ -n "$ci_skips" ] || ci_skips="--exact"
@@ -98,8 +124,22 @@ if [ "$rc" -ne 0 ]; then
 	exit "$rc"
 fi
 
+for pt in $serial; do
+	(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --test-threads=1) >"$log.serial" 2>&1 || {
+		tail -n 40 "$log.serial" >&2
+		echo "slot-nes-snes: $pt failed when run one test at a time" >&2
+		exit 1
+	}
+	echo "$pt (one test at a time): $(grep '^test result' "$log.serial" | tail -n 1)"
+	rm -f "$log.serial"
+done
+
 failed() {
-	(cd "$1" && cargo test -q -p "${2%%:*}" --test "${2#*:}" 2>&1 || true) |
+	# The header index tests share one global index, so threads change their result; one at a time they agree.
+	one=""
+	case "$2" in *header_index*) one="-- --test-threads=1" ;; esac
+	# shellcheck disable=SC2046,SC2086
+	(cd "$1" && cargo test -q -p "${2%%:*}" $(sel "$2") $one 2>&1 || true) |
 		sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p; s/^    \([a-z0-9_]*\)$/\1/p' | sort -u
 }
 for pt in $both_trees; do

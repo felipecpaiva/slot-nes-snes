@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 14:14:47 +0400
 Subject: [PATCH] frame-trace
 
+(cherry picked from commit 6c06d294fbb8420ac39f7b68375e24a8174d74bc)
 ---
  crates/slot/src/device_app.rs  |  7 ++++
  crates/slot/src/frame_trace.rs | 69 ++++++++++++++++++++++++++++++++++
@@ -11,7 +12,7 @@ Subject: [PATCH] frame-trace
  create mode 100644 crates/slot/src/frame_trace.rs
 
 diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
-index adcba0c..e2a23d0 100644
+index d7ad0ee..520589f 100644
 --- a/crates/slot/src/device_app.rs
 +++ b/crates/slot/src/device_app.rs
 @@ -23,6 +23,7 @@ struct Pacer {
@@ -41,21 +42,21 @@ index adcba0c..e2a23d0 100644
 @@ -151,6 +154,7 @@ pub fn run() {
      frontend.drive_emulator();
      let mut pacer = Pacer::new();
-     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+     let (mut frames, mut missed, mut early, mut stale) = (0u32, 0u32, 0u32, 0u32);
 +    let mut frame_trace = slot::frame_trace::FrameTrace::new();
      loop {
          pacer.wait();
          let began = Instant::now();
-@@ -187,6 +191,9 @@ pub fn run() {
-             frames += 1;
+@@ -192,6 +196,9 @@ pub fn run() {
              missed += u32::from(dropped);
              early += u32::from(swap_took > pacer.period / 2);
+             stale += u32::from(late);
 +            if let Some(line) = pacer.seen.and_then(|seen| frame_trace.present(seen)) {
 +                eprintln!("{line}");
 +            }
              if frames == 600 {
                  eprintln!(
-                     "slot: pace: 600 frames, {missed} missed a latch, {early} drawn early, work {:.1} ms, period {:.2} ms",
+                     "slot: pace: 600 frames, {missed} missed a latch, {early} drawn early, {stale} stale, work {:.1} ms, period {:.2} ms",
 diff --git a/crates/slot/src/frame_trace.rs b/crates/slot/src/frame_trace.rs
 new file mode 100644
 index 0000000..caa63e6
@@ -132,13 +133,13 @@ index 0000000..caa63e6
 +    }
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 1ae64bc..5dc519d 100644
+index c1a015a..9fb1ea5 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -29,6 +29,7 @@ pub mod crash {
- pub mod drc;
- pub mod emu;
+@@ -32,6 +32,7 @@ pub mod emu;
  pub mod face_builder;
+ pub mod fetch_art;
+ pub mod fetch_faces;
 +pub mod frame_trace;
  pub mod frames;
  pub mod frontend;

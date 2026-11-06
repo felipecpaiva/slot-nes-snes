@@ -1,11 +1,11 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic H700 handhelds
 (tested on the RG34XXSP), as a patch set on slot's own source. The base is in the tag: this release is
-built on slot's tagged release 1.9.0 (`20703ed`), and `-ns.1` is our first release on it. GBA, GB and
+built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.1` is our first release on it. GBA, GB and
 GBC stay byte-identical to that slot.
 
 ## What is new
 
-Since slot's own 1.9.0, the patch set adds:
+Since slot's own 1.14.0, the patch set adds:
 
 - **More shelves**: Famicom Disk System, Sega CD / Mega-CD, PC Engine CD, PC Engine SuperGrafx,
   Atari 2600, Atari 7800, Virtual Boy, Neo Geo CD, PICO-8, and arcade boards on FinalBurn Neo (Neo Geo,
@@ -25,6 +25,15 @@ Since slot's own 1.9.0, the patch set adds:
   that cart selected and a "Last start failed" banner (slot 1.9.0's guard moves its resume state
   aside), and long shelves scroll 3 carts at a time when you hold Left or Right.
 - A faster scan of the arcade shelves, and [BIOS] files kept off every shelf.
+
+## From slot 1.9 to 1.14
+
+This release carries everything slot added in 1.10 to 1.14: the Gambatte core for Game Boy and Game
+Boy Color (START on a Game Boy cart switches between it and mGBA), the Scale, Stretch and Frame Blending
+rows, Shimmerless, Saturation and Contrast, the Network menu with Wi-Fi, Gamebit (slot's web page for the
+card) and Cart Studio. Scale, Stretch and Frame Blending are on the Game Boy shelves only for now. In the
+Network menu, Check for Updates offers BaseOS updates only: slot's own list names slot's zip, which would
+replace this build with plain slot. Update this build as described below.
 
 ## Shelves
 
@@ -105,6 +114,10 @@ folders show. The README has the full steps.
 
 ## Known limits
 
+- The first start after updating from an older release rebuilds the label pictures of every game
+  (11,000 games took about 10 minutes on the RG34XXSP). Games on the first shelves start late during
+  that time. It happens once, a second boot is as fast as before.
+- Gamebit and Cart Studio are slot's own and have not been tested with the added shelves.
 - Neo Geo CD is silent while a disc loads.
 - Atari Lynx has a short audio gap at the very first frame of a game that runs at 75 Hz. Lynx carts
   made to be held sideways, and the NeoGeo Pocket in-game save, are still to be checked by hand on the

@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 17:37:22 +0400
 Subject: [PATCH] retro-shaders
 
+(cherry picked from commit 98e78f470c3e15e725824f79b90bd3ad1e2347e8)
 ---
  crates/slot-gfx/src/lcd3x.rs                  |  10 +-
  crates/slot-gfx/src/pipeline.rs               |   7 +
@@ -28,13 +29,13 @@ Subject: [PATCH] retro-shaders
  create mode 100644 crates/slot-ui/tests/retro_faces.rs
 
 diff --git a/crates/slot-gfx/src/lcd3x.rs b/crates/slot-gfx/src/lcd3x.rs
-index 2b5d1ea..ef2e898 100644
+index d0a4bbb..8885441 100644
 --- a/crates/slot-gfx/src/lcd3x.rs
 +++ b/crates/slot-gfx/src/lcd3x.rs
-@@ -16,11 +16,19 @@ pub enum ScreenEffect {
-     Grid,
+@@ -17,11 +17,19 @@ pub enum ScreenEffect {
      Dot,
      Simpletex,
+     Shimmerless,
 +    Retro(u8),
  }
  
@@ -53,7 +54,7 @@ index 2b5d1ea..ef2e898 100644
  }
  
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index 4484e82..2a2e229 100644
+index 8ae498e..08d3968 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
 @@ -4,6 +4,8 @@ use crate::quad::Quad;
@@ -65,23 +66,23 @@ index 4484e82..2a2e229 100644
  pub const SCALE: u32 = 3;
  pub const SRC_W: u32 = OUT_W / SCALE;
  pub const SRC_H: u32 = OUT_H / SCALE;
-@@ -35,6 +37,7 @@ pub struct GamePass {
-     /// Pixels kept for the carousel footer. The picture scales in the space above them.
+@@ -38,6 +40,7 @@ pub struct GamePass {
      bottom: f32,
      src: [f32; 4],
+     layout: [f32; 4],
 +    retro: Option<retro::RetroProgram>,
  }
  
  impl GamePass {
-@@ -94,6 +97,7 @@ impl GamePass {
-             fills: false,
+@@ -98,6 +101,7 @@ impl GamePass {
              bottom: 0.0,
              src: WHOLE_TEXTURE,
+             layout: FULL,
 +            retro: retro::RetroProgram::new(),
          })
      }
  
-@@ -230,6 +234,9 @@ impl GamePass {
+@@ -236,6 +240,9 @@ impl GamePass {
          if self.bottom > 0.0 {
              src[3] *= (OUT_H as f32 - self.bottom) / OUT_H as f32;
          }
@@ -451,10 +452,10 @@ index 0000000..2f3387f
 +    assert!(RETRO.iter().all(|e| e.mode() == 0.0));
 +}
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 3324f93..67dc311 100644
+index f741021..7caf49d 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -18,6 +18,7 @@ pub mod ini;
+@@ -20,6 +20,7 @@ pub mod ini;
  pub mod nes;
  mod platform;
  mod platform_policy;
@@ -462,13 +463,13 @@ index 3324f93..67dc311 100644
  mod ring;
  mod scan;
  mod shots;
-@@ -39,6 +40,7 @@ pub use core::{
- pub use gb_palette::{GbColors, GbPalette};
- pub use gba::{header_clean, header_code, header_title, header_title_code};
+@@ -46,6 +47,7 @@ pub use guides::{
+     GUIDE_SPOTS_FILE,
+ };
  pub use platform::Platform;
 +pub use retro_shader::RetroShader;
- pub use ring::{StateEntry, StateRing, RING_MAX};
- pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
+ pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
+ pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart, StoreError};
  pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 diff --git a/crates/slot-store/src/retro_shader.rs b/crates/slot-store/src/retro_shader.rs
 new file mode 100644
@@ -542,32 +543,34 @@ index 0000000..33db154
 +    ];
 +}
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 9edb5fe..0808bc4 100644
+index 4055b02..a139ac0 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -295,12 +295,12 @@ pub enum Shader {
-     Grid,
+@@ -460,6 +460,7 @@ pub enum Shader {
      Dot,
      Simpletex,
+     Shimmerless,
 +    Retro(crate::RetroShader),
  }
  
  impl Shader {
-     pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
-     pub const GB: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Simpletex];
+@@ -478,7 +479,6 @@ impl Shader {
+         Shader::Simpletex,
+         Shader::Shimmerless,
+     ];
 -    pub const RETRO: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Dot];
  
      pub fn name(self) -> &'static str {
          match self {
-@@ -309,6 +309,7 @@ impl Shader {
-             Shader::Grid => "grid",
+@@ -488,6 +488,7 @@ impl Shader {
              Shader::Dot => "dot",
              Shader::Simpletex => "simpletex",
+             Shader::Shimmerless => "shimmerless",
 +            Shader::Retro(s) => s.name(),
          }
      }
  
-@@ -322,6 +323,7 @@ impl Shader {
+@@ -502,6 +503,7 @@ impl Shader {
          ]
          .into_iter()
          .find(|s| s.name() == name)
@@ -703,18 +706,18 @@ index 0000000..3000082
 +    assert_eq!(back.shader_snes, Shader::Off);
 +}
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 9f39e1f..aa8ae89 100644
+index 54cedc4..6483815 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -674,6 +674,7 @@ pub enum QuickValue {
-     Level7,
-     Level8,
-     Level9,
+@@ -918,6 +918,7 @@ pub enum QuickValue {
+     Ghosting,
+     Https,
+     Http,
 +    Retro(slot_store::RetroShader),
  }
  
  impl QuickValue {
-@@ -736,7 +737,10 @@ impl QuickValue {
+@@ -1003,7 +1004,10 @@ impl QuickValue {
      ];
  
      pub fn index(self) -> usize {
@@ -726,10 +729,10 @@ index 9f39e1f..aa8ae89 100644
      }
  
      pub fn text(self) -> &'static str {
-@@ -774,6 +778,7 @@ impl QuickValue {
-             QuickValue::Level7 => "7",
-             QuickValue::Level8 => "8",
-             QuickValue::Level9 => "9",
+@@ -1058,6 +1062,7 @@ impl QuickValue {
+             QuickValue::Ghosting => "Ghosting",
+             QuickValue::Https => "HTTPS",
+             QuickValue::Http => "HTTP",
 +            QuickValue::Retro(s) => s.label(),
          }
      }
@@ -770,18 +773,18 @@ index a8efab0..d16f48d 100644
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index e9b1550..f742993 100644
+index 7aa1e32..f7f6be9 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -31,6 +31,7 @@ pub enum Toast {
-     CardRepairFailed,
+@@ -36,6 +36,7 @@ pub enum Toast {
+     Forgotten,
      Palette(GbColors),
      Duplicate(QuickRow),
 +    Retro(slot_store::RetroShader),
  }
  
  impl Toast {
-@@ -74,6 +75,7 @@ impl Toast {
+@@ -84,6 +85,7 @@ impl Toast {
                      + GbColors::all().count()
                      + bound_rows().position(|r| r == row).unwrap_or(0)
              }
@@ -789,8 +792,8 @@ index e9b1550..f742993 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -144,6 +146,7 @@ impl Toast {
-             Toast::CardRepairFailed => "Card repair failed",
+@@ -159,6 +161,7 @@ impl Toast {
+             Toast::Forgotten => "Network forgotten",
              Toast::Palette(p) => p.label(),
              Toast::Duplicate(_) => "",
 +            Toast::Retro(s) => s.toast(),
@@ -850,38 +853,38 @@ index 0000000..43ac034
 +    }
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index b9c29f4..0d6c430 100644
+index c6a6a2b..c846d9c 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -3072,6 +3072,7 @@ impl App {
-             Shader::Grid => Toast::ShaderGrid,
+@@ -4237,6 +4237,7 @@ impl App {
              Shader::Dot => Toast::ShaderDot,
              Shader::Simpletex => Toast::ShaderSimpletex,
+             Shader::Shimmerless => Toast::ShaderShimmerless,
 +            Shader::Retro(s) => Toast::Retro(s),
          };
          self.persist();
          self.hud.toast(said, self.now());
-@@ -6021,6 +6022,7 @@ fn shader_value(shader: Shader) -> QuickValue {
-         Shader::Grid => QuickValue::Grid,
+@@ -10930,6 +10931,7 @@ fn shader_value(shader: Shader) -> QuickValue {
          Shader::Dot => QuickValue::Dot,
          Shader::Simpletex => QuickValue::Simpletex,
+         Shader::Shimmerless => QuickValue::Shimmerless,
 +        Shader::Retro(s) => QuickValue::Retro(s),
      }
  }
  
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 57d9853..31e2865 100644
+index a5d2abe..d140eea 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -574,6 +574,7 @@ impl Frontend {
-             slot_store::Shader::Grid => ScreenEffect::Grid,
+@@ -1020,6 +1020,7 @@ impl Frontend {
              slot_store::Shader::Dot => ScreenEffect::Dot,
              slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
+             slot_store::Shader::Shimmerless => ScreenEffect::Shimmerless,
 +            slot_store::Shader::Retro(s) => ScreenEffect::Retro(s.index() as u8),
          });
          compositor.set_shake(self.session.app().screen_shake());
          compositor.set_screen_power(self.session.app().screen_power());
-@@ -904,7 +905,7 @@ impl UiFaces {
+@@ -1427,7 +1428,7 @@ impl UiFaces {
                  .map(|r| [false, true].map(|lit| quick_label_face(*r, lit)))
                  .collect(),
              quick_pointer: quick_pointer_face(),
@@ -890,15 +893,15 @@ index 57d9853..31e2865 100644
                  .iter()
                  .map(|v| [false, true].map(|lit| quick_value_face(v.text(), lit)))
                  .collect(),
-@@ -935,7 +936,7 @@ impl UiFaces {
+@@ -1467,7 +1468,7 @@ impl UiFaces {
                  .iter()
                  .map(|f| menu_face(f.line()))
                  .collect(),
 -            toasts: Toast::all().into_iter().map(toast_face).collect(),
 +            toasts: Toast::every().into_iter().map(toast_face).collect(),
+             update_legends: update_legends(footer_ink(false)),
              repair: {
                  let [not_now, repair] = repair_legends(footer_ink(false));
-                 vec![
 diff --git a/crates/slot/tests/nes_snes_shader.rs b/crates/slot/tests/nes_snes_shader.rs
 index af31e57..fcb3715 100644
 --- a/crates/slot/tests/nes_snes_shader.rs

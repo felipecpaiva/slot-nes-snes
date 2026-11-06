@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Mon, 12 Oct 2026 15:48:55 +0400
 Subject: [PATCH] canvas
 
+(cherry picked from commit b9a84f71381e964a69015486c8f5b50f6c1063e8)
 ---
  crates/slot-gfx/src/fbo.rs               |   4 +
  crates/slot-gfx/src/pipeline.rs          |  58 +++++--
@@ -14,21 +15,21 @@ Subject: [PATCH] canvas
  crates/slot-retro/src/mock.rs            |  19 ++-
  crates/slot-store/src/core_policy.rs     |  12 ++
  crates/slot-store/src/platform_policy.rs |   7 +
- crates/slot/src/app.rs                   |   4 +-
+ crates/slot/src/app.rs                   |  15 +-
  crates/slot/src/core.rs                  |   6 +-
  crates/slot/src/emu.rs                   |   8 +-
  crates/slot/src/frontend.rs              |   2 +
  crates/slot/src/lib.rs                   |   1 +
  crates/slot/src/thumb.rs                 |   1 +
  crates/slot/src/thumb_sized.rs           |  19 +++
- crates/slot/src/video_mode.rs            |  25 ++-
+ crates/slot/src/video_mode.rs            |  10 +-
  crates/slot/tests/nes_common/mod.rs      |  23 ++-
  crates/slot/tests/nes_emu.rs             |  77 +++++++++
  crates/slot/tests/nes_fceumm.rs          |  12 +-
  crates/slot/tests/nes_mock.rs            |  61 +++++++
  crates/slot/tests/nes_thumb.rs           |  48 ++++++
  crates/slot/tests/nes_window.rs          | 200 ++++++++++++++++++++++
- 24 files changed, 895 insertions(+), 41 deletions(-)
+ 24 files changed, 890 insertions(+), 42 deletions(-)
  create mode 100644 crates/slot-gfx/tests/nes_pipeline.rs
  create mode 100644 crates/slot-retro/src/canvas.rs
  create mode 100644 crates/slot/src/thumb_sized.rs
@@ -38,10 +39,10 @@ Subject: [PATCH] canvas
  create mode 100644 crates/slot/tests/nes_window.rs
 
 diff --git a/crates/slot-gfx/src/fbo.rs b/crates/slot-gfx/src/fbo.rs
-index 46a66e7..6c1eea4 100644
+index 128d614..5551b99 100644
 --- a/crates/slot-gfx/src/fbo.rs
 +++ b/crates/slot-gfx/src/fbo.rs
-@@ -113,6 +113,10 @@ impl Compositor {
+@@ -127,6 +127,10 @@ impl Compositor {
          self.game.upload(xrgb8888);
      }
  
@@ -53,10 +54,10 @@ index 46a66e7..6c1eea4 100644
          self.in_game_rect(|c| c.game.draw(&c.quad));
      }
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index a7f37aa..4484e82 100644
+index dd1770e..8ae498e 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
-@@ -13,6 +13,9 @@ pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+@@ -15,6 +15,9 @@ const FULL: [f32; 4] = [0.0, 0.0, OUT_W as f32, OUT_H as f32];
  pub struct GamePass {
      prog: gl::types::GLuint,
      game: gl::types::GLuint,
@@ -66,7 +67,7 @@ index a7f37aa..4484e82 100644
      u_rect: gl::types::GLint,
      u_bright: gl::types::GLint,
      u_uv: gl::types::GLint,
-@@ -46,15 +49,12 @@ impl GamePass {
+@@ -49,15 +52,12 @@ impl GamePass {
              crate::gl::gray_format(),
              Some(&[255]),
          );
@@ -85,7 +86,7 @@ index a7f37aa..4484e82 100644
              gl::Uniform2f(
                  crate::gl::uniform_location(prog, "u_target"),
                  OUT_W as f32,
-@@ -73,6 +73,9 @@ impl GamePass {
+@@ -76,6 +76,9 @@ impl GamePass {
          Ok(GamePass {
              prog,
              game,
@@ -95,7 +96,7 @@ index a7f37aa..4484e82 100644
              u_rect,
              u_bright,
              u_uv,
-@@ -152,10 +155,39 @@ impl GamePass {
+@@ -156,10 +159,39 @@ impl GamePass {
          self.src = rect;
      }
  
@@ -136,7 +137,7 @@ index a7f37aa..4484e82 100644
          unsafe {
              gl::BindTexture(gl::TEXTURE_2D, self.game);
              gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-@@ -164,8 +196,8 @@ impl GamePass {
+@@ -168,8 +200,8 @@ impl GamePass {
                  0,
                  0,
                  0,
@@ -147,17 +148,17 @@ index a7f37aa..4484e82 100644
                  gl::BGRA,
                  gl::UNSIGNED_BYTE,
                  xrgb8888.as_ptr() as *const std::ffi::c_void,
-@@ -175,7 +207,7 @@ impl GamePass {
- 
+@@ -180,7 +212,7 @@ impl GamePass {
      pub fn draw(&self, quad: &Quad) {
          let src = match self.effect {
--            ScreenEffect::Grid => whole_scale_source(self.src, self.fbo_scale),
-+            ScreenEffect::Grid => whole_scale_source(self.src, self.fbo_scale, self.canvas),
+             ScreenEffect::Grid if self.layout == FULL => {
+-                whole_scale_source(self.src, self.fbo_scale)
++                whole_scale_source(self.src, self.fbo_scale, self.canvas)
+             }
              _ => self.src,
          };
-         self.draw_source(self.game, quad, src);
-@@ -223,9 +255,9 @@ impl GamePass {
-     }
+@@ -236,9 +268,9 @@ fn placed_in(frame: (f32, f32, f32, f32), layout: [f32; 4]) -> (f32, f32, f32, f
+     (lx + x * sx, ly + y * sy, w * sx, h * sy)
  }
  
 -fn whole_scale_source(src: [f32; 4], fbo: [f32; 2]) -> [f32; 4] {
@@ -488,10 +489,10 @@ index 0000000..c084120
 +    }
 +}
 diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
-index 52d5c2a..f642aea 100644
+index bf4332c..82c1e10 100644
 --- a/crates/slot-retro/src/core.rs
 +++ b/crates/slot-retro/src/core.rs
-@@ -99,6 +99,9 @@ pub trait RetroCore: Send {
+@@ -100,6 +100,9 @@ pub trait RetroCore: Send {
      fn start_link(&mut self, _client_id: u16) {}
      fn pump_link(&mut self) {}
      fn stop_link(&mut self) {}
@@ -502,7 +503,7 @@ index 52d5c2a..f642aea 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index d5c9de9..210244b 100644
+index ff20a14..9b304e3 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
 @@ -5,6 +5,7 @@ macro_rules! eprintln {
@@ -514,7 +515,7 @@ index d5c9de9..210244b 100644
  mod ffi;
  mod libretro;
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index 70ccb17..8b502dd 100644
+index 0963fe2..fdb72a1 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
 @@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -551,7 +552,7 @@ index 70ccb17..8b502dd 100644
      rom: Vec<u8>,
      rom_path: Option<CString>,
      av: AvInfo,
-@@ -413,6 +426,15 @@ impl LibretroCore {
+@@ -422,6 +435,15 @@ impl LibretroCore {
              .inspect_err(|_| LIVE.store(false, Ordering::SeqCst))
      }
  
@@ -567,7 +568,7 @@ index 70ccb17..8b502dd 100644
      pub fn reported_system_dir(&self) -> String {
          self.host.system_dir.to_string_lossy().into_owned()
      }
-@@ -486,8 +508,10 @@ impl LibretroCore {
+@@ -503,8 +525,10 @@ impl LibretroCore {
              options_dirty: false,
              declared: std::collections::HashMap::new(),
          });
@@ -578,7 +579,7 @@ index 70ccb17..8b502dd 100644
              (api.set_environment)(environment);
              (api.set_video_refresh)(video_refresh);
              (api.set_audio_sample)(audio_sample);
-@@ -499,6 +523,7 @@ impl LibretroCore {
+@@ -516,6 +540,7 @@ impl LibretroCore {
          Ok(LibretroCore {
              api,
              host,
@@ -586,7 +587,7 @@ index 70ccb17..8b502dd 100644
              rom: Vec::new(),
              rom_path: None,
              av: AvInfo {
-@@ -516,6 +541,7 @@ impl LibretroCore {
+@@ -533,6 +558,7 @@ impl LibretroCore {
              return;
          }
          let _a = Active::bind(&mut self.host);
@@ -594,7 +595,7 @@ index 70ccb17..8b502dd 100644
          unsafe { (self.api.unload_game)() };
          self.loaded = false;
      }
-@@ -524,6 +550,7 @@ impl LibretroCore {
+@@ -541,6 +567,7 @@ impl LibretroCore {
          let mut buf = vec![0u8; size];
          let ok = {
              let _a = Active::bind(&mut self.host);
@@ -602,7 +603,7 @@ index 70ccb17..8b502dd 100644
              unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
          };
          ok.then_some(buf)
-@@ -553,6 +580,7 @@ impl Drop for LibretroCore {
+@@ -570,6 +597,7 @@ impl Drop for LibretroCore {
          self.unload();
          unsafe {
              let _a = Active::bind(&mut self.host);
@@ -610,7 +611,7 @@ index 70ccb17..8b502dd 100644
              (self.api.deinit)();
          }
          LIVE.store(false, Ordering::SeqCst);
-@@ -580,6 +608,7 @@ impl RetroCore for LibretroCore {
+@@ -597,6 +625,7 @@ impl RetroCore for LibretroCore {
          };
          let ok = {
              let _a = Active::bind(&mut self.host);
@@ -618,7 +619,7 @@ index 70ccb17..8b502dd 100644
              unsafe { (self.api.load_game)(&info) }
          };
          if !ok {
-@@ -608,11 +637,13 @@ impl RetroCore for LibretroCore {
+@@ -625,6 +654,7 @@ impl RetroCore for LibretroCore {
          }
          self.host.inputs = [p1.0, p2.0];
          let _a = Active::bind(&mut self.host);
@@ -626,13 +627,15 @@ index 70ccb17..8b502dd 100644
          unsafe { (self.api.run)() };
      }
  
+@@ -638,6 +668,7 @@ impl RetroCore for LibretroCore {
+ 
      fn set_frame_skip(&mut self, skip: bool) {
          let _a = Active::bind(&mut self.host);
 +        let _e = ExtraGuard::bind(&mut self.extra);
          unsafe { report_audio_status(skip) };
      }
  
-@@ -648,6 +679,7 @@ impl RetroCore for LibretroCore {
+@@ -673,6 +704,7 @@ impl RetroCore for LibretroCore {
          }
          let ok = {
              let _a = Active::bind(&mut self.host);
@@ -640,7 +643,7 @@ index 70ccb17..8b502dd 100644
              unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
          };
          if ok {
-@@ -693,18 +725,25 @@ impl RetroCore for LibretroCore {
+@@ -725,18 +757,25 @@ impl RetroCore for LibretroCore {
  
      fn start_link(&mut self, client_id: u16) {
          let _a = Active::bind(&mut self.host);
@@ -667,7 +670,7 @@ index 70ccb17..8b502dd 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/mock.rs b/crates/slot-retro/src/mock.rs
-index d0734f8..f1fd33f 100644
+index 9f79395..e07ac76 100644
 --- a/crates/slot-retro/src/mock.rs
 +++ b/crates/slot-retro/src/mock.rs
 @@ -15,6 +15,7 @@ fn samples_at(frame: u64) -> u64 {
@@ -708,7 +711,7 @@ index d0734f8..f1fd33f 100644
                  let r = x.wrapping_add(t) as u8;
                  let b = if (x.wrapping_add(y).wrapping_add(t) / 8) % 2 == 0 {
                      0
-@@ -137,4 +144,8 @@ impl RetroCore for MockCore {
+@@ -143,4 +150,8 @@ impl RetroCore for MockCore {
              sample_rate: SAMPLE_RATE,
          }
      }
@@ -718,10 +721,10 @@ index d0734f8..f1fd33f 100644
 +    }
  }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
-index e805dac..442fbd4 100644
+index 6555b58..8ff9b36 100644
 --- a/crates/slot-store/src/core_policy.rs
 +++ b/crates/slot-store/src/core_policy.rs
-@@ -11,6 +11,18 @@ impl Core {
+@@ -12,6 +12,18 @@ impl Core {
          }
      }
  
@@ -739,13 +742,13 @@ index e805dac..442fbd4 100644
 +
      pub fn has_colour_correction(self) -> bool {
          match self {
-             Core::Mgba | Core::Gpsp => true,
+             Core::Mgba | Core::Gpsp | Core::Gambatte => true,
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index a66d208..e31b323 100644
+index 19958ad..97bb43a 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -24,4 +24,11 @@ impl Platform {
-             Platform::Gb | Platform::Gbc | Platform::Nes => None,
+@@ -31,4 +31,11 @@ impl Platform {
+             Platform::Nes => None,
          }
      }
 +
@@ -757,19 +760,46 @@ index a66d208..e31b323 100644
 +    }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 9754ddb..a617706 100644
+index 7fb95a7..7fd1810 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1717,7 +1717,7 @@ impl App {
-     }
+@@ -2418,6 +2418,7 @@ impl App {
+         let platform = self.playing_platform();
+         video_mode::picture_for(
+             platform,
++            self.core.canvas(),
+             self.video_mode,
+             self.drawn_scale(platform),
+             self.resolved_stretch(platform),
+@@ -2447,7 +2448,7 @@ impl App {
  
-     pub fn source_rect(&self) -> [f32; 4] {
--        video_mode::source_rect(self.platform, self.video_mode)
-+        video_mode::source_rect(self.platform, self.core.canvas(), self.video_mode)
-     }
- 
-     fn slot_owns_the_shoulders(&self) -> bool {
-@@ -2066,7 +2066,7 @@ impl App {
+     fn layout_of(&self, platform: Platform, sizing: Sizing, source: [f32; 4]) -> GameLayout {
+         let picture = match source == WHOLE_TEXTURE {
+-            true => (slot_gfx::SRC_W, slot_gfx::SRC_H),
++            true => self.core.canvas(),
+             false => platform.picture(),
+         };
+         slot_gfx::game_layout(self.panel, picture, sizing)
+@@ -2460,10 +2461,16 @@ impl App {
+         scale: Scale,
+         stretch: Stretch,
+     ) -> (bool, [i32; 4]) {
+-        let (sizing, source) = video_mode::picture_for(platform, mode, scale, stretch);
++        let (sizing, source) = video_mode::picture_for(platform, self.core.canvas(), mode, scale, stretch);
+         let layout = self.layout_of(platform, sizing, source);
+         let (_, crop) =
+-            video_mode::picture_for(platform, VideoMode::Actual, Scale::Integer, stretch);
++            video_mode::picture_for(
++            platform,
++            self.core.canvas(),
++            VideoMode::Actual,
++            Scale::Integer,
++            stretch,
++        );
+         let [rx, ry, rw, rh] = layout.rect;
+         let at = |from: f32, len: f32, off: f32, src: f32, size: f32| {
+             ((from + (off - src) / len * size) * 100.0).round() as i32
+@@ -2952,7 +2959,7 @@ impl App {
  
      pub fn picture_rect(&self) -> [f32; 4] {
          let (w, h) = self.platform.picture();
@@ -779,10 +809,10 @@ index 9754ddb..a617706 100644
          [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
      }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index f05e6da..877bf6b 100644
+index 26f513f..0476209 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -53,7 +53,7 @@ pub fn open_core(
+@@ -62,7 +62,7 @@ pub fn open_core(
          None => {
              report_missing(core, &paths);
              Opened {
@@ -791,18 +821,18 @@ index f05e6da..877bf6b 100644
                  named: false,
              }
          }
-@@ -81,7 +81,7 @@ pub fn open_core_for_palette(
- ) -> Box<dyn RetroCore> {
-     open_named(root, core, platform, serial, colour, palette, None, paths).unwrap_or_else(|| {
+@@ -101,7 +101,7 @@ pub fn open_core_for_palette(
+     )
+     .unwrap_or_else(|| {
          report_missing(core, paths);
 -        Box::new(MockCore::new())
 +        Box::new(MockCore::sized(core.canvas()))
      })
  }
  
-@@ -104,6 +104,8 @@ fn open_named(
+@@ -125,6 +125,8 @@ fn open_named(
          }
-         match LibretroCore::open_with(path, &bios, &saves) {
+         match LibretroCore::open_preset(path, &bios, &saves, init_options(core)) {
              Ok(mut opened) => {
 +                let (w, h) = core.canvas();
 +                opened.set_canvas(w, h);
@@ -810,7 +840,7 @@ index f05e6da..877bf6b 100644
                      &mut opened,
                      core,
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index d9f0eeb..9cb8895 100644
+index dc965e6..61b7f21 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
@@ -822,7 +852,7 @@ index d9f0eeb..9cb8895 100644
  };
  
  use crate::audio::Ring;
-@@ -161,7 +161,8 @@ impl EmuHandle {
+@@ -162,7 +162,8 @@ impl EmuHandle {
      ) -> Self {
          let rumble = core.rumble();
          let link = core.net();
@@ -832,7 +862,7 @@ index d9f0eeb..9cb8895 100644
          let shared = Arc::new(Shared {
              input: AtomicU16::new(0),
              speed: AtomicU8::new(Speed::Paused as u8),
-@@ -942,7 +943,8 @@ impl Worker {
+@@ -956,7 +957,8 @@ impl Worker {
                  let _ = reply.send(core.save_ram());
              }
              Cmd::Thumb(reply) => {
@@ -843,29 +873,30 @@ index d9f0eeb..9cb8895 100644
              Cmd::BeginLink(client_id, t) => {
                  self.shared.link_lost.store(false, Ordering::Relaxed);
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 4277845..71459d4 100644
+index e6fbdc6..16ddb87 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -565,6 +565,8 @@ impl Frontend {
+@@ -1011,6 +1011,8 @@ impl Frontend {
          compositor.set_shake(self.session.app().screen_shake());
          compositor.set_screen_power(self.session.app().screen_power());
          compositor.set_screen_footer(self.session.app().screen_footer());
 +        let (canvas_w, canvas_h) = self.session.app().core().canvas();
 +        compositor.set_game_canvas(canvas_w, canvas_h);
          compositor.set_game_source_rect(self.session.app().source_rect());
+         compositor.set_game_layout(self.session.app().game_layout());
          self.grab_link_shot(compositor);
-         compositor.begin_frame();
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 595cc90..12501ad 100644
+index 5676be2..64d8d16 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -51,5 +51,6 @@ pub mod shot_loader;
- pub mod shot_writer;
- pub mod state_writer;
+@@ -66,6 +66,7 @@ pub mod studio_view;
  pub mod thumb;
+ pub mod unwrap_scene;
+ pub mod update;
 +pub mod thumb_sized;
  pub mod video_mode;
  pub mod wallpaper;
+ pub mod wifi;
 diff --git a/crates/slot/src/thumb.rs b/crates/slot/src/thumb.rs
 index 66e6898..3f0a409 100644
 --- a/crates/slot/src/thumb.rs
@@ -901,48 +932,37 @@ index 0000000..8e762aa
 +    Some(out)
 +}
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index da522e0..735ff8d 100644
+index 0b98317..cd2a79d 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
 @@ -1,6 +1,6 @@
  use std::path::Path;
  
--use slot_gfx::{SRC_H, SRC_W, WHOLE_TEXTURE};
-+use slot_gfx::WHOLE_TEXTURE;
- use slot_store::{ini, Platform};
+-use slot_gfx::{Sizing, SRC_H, SRC_W, WHOLE_TEXTURE};
++use slot_gfx::{Sizing, WHOLE_TEXTURE};
+ use slot_store::{ini, Platform, Scale, Stretch};
  
  pub const VIDEO_MODE_FILE: &str = "Config/video_mode.txt";
-@@ -40,11 +40,26 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
-     ini::write(root, VIDEO_MODE_FILE, stem, mode.as_str())
- }
+@@ -42,14 +42,16 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
  
--pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {
-+pub fn source_rect(platform: Platform, canvas: (u32, u32), mode: VideoMode) -> [f32; 4] {
+ pub fn picture_for(
+     platform: Platform,
++    canvas: (u32, u32),
+     mode: VideoMode,
+     scale: Scale,
+     stretch: Stretch,
+ ) -> (Sizing, [f32; 4]) {
      let (w, h) = platform.picture();
--    if mode == VideoMode::Actual || (w, h) == (SRC_W, SRC_H) {
-+    let (canvas_w, canvas_h) = canvas;
-+    if mode == VideoMode::Actual || (w, h) == canvas {
-         return WHOLE_TEXTURE;
-     }
--    let x = SRC_W.saturating_sub(w) / 2;
--    [x as f32 / SRC_W as f32, 0.0, w as f32 / SRC_W as f32, 1.0]
-+    let x = canvas_w.saturating_sub(w) / 2;
-+    if !platform.stretch_crops_height() {
-+        return [
-+            x as f32 / canvas_w as f32,
-+            0.0,
-+            w as f32 / canvas_w as f32,
-+            1.0,
-+        ];
-+    }
-+    let y = canvas_h.saturating_sub(h) / 2;
-+    [
-+        x as f32 / canvas_w as f32,
-+        y as f32 / canvas_h as f32,
-+        w as f32 / canvas_w as f32,
-+        h as f32 / canvas_h as f32,
-+    ]
- }
+-    let x = SRC_W.saturating_sub(w) as f32 / 2.0 / SRC_W as f32;
+-    let y = SRC_H.saturating_sub(h) as f32 / 2.0 / SRC_H as f32;
+-    let (fw, fh) = (w as f32 / SRC_W as f32, h as f32 / SRC_H as f32);
++    let (cw, ch) = canvas;
++    let x = cw.saturating_sub(w) as f32 / 2.0 / cw as f32;
++    let y = ch.saturating_sub(h) as f32 / 2.0 / ch as f32;
++    let (fw, fh) = (w as f32 / cw as f32, h as f32 / ch as f32);
+     let crop = [x, y, fw, fh];
+     let window = [x, 0.0, fw, 1.0];
+     if platform.hardware() == Platform::Gba {
 diff --git a/crates/slot/tests/nes_common/mod.rs b/crates/slot/tests/nes_common/mod.rs
 index 3166a25..f3dbdf0 100644
 --- a/crates/slot/tests/nes_common/mod.rs

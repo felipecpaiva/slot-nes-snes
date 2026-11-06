@@ -11,6 +11,8 @@ Stem lookups for the seated cart try the selected index first, so a
 stem two platforms share resolves to the cart that was picked.
 Reimplemented from marghost/slot_modded 88af60a (GPL-3.0),
 https://github.com/marghost/slot_modded/commit/88af60a
+
+(cherry picked from commit fb37347422f0a3218c571fa3b6f25dec1fbd3a65)
 ---
  crates/slot-ui/src/shelf.rs        |  11 ++-
  crates/slot/src/app.rs             |  15 ++--
@@ -23,10 +25,10 @@ https://github.com/marghost/slot_modded/commit/88af60a
  create mode 100644 crates/slot/tests/shelf_restock.rs
 
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index fd728f2..9b5e737 100644
+index 2a2b4f1..f9e9cdc 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
-@@ -209,7 +209,11 @@ impl Shelf {
+@@ -215,7 +215,11 @@ impl Shelf {
      /// The shelf draws these under the face. The slot has to as well, or the board vanishes
      /// as the cart goes in or comes out.
      pub fn behind(&self, stem: &str) -> [Option<TexId>; 2] {
@@ -39,7 +41,7 @@ index fd728f2..9b5e737 100644
              return [None, None];
          };
          if self.carts.get(i).is_some_and(crate::ps1_case::has_disc) {
-@@ -227,7 +231,10 @@ impl Shelf {
+@@ -233,7 +237,10 @@ impl Shelf {
      }
  
      pub fn find(&self, stem: &str) -> Option<(&Cart, Option<TexId>)> {
@@ -52,10 +54,10 @@ index fd728f2..9b5e737 100644
      }
  
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index a66838f..903d35f 100644
+index 995c662..55d32c1 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1759,7 +1759,7 @@ impl App {
+@@ -2450,7 +2450,7 @@ impl App {
              Phase::Doze { cart: Some(cart) } => cart,
              _ => return None,
          };
@@ -64,7 +66,7 @@ index a66838f..903d35f 100644
      }
  
      pub fn single_cart(&self) -> bool {
-@@ -3948,7 +3948,9 @@ impl App {
+@@ -5189,7 +5189,9 @@ impl App {
                  .collect(),
              false => Vec::new(),
          };
@@ -72,11 +74,11 @@ index a66838f..903d35f 100644
 +        if self.restock(RECENTS_AT, carts) {
 +            self.shelves[RECENTS_AT].1.select(0);
 +        }
-         self.mark_stars();
+         self.mark_hearts();
      }
  
-@@ -3971,7 +3973,7 @@ impl App {
-         self.mark_stars();
+@@ -5212,7 +5214,7 @@ impl App {
+         self.mark_hearts();
      }
  
 -    fn restock(&mut self, at: usize, carts: Vec<Cart>) {
@@ -84,7 +86,7 @@ index a66838f..903d35f 100644
          let stocked = &self.shelves[at].1.carts;
          if stocked.len() == carts.len()
              && stocked
-@@ -3979,15 +3981,16 @@ impl App {
+@@ -5220,15 +5222,16 @@ impl App {
                  .zip(&carts)
                  .all(|(a, b)| a.platform == b.platform && a.stem == b.stem)
          {
@@ -103,7 +105,7 @@ index a66838f..903d35f 100644
      }
  
      fn toggle_favorite(&mut self) {
-@@ -5009,7 +5012,7 @@ impl App {
+@@ -6414,7 +6417,7 @@ impl App {
      }
  
      fn auto_link(&self, stem: &str) -> Option<(&Cart, LinkKind)> {
@@ -113,7 +115,7 @@ index a66838f..903d35f 100644
          Some((cart, auto))
      }
 diff --git a/crates/slot/src/cart_faces.rs b/crates/slot/src/cart_faces.rs
-index 3cdd5a0..128c3a5 100644
+index 3a3bcd6..1e32462 100644
 --- a/crates/slot/src/cart_faces.rs
 +++ b/crates/slot/src/cart_faces.rs
 @@ -16,7 +16,7 @@ const WORKERS: usize = 2;
@@ -125,7 +127,7 @@ index 3cdd5a0..128c3a5 100644
  
  #[derive(Default)]
  struct Queue {
-@@ -58,8 +58,8 @@ impl CartFaces {
+@@ -91,8 +91,8 @@ impl CartFaces {
  
      pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
          self.free.extend(app.shed_faces());
@@ -136,7 +138,7 @@ index 3cdd5a0..128c3a5 100644
          }
          let wants = app.face_wants();
          if wants != self.asked {
-@@ -73,11 +73,11 @@ impl CartFaces {
+@@ -106,11 +106,11 @@ impl CartFaces {
              .map(|w| (w.shelf, w.index))
              .collect();
          while !waiting.is_empty() {
@@ -150,7 +152,7 @@ index 3cdd5a0..128c3a5 100644
          }
      }
  
-@@ -115,11 +115,15 @@ impl CartFaces {
+@@ -146,6 +146,7 @@ impl CartFaces {
          app: &mut App,
          compositor: &mut Compositor,
          key: Key,
@@ -158,16 +160,18 @@ index 3cdd5a0..128c3a5 100644
          face: CartFace,
          interior: Option<CartFace>,
      ) {
-         self.pending.remove(&key);
-         self.asked.retain(|w| (w.shelf, w.index) != key);
+@@ -153,6 +154,9 @@ impl CartFaces {
+         if !self.building.finish(key) {
+             return;
+         }
 +        if !crate::shelf_restock::face_fits(app, key, cart) {
 +            return;
 +        }
          let tex = self.texture(compositor, &face);
          self.free.extend(app.set_cart_face(key.0, key.1, tex));
          if let Some(interior) = interior {
-@@ -154,7 +158,7 @@ fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {
-         };
+@@ -188,7 +192,7 @@ fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {
+         slot_store::header_index::verify(&cart.rom);
          let face = cart_face_with(&cart, label_art(root, &cart));
          let interior = shows_interior(&cart).then(|| cart_interior(&cart));
 -        if outbox.send((key, face, interior)).is_err() {
@@ -176,17 +180,17 @@ index 3cdd5a0..128c3a5 100644
          }
      }
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 1c1b583..1321a9a 100644
+index 0c7fd7f..9fe44e3 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -55,6 +55,7 @@ pub mod retro_quick;
- pub mod rewind;
+@@ -64,6 +64,7 @@ pub mod romm;
  pub mod root;
+ pub mod server;
  pub mod session;
 +pub mod shelf_restock;
  pub mod shot_loader;
  pub mod shot_writer;
- pub mod snes_input;
+ pub mod sntpsnes_input;
 diff --git a/crates/slot/src/shelf_restock.rs b/crates/slot/src/shelf_restock.rs
 new file mode 100644
 index 0000000..fb1a3cb

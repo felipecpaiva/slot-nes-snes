@@ -24,13 +24,15 @@ core stores "disabled" as 0xff, which mounts a cart with a mask of 1 <<
 268, while an unanswered option leaves it at 0, no cart. The Mega Drive,
 Master System and Game Gear get no new option. The shelf shows the
 jewel case of patch segacd-carts.
+
+(cherry picked from commit b2f2cc9c91ed6be2694a1c874dad4392c2ab9a1b)
 ---
  crates/slot-store/src/bindings.rs            |   1 +
  crates/slot-store/src/core.rs                |  20 ++-
  crates/slot-store/src/core_policy.rs         |   2 +
  crates/slot-store/src/lib.rs                 |   3 +-
  crates/slot-store/src/platform.rs            |   6 +-
- crates/slot-store/src/platform_policy.rs     |  20 ++-
+ crates/slot-store/src/platform_policy.rs     |  23 ++-
  crates/slot-store/src/scan.rs                |   2 +-
  crates/slot-store/src/sega_shader.rs         |   9 +-
  crates/slot-store/tests/md_platform.rs       |   1 +
@@ -56,26 +58,26 @@ jewel case of patch segacd-carts.
  crates/slot/tests/shelf_order.rs             |   9 +-
  crates/slot/tests/snes_select.rs             |   9 +-
  crates/slot/tests/system_picture.rs          |   1 +
- 31 files changed, 265 insertions(+), 22 deletions(-)
+ 31 files changed, 266 insertions(+), 24 deletions(-)
  create mode 100644 crates/slot-store/tests/segacd_platform.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 0d42be9..c282059 100644
+index 49c7363..daf9fc7 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -248,6 +248,7 @@ impl GameButton {
              Platform::Gba
-             | Platform::Snes
+             | Platform::Gbav | Platform::Snes
              | Platform::Md
 +            | Platform::SegaCd
              | Platform::Ps1
              | Platform::Lynx
              | Platform::Ws
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index fab178f..da62f64 100644
+index bcdf3c2..dab97b1 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -119,6 +119,7 @@ impl Core {
+@@ -123,6 +123,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -83,7 +85,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -145,6 +146,7 @@ impl Core {
+@@ -149,6 +150,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -91,7 +93,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -171,6 +173,7 @@ impl Core {
+@@ -179,6 +181,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -99,7 +101,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -197,6 +200,7 @@ impl Core {
+@@ -205,6 +208,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -107,7 +109,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -214,7 +218,7 @@ impl Core {
+@@ -222,7 +226,7 @@ impl Core {
                  | Platform::Cps2 => false,
              },
              Core::GenesisPlusGx => match platform {
@@ -116,7 +118,7 @@ index fab178f..da62f64 100644
                  Platform::Gba
                  | Platform::Gb
                  | Platform::Gbc
-@@ -248,6 +252,7 @@ impl Core {
+@@ -256,6 +260,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -124,7 +126,7 @@ index fab178f..da62f64 100644
                  | Platform::Tg16
                  | Platform::Sgx
                  | Platform::Pcecd
-@@ -274,6 +279,7 @@ impl Core {
+@@ -282,6 +287,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -132,7 +134,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Ws
                  | Platform::Lynx
-@@ -299,6 +305,7 @@ impl Core {
+@@ -307,6 +313,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -140,7 +142,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -325,6 +332,7 @@ impl Core {
+@@ -333,6 +340,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -148,7 +150,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -351,6 +359,7 @@ impl Core {
+@@ -359,6 +367,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -156,7 +158,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -377,6 +386,7 @@ impl Core {
+@@ -385,6 +394,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -164,7 +166,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -403,6 +413,7 @@ impl Core {
+@@ -411,6 +421,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -172,7 +174,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -429,6 +440,7 @@ impl Core {
+@@ -437,6 +448,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -180,7 +182,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -455,6 +467,7 @@ impl Core {
+@@ -463,6 +475,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -188,7 +190,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -481,6 +494,7 @@ impl Core {
+@@ -489,6 +502,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -196,7 +198,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -504,6 +518,7 @@ impl Core {
+@@ -512,6 +526,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -204,7 +206,7 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -530,6 +545,7 @@ impl Core {
+@@ -538,6 +553,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -212,20 +214,20 @@ index fab178f..da62f64 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Pico8
-@@ -554,7 +570,7 @@ impl Core {
-             Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
-             Platform::Nes | Platform::Fds => Core::Fceumm,
-             Platform::Snes => Core::Snes9x,
--            Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
-+            Platform::Gg | Platform::Sms | Platform::Md | Platform::SegaCd => Core::GenesisPlusGx,
+@@ -563,7 +579,7 @@ impl Core {
+             Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
+             Platform::Nes | Platform::Fds => [Core::Fceumm, Core::Nestopia],
+             Platform::Snes => [Core::Snes9x, Core::Snes9x2005Plus],
+-            Platform::Gg | Platform::Sms | Platform::Md => [Core::GenesisPlusGx, Core::GenesisPlusGx],
++            Platform::Gg | Platform::Sms | Platform::Md | Platform::SegaCd => [Core::GenesisPlusGx, Core::GenesisPlusGx],
              Platform::Ps1 => Core::PcsxRearmed,
              Platform::Tg16 | Platform::Pcecd => Core::MednafenPceFast,
              Platform::Sgx => Core::MednafenSupergrafx,
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
-index 4c7f823..db9c7ad 100644
+index ab381ae..99362f9 100644
 --- a/crates/slot-store/src/core_policy.rs
 +++ b/crates/slot-store/src/core_policy.rs
-@@ -83,6 +83,7 @@ impl Core {
+@@ -85,6 +85,7 @@ impl Core {
                  | Platform::Snes
                  | Platform::Sms
                  | Platform::Md
@@ -233,7 +235,7 @@ index 4c7f823..db9c7ad 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -120,6 +121,7 @@ impl Core {
+@@ -122,6 +123,7 @@ impl Core {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -242,10 +244,10 @@ index 4c7f823..db9c7ad 100644
                  | Platform::Tg16
                  | Platform::Sgx
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index fa4e1f7..2c0a36f 100644
+index 4edacf3..9538f75 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -60,7 +60,8 @@ pub use sega_shader::{
+@@ -67,7 +67,8 @@ pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
      CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
      NGP_SHADER_FILE, PCECD_SHADER_FILE, PICO8_SHADER_FILE, PS1_SHADER_FILE, S32X_SHADER_FILE,
@@ -256,10 +258,10 @@ index fa4e1f7..2c0a36f 100644
  pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
  pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index 684b3c6..6d50283 100644
+index 8b01e95..e112041 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
-@@ -27,6 +27,7 @@ pub enum Platform {
+@@ -28,6 +28,7 @@ pub enum Platform {
      Pico8,
      Sgx,
      Pcecd,
@@ -267,7 +269,7 @@ index 684b3c6..6d50283 100644
  }
  
  impl Platform {
-@@ -58,6 +59,7 @@ impl Platform {
+@@ -60,6 +61,7 @@ impl Platform {
              Platform::Cps1 => "Capcom CPS-1",
              Platform::Cps2 => "Capcom CPS-2",
              Platform::Fds => "Nintendo Famicom Disk System",
@@ -275,7 +277,7 @@ index 684b3c6..6d50283 100644
          }
      }
  
-@@ -87,6 +89,7 @@ impl Platform {
+@@ -90,6 +92,7 @@ impl Platform {
              Platform::Cps1 => "CPS1",
              Platform::Cps2 => "CPS2",
              Platform::Fds => "FDS",
@@ -283,7 +285,7 @@ index 684b3c6..6d50283 100644
          }
      }
  
-@@ -113,6 +116,7 @@ impl Platform {
+@@ -123,6 +126,7 @@ impl Platform {
              Platform::Fds => &["fds"],
              Platform::Sgx => &["sgx", "pce"],
              Platform::Pcecd => &["cue", "chd", "ccd"],
@@ -291,7 +293,7 @@ index 684b3c6..6d50283 100644
          }
      }
  
-@@ -124,7 +128,7 @@ impl Platform {
+@@ -134,7 +138,7 @@ impl Platform {
              Platform::Snes => (256, 224),
              Platform::Gg => (160, 144),
              Platform::Sms => (256, 192),
@@ -301,7 +303,7 @@ index 684b3c6..6d50283 100644
              Platform::Tg16 => (256, 240),
              Platform::Ws => (224, 144),
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 249f57a..e0bfd7b 100644
+index c8f5fce..ca86712 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -5,7 +5,7 @@ use crate::platform::Platform;
@@ -311,9 +313,9 @@ index 249f57a..e0bfd7b 100644
 -    pub const SHELVES: [Platform; 24] = [
 +    pub const SHELVES: [Platform; 25] = [
          Platform::Gba,
+         Platform::Gbav,
          Platform::Gb,
-         Platform::Gbc,
-@@ -30,6 +30,7 @@ impl Platform {
+@@ -31,6 +31,7 @@ impl Platform {
          Platform::Pico8,
          Platform::Sgx,
          Platform::Pcecd,
@@ -321,7 +323,7 @@ index 249f57a..e0bfd7b 100644
      ];
  
      pub fn has_gb_palettes(self) -> bool {
-@@ -41,6 +42,7 @@ impl Platform {
+@@ -42,6 +43,7 @@ impl Platform {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -329,15 +331,16 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -65,6 +67,7 @@ impl Platform {
-             Platform::Gba
-             | Platform::Snes
-             | Platform::Md
-+            | Platform::SegaCd
-             | Platform::Ps1
-             | Platform::Lynx
-             | Platform::Ws
-@@ -93,6 +96,7 @@ impl Platform {
+@@ -63,7 +65,7 @@ impl Platform {
+ 
+     pub fn owns_shoulders(self) -> bool {
+         match self {
+-Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 | Platform : : Lynx | Platform : : Ws
++Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : SegaCd | Platform : : Ps1 | Platform : : Lynx | Platform : : Ws
+             | Platform::S32x
+             | Platform::Vb
+             | Platform::NeoGeo
+@@ -89,6 +91,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
          match self {
              Platform::Snes
              | Platform::Md
@@ -345,7 +348,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::S32x
-@@ -122,6 +126,7 @@ impl Platform {
+@@ -118,6 +121,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
          match self {
              Platform::Snes
              | Platform::Md
@@ -353,15 +356,17 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::Lynx
-@@ -157,6 +162,7 @@ impl Platform {
-             | Platform::Gg
-             | Platform::Sms
-             | Platform::Md
-+            | Platform::SegaCd
-             | Platform::Ps1
+@@ -149,7 +153,8 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
+             Platform::Gb | Platform::Gbc => Some((Core::Mgba, Core::Gambatte)),
+             Platform::Nes => Some((Core::Fceumm, Core::Nestopia)),
+             Platform::Snes => Some((Core::Snes9x, Core::Snes9x2005Plus)),
+-            Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1
++            Platform::Gg | Platform::Sms | Platform::Md | Platform::SegaCd
++            | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -189,6 +195,7 @@ impl Platform {
+             | Platform::Pcecd
+@@ -181,6 +186,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Snes
              | Platform::Sms
              | Platform::Md
@@ -369,7 +374,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -215,6 +222,7 @@ impl Platform {
+@@ -207,6 +213,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -377,7 +382,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Ws
              | Platform::Lynx
-@@ -240,6 +248,7 @@ impl Platform {
+@@ -232,6 +239,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Snes
              | Platform::Sms
              | Platform::Md
@@ -385,7 +390,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -262,6 +271,7 @@ impl Platform {
+@@ -254,6 +262,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
@@ -393,7 +398,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::S32x
              | Platform::NeoGeo => true,
              Platform::Gba
-@@ -298,6 +308,7 @@ impl Platform {
+@@ -290,6 +299,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -401,7 +406,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -326,6 +337,7 @@ impl Platform {
+@@ -318,6 +328,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -409,7 +414,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -355,6 +367,7 @@ impl Platform {
+@@ -347,6 +358,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -417,7 +422,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -384,6 +397,7 @@ impl Platform {
+@@ -376,6 +388,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -425,7 +430,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Tg16
              | Platform::Sgx
              | Platform::Pcecd
-@@ -413,6 +427,7 @@ impl Platform {
+@@ -405,6 +418,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -433,7 +438,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -442,6 +457,7 @@ impl Platform {
+@@ -434,6 +448,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -441,7 +446,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -471,6 +487,7 @@ impl Platform {
+@@ -463,6 +478,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -449,7 +454,7 @@ index 249f57a..e0bfd7b 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -503,6 +520,7 @@ impl Platform {
+@@ -495,6 +511,7 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -458,7 +463,7 @@ index 249f57a..e0bfd7b 100644
                  | Platform::Tg16
                  | Platform::Sgx
 diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
-index 9da7b28..a142160 100644
+index 218e317..29844b7 100644
 --- a/crates/slot-store/src/scan.rs
 +++ b/crates/slot-store/src/scan.rs
 @@ -53,7 +53,7 @@ impl Cart {
@@ -701,10 +706,10 @@ index 0000000..362c0e8
 +    assert_eq!(read_sega_shaders(d.path()).md, Shader::Off);
 +}
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index c6c2e5a..ff8cb9a 100644
+index 33fe26f..0c0cdc3 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -95,6 +95,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -123,6 +123,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          | Platform::Gg
          | Platform::Sms
          | Platform::Md
@@ -712,7 +717,7 @@ index c6c2e5a..ff8cb9a 100644
          | Platform::Ps1
          | Platform::Tg16
          | Platform::Sgx
-@@ -195,7 +196,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -223,7 +224,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
          Platform::Ngp => (SEATED_W, NGP_SEATED_H),
          Platform::Lynx => (SEATED_W, LYNX_SEATED_H),
          Platform::Ws => (SEATED_W, WS_SEATED_H),
@@ -721,7 +726,7 @@ index c6c2e5a..ff8cb9a 100644
          Platform::Nes => (SEATED_W, NES_SEATED_H),
          Platform::Fds => (SEATED_W, FDS_SEATED_H),
          Platform::Gg => (SEATED_W, GG_SEATED_H),
-@@ -220,7 +221,9 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+@@ -248,7 +249,9 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
          Platform::Ws => return retro_box(RetroShell::Ws(WsShell::Mono)),
          Platform::Lynx => return retro_box(RetroShell::Lynx),
          Platform::Ngp => return retro_box(RetroShell::Ngp),
@@ -754,10 +759,10 @@ index 426b689..0332433 100644
          | Platform::Sgx
          | Platform::Pcecd
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index 37b0259..6c8ef44 100644
+index 0573413..f5c3b51 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -95,6 +95,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -88,6 +88,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
          | Platform::Gg
          | Platform::Sms
          | Platform::Md
@@ -766,23 +771,31 @@ index 37b0259..6c8ef44 100644
          | Platform::Tg16
          | Platform::Sgx
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index 7f9e0f3..0b18b15 100644
+index d1fda30..b5e2c0f 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
  fn label_band(c: &Cart) -> (f32, f32) {
      let (y, h) = match c.platform {
-         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+         Platform::Gba | Platform::Gbav => (LABEL_Y as f32, LABEL_H as f32),
 -        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Fds | Platform::Pico8 | Platform::Sgx | Platform::Pcecd => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
 +        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md | Platform::Ps1 | Platform::Tg16 | Platform::Ws | Platform::Lynx | Platform::Ngp | Platform::S32x | Platform::A2600 | Platform::A7800 | Platform::Vb | Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 | Platform::Fds | Platform::Pico8 | Platform::Sgx | Platform::Pcecd | Platform::SegaCd => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
      };
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 438699d..5bae5e3 100644
+index 77e0ca6..bb037fa 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1539,6 +1539,7 @@ impl App {
+@@ -2089,6 +2089,7 @@ impl App {
+         match platform {
+             Platform::Nes | Platform::Fds
+             | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md
++            | Platform::SegaCd
+             | Platform::Ps1
+             | Platform::Tg16
+             | Platform::Sgx
+@@ -2141,6 +2142,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -790,7 +803,7 @@ index 438699d..5bae5e3 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -1582,6 +1583,7 @@ impl App {
+@@ -2170,6 +2172,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -798,15 +811,7 @@ index 438699d..5bae5e3 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -1611,6 +1613,7 @@ impl App {
-             | Platform::Gg
-             | Platform::Sms
-             | Platform::Md
-+            | Platform::SegaCd
-             | Platform::Ps1
-             | Platform::Tg16
-             | Platform::Sgx
-@@ -2628,6 +2631,7 @@ impl App {
+@@ -3532,6 +3535,7 @@ impl App {
              Platform::Pico8 => self.sega_shaders.pico8,
              Platform::Sgx => self.sega_shaders.sgx,
              Platform::Pcecd => self.sega_shaders.pcecd,
@@ -814,7 +819,7 @@ index 438699d..5bae5e3 100644
              Platform::NeoGeo => self.sega_shaders.neogeo,
              Platform::Cps1 => self.sega_shaders.cps1,
              Platform::Cps2 => self.sega_shaders.cps2,
-@@ -2691,6 +2695,7 @@ impl App {
+@@ -3595,6 +3599,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -822,7 +827,7 @@ index 438699d..5bae5e3 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -3773,6 +3778,7 @@ impl App {
+@@ -4929,6 +4934,7 @@ impl App {
              Platform::Pico8 => (&mut self.sega_shaders.pico8, &Shader::RETRO[..]),
              Platform::Sgx => (&mut self.sega_shaders.sgx, &Shader::RETRO[..]),
              Platform::Pcecd => (&mut self.sega_shaders.pcecd, &Shader::RETRO[..]),
@@ -830,7 +835,7 @@ index 438699d..5bae5e3 100644
              Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
              Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
              Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
-@@ -3837,6 +3843,7 @@ impl App {
+@@ -4994,6 +5000,7 @@ impl App {
                  | Platform::Gg
                  | Platform::Sms
                  | Platform::Md
@@ -838,7 +843,7 @@ index 438699d..5bae5e3 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -4295,6 +4302,7 @@ impl App {
+@@ -5511,6 +5518,7 @@ impl App {
              | Platform::Gg
              | Platform::Sms
              | Platform::Md
@@ -846,7 +851,7 @@ index 438699d..5bae5e3 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -6872,6 +6880,7 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -11774,6 +11782,7 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::Gg
          | Platform::Sms
          | Platform::Md
@@ -879,17 +884,17 @@ index f0676c6..521d04e 100644
              | Platform::Tg16
              | Platform::Sgx
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 568870d..6384a2e 100644
+index a43a9ac..213c198 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -234,6 +234,7 @@ pub fn apply_core_options(
-     palette: Option<GbColors>,
- ) {
-     apply_policy_options(core, which);
+@@ -326,6 +326,7 @@ pub fn apply_core_options(
+     if which != Core::Gambatte {
+         apply_policy_options(core, which);
+     }
 +    crate::core_options_policy::apply_platform_options(core, platform);
      if which == Core::Mgba {
          core.set_option("mgba_sgb_borders", "OFF");
-         core.set_option("mgba_force_gbp", "ON");
+         match palette {
 diff --git a/crates/slot/src/core_options_policy.rs b/crates/slot/src/core_options_policy.rs
 index 86d3c71..e117eb4 100644
 --- a/crates/slot/src/core_options_policy.rs
@@ -956,42 +961,42 @@ index cbad50f..30ed9be 100644
              Platform::Tg16 => 5,
              Platform::Ws => 6,
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 959d7f7..cdf149c 100644
+index 11d17e0..5e72a0b 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
  use std::path::{Path, PathBuf};
  
--pub const DIRS: [&str; 109] = [
-+pub const DIRS: [&str; 113] = [
+-pub const DIRS: [&str; 120] = [
++pub const DIRS: [&str; 124] = [
      "BIOS",
      "Bezels",
      "Bezels/GBA",
-@@ -32,6 +32,7 @@ pub const DIRS: [&str; 109] = [
+@@ -40,6 +40,7 @@ pub const DIRS: [&str; 120] = [
      "Games/PICO8",
      "Games/SGX",
      "Games/PCECD",
 +    "Games/SEGACD",
      "Labels",
      "Labels/GBA",
-     "Labels/GB",
-@@ -58,6 +59,7 @@ pub const DIRS: [&str; 109] = [
+     "Labels/GBAV",
+@@ -67,6 +68,7 @@ pub const DIRS: [&str; 120] = [
      "Labels/PICO8",
      "Labels/SGX",
      "Labels/PCECD",
 +    "Labels/SEGACD",
      "Saves",
      "Saves/GBA",
-     "Saves/GB",
-@@ -83,6 +85,7 @@ pub const DIRS: [&str; 109] = [
+     "Saves/GBAV",
+@@ -93,6 +95,7 @@ pub const DIRS: [&str; 120] = [
      "Saves/PICO8",
      "Saves/SGX",
      "Saves/PCECD",
 +    "Saves/SEGACD",
      "States",
      "States/GBA",
-     "States/GB",
-@@ -108,6 +111,7 @@ pub const DIRS: [&str; 109] = [
+     "States/GBAV",
+@@ -119,6 +122,7 @@ pub const DIRS: [&str; 120] = [
      "States/PICO8",
      "States/SGX",
      "States/PCECD",

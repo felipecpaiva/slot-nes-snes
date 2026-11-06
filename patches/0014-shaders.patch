@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 00:58:43 +0400
 Subject: [PATCH] shaders
 
+(cherry picked from commit a3534355b570abb1976d661cd9fe6a1046a8acfe)
 ---
  crates/slot-store/src/platform_policy.rs    |   9 ++
  crates/slot-store/src/slot_state.rs         |  18 ++++
@@ -16,7 +17,7 @@ Subject: [PATCH] shaders
  create mode 100644 crates/slot/tests/nes_snes_shader.rs
 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index bb6a171..3df1b97 100644
+index aebd29a..97de3b8 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -1,5 +1,6 @@
@@ -25,8 +26,8 @@ index bb6a171..3df1b97 100644
 +use crate::slot_state::Shader;
  
  impl Platform {
-     pub const SHELVES: [Platform; 5] = [
-@@ -53,4 +54,12 @@ impl Platform {
+     pub const SHELVES: [Platform; 6] = [
+@@ -54,4 +55,12 @@ impl Platform {
              Platform::Nes | Platform::Snes => true,
          }
      }
@@ -40,10 +41,10 @@ index bb6a171..3df1b97 100644
 +    }
  }
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 8afcdfb..9edb5fe 100644
+index 2146ca0..4055b02 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -233,6 +233,8 @@ pub struct SlotState {
+@@ -392,6 +392,8 @@ pub struct SlotState {
      pub favorites: Vec<Recent>,
      pub shelf: Option<String>,
      pub shelf_cart: Option<Recent>,
@@ -52,15 +53,15 @@ index 8afcdfb..9edb5fe 100644
  }
  
  impl SlotState {
-@@ -298,6 +300,7 @@ pub enum Shader {
- impl Shader {
-     pub const GBA: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Dot];
-     pub const GB: [Shader; 4] = [Shader::Off, Shader::Lcd3x, Shader::Grid, Shader::Simpletex];
+@@ -476,6 +478,7 @@ impl Shader {
+         Shader::Simpletex,
+         Shader::Shimmerless,
+     ];
 +    pub const RETRO: [Shader; 3] = [Shader::Off, Shader::Grid, Shader::Dot];
  
      pub fn name(self) -> &'static str {
          match self {
-@@ -374,6 +377,8 @@ impl Default for SlotState {
+@@ -569,6 +572,8 @@ impl Default for SlotState {
              favorites: Vec::new(),
              shelf: None,
              shelf_cart: None,
@@ -69,7 +70,7 @@ index 8afcdfb..9edb5fe 100644
          }
      }
  }
-@@ -477,6 +482,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
+@@ -689,6 +694,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
              r.stem
          ))
      ));
@@ -81,8 +82,8 @@ index 8afcdfb..9edb5fe 100644
      atomic_write(&state_path(root), text.as_bytes())?;
      write_list(root, RECENTS_FILE, &s.recents)?;
      write_list(root, FAVORITES_FILE, &s.favorites)
-@@ -521,6 +531,8 @@ fn parse(text: &str) -> Option<SlotState> {
-     let mut bezel_gbc = None;
+@@ -749,6 +759,8 @@ fn parse(text: &str) -> Option<SlotState> {
+     let mut blending_gbc = None;
      let mut shelf = None;
      let mut shelf_cart = None;
 +    let mut shader_nes = None;
@@ -90,7 +91,7 @@ index 8afcdfb..9edb5fe 100644
      for line in text.lines().filter(|l| !l.is_empty()) {
          let Some((key, value)) = line.split_once('=') else {
              continue;
-@@ -564,6 +576,10 @@ fn parse(text: &str) -> Option<SlotState> {
+@@ -808,6 +820,10 @@ fn parse(text: &str) -> Option<SlotState> {
              "shelf_cart" => shelf_cart = recent_value(value),
              "shader_gb" => shader_gb = Shader::parse(value).filter(|s| Shader::GB.contains(s)),
              "shader_gbc" => shader_gbc = Shader::parse(value).filter(|s| Shader::GB.contains(s)),
@@ -101,7 +102,7 @@ index 8afcdfb..9edb5fe 100644
              _ => {}
          }
      }
-@@ -616,6 +632,8 @@ fn parse(text: &str) -> Option<SlotState> {
+@@ -875,6 +891,8 @@ fn parse(text: &str) -> Option<SlotState> {
          favorites: Vec::new(),
          shelf,
          shelf_cart,
@@ -111,10 +112,10 @@ index 8afcdfb..9edb5fe 100644
  }
  
 diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
-index 9757991..7dc482b 100644
+index 620b549..8d658c2 100644
 --- a/crates/slot-store/tests/durability.rs
 +++ b/crates/slot-store/tests/durability.rs
-@@ -232,6 +232,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
+@@ -248,6 +248,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
              colour_correction_gbc: false,
              shader_gba: Shader::Grid,
              shader_gb: Shader::Simpletex,
@@ -242,13 +243,13 @@ index 0000000..96ab9c9
 +        .all(|l| !l.starts_with("shader_nes=") && !l.starts_with("shader_snes=")));
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 3031b64..ca50376 100644
+index be7b605..871f3eb 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -2239,8 +2239,10 @@ impl App {
+@@ -3151,8 +3151,10 @@ impl App {
      pub fn screen_shader(&self) -> Shader {
          match self.playing_platform() {
-             Platform::Gba => self.state.shader_gba,
+             Platform::Gba | Platform::Gbav => self.gba_shader(),
 -            Platform::Gb | Platform::Nes | Platform::Snes => self.state.shader_gb,
 +            Platform::Gb => self.state.shader_gb,
              Platform::Gbc => self.state.shader_gbc,
@@ -257,10 +258,10 @@ index 3031b64..ca50376 100644
          }
      }
  
-@@ -3048,8 +3050,10 @@ impl App {
-         }
+@@ -4212,8 +4214,10 @@ impl App {
+         let gba_shaders = self.gba_shaders();
          let (shader, choices) = match self.playing_platform() {
-             Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+             Platform::Gba | Platform::Gbav => (&mut self.state.shader_gba, gba_shaders),
 -            Platform::Gb | Platform::Nes | Platform::Snes => (&mut self.state.shader_gb, &Shader::GB[..]),
 +            Platform::Gb => (&mut self.state.shader_gb, &Shader::GB[..]),
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),

@@ -17,6 +17,8 @@ an empty row.
 
 Adapted from marghost/slot_modded efe32cd and 0fce212, which take it from
 stevolarn/slot, GPL-3.0.
+
+(cherry picked from commit 7ffe362fcc8f31c6df3b28500ca16e6a06b1eeec)
 ---
  crates/slot-ui/src/shelf.rs               |   5 +-
  crates/slot-ui/src/shelf/fast.rs          |  28 ++++
@@ -36,10 +38,10 @@ stevolarn/slot, GPL-3.0.
  create mode 100644 crates/slot/tests/fast_scroll.rs
 
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index 9b5e737..1651087 100644
+index f9e9cdc..e50bd26 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
-@@ -13,6 +13,8 @@ use crate::retro_shadows::published;
+@@ -10,6 +10,8 @@ use crate::retro_shadows::published;
  use crate::silhouette::GbShell;
  use crate::slot_chrome::{draw_empty_slot, MOUTH_H};
  
@@ -48,7 +50,7 @@ index 9b5e737..1651087 100644
  const SIDE_SCALE: f32 = 0.78;
  const SIDE_ALPHA: f32 = 1.0;
  
-@@ -354,7 +356,7 @@ impl Shelf {
+@@ -360,7 +362,7 @@ impl Shelf {
          if now < due {
              return;
          }
@@ -57,10 +59,10 @@ index 9b5e737..1651087 100644
          self.held = Some((by, now + repeat_gap(fired), fired + 1));
      }
  
-@@ -428,6 +430,7 @@ impl Shelf {
-         let accel = -2.0 * OMEGA * self.vel - OMEGA * OMEGA * (self.scroll - self.scroll_target());
-         self.vel += accel * dt;
-         self.scroll += self.vel * dt;
+@@ -441,6 +443,7 @@ impl Shelf {
+         let decay = (-OMEGA * dt).exp();
+         self.scroll = target + (off + pull * dt) * decay;
+         self.vel = (self.vel - OMEGA * pull * dt) * decay;
 +        self.leash();
      }
  
@@ -211,7 +213,7 @@ index 0000000..7be704a
 +    assert!((s.scroll - s.scroll_target()).abs() < 1e-3);
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 915cdae..844b85c 100644
+index 6d5bd89..cbf882c 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,4 +1,5 @@
@@ -220,7 +222,7 @@ index 915cdae..844b85c 100644
  mod ps1_discs;
  mod silent_start;
  mod start_guard;
-@@ -486,6 +487,7 @@ pub struct App {
+@@ -762,6 +763,7 @@ pub struct App {
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
      rested: Option<(usize, usize)>,
@@ -228,7 +230,7 @@ index 915cdae..844b85c 100644
  }
  
  const FACE_AHEAD: i32 = 8;
-@@ -689,6 +691,7 @@ impl App {
+@@ -1097,6 +1099,7 @@ impl App {
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
              rested: None,
@@ -236,7 +238,7 @@ index 915cdae..844b85c 100644
          }
      }
  
-@@ -1789,6 +1792,9 @@ impl App {
+@@ -2480,6 +2483,9 @@ impl App {
      }
  
      pub fn face_wants(&self) -> Vec<FaceWant> {
@@ -246,7 +248,7 @@ index 915cdae..844b85c 100644
          let here = self.shelf();
          let screen = here.on_screen();
          let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
-@@ -1807,7 +1813,9 @@ impl App {
+@@ -2498,7 +2504,9 @@ impl App {
              .map(|(shelf, index)| FaceWant {
                  shelf,
                  index,
@@ -257,15 +259,15 @@ index 915cdae..844b85c 100644
              })
              .collect()
      }
-@@ -3567,6 +3575,7 @@ impl App {
-         if !self.on_shelf() {
-             self.shelf_mut().release_hold();
+@@ -4779,6 +4787,7 @@ impl App {
+                 self.finish_unwrap(&stem);
+             }
          }
 +        self.track_fast();
          let mut touched = false;
          let at = self.shelf_at;
          let next = match &mut self.phase {
-@@ -5060,7 +5069,7 @@ impl App {
+@@ -6465,7 +6474,7 @@ impl App {
      }
  
      pub fn browsed_rom(&self) -> Option<&std::path::Path> {
@@ -330,18 +332,18 @@ index 0000000..29fe1d2
 +    }
 +}
 diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
-index 5fb079f..de1f606 100644
+index 02ec69d..9cedd4b 100644
 --- a/crates/slot/src/device_app.rs
 +++ b/crates/slot/src/device_app.rs
 @@ -157,6 +157,7 @@ pub fn run() {
-     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+     let (mut frames, mut missed, mut early, mut stale) = (0u32, 0u32, 0u32, 0u32);
      let mut frame_trace = slot::frame_trace::FrameTrace::new();
      let mut doze = slot::doze_rest::DozeRest::new();
 +    let mut fast_scroll = slot::fast_scroll_trace::FastScrollTrace::new();
      loop {
          let dozing = !frontend.rebuilding_labels() && slot::doze_rest::rests(frontend.app());
          if let Some(line) = doze.step(dozing, Instant::now()) {
-@@ -200,6 +201,10 @@ pub fn run() {
+@@ -204,6 +205,10 @@ pub fn run() {
          }
          let swap_took = swap.elapsed();
          slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
@@ -432,26 +434,26 @@ index 0000000..3a38d74
 +    }
 +}
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index d246e68..3a68815 100644
+index 4f2301e..f2b159a 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -1424,7 +1424,7 @@ fn sync_core_picker(
-     tex: &mut CoreTextures,
-     built: &mut Option<String>,
- ) {
+@@ -2219,7 +2219,7 @@ fn sync_core_picker(
+         *asked = None;
+         *built = None;
+     }
 -    let highlighted = app.selected_stem().map(str::to_string);
 +    let highlighted = app.stem_to_prebuild().map(str::to_string);
      if highlighted.is_some() && *asked != highlighted {
          if let Some(cart) = app
              .carts()
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 3ae5934..307d339 100644
+index a95c463..f8bdec3 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -31,6 +31,7 @@ pub mod doze_rest;
- pub mod drc;
- pub mod emu;
+@@ -34,6 +34,7 @@ pub mod emu;
  pub mod face_builder;
+ pub mod fetch_art;
+ pub mod fetch_faces;
 +pub mod fast_scroll_trace;
  pub mod frame_trace;
  pub mod frames;

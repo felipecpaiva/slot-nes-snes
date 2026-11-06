@@ -19,6 +19,8 @@ refuses the disc without it. Another 128 KB file launches with one
 nothing in the file, so a junk BIOS would otherwise be a black screen
 with no word. A disc resumed at boot is checked the same way. The six
 toasts upload after the PC Engine CD ones.
+
+(cherry picked from commit 830cab340d3c34620c6fa8a5cccf1e45bee42a73)
 ---
  crates/slot-store/src/lib.rs       |   1 +
  crates/slot-store/src/ps1.rs       |   2 +-
@@ -40,10 +42,10 @@ toasts upload after the PC Engine CD ones.
  create mode 100644 crates/slot/tests/segacd_bios.rs
 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 2c0a36f..31d2614 100644
+index 9538f75..76092af 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -32,6 +32,7 @@ pub mod s32x;
+@@ -34,6 +34,7 @@ pub mod s32x;
  mod scan;
  pub mod sega;
  mod sega_shader;
@@ -140,20 +142,20 @@ index 0000000..25db6d1
 +    })
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 4376878..6f60af0 100644
+index 83f57b0..6007053 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -40,6 +40,7 @@ mod retro_mould;
+@@ -43,6 +43,7 @@ mod retro_mould;
  mod retro_shadows;
  mod retro_shell;
  mod screen_order;
 +mod segacd_toast;
  mod shelf;
  mod shell;
- mod silhouette;
-@@ -107,8 +108,9 @@ pub use shot_viewer::{
+ mod shot_viewer;
+@@ -132,8 +133,9 @@ pub use polaroids::{
  };
- pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
+ pub use power_menu::{heading_face, menu_detail_face, menu_face, PowerChoice, MENU_PAD};
  pub use ps1_case::{
 -    cd_case, disc_art_path, disc_face, disc_face_with, has_disc, on_print, read_case, tag_region,
 -    DISC_EDGE_R, DISC_HOLE_R, DISC_HUB_R, DISC_PRINT_R, DISC_PX, OBI_PAPER,
@@ -162,13 +164,13 @@ index 4376878..6f60af0 100644
 +    OBI_PAPER,
  };
  pub use quick_menu::{
-     core_button_legends, delete_legends, draw_menu_ground, link_button_legends, prompt_legends,
-@@ -133,6 +135,7 @@ pub use retro_shell::{
+     clock_legend_faces, core_button_legends, delete_legends, draw_menu_ground, link_button_legends,
+@@ -161,6 +163,7 @@ pub use retro_shell::{
      SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK, SNES_GREY, SNES_TITLES, VB_GREY, WSC_CLEAR, WS_BLACK,
  };
  pub use screen_order::{screen_page, set_screen_page};
 +pub use segacd_toast::SegaCdToast;
- pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
+ pub use shelf::{box_size, foot_y, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
  pub use shell::{
      gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
 diff --git a/crates/slot-ui/src/ps1_case.rs b/crates/slot-ui/src/ps1_case.rs
@@ -245,10 +247,10 @@ index 0000000..a71f2ee
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index f744148..7f27a9d 100644
+index 0a76389..a9afaad 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -39,6 +39,7 @@ pub enum Toast {
+@@ -44,6 +44,7 @@ pub enum Toast {
      Arcade(crate::ArcadeToast),
      Fds(crate::FdsToast),
      Pcecd(crate::PcecdToast),
@@ -256,7 +258,7 @@ index f744148..7f27a9d 100644
  }
  
  impl Toast {
-@@ -90,6 +91,7 @@ impl Toast {
+@@ -100,6 +101,7 @@ impl Toast {
              Toast::Arcade(a) => Toast::arcade_index(a),
              Toast::Fds(f) => Toast::fds_index(f),
              Toast::Pcecd(p) => Toast::pcecd_index(p),
@@ -264,7 +266,7 @@ index f744148..7f27a9d 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -168,6 +170,7 @@ impl Toast {
+@@ -183,6 +185,7 @@ impl Toast {
              Toast::Arcade(a) => a.text(),
              Toast::Fds(f) => f.text(),
              Toast::Pcecd(p) => p.text(),
@@ -273,7 +275,7 @@ index f744148..7f27a9d 100644
      }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index d9ca6fe..9578a0c 100644
+index 1eac917..74261b1 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -6,6 +6,7 @@ mod fds_bios;
@@ -284,7 +286,7 @@ index d9ca6fe..9578a0c 100644
  mod shelf_order;
  mod silent_start;
  mod start_guard;
-@@ -472,6 +473,7 @@ pub struct App {
+@@ -654,6 +655,7 @@ pub struct App {
      lynx_bios_warned: bool,
      fds_bios_warned: bool,
      pcecd_bios_warned: bool,
@@ -292,7 +294,7 @@ index d9ca6fe..9578a0c 100644
      lynx_flip: bool,
      last_led: Option<LedState>,
      powering_off: bool,
-@@ -704,6 +706,7 @@ impl App {
+@@ -1112,6 +1114,7 @@ impl App {
              lynx_bios_warned: false,
              fds_bios_warned: false,
              pcecd_bios_warned: false,
@@ -300,7 +302,7 @@ index d9ca6fe..9578a0c 100644
              lynx_flip: true,
              last_led: None,
              powering_off: false,
-@@ -5593,6 +5596,7 @@ impl App {
+@@ -6998,6 +7001,7 @@ impl App {
              || !self.neogeo_bios_allows(platform)
              || !self.fds_bios_allows(platform)
              || !self.pcecd_bios_allows(platform)

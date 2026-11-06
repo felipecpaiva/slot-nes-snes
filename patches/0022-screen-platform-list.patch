@@ -3,23 +3,24 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Thu, 15 Oct 2026 22:06:10 +0400
 Subject: [PATCH] screen-platform-list
 
+(cherry picked from commit 57db8b6f0b2291b5bb99d54de748edf94926a117)
 ---
  crates/slot-ui/src/quick_menu.rs        |  31 +++++--
  crates/slot-ui/src/quick_retro.rs       |  17 +---
- crates/slot-ui/tests/quick_menu.rs      |   4 +-
+ crates/slot-ui/tests/quick_menu.rs      |   6 +-
  crates/slot-ui/tests/quick_retro.rs     |  49 +++++-----
  crates/slot/src/app.rs                  |  15 +++-
  crates/slot/src/retro_quick.rs          |   8 ++
  crates/slot/tests/quick_retro_shader.rs | 113 ++++++++++++++++--------
  crates/slot/tests/render_quick_retro.rs |  16 ++--
- 8 files changed, 157 insertions(+), 96 deletions(-)
+ 8 files changed, 159 insertions(+), 96 deletions(-)
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index aa8ae89..c96a844 100644
+index 6483815..8b0b5f2 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -98,10 +98,12 @@ pub enum QuickRow {
-     ScPictureNext,
+@@ -134,10 +134,12 @@ pub enum QuickRow {
+     RommDisconnectScPictureNext,
      NesShader,
      SnesShader,
 +    ScreenNes,
@@ -27,21 +28,21 @@ index aa8ae89..c96a844 100644
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 87] = [
-+    pub const ALL: [QuickRow; 89] = [
+-    pub const ALL: [QuickRow; 126] = [
++    pub const ALL: [QuickRow; 128] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -189,6 +191,8 @@ impl QuickRow {
-         QuickRow::ScPictureNext,
+@@ -263,6 +265,8 @@ impl QuickRow {
+         QuickRow::RommDisconnectScPictureNext,
          QuickRow::NesShader,
          QuickRow::SnesShader,
 +        QuickRow::ScreenNes,
 +        QuickRow::ScreenSnes,
      ];
  
-     pub const MAIN: [QuickRow; 5] = [
-@@ -254,11 +258,13 @@ impl QuickRow {
+     pub const MAIN: [QuickRow; 6] = [
+@@ -370,11 +374,13 @@ impl QuickRow {
          QuickRow::ScPictureNext,
      ];
  
@@ -55,8 +56,8 @@ index aa8ae89..c96a844 100644
 +        QuickRow::ScreenSnes,
      ];
  
-     pub const SCREEN_GENERAL: [QuickRow; 2] = [QuickRow::Brightness, QuickRow::BlueLight];
-@@ -327,7 +333,9 @@ impl QuickRow {
+     pub const SCREEN_GENERAL: [QuickRow; 4] = [
+@@ -463,7 +469,9 @@ impl QuickRow {
              QuickRow::ScreenGeneral
              | QuickRow::ScreenGba
              | QuickRow::ScreenGbc
@@ -64,13 +65,13 @@ index aa8ae89..c96a844 100644
 +            | QuickRow::ScreenGb
 +            | QuickRow::ScreenNes
 +            | QuickRow::ScreenSnes => &QuickRow::SCREEN,
-             QuickRow::Brightness | QuickRow::BlueLight => &QuickRow::SCREEN_GENERAL,
-             QuickRow::PlayBrightness | QuickRow::PlayBlueLight => &QuickRow::PLAY_SCREEN,
-             QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaBezel => {
-@@ -374,8 +382,8 @@ impl QuickRow {
-             QuickRow::Shader | QuickRow::ColourCorrection | QuickRow::Palette | QuickRow::Bezel => {
-                 &QuickRow::PLAY_SCREEN
-             }
+             QuickRow::Brightness
+             | QuickRow::BlueLight
+             | QuickRow::Saturation
+@@ -544,8 +552,8 @@ impl QuickRow {
+             | QuickRow::Scale
+             | QuickRow::Stretch
+             | QuickRow::Blending => &QuickRow::PLAY_SCREEN,
 -            QuickRow::NesShader => &QuickRow::NES_SCREEN,
 -            QuickRow::SnesShader => &QuickRow::SNES_SCREEN,
 +            QuickRow::NesShader => &QuickRow::SCREEN_NES,
@@ -78,8 +79,8 @@ index aa8ae89..c96a844 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -395,7 +403,8 @@ impl QuickRow {
-             QuickRow::Theme => Some(QuickRow::General),
+@@ -568,7 +576,8 @@ impl QuickRow {
+             QuickRow::WifiPower => Some(QuickRow::Wifi),
              QuickRow::ControlsShelf => Some(QuickRow::Controls),
              QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
 -            QuickRow::NesShader | QuickRow::SnesShader => Some(QuickRow::Screen),
@@ -88,7 +89,7 @@ index aa8ae89..c96a844 100644
              _ => None,
          }
      }
-@@ -436,6 +445,8 @@ impl QuickRow {
+@@ -613,6 +622,8 @@ impl QuickRow {
              QuickRow::ScreenGba => Some(QuickRow::SCREEN_GBA[0]),
              QuickRow::ScreenGbc => Some(QuickRow::SCREEN_GBC[0]),
              QuickRow::ScreenGb => Some(QuickRow::SCREEN_GB[0]),
@@ -97,8 +98,8 @@ index aa8ae89..c96a844 100644
              _ => None,
          }
      }
-@@ -540,8 +551,10 @@ impl QuickRow {
-             QuickRow::GbcBezel => "Bezel",
+@@ -749,8 +760,10 @@ impl QuickRow {
+             | QuickRow::Blending => "Frame Blending",
              QuickRow::GbaBezel => "Bezel",
              QuickRow::Bezel => "Bezel",
 -            QuickRow::NesShader => "NES Shader",
@@ -110,10 +111,10 @@ index aa8ae89..c96a844 100644
          }
      }
  
-@@ -571,6 +584,8 @@ impl QuickRow {
-                 | QuickRow::ScreenGbc
-                 | QuickRow::ScreenGb
-                 | QuickRow::ScreenGeneral
+@@ -793,6 +806,8 @@ impl QuickRow {
+                 | QuickRow::RommPort
+                 | QuickRow::RommPair
+                 | QuickRow::RommDisconnect
 +                | QuickRow::ScreenNes
 +                | QuickRow::ScreenSnes
          )
@@ -149,10 +150,10 @@ index d16f48d..ce24cc4 100644
  
  impl QuickValue {
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index fd4c71a..3d7ea9c 100644
+index dace370..7a35eff 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -104,7 +104,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -111,7 +111,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
@@ -161,12 +162,14 @@ index fd4c71a..3d7ea9c 100644
      );
      assert_eq!(
          QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-@@ -161,7 +161,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             QuickRow::ControlsInGame,
-             QuickRow::ScreenGeneral,
-             QuickRow::UndoSave,
--            QuickRow::UndoLoad
-+            QuickRow::UndoLoad, QuickRow::ScreenNes, QuickRow::ScreenSnes
+@@ -202,7 +202,9 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             QuickRow::RommServer,
+             QuickRow::RommPort,
+             QuickRow::RommPair,
+-            QuickRow::RommDisconnect
++            QuickRow::RommDisconnect,
++            QuickRow::ScreenNes,
++            QuickRow::ScreenSnes
          ]
      );
      for page in [
@@ -234,10 +237,10 @@ index 4f5fd2e..6762304 100644
 -    );
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index b750a5a..ee996b9 100644
+index 422243c..5d65226 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1263,6 +1263,8 @@ impl App {
+@@ -1784,6 +1784,8 @@ impl App {
              | QuickRow::ScreenGba
              | QuickRow::ScreenGbc
              | QuickRow::ScreenGb
@@ -246,9 +249,9 @@ index b750a5a..ee996b9 100644
              | QuickRow::GbBezel
              | QuickRow::GbcBezel
              | QuickRow::GbaBezel
-@@ -1514,7 +1516,10 @@ impl App {
+@@ -2159,7 +2161,10 @@ impl App {
              self.state.wallpaper,
-             WallpaperPick::File(_) | WallpaperPick::Random
+             WallpaperPick::File(_) | WallpaperPick::Random | WallpaperPick::Shelf
          );
 -        let mut hidden = Vec::new();
 +        let mut hidden = crate::retro_quick::hidden_on_shelf(
@@ -258,8 +261,8 @@ index b750a5a..ee996b9 100644
          if !own {
              hidden.push(QuickRow::WallpaperTint);
          }
-@@ -2836,8 +2841,10 @@ impl App {
-             | QuickRow::General
+@@ -3873,8 +3878,10 @@ impl App {
+             | QuickRow::Wifi
              | QuickRow::Controls
              | QuickRow::ControlsShelf
 -            | QuickRow::ControlsInGame => {
@@ -271,7 +274,7 @@ index b750a5a..ee996b9 100644
                      let row = row.shown(&self.hidden_rows())[0];
                      self.phase = Phase::QuickMenu { row };
                  }
-@@ -3071,6 +3078,8 @@ impl App {
+@@ -4205,6 +4212,8 @@ impl App {
              | QuickRow::ScreenGba
              | QuickRow::ScreenGbc
              | QuickRow::ScreenGb

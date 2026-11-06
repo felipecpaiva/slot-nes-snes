@@ -3,32 +3,33 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 00:38:07 +0400
 Subject: [PATCH] core-picker-pairs
 
+(cherry picked from commit 6daa0855b868641b43fcedbb5dae9d1720c6db74)
 ---
- crates/slot-store/src/core.rs            |  12 +-
- crates/slot-store/src/core_policy.rs     |  23 +-
- crates/slot-store/src/platform_policy.rs |   4 +-
+ crates/slot-store/src/core.rs            |  16 +-
+ crates/slot-store/src/core_policy.rs     |  26 +-
+ crates/slot-store/src/platform_policy.rs |   3 +-
  crates/slot-store/tests/core_pairs.rs    |  24 ++
  crates/slot-store/tests/snes_platform.rs |   9 +-
  crates/slot/src/core.rs                  |   2 +-
  crates/slot/src/core_faces.rs            |  46 ++++
- crates/slot/src/core_picker.rs           |  14 +-
+ crates/slot/src/core_picker.rs           |   4 +
  crates/slot/src/frontend.rs              |  14 +-
  crates/slot/src/lib.rs                   |   1 +
  crates/slot/tests/alt_cores.rs           | 131 ++++++++++
  crates/slot/tests/gpsp.rs                |   2 +-
  crates/slot/tests/nes_core_picker.rs     | 319 +++++++++++++++++++++++
- 13 files changed, 583 insertions(+), 18 deletions(-)
+ 13 files changed, 580 insertions(+), 17 deletions(-)
  create mode 100644 crates/slot-store/tests/core_pairs.rs
  create mode 100644 crates/slot/src/core_faces.rs
  create mode 100644 crates/slot/tests/alt_cores.rs
  create mode 100644 crates/slot/tests/nes_core_picker.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index cf08688..5c8b2f6 100644
+index 87d4852..62dc2aa 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -12,6 +12,8 @@ pub enum Core {
-     Gpsp,
+@@ -13,6 +13,8 @@ pub enum Core {
+     Gambatte,
      Fceumm,
      Snes9x,
 +    Nestopia,
@@ -36,8 +37,8 @@ index cf08688..5c8b2f6 100644
  }
  
  impl Core {
-@@ -23,6 +25,8 @@ impl Core {
-             Core::Gpsp => "gpsp",
+@@ -25,6 +27,8 @@ impl Core {
+             Core::Gambatte => "gambatte",
              Core::Fceumm => "fceumm",
              Core::Snes9x => "snes9x",
 +            Core::Nestopia => "nestopia",
@@ -45,8 +46,8 @@ index cf08688..5c8b2f6 100644
          }
      }
  
-@@ -36,6 +40,8 @@ impl Core {
-             Core::Gpsp => "gpSP",
+@@ -39,6 +43,8 @@ impl Core {
+             Core::Gambatte => "Gambatte",
              Core::Fceumm => "FCEUmm",
              Core::Snes9x => "Snes9x",
 +            Core::Nestopia => "Nestopia",
@@ -54,8 +55,8 @@ index cf08688..5c8b2f6 100644
          }
      }
  
-@@ -45,6 +51,8 @@ impl Core {
-             "gpsp" => Some(Core::Gpsp),
+@@ -49,6 +55,8 @@ impl Core {
+             "gambatte" => Some(Core::Gambatte),
              "fceumm" => Some(Core::Fceumm),
              "snes9x" => Some(Core::Snes9x),
 +            "nestopia" => Some(Core::Nestopia),
@@ -63,33 +64,44 @@ index cf08688..5c8b2f6 100644
              _ => None,
          }
      }
-@@ -59,11 +67,11 @@ impl Core {
-                 Platform::Gba => true,
-                 Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => false,
+@@ -67,11 +75,11 @@ impl Core {
+                 Platform::Gb | Platform::Gbc => true,
+                 Platform::Gba | Platform::Gbav | Platform::Nes => false,
              },
 -            Core::Fceumm => match platform {
 +            Core::Fceumm | Core::Nestopia => match platform {
                  Platform::Nes => true,
-                 Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Snes => false,
+                 Platform::Gba | Platform::Gbav | Platform::Gb | Platform::Gbc | Platform::Snes => false,
              },
 -            Core::Snes9x => match platform {
 +            Core::Snes9x | Core::Snes9x2005Plus => match platform {
                  Platform::Snes => true,
                  Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
              },
+@@ -82,8 +90,8 @@ impl Core {
+         match platform {
+             Platform::Gba | Platform::Gbav => [Core::Mgba, Core::Gpsp],
+             Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
+-            Platform::Nes => [Core::Fceumm, Core::Fceumm],
+-            Platform::Snes => Core::Snes9x,
++            Platform::Nes => [Core::Fceumm, Core::Nestopia],
++            Platform::Snes => [Core::Snes9x, Core::Snes9x2005Plus],
+         }
+     }
+ }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
-index cbe489b..e5ea20c 100644
+index c855e71..091ed9b 100644
 --- a/crates/slot-store/src/core_policy.rs
 +++ b/crates/slot-store/src/core_policy.rs
 @@ -1,7 +1,14 @@
  use crate::core::Core;
  
  impl Core {
--    pub const EVERY: [Core; 4] = [Core::Mgba, Core::Gpsp, Core::Fceumm, Core::Snes9x];
+-    pub const EVERY: [Core; 4] = [Core::Mgba, Core::Gpsp, Core::Gambatte, Core::Fceumm, Core::Snes9x];
 +    pub const EVERY: [Core; 6] = [
 +        Core::Mgba,
 +        Core::Gpsp,
-+        Core::Fceumm,
++        Core::Gambatte, Core::Fceumm,
 +        Core::Snes9x,
 +        Core::Nestopia,
 +        Core::Snes9x2005Plus,
@@ -97,8 +109,8 @@ index cbe489b..e5ea20c 100644
  
      pub fn option_prefix(self) -> &'static str {
          match self {
-@@ -9,13 +16,23 @@ impl Core {
-             Core::Gpsp => "gpsp",
+@@ -10,13 +17,24 @@ impl Core {
+             Core::Gambatte => "gambatte",
              Core::Fceumm => "fceumm",
              Core::Snes9x => "snes9x",
 +            Core::Nestopia => "nestopia",
@@ -106,9 +118,10 @@ index cbe489b..e5ea20c 100644
 +        }
 +    }
 +
-+    pub fn pair(self) -> (Core, Core) {
++    pub fn partners(self) -> (Core, Core) {
 +        match self {
 +            Core::Mgba | Core::Gpsp => (Core::Mgba, Core::Gpsp),
++            Core::Gambatte => (Core::Mgba, Core::Gambatte),
 +            Core::Fceumm | Core::Nestopia => (Core::Fceumm, Core::Nestopia),
 +            Core::Snes9x | Core::Snes9x2005Plus => (Core::Snes9x, Core::Snes9x2005Plus),
          }
@@ -116,39 +129,39 @@ index cbe489b..e5ea20c 100644
  
      pub fn canvas(self) -> (u32, u32) {
          match self {
-             Core::Mgba | Core::Gpsp => (240, 160),
+-            Core::Mgba | Core::Gpsp => (240, 160),
 -            Core::Fceumm | Core::Snes9x => (360, 240),
++            Core::Mgba | Core::Gpsp | Core::Gambatte => (240, 160),
 +            Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => (360, 240),
          }
      }
  
-@@ -27,7 +44,7 @@ impl Core {
+@@ -28,7 +46,7 @@ impl Core {
      pub fn has_colour_correction(self) -> bool {
          match self {
-             Core::Mgba | Core::Gpsp => true,
+             Core::Mgba | Core::Gpsp | Core::Gambatte => true,
 -            Core::Fceumm | Core::Snes9x => false,
 +            Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => false,
          }
      }
  }
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 711b787..bb6a171 100644
+index 2cee1fd..aebd29a 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -41,7 +41,9 @@ impl Platform {
-     pub fn picker_cores(self) -> Option<(Core, Core)> {
+@@ -43,7 +43,8 @@ impl Platform {
          match self {
-             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
--            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => None,
+             Platform::Gba | Platform::Gbav => Some((Core::Mgba, Core::Gpsp)),
+             Platform::Gb | Platform::Gbc => Some((Core::Mgba, Core::Gambatte)),
+-            Platform::Nes | Platform::Snes => None,
 +            Platform::Nes => Some((Core::Fceumm, Core::Nestopia)),
 +            Platform::Snes => Some((Core::Snes9x, Core::Snes9x2005Plus)),
-+            Platform::Gb | Platform::Gbc => None,
          }
      }
  
 diff --git a/crates/slot-store/tests/core_pairs.rs b/crates/slot-store/tests/core_pairs.rs
 new file mode 100644
-index 0000000..f5a6d19
+index 0000000..f254999
 --- /dev/null
 +++ b/crates/slot-store/tests/core_pairs.rs
 @@ -0,0 +1,24 @@
@@ -158,8 +171,8 @@ index 0000000..f5a6d19
 +fn every_picker_pair_is_the_pair_of_both_its_cores() {
 +    for platform in Platform::SHELVES {
 +        if let Some((left, right)) = platform.picker_cores() {
-+            assert_eq!(left.pair(), (left, right));
-+            assert_eq!(right.pair(), (left, right));
++            assert_eq!(left.partners(), (left, right));
++            assert_eq!(right.partners(), (left, right));
 +            assert!(left.runs(platform) && right.runs(platform));
 +        }
 +    }
@@ -204,12 +217,12 @@ index fba322b..f43156b 100644
  
  #[test]
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 87036ac..ba89999 100644
+index d465c69..bbda5e1 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -176,7 +176,7 @@ pub fn colour_option(
-             "gpsp_color_correction",
-             if on { "enabled" } else { "disabled" },
+@@ -208,7 +208,7 @@ pub fn colour_option(
+                 "GBC only"
+             },
          )),
 -        Core::Fceumm | Core::Snes9x => None,
 +        Core::Fceumm | Core::Snes9x | Core::Nestopia | Core::Snes9x2005Plus => None,
@@ -218,7 +231,7 @@ index 87036ac..ba89999 100644
  
 diff --git a/crates/slot/src/core_faces.rs b/crates/slot/src/core_faces.rs
 new file mode 100644
-index 0000000..8058b67
+index 0000000..339434c
 --- /dev/null
 +++ b/crates/slot/src/core_faces.rs
 @@ -0,0 +1,46 @@
@@ -264,104 +277,65 @@ index 0000000..8058b67
 +
 +    pub fn follow(&mut self, app: &mut App) {
 +        if let Some(seat) = app.core_picker() {
-+            self.show(seat.pair(), app);
++            self.show(seat.partners(), app);
 +        }
 +    }
 +}
 diff --git a/crates/slot/src/core_picker.rs b/crates/slot/src/core_picker.rs
-index 433f2b8..4a3a792 100644
+index 608db1a..d970b55 100644
 --- a/crates/slot/src/core_picker.rs
 +++ b/crates/slot/src/core_picker.rs
-@@ -45,6 +45,7 @@ struct Close {
+@@ -67,6 +67,10 @@ impl CorePicker {
+         }
+     }
  
- #[derive(Copy, Clone)]
- pub struct CorePicker {
-+    pair: (Core, Core),
-     seat: Core,
-     opened: Millis,
-     started: Option<Millis>,
-@@ -55,7 +56,12 @@ pub struct CorePicker {
- 
- impl CorePicker {
-     pub fn open(seat: Core, now: Millis) -> Self {
-+        Self::open_pair(seat, seat.pair(), now)
++    pub fn open_pair(seat: Core, pair: (Core, Core), now: Millis) -> Self {
++        Self::open([pair.0, pair.1], seat, now)
 +    }
 +
-+    pub fn open_pair(seat: Core, pair: (Core, Core), now: Millis) -> Self {
-         CorePicker {
-+            pair,
-             seat,
-             opened: now,
-             started: None,
-@@ -112,8 +118,8 @@ impl CorePicker {
-                 self.begin_close(now);
-                 return Outcome::Nothing;
-             }
--            Press::Left => Core::Mgba,
--            Press::Right => Core::Gpsp,
-+            Press::Left => self.pair.0,
-+            Press::Right => self.pair.1,
-         };
-         if self.waiting() {
-             return Outcome::Nothing;
-@@ -148,7 +154,7 @@ impl CorePicker {
-         let shake = self.refusal.map_or(0.0, |r| r.offset(now));
-         match (self.hop, self.hop_progress(now)) {
-             (Some(hop), Some(q)) => {
--                let rightward = hop.from == Core::Mgba;
-+                let rightward = hop.from == self.pair.0;
-                 let lean = if rightward { 1.0 } else { -1.0 };
-                 let arc = (std::f32::consts::PI * q).sin();
-                 Chip {
-@@ -160,7 +166,7 @@ impl CorePicker {
-                 }
-             }
-             _ => Chip {
--                across: self.seat.index() as f32,
-+                across: f32::from(self.seat == self.pair.1),
-                 lift: 0.0,
-                 tip: 0.0,
-                 seated: Some(self.seat),
+     pub fn start(&mut self, now: Millis) {
+         self.started.get_or_insert(now);
+     }
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 71459d4..1a7afd1 100644
+index 16ddb87..25b92c6 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -23,6 +23,7 @@ use slot_ui::{
- use crate::app::{App, LinkRow, Phase};
+@@ -25,6 +25,7 @@ use crate::app::{App, LinkRow, Phase, UpdateCart, UpdateScene};
+ 
  use crate::build_info::Build;
  use crate::cart_faces::CartFaces;
 +use crate::core_faces::PairFaces;
  use crate::face_builder::FaceBuilder;
  use crate::label_cache::{self, Rebuild};
  use crate::link_art_builder::LinkArtBuilder;
-@@ -52,6 +53,7 @@ pub struct Frontend {
+@@ -54,6 +55,7 @@ pub struct Frontend {
      core_asked: Option<String>,
      core_tex: CoreTextures,
      core_built: Option<String>,
 +    pair_faces: Option<PairFaces>,
      undo_tex: Option<TexId>,
      switcher: Switcher,
-     clocks: Clocks,
-@@ -190,6 +192,7 @@ impl Frontend {
+     guide_page: GuidePage,
+@@ -546,6 +548,7 @@ impl Frontend {
              core_asked: None,
              core_tex: CoreTextures::default(),
              core_built: None,
 +            pair_faces: None,
              undo_tex: None,
              switcher: Switcher::default(),
-             clocks: Clocks::default(),
-@@ -479,7 +482,9 @@ impl Frontend {
+             guide_page: GuidePage::default(),
+@@ -920,7 +923,9 @@ impl Frontend {
              legend_light,
              descriptions,
          });
 -        app.set_core_part_faces(sockets, chips, blank, shadow);
 +        let mut pair_faces = PairFaces::new(sockets, chips, blank, shadow);
-+        pair_faces.show(slot_store::Core::Mgba.pair(), app);
++        pair_faces.show(slot_store::Core::Mgba.partners(), app);
 +        self.pair_faces = Some(pair_faces);
-         app.set_core_legend_faces(core_legend);
+         app.set_core_gb_part_faces(gb_sockets, gb_chips, gb_blank);
+         app.set_core_legend_faces(core_legend, core_legend_light);
          app.set_link_menu_faces(roles);
-         app.set_link_linked_face(linked);
-@@ -598,6 +603,9 @@ impl Frontend {
+@@ -1070,6 +1075,9 @@ impl Frontend {
              &mut self.core_tex,
              &mut self.core_built,
          );
@@ -371,7 +345,7 @@ index 71459d4..1a7afd1 100644
          if !self.link_art_done {
              if let Some(art) = self.link_art.take() {
                  let mut up = |f: &slot_ui::CartFace| Sprite {
-@@ -899,11 +907,11 @@ impl UiFaces {
+@@ -1421,11 +1429,11 @@ impl UiFaces {
                  quick_description_face(&["Supports single button and MENU+button."]),
                  quick_description_face(&["Supports single button and two button chords."]),
              ],
@@ -386,10 +360,10 @@ index 71459d4..1a7afd1 100644
                  .map(|c| chip_face(Some(*c)))
                  .collect(),
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 4f0770a..1ae64bc 100644
+index 81ff86e..c1a015a 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -17,6 +17,7 @@ pub mod cable;
+@@ -18,6 +18,7 @@ pub mod cable;
  pub mod card_log;
  pub mod cart_faces;
  pub mod core;
@@ -535,7 +509,7 @@ index 0000000..af9f24d
 +    }
 +}
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index 21136da..9a03d45 100644
+index 7b54cde..a07125d 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
@@ -545,8 +519,8 @@ index 21136da..9a03d45 100644
 -            Core::Mgba | Core::Fceumm | Core::Snes9x => "gpsp_color_correction",
 +            Core::Mgba | Core::Fceumm | Core::Nestopia | Core::Snes9x | Core::Snes9x2005Plus => "gpsp_color_correction",
              Core::Gpsp => "mgba_color_correction",
+             Core::Gambatte => "gambatte_gbc_color_correction",
          };
-         assert_eq!(
 diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
 new file mode 100644
 index 0000000..06edae3

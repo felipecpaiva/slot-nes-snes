@@ -12,24 +12,26 @@ SELECT+X on SNES and Mega Drive and L1 on NES and Master System
 include it. Factory defaults are unchanged. Idea from
 cloudwithax/unslot 4cf8468 (GPL-3.0),
 https://github.com/cloudwithax/unslot/commit/4cf8468
+
+(cherry picked from commit c83a308a04c37399f45d15ea16d4c787406e6b77)
 ---
  crates/slot-ui/src/quick_menu.rs    |   3 +
  crates/slot-ui/src/quick_retro.rs   |   1 +
  crates/slot-ui/tests/retro_faces.rs |   9 +-
  crates/slot/src/platform_video.rs   |  41 +++++--
- crates/slot/src/video_mode.rs       |   6 ++
+ crates/slot/src/video_mode.rs       |   8 +-
  crates/slot/tests/crop_overscan.rs  |  38 ++++---
  crates/slot/tests/four_three.rs     | 161 ++++++++++++++++++++++++++++
  crates/slot/tests/snes_select.rs    |  15 ++-
  crates/slot/tests/system_picture.rs |  12 +--
- 9 files changed, 248 insertions(+), 38 deletions(-)
+ 9 files changed, 249 insertions(+), 39 deletions(-)
  create mode 100644 crates/slot/tests/four_three.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index da40179..fd7d34d 100644
+index 5ad3956..53789ff 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -810,6 +810,7 @@ pub enum QuickValue {
+@@ -1054,6 +1054,7 @@ pub enum QuickValue {
      Europe,
      Performance,
      Balanced,
@@ -37,7 +39,7 @@ index da40179..fd7d34d 100644
  }
  
  impl QuickValue {
-@@ -885,6 +886,7 @@ impl QuickValue {
+@@ -1152,6 +1153,7 @@ impl QuickValue {
              QuickValue::Europe => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 8,
              QuickValue::Performance => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 9,
              QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
@@ -45,7 +47,7 @@ index da40179..fd7d34d 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -936,6 +938,7 @@ impl QuickValue {
+@@ -1220,6 +1222,7 @@ impl QuickValue {
              QuickValue::Europe => "Europe",
              QuickValue::Performance => "Performance",
              QuickValue::Balanced => "Balanced",
@@ -177,7 +179,7 @@ index 16b5b66..6bc45a7 100644
      }
  }
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 96d8837..5bae6c1 100644
+index 16cd3c9..07f8a1b 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
 @@ -11,6 +11,7 @@ pub enum VideoMode {
@@ -204,16 +206,18 @@ index 96d8837..5bae6c1 100644
              _ => None,
          }
      }
-@@ -53,6 +56,9 @@ pub fn source_rect(
-     if mode == VideoMode::Actual {
-         return actual_rect(canvas);
+@@ -65,7 +68,10 @@ pub fn picture_for(
+         };
+         return (sizing, WHOLE_TEXTURE);
      }
-+    if mode == VideoMode::FourThree {
+-    match (mode, scale, stretch) {
++    match mode == VideoMode::FourThree {
 +        return crate::platform_video::four_three_rect((w, h), canvas);
 +    }
-     if (w, h) == canvas {
-         return WHOLE_TEXTURE;
-     }
++    if (mode, scale, stretch) {
+         (VideoMode::Actual, Scale::Integer, _) => (Sizing::Integer, crop),
+         (VideoMode::Actual, Scale::Fit, _) => (Sizing::Fit, crop),
+         (VideoMode::Actual, _, _) => (Sizing::Band, actual_rect(canvas)),
 diff --git a/crates/slot/tests/crop_overscan.rs b/crates/slot/tests/crop_overscan.rs
 index a80d5b8..893cad2 100644
 --- a/crates/slot/tests/crop_overscan.rs

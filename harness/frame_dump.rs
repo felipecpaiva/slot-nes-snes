@@ -206,7 +206,8 @@ impl Rig for CoreRig {
     }
 
     fn step(&self) -> bool {
-        self.session.step_emulator(present(), STEP_TIMEOUT)
+        // Since upstream v1.14 (not in v1.9) step_emulator returns whether the frame was late, true when it was.
+        !self.session.step_emulator(present(), STEP_TIMEOUT)
     }
 
     fn locked(&self) -> bool {
@@ -349,7 +350,7 @@ impl Rig for CompositeRig {
     }
 
     fn step(&self) -> bool {
-        self.frontend.step_emulator(present(), STEP_TIMEOUT)
+        !self.frontend.step_emulator(present(), STEP_TIMEOUT)
     }
 
     fn app(&self) -> &App {
@@ -625,6 +626,11 @@ impl<R: Rig> Run<R> {
             }
             last = now;
             self.mark("shader");
+            // Upstream v1.14 hides Shimmerless on a 3:2 panel, so the Game Boy Advance list is one short
+            // of Shader::GBA there: count is the most presses, coming round to the first shader ends it.
+            if last == first {
+                break;
+            }
         }
         if last != first {
             die(&format!(

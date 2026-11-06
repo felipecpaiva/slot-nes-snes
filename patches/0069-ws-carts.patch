@@ -16,6 +16,8 @@ nameplate are our own drawing; the two plastic colours and the 66 by
 https://github.com/nelynes/slotPlus/commit/21cc4b0, GPL-3.0). The
 retro_neutrals example pins the disc's grain seed, so adding shells
 keeps every existing neutral byte for byte.
+
+(cherry picked from commit cfc02f026df10e9eb2a0b46e717de461b430a3db)
 ---
  crates/slot-ui/assets/retro/ws_neutral.png  | Bin 0 -> 119287 bytes
  crates/slot-ui/assets/retro/wsc_neutral.png | Bin 0 -> 119363 bytes
@@ -2382,7 +2384,7 @@ index c5fca12..1765b34 100644
      for i in 0..n * n {
          let (x, y) = (i % n, i / n);
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 9e8446d..8662577 100644
+index 74c31bd..f118c8d 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
 @@ -7,7 +7,8 @@ use crate::board::{BOARD_H, BOARD_W};
@@ -2395,39 +2397,39 @@ index 9e8446d..8662577 100644
  };
  use crate::retro_face::{retro_cart_face, retro_face};
  use crate::shell::{shell_for, Finish, Shell};
-@@ -176,7 +177,8 @@ const GB_SEATED_H: u32 = 259;
+@@ -204,7 +205,8 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
 -        Platform::Gba | Platform::Ws => (SEATED_W, SEATED_H),
 +        Platform::Gba => (SEATED_W, SEATED_H),
 +        Platform::Ws => (SEATED_W, WS_SEATED_H),
-         Platform::Ps1 => (SEATED_W, PS1_SEATED_H),
+         Platform::GbavPs1 => (SEATED_W, PS1_SEATED_H),
          Platform::Nes => (SEATED_W, NES_SEATED_H),
          Platform::Gg => (SEATED_W, GG_SEATED_H),
-@@ -190,7 +192,8 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -218,7 +220,8 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
 -        Platform::Gba | Platform::Ws => Shape::Gba,
 +        Platform::Gba => Shape::Gba,
 +        Platform::Ws => return retro_box(RetroShell::Ws(WsShell::Mono)),
-         Platform::Ps1 => return retro_box(RetroShell::Ps1(Ps1Case::Us)),
+         Platform::GbavPs1 => return retro_box(RetroShell::Ps1(Ps1Case::Us)),
          Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
          Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 3401f5c..a786bfc 100644
+index 0889734..26d96c7 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -43,6 +43,7 @@ mod start_toast;
- mod sticker;
- pub mod text;
+@@ -52,6 +52,7 @@ pub mod liner;
+ pub mod palette;
+ pub mod sticker_curl;
  mod toast;
 +mod ws_cart;
  
+ pub use art::decode as decode_png;
  pub use backdrop::{
-     bezel_face, blur_background, default_background, default_game_bezel_face, draw_backdrop,
-@@ -111,14 +112,14 @@ pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
+@@ -139,14 +140,14 @@ pub use rebuild::{headline_face, rebuild_count_face, rebuild_title_face, Rebuild
  pub use refusal::Refusal;
  pub use retro_cart::{
      label_cover, retro_shell_of, retro_silhouette, NesShell, Ps1Case, RetroShell, SegaShell,
@@ -2442,12 +2444,12 @@ index 3401f5c..a786bfc 100644
 -    SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK, SNES_GREY, SNES_TITLES,
 +    SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK, SNES_GREY, SNES_TITLES, WSC_CLEAR, WS_BLACK,
  };
- pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
+ pub use shelf::{box_size, foot_y, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
  pub use shell::{
-@@ -136,3 +137,4 @@ pub use sticker::{
+@@ -168,3 +169,4 @@ pub use sticker::{
      CREDITS, DC, HOME, ORIGIN, STICKER_H, STICKER_W,
  };
- pub use toast::{toast_box, toast_face, toast_rect, Toast};
+ pub use toast::{toast_box, toast_face, toast_face_text, toast_rect, Toast};
 +pub use ws_cart::read_shell as ws_shell;
 diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
 index 2651ec3..e2cd771 100644
@@ -2673,10 +2675,10 @@ index 327b389..40c3d6c 100644
      ]
  }
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index 563ad13..6b1d7ec 100644
+index ca71f94..1fcff95 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -96,8 +96,8 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -89,8 +89,8 @@ pub fn shell_for(cart: &Cart) -> Shell {
          | Platform::Sms
          | Platform::Md
          | Platform::Ps1

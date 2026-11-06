@@ -32,6 +32,10 @@ we add, so no written offer is needed. It is in `System/licenses/`:
 - `neocd-src.tar.gz` and `neocd-src.meta`: the exact NeoCD source and its sha256 (below).
 - `gpsp-<commit>.tar.gz` and the mGBA commit in `mgba-<commit>.meta`, with their patches, as
   slot ships them.
+- `gambatte-<commit>.tar.gz`, `gambatte-<commit>.meta`, `gambatte-GPL-2.0.txt` and its patch: the Gambatte
+  core (GPL-2.0) upstream slot has shipped since v1.14.0 for Game Boy and Game Boy Color, as slot ships
+  them. `System/web/` is upstream's Gamebit page, built by its `web` task from `web/` in the main tarball
+  (GPL-3.0, `web/LICENSE`).
 - `exfatprogs-<version>.tar.gz` and `exfatprogs-GPL-2.0.txt`: the GPL-2.0 source and licence of
   `System/fsck.exfat`, which upstream slot ships for its SD card repair (SELECT+START), as slot ships them.
 

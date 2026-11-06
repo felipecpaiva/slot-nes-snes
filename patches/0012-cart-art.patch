@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Tue, 13 Oct 2026 02:53:18 +0400
 Subject: [PATCH] cart-art
 
+(cherry picked from commit 66702648753c47bbe763ef0a09b47f36692ab155)
 ---
  crates/slot-ui/assets/famicom_cart.svg        |   3 +
  crates/slot-ui/assets/famicom_cart_detail.svg |  17 +
@@ -31,10 +32,10 @@ Subject: [PATCH] cart-art
  crates/slot-ui/tests/nes_shell.rs             | 173 +++++++++
  crates/slot-ui/tests/render_nes_shelves.rs    | 346 ++++++++++++++++++
  crates/slot-ui/tests/snes_shell.rs            |   4 +-
- crates/slot/src/app.rs                        |   4 +-
+ crates/slot/src/app.rs                        |   7 +-
  crates/slot/src/frontend.rs                   |   8 +
  crates/slot/tests/lid_fit.rs                  | 127 +++++++
- 30 files changed, 1750 insertions(+), 16 deletions(-)
+ 30 files changed, 1753 insertions(+), 16 deletions(-)
  create mode 100644 crates/slot-ui/assets/famicom_cart.svg
  create mode 100644 crates/slot-ui/assets/famicom_cart_detail.svg
  create mode 100644 crates/slot-ui/assets/lettering_nes.png
@@ -277,18 +278,18 @@ index 68863b5..1b5582b 100644
 +    }
  }
 diff --git a/crates/slot-ui/src/board.rs b/crates/slot-ui/src/board.rs
-index e7f66af..88f20f4 100644
+index 6d23ce2..e14adad 100644
 --- a/crates/slot-ui/src/board.rs
 +++ b/crates/slot-ui/src/board.rs
-@@ -3,6 +3,7 @@ use slot_store::{Cart, Core};
- 
- use crate::bitmaps;
- use crate::cart::{clean_label, CartFace, CART_H, CART_W};
+@@ -5,6 +5,7 @@ use crate::bitmaps::{self, GB_CHIP_H, GB_CHIP_W};
+ use crate::cart::{
+     clean_label, gb_backing, gb_shell_of, CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W,
+ };
 +use crate::lid_fit::lid_rest_for;
  use crate::shelf::foot_y;
+ use crate::silhouette::GbShell;
  use crate::slot_chrome::ease;
- use crate::text;
-@@ -166,7 +167,7 @@ const NAME_MIN_PX: f32 = 8.0;
+@@ -245,7 +246,7 @@ const NAME_MIN_PX: f32 = 8.0;
  const SOCKET_INK: [u8; 3] = [0xee, 0xf5, 0xe6];
  const CHIP_INK: [u8; 3] = [0xf2, 0xf2, 0xf2];
  
@@ -297,7 +298,7 @@ index e7f66af..88f20f4 100644
      Placed {
          x: canvas.centred(144.0),
          y: 70.5 - LID_REST_H / 2.0,
-@@ -229,7 +230,10 @@ pub fn lid_from(canvas: Canvas, shelf: Placed, progress: f32) -> (Placed, f32) {
+@@ -435,7 +436,10 @@ pub fn lid_from(canvas: Canvas, shelf: Placed, progress: f32) -> (Placed, f32) {
          ..shelf
      };
      let lift = lift_of(progress);
@@ -310,7 +311,7 @@ index e7f66af..88f20f4 100644
  
  const UNITS_W: f32 = 240.0;
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 2bfaae4..77753c2 100644
+index 930cd6d..536eae2 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
 @@ -4,6 +4,11 @@ use slot_store::{Cart, Outline, Platform};
@@ -325,13 +326,13 @@ index 2bfaae4..77753c2 100644
  use crate::shell::{shell_for, Finish, Shell};
  use crate::silhouette::{cart_mask, gb_cart_mask, GbShell};
  use crate::text;
-@@ -150,14 +155,18 @@ const GB_SEATED_H: u32 = 259;
+@@ -178,14 +183,18 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
--        Platform::Gba | Platform::Nes | Platform::Snes => (SEATED_W, SEATED_H),
+-        Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes => (SEATED_W, SEATED_H),
 +        Platform::Gba => (SEATED_W, SEATED_H),
-+        Platform::Nes => (SEATED_W, NES_SEATED_H),
++        Platform::Gbav | Platform::Nes => (SEATED_W, NES_SEATED_H),
 +        Platform::Snes => (SEATED_W, SNES_SEATED_H),
          Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
      }
@@ -339,14 +340,14 @@ index 2bfaae4..77753c2 100644
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
--        Platform::Gba | Platform::Nes | Platform::Snes => Shape::Gba,
+-        Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes => Shape::Gba,
 +        Platform::Gba => Shape::Gba,
-+        Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
++        Platform::Gbav | Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
 +        Platform::Snes => return retro_box(RetroShell::Snes(SnesShell::Snes)),
          Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
      });
      (s.w, s.h)
-@@ -171,6 +180,11 @@ pub fn gb_cart_shadow(shell: GbShell) -> CartFace {
+@@ -199,6 +208,11 @@ pub fn gb_cart_shadow(shell: GbShell) -> CartFace {
      shadow(GB_CART_W, GB_CART_H, gb_cart_mask(shell))
  }
  
@@ -358,7 +359,7 @@ index 2bfaae4..77753c2 100644
  fn shadow(w: u32, h: u32, mask: &[u8]) -> CartFace {
      let mut rgba = Vec::with_capacity((w * h * 4) as usize);
      for cover in mask {
-@@ -186,7 +200,7 @@ pub fn cart_face(cart: &Cart) -> CartFace {
+@@ -214,7 +228,7 @@ pub fn cart_face(cart: &Cart) -> CartFace {
  }
  
  pub fn is_clear(cart: &Cart) -> bool {
@@ -367,7 +368,7 @@ index 2bfaae4..77753c2 100644
  }
  
  /// Whether the shelf draws this cart's coloured interior under its plastic: any clear cart.
-@@ -198,6 +212,13 @@ pub fn shows_interior(cart: &Cart) -> bool {
+@@ -226,6 +240,13 @@ pub fn shows_interior(cart: &Cart) -> bool {
  /// 80% opacity. A GBA cart uses `gba_interior.png`, a Game Boy pak `gb_interior.png`, and a Game
  /// Boy Color pak `gbc_interior.png`. Same size as that cart's board and face.
  pub fn cart_interior(cart: &Cart) -> CartFace {
@@ -381,7 +382,7 @@ index 2bfaae4..77753c2 100644
      let colour = shell_for(cart).colour;
      let (src, w, h, mask) = match gb_shell_of(cart) {
          None => (bitmaps::gba_interior(), BOARD_W, BOARD_H, None),
-@@ -249,11 +270,18 @@ pub fn cart_backing(shell: Option<GbShell>) -> CartFace {
+@@ -281,6 +302,10 @@ pub fn gb_backing(board: &[u8], shell: GbShell) -> CartFace {
  }
  
  pub fn label_size(cart: &Cart) -> (u32, u32) {
@@ -392,6 +393,8 @@ index 2bfaae4..77753c2 100644
      let (_, _, lw, lh) = spec(shape_of(cart)).label;
      (lw, lh)
  }
+@@ -297,6 +322,9 @@ pub fn text_label(cart: &Cart, colour: [u8; 3]) -> Vec<u8> {
+ }
  
  pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
 +    if let Some(kind) = retro_shell_of(cart) {
@@ -401,20 +404,20 @@ index 2bfaae4..77753c2 100644
      let mut face = shell_face(&s, &shell_for(cart));
      let label = match art {
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 37258e9..e9058c3 100644
+index 5f92dec..5e97d6f 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -15,6 +15,7 @@ mod draw;
- mod footer;
+@@ -17,6 +17,7 @@ mod guide;
  mod hud;
  mod icon;
+ mod keyboard;
 +mod lid_fit;
  mod link_art;
+ mod network_menu;
  mod plate;
- mod polaroids;
-@@ -23,6 +24,11 @@ mod power_menu;
- mod quick_menu;
+@@ -26,6 +27,11 @@ mod quick_menu;
  mod rebuild;
+ mod receipt;
  mod refusal;
 +mod retro_cart;
 +mod retro_face;
@@ -423,31 +426,31 @@ index 37258e9..e9058c3 100644
 +mod retro_shell;
  mod shelf;
  mod shell;
- mod silhouette;
-@@ -47,9 +53,9 @@ pub use board::{
+ mod shot_viewer;
+@@ -60,9 +66,9 @@ pub use board::{
  pub use cart::{
-     cart_backing, cart_box, cart_face, cart_face_with, cart_interior, cart_shadow, clean_label,
-     gb_cart_shadow, gb_label_panel, gb_shell_of, is_clear, label_colour, label_panel, label_size,
--    label_tags, label_text, neutral_shell, seated_box, shows_interior, CartFace, CART_H, CART_W,
+     bare_face, cart_backing, cart_box, cart_face, cart_face_with, cart_interior, cart_shadow, clean_label,
+     folder_gb_shell, gb_cart_shadow, gb_shell_of, is_clear, label_colour, label_panel, label_size,
+-    label_tags, label_text, neutral_shell, seated_box, shelf_shape, shows_interior, text_label, CartFace, CART_H, CART_W,
 -    GBC_LABEL_H, GBC_LABEL_W, GBC_LABEL_X, GBC_LABEL_Y, GB_CART_H, GB_CART_W, GB_LABEL_H,
 -    GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_WELL, LABEL_X, LABEL_Y,
-+    label_tags, label_text, neutral_shell, retro_cart_shadow, seated_box, shows_interior, CartFace,
++    label_tags, label_text, neutral_shell, retro_cart_shadow, seated_box, shelf_shape, shows_interior, text_label, CartFace,
 +    CART_H, CART_W, GBC_LABEL_H, GBC_LABEL_W, GBC_LABEL_X, GBC_LABEL_Y, GB_CART_H, GB_CART_W,
 +    GB_LABEL_H, GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_WELL, LABEL_X, LABEL_Y,
  };
- pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
- pub use draw::{Canvas, Draw, TexId, OUT_H, OUT_W};
-@@ -59,6 +65,7 @@ pub use hud::{
+ pub use clock::{
+     clock_label, date_time_text, hhmm, time_text, ClockFaceSet, ClockFaces, ClockPicker, ClockRow,
+@@ -88,6 +94,7 @@ pub use hud::{
      HUD_ICON_PX, HUD_INK, HUD_MS, LINK_HOST_INK, LINK_JOIN_INK, PLATE_H,
  };
- pub use icon::{badge_face, icon_box, icon_face, star_face, warm_fonts, Badge, Icon};
+ pub use icon::{badge_face, heart_face, icon_box, icon_face, warm_fonts, Badge, Icon};
 +pub use lid_fit::shelf_cart_of;
  pub use link_art::{
      link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
      ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, PLUG_H,
-@@ -89,6 +96,13 @@ pub use quick_menu::{
+@@ -117,6 +124,13 @@ pub use quick_menu::{
  };
- pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
+ pub use rebuild::{headline_face, rebuild_count_face, rebuild_title_face, RebuildScreen};
  pub use refusal::Refusal;
 +pub use retro_cart::{retro_shell_of, retro_silhouette, NesShell, RetroShell, SnesShell};
 +pub use retro_face::{retro_cart_face, retro_label_rect};
@@ -456,7 +459,7 @@ index 37258e9..e9058c3 100644
 +    plastic_in, retro_presets, NesRow, SnesRow, FAMICOM_YELLOW, NES_GOLD, NES_GREY, NES_TITLES,
 +    RETRO_BLACK, SFC_GREY, SNES_GREY, SNES_TITLES,
 +};
- pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
+ pub use shelf::{box_size, foot_y, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
  pub use shell::{
      gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
 diff --git a/crates/slot-ui/src/lid_fit.rs b/crates/slot-ui/src/lid_fit.rs
@@ -1283,12 +1286,12 @@ index 0000000..3449a75
 +    ]
 +}
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index 3828ccc..2aea133 100644
+index 60e85de..1cf3cbf 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
-@@ -7,6 +7,9 @@ use crate::cart::{
-     cart_box, gb_shell_of, is_clear, label_colour, label_rect, label_text, CART_H, CART_W,
- };
+@@ -4,6 +4,9 @@ use slot_store::{Cart, Platform};
+ use crate::board::{board_in, Placed};
+ use crate::cart::{cart_box, label_colour, label_rect, label_text, shelf_shape, CART_H, CART_W};
  use crate::hud::Millis;
 +use crate::retro_cart::retro_shell_of;
 +use crate::retro_face::retro_label_rect;
@@ -1296,8 +1299,8 @@ index 3828ccc..2aea133 100644
  use crate::silhouette::GbShell;
  use crate::slot_chrome::{draw_empty_slot, MOUTH_H};
  
-@@ -459,7 +462,7 @@ impl Shelf {
-             let y = foot_y(ch as f32) - h;
+@@ -559,7 +562,7 @@ impl Shelf {
+             }
              if alpha < 1.0 {
                  let backing = match self.shell(i) {
 -                    None => self.shadow,
@@ -1305,23 +1308,23 @@ index 3828ccc..2aea133 100644
                      Some(GbShell::Notched) => self.gb_shadow,
                      Some(GbShell::Rounded) => self.gbc_shadow,
                  };
-@@ -541,7 +544,8 @@ impl Shelf {
-                 }
-             });
-             if let (Some(true), Some((tex, sw, sh))) = (self.starred.get(i), self.star) {
+@@ -576,7 +579,8 @@ impl Shelf {
+             }
+             self.layers(i, [x, y, w, h], alpha * dim, out);
+             if let (Some(true), Some((tex, sw, sh))) = (self.hearted.get(i), self.heart) {
 -                let (lx, ly, lw, _) = label_rect(self.shell(i));
 +                let (lx, ly, lw, _) = retro_shell_of(cart)
 +                    .map_or_else(|| label_rect(self.shell(i)), retro_label_rect);
                  out.push(Draw::Tex {
-                     x: (x + (lx + lw) * w - sw - STAR_INSET).round(),
-                     y: (y + ly * h + STAR_INSET).round(),
+                     x: (x + (lx + lw) * w - sw - HEART_INSET).round(),
+                     y: (y + ly * h + HEART_INSET).round(),
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index 1ffd0c7..e14544f 100644
+index efb1865..05bf79b 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -90,8 +90,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -83,8 +83,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
      match cart.platform {
-         Platform::Gba => gba_shell_for(&gba_code(cart)),
+         Platform::Gba | Platform::Gbav => gba_shell_for(&gba_code(cart)),
          Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
 -        Platform::Nes => shell([0x8c, 0x8c, 0x8c], Finish::Solid),
 -        Platform::Snes => shell([0xb4, 0xb4, 0xbc], Finish::Solid),
@@ -2000,32 +2003,35 @@ index b3e5c56..021b7fc 100644
      assert_eq!(shell.finish, Finish::Solid);
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 067855a..3031b64 100644
+index 6bf104d..be7b605 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -14,7 +14,7 @@ use slot_store::{
+ };
  use slot_ui::{
-     board_from, board_zoom, draw_empty_slot, draw_footer, draw_ground, draw_slot_name,
-     draw_sticker, ease, footer_ink, grown, lid_at, lid_from, lift_of, on_board, repeat_gap,
--    shelf_cart_at, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis,
-+    shelf_cart_of, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis,
-     Placed, Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal,
-     Shelf, ShotMode, ShotViewer, SlotChrome, TexId, Toast, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HOP_LIFT,
-     MOUTH_H, REPEAT_DELAY_MS, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
-@@ -4489,7 +4489,7 @@ impl App {
-         let progress = picker.openness(now);
+     board_from_shaped, draw_empty_slot, draw_footer, draw_ground, draw_sticker, ease, footer_ink,
+-    grown, lid_at, lid_from_shaped, lift_of, repeat_gap, seats, shelf_cart_shaped, BezelArt,
++    grown, lid_at, lid_from_shaped, lift_of, repeat_gap, seats, shelf_cart_of, shelf_cart_shaped, BezelArt,
+     ClockFaces, ClockPicker, ClockRow, ClockScreen, Draw, FfState, GbShell, Guide, Hud, HudKind,
+     Icon, LinkBadge, Millis, Placed, Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow,
+     QuickValue, Refusal, Seats, Shelf, ShotMode, ShotViewer, SlotChrome, TexId, Toast, CART_W,
+@@ -5960,7 +5960,10 @@ impl App {
          let lift = lift_of(progress);
          let (rest, scale) = self.shelf().selected_at(self.canvas());
--        let shelf = shelf_cart_at(rest, scale);
-+        let shelf = shelf_cart_of(self.shelf(), rest, scale);
-         let board = board_from(self.canvas(), shelf, progress);
-         let zoom = board_zoom(board);
+         let shell = self.shelf().selected_shell();
+-        let shelf = shelf_cart_shaped(shell, rest, scale);
++        let shelf = match shell {
++            Some(_) => shelf_cart_shaped(shell, rest, scale),
++            None => shelf_cart_of(self.shelf(), rest, scale),
++        };
+         let board = board_from_shaped(self.canvas(), shell, shelf, progress);
          let ready = self.core_faces_ready();
+ 
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 1a7afd1..57d9853 100644
+index 25b92c6..a5d2abe 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -291,6 +291,14 @@ impl Frontend {
+@@ -688,6 +688,14 @@ impl Frontend {
          let rounded = gb_cart_shadow(GbShell::Rounded);
          let rounded = compositor.create_texture(rounded.w, rounded.h, &rounded.rgba);
          self.session.app_mut().set_gb_cart_shadows(notched, rounded);
