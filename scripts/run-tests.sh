@@ -133,8 +133,11 @@ for pt in $serial; do
 done
 
 failed() {
-	# shellcheck disable=SC2046
-	(cd "$1" && cargo test -q -p "${2%%:*}" $(sel "$2") 2>&1 || true) |
+	# The header index tests share one global index, so threads change their result; one at a time they agree.
+	one=""
+	case "$2" in *header_index*) one="-- --test-threads=1" ;; esac
+	# shellcheck disable=SC2046,SC2086
+	(cd "$1" && cargo test -q -p "${2%%:*}" $(sel "$2") $one 2>&1 || true) |
 		sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p; s/^    \([a-z0-9_]*\)$/\1/p' | sort -u
 }
 for pt in $both_trees; do
