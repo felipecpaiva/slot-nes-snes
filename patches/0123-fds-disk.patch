@@ -16,6 +16,8 @@ from the core's own state (SELD), never counted by slot, so a loaded
 state or a rewind cannot put the banner out of step, and the banner
 names it. A one-sided disk is not flipped. The PlayStation disc path is
 not used for disks.
+
+(cherry picked from commit 73a9308422df424134662b08ca1bde34b9d65bd3)
 ---
  crates/slot-retro/src/libretro/discs.rs |   1 +
  crates/slot/src/app/ps1_discs.rs        |   7 +-
@@ -72,18 +74,18 @@ index 3d30d5d..31d28c8 100644
          if let Some(toast) = toast {
              self.hud.toast(Toast::Disc(toast), self.now());
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 4a1eec3..c929e1f 100644
+index dedceb7..b10d6e0 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -86,6 +86,7 @@ enum Cmd {
-     SetOption(String, String),
+@@ -87,6 +87,7 @@ enum Cmd {
      Refresh,
+     Reset,
      NextDisc,
 +    FlipDisk,
  }
  
  struct Shared {
-@@ -121,6 +122,7 @@ struct Shared {
+@@ -122,6 +123,7 @@ struct Shared {
      clock: Mutex<Clock>,
      clocked: Condvar,
      disc_event: Mutex<Option<DiscEvent>>,
@@ -91,7 +93,7 @@ index 4a1eec3..c929e1f 100644
      flash: Mutex<Option<crate::ngp_flash::Seat>>,
  }
  
-@@ -205,6 +207,7 @@ impl EmuHandle {
+@@ -206,6 +208,7 @@ impl EmuHandle {
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
              disc_event: Mutex::new(None),
@@ -99,7 +101,7 @@ index 4a1eec3..c929e1f 100644
              flash: Mutex::new(None),
          });
          let (tx, rx) = channel();
-@@ -449,6 +452,10 @@ impl EmuHandle {
+@@ -450,6 +453,10 @@ impl EmuHandle {
          request(&self.cmds, &self.shared, Cmd::NextDisc);
      }
  
@@ -110,7 +112,7 @@ index 4a1eec3..c929e1f 100644
      pub fn take_disc_event(&self) -> Option<DiscEvent> {
          self.shared.disc_event.lock().ok()?.take()
      }
-@@ -575,6 +582,15 @@ impl Worker {
+@@ -580,6 +587,15 @@ impl Worker {
          }
      }
  
@@ -126,7 +128,7 @@ index 4a1eec3..c929e1f 100644
      fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
          match self.player {
              Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
-@@ -810,6 +826,7 @@ impl Worker {
+@@ -824,6 +840,7 @@ impl Worker {
                          turbo_frame,
                      );
                      turbo_frame = turbo_frame.wrapping_add(1);
@@ -134,7 +136,7 @@ index 4a1eec3..c929e1f 100644
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
                      match cable.as_mut() {
-@@ -852,6 +869,9 @@ impl Worker {
+@@ -866,6 +883,9 @@ impl Worker {
                          }
                          None => core.run_frame(input),
                      }
@@ -144,7 +146,7 @@ index 4a1eec3..c929e1f 100644
                      let took = frame_began.elapsed();
                      if last {
                          drawn = took;
-@@ -1061,6 +1081,7 @@ impl Worker {
+@@ -1075,6 +1095,7 @@ impl Worker {
                  core.next_disc();
                  self.keep_disc_event(core);
              }
@@ -257,22 +259,22 @@ index 0000000..11ac8f7
 +    Some(DiscEvent::Side(side))
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index ee0d5f2..0b3c8e3 100644
+index 0601827..bbd1af2 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -34,6 +34,7 @@ pub mod drc;
- pub mod emu;
- pub mod face_builder;
+@@ -37,6 +37,7 @@ pub mod face_builder;
+ pub mod fetch_art;
+ pub mod fetch_faces;
  pub mod fast_scroll_trace;
 +pub mod fds_disk;
  pub mod frame_trace;
  pub mod frames;
  pub mod frontend;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index c458f3c..b38d892 100644
+index 32d9bed..dec4567 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -261,6 +261,11 @@ impl Session {
+@@ -298,6 +298,11 @@ impl Session {
              Action::RewindStop => self.rewinding = false,
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,

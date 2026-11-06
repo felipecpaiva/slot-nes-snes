@@ -10,18 +10,20 @@ window of the canvas (the fork's numbers), every other system keeps its
 Actual rect. Stretch fills the panel with the 160x102 picture. Actual
 is the default in Config/picture.txt and there is no Crop (no
 overscan).
+
+(cherry picked from commit 0948659872ec59c2af6c76b56072db19f50356de)
 ---
  crates/slot-store/src/platform_policy.rs |  17 +++
- crates/slot/src/video_mode.rs            |  18 ++-
+ crates/slot/src/video_mode.rs            |  21 ++-
  crates/slot/tests/lynx_screen.rs         | 174 +++++++++++++++++++++++
- 3 files changed, 208 insertions(+), 1 deletion(-)
+ 3 files changed, 211 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot/tests/lynx_screen.rs
 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index fdb3c08..36a0ddd 100644
+index f226d91..ce969d6 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -226,4 +226,21 @@ impl Platform {
+@@ -218,4 +218,21 @@ Platform : : Gba | Platform : : GbavSnes | Platform : : Md | Platform : : Ps1 |
              | Platform::Lynx => true,
          }
      }
@@ -44,23 +46,24 @@ index fdb3c08..36a0ddd 100644
 +    }
  }
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 5bae6c1..541a4f1 100644
+index 07f8a1b..ebe8dd3 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
-@@ -54,7 +54,10 @@ pub fn source_rect(
- ) -> [f32; 4] {
-     let (canvas_w, canvas_h) = canvas;
-     if mode == VideoMode::Actual {
--        return actual_rect(canvas);
-+        return match platform.actual_scale() {
-+            Some(scale) => window_rect(canvas, (OUT_W / scale, OUT_H / scale)),
-+            None => actual_rect(canvas),
-+        };
+@@ -74,12 +74,31 @@ pub fn picture_for(
+     if (mode, scale, stretch) {
+         (VideoMode::Actual, Scale::Integer, _) => (Sizing::Integer, crop),
+         (VideoMode::Actual, Scale::Fit, _) => (Sizing::Fit, crop),
+-        (VideoMode::Actual, _, _) => (Sizing::Band, actual_rect(canvas)),
++        (VideoMode::Actual, _, _) => (
++            Sizing::Band,
++            match platform.actual_scale() {
++                Some(scale) => window_rect(canvas, (OUT_W / scale, OUT_H / scale)),
++                None => actual_rect(canvas),
++            },
++        ),
+         (VideoMode::Stretch, _, Stretch::Classic) => (Sizing::Band, window),
+         (VideoMode::Stretch, _, Stretch::FullScreen) => (Sizing::Panel, crop),
      }
-     if mode == VideoMode::FourThree {
-         return crate::platform_video::four_three_rect((w, h), canvas);
-@@ -80,6 +83,19 @@ pub fn source_rect(
-     ]
  }
  
 +fn window_rect((canvas_w, canvas_h): (u32, u32), (w, h): (u32, u32)) -> [f32; 4] {

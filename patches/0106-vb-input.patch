@@ -19,6 +19,8 @@ go to the game the PS1 way, latched at the start of the game, so the
 choice applies from the next game, with fast forward on Select+R2 and no
 rewind button. A generated cart reads the pad through SCR and SDLR/SDHR
 and proves every button and the stick reach the game.
+
+(cherry picked from commit 05751e2d54bde3f36480e34d5eda6097a6478746)
 ---
  crates/slot-retro/src/analog.rs        |   1 +
  crates/slot-retro/src/core.rs          |   2 +
@@ -52,7 +54,7 @@ index 17cb8d5..4dbe688 100644
  static STICKS: AtomicU64 = AtomicU64::new(0);
  
 diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
-index a0aaf5c..ccb1274 100644
+index 1e8a772..34e128d 100644
 --- a/crates/slot-retro/src/core.rs
 +++ b/crates/slot-retro/src/core.rs
 @@ -26,6 +26,8 @@ impl ButtonMask {
@@ -65,10 +67,10 @@ index a0aaf5c..ccb1274 100644
      pub fn without_turbo(self) -> ButtonMask {
          ButtonMask(self.0 & !(Self::X | Self::Y))
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index f96bbc8..4c2089e 100644
+index 140705c..5e8da13 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
-@@ -15,7 +15,7 @@ mod mock;
+@@ -16,7 +16,7 @@ pub mod rtc;
  mod rumble;
  mod turbo_mode;
  
@@ -78,10 +80,10 @@ index f96bbc8..4c2089e 100644
  pub use ffi::{
      NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 2a26243..8642b88 100644
+index 0b3b8b5..0ecf9ed 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -495,6 +495,7 @@ pub struct App {
+@@ -771,6 +771,7 @@ pub struct App {
      s32x_speed: crate::s32x_speed::S32xSpeed,
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
@@ -89,7 +91,7 @@ index 2a26243..8642b88 100644
      rested: Option<(usize, usize)>,
      fast_trail: bool,
  }
-@@ -706,6 +707,7 @@ impl App {
+@@ -1114,6 +1115,7 @@ impl App {
              s32x_speed: crate::s32x_speed::S32xSpeed::default(),
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
@@ -97,7 +99,7 @@ index 2a26243..8642b88 100644
              rested: None,
              fast_trail: false,
          }
-@@ -2548,6 +2550,17 @@ impl App {
+@@ -3452,6 +3454,17 @@ impl App {
          self.seated_cart().map_or(self.platform, |c| c.platform)
      }
  
@@ -192,22 +194,22 @@ index 558c07d..82d85db 100644
              .filter(|(b, _)| self.holds(*b) && !bound_to_game(&controls, *b))
              .fold(0, |bits, (_, bit)| bits | bit);
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 42b0825..fa678a5 100644
+index 8e996b6..3bd7664 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -70,6 +70,7 @@ pub mod snes_input;
- pub mod state_writer;
- pub mod thumb;
+@@ -85,6 +85,7 @@ pub mod thumb;
+ pub mod unwrap_scene;
+ pub mod update;
  pub mod thumb_sized;
 +pub mod vb_input;
  pub mod vb_screen;
  pub mod video_mode;
  pub mod wallpaper;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index f05f034..9ded017 100644
+index 39b2394..b4f745e 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -228,9 +228,11 @@ impl Session {
+@@ -265,9 +265,11 @@ impl Session {
              self.pad.apply(Action::GbaUp(btn));
          }
          if let Some(emu) = &self.emu {
@@ -222,7 +224,7 @@ index f05f034..9ded017 100644
              if trace() && mask.0 != self.sent {
                  eprintln!("slot: pad {:#06x}", mask.0);
              }
-@@ -260,7 +262,7 @@ impl Session {
+@@ -297,7 +299,7 @@ impl Session {
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,
              Action::DiscNext if !menu_open => self.emu.iter().for_each(EmuHandle::next_disc),
@@ -231,7 +233,7 @@ index f05f034..9ded017 100644
                  for b in [slot_input::Btn::L2, slot_input::Btn::R2] {
                      self.pad.apply(Action::GbaUp(b));
                  }
-@@ -637,9 +639,10 @@ impl Session {
+@@ -701,9 +703,10 @@ impl Session {
          emu.set_native_pal(self.app.native_pal(loaded.platform));
          emu.set_measures_rate(!self.app.core().reports_its_frame_rate());
          emu.set_pass_through(loaded.platform.passes_xy_through());
@@ -242,7 +244,7 @@ index f05f034..9ded017 100644
 +            .set_triggers_to_game(!loaded.platform.owns_triggers() || vb_buttons);
          self.app.set_snapshot(Box::new(emu.snapshot()));
          self.emu = Some(emu);
-         true
+         self.sunlight_sent = None;
 diff --git a/crates/slot/src/vb_input.rs b/crates/slot/src/vb_input.rs
 new file mode 100644
 index 0000000..bac0ada

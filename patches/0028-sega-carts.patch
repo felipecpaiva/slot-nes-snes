@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Fri, 16 Oct 2026 09:43:01 +0400
 Subject: [PATCH] sega-carts
 
+(cherry picked from commit ebc053f866bb01a3abe5b3ea813e002dfb28e999)
 ---
  crates/slot-store/src/cart_shell.rs           |  15 ++
  crates/slot-store/src/sega.rs                 |  23 +++
@@ -23,7 +24,7 @@ Subject: [PATCH] sega-carts
  crates/slot-ui/assets/sms_cart.svg            |   3 +
  crates/slot-ui/assets/sms_cart_detail.svg     |  21 +++
  crates/slot-ui/examples/retro_neutrals.rs     |   7 +-
- crates/slot-ui/src/cart.rs                    |  25 ++-
+ crates/slot-ui/src/cart.rs                    |  29 +++-
  crates/slot-ui/src/lib.rs                     |   7 +-
  crates/slot-ui/src/retro_cart.rs              | 153 +++++++++++++++---
  crates/slot-ui/src/retro_face.rs              |  16 +-
@@ -33,7 +34,8 @@ Subject: [PATCH] sega-carts
  crates/slot-ui/tests/render_nes_shelves.rs    |  25 ++-
  crates/slot-ui/tests/retro_bitmap.rs          |  12 +-
  crates/slot-ui/tests/sega_shell.rs            | 139 ++++++++++++++++
- 29 files changed, 644 insertions(+), 45 deletions(-)
+ crates/slot/src/app.rs                        |   2 +-
+ 30 files changed, 647 insertions(+), 48 deletions(-)
  create mode 100644 crates/slot-ui/assets/genesis_cart.svg
  create mode 100644 crates/slot-ui/assets/genesis_cart_detail.svg
  create mode 100644 crates/slot-ui/assets/gg_cart.svg
@@ -52,7 +54,7 @@ Subject: [PATCH] sega-carts
  create mode 100644 crates/slot-ui/tests/sega_shell.rs
 
 diff --git a/crates/slot-store/src/cart_shell.rs b/crates/slot-store/src/cart_shell.rs
-index 6228029..77f7b95 100644
+index 641f301..800dc1d 100644
 --- a/crates/slot-store/src/cart_shell.rs
 +++ b/crates/slot-store/src/cart_shell.rs
 @@ -14,6 +14,11 @@ pub enum Outline {
@@ -5753,7 +5755,7 @@ index 146eb24..21e0153 100644
      let (w, h) = slot_ui::cart_box(platform);
      let mask = retro_silhouette(kind, w, h);
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 92db389..b5b93f3 100644
+index 431872d..170c0dc 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
 @@ -5,8 +5,8 @@ use crate::art;
@@ -5767,7 +5769,7 @@ index 92db389..b5b93f3 100644
  };
  use crate::retro_face::{retro_cart_face, retro_face};
  use crate::shell::{shell_for, Finish, Shell};
-@@ -96,7 +96,16 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -124,7 +124,16 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
              Some(Outline::Notched) => GbShell::Notched,
              Some(Outline::Rounded) => GbShell::Rounded,
              Some(
@@ -5785,26 +5787,28 @@ index 92db389..b5b93f3 100644
              )
              | None => match slot_store::gb::cached_class(&cart.rom) {
                  Class::ColourOnly => GbShell::Rounded,
-@@ -163,8 +172,11 @@ const GB_SEATED_H: u32 = 259;
+@@ -191,8 +200,11 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
 -        Platform::Gba | Platform::Gg | Platform::Sms | Platform::Md => (SEATED_W, SEATED_H),
-+        Platform::Gba => (SEATED_W, SEATED_H),
-         Platform::Nes => (SEATED_W, NES_SEATED_H),
+-        Platform::Gbav | Platform::Nes => (SEATED_W, NES_SEATED_H),
++        Platform::Gba | Platform::Gbav => (SEATED_W, SEATED_H),
++        Platform::Nes => (SEATED_W, NES_SEATED_H),
 +        Platform::Gg => (SEATED_W, GG_SEATED_H),
 +        Platform::Sms => (SEATED_W, SMS_SEATED_H),
 +        Platform::Md => (SEATED_W, MD_SEATED_H),
          Platform::Snes => (SEATED_W, SNES_SEATED_H),
          Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
      }
-@@ -172,8 +184,11 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -200,8 +212,11 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
 -        Platform::Gba | Platform::Gg | Platform::Sms | Platform::Md => Shape::Gba,
-+        Platform::Gba => Shape::Gba,
-         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+-        Platform::Gbav | Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
++        Platform::Gba | Platform::Gbav => Shape::Gba,
++        Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
 +        Platform::Gg => return retro_box(RetroShell::Sega(SegaShell::Gg)),
 +        Platform::Sms => return retro_box(RetroShell::Sega(SegaShell::Sms)),
 +        Platform::Md => return retro_box(RetroShell::Sega(SegaShell::MegaDrive)),
@@ -5812,11 +5816,11 @@ index 92db389..b5b93f3 100644
          Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
      });
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 207e1b0..0e67abb 100644
+index e36849f..fef1344 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -98,13 +98,14 @@ pub use quick_menu::{
- pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
+@@ -126,13 +126,14 @@ pub use quick_menu::{
+ pub use rebuild::{headline_face, rebuild_count_face, rebuild_title_face, RebuildScreen};
  pub use refusal::Refusal;
  pub use retro_cart::{
 -    label_cover, retro_shell_of, retro_silhouette, NesShell, RetroShell, SnesShell,
@@ -5831,7 +5835,7 @@ index 207e1b0..0e67abb 100644
 +    MEGA_DRIVE_BLACK, NES_GOLD, NES_GREY, NES_TITLES, RETRO_BLACK, SEGA_CARD_BLACK, SFC_GREY,
 +    SMS_BLACK, SNES_GREY, SNES_TITLES,
  };
- pub use shelf::{foot_y, repeat_gap, rest_y, Shelf, REPEAT_DELAY_MS, STAR_INK, STAR_SCALE};
+ pub use shelf::{box_size, foot_y, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
  pub use shell::{
 diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
 index d7577cc..170f342 100644
@@ -6217,12 +6221,12 @@ index 3449a75..390cf87 100644
      ]
  }
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index 0d08640..72bf679 100644
+index fe7f003..2dbde00 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -90,8 +90,9 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -83,8 +83,9 @@ pub fn shell_for(cart: &Cart) -> Shell {
      match cart.platform {
-         Platform::Gba => gba_shell_for(&gba_code(cart)),
+         Platform::Gba | Platform::Gbav => gba_shell_for(&gba_code(cart)),
          Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
 -        Platform::Nes | Platform::Snes => crate::retro_shell::plastic_for(cart),
 -        Platform::Gg | Platform::Sms | Platform::Md => DEFAULT_SHELL,
@@ -6478,3 +6482,16 @@ index 0000000..0d99f8e
 +        assert_eq!(ch, (cw * seated.1 + 120) / 240, "{platform:?}");
 +    }
 +}
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 19bbefc..30845e6 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -2542,7 +2542,7 @@ impl App {
+ 
+     fn picture(&self) -> (Sizing, [f32; 4]) {
+         let platform = self.playing_platform();
+-        video_mode::picture_for(platform, self.picture_size(platform), crate::platform_video::picture(self.platform, self.frame_w),
++        video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform),
+             self.core.canvas(platform),
+             self.video_mode,
+             self.drawn_scale(platform),

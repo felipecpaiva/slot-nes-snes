@@ -3,23 +3,24 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Mon, 12 Oct 2026 21:56:51 +0400
 Subject: [PATCH] input
 
+(cherry picked from commit 95485a48fd80cbe7a3ba341c1c803b827900886f)
 ---
- crates/slot-input/src/gesture.rs         |   1 +
+ crates/slot-input/src/gesture.rs         |   2 +-
  crates/slot-retro/src/lib.rs             |   2 +
  crates/slot-retro/src/turbo_mode.rs      |  28 +++
  crates/slot-retro/tests/snes_turbo.rs    |  35 +++
- crates/slot-store/src/bindings.rs        |   5 +
+ crates/slot-store/src/bindings.rs        |  10 +-
  crates/slot-store/src/platform_policy.rs |  18 +-
  crates/slot-store/tests/snes_platform.rs |   5 +-
- crates/slot-ui/src/quick_menu.rs         |   9 +-
- crates/slot/src/app.rs                   |   6 +-
+ crates/slot-ui/src/quick_menu.rs         |  14 +-
+ crates/slot/src/app.rs                   |   9 +-
  crates/slot/src/emu.rs                   |  23 +-
- crates/slot/src/input/bind.rs            |   1 +
+ crates/slot/src/input/bind.rs            |   4 +-
  crates/slot/src/input/mask.rs            |   4 +
  crates/slot/src/input/mod.rs             |   1 +
  crates/slot/src/input/raw_buttons.rs     |  42 ++++
- crates/slot/src/lib.rs                   |   1 +
- crates/slot/src/session.rs               |   6 +-
+ crates/slot/src/lib.rs                   |   2 +-
+ crates/slot/src/session.rs               |   7 +-
  crates/slot/src/snes_input.rs            |  20 ++
  crates/slot/tests/input_common/mod.rs    |  27 +++
  crates/slot/tests/select_x_gba.rs        | 106 +++++++++
@@ -28,7 +29,7 @@ Subject: [PATCH] input
  crates/slot/tests/snes_select.rs         | 263 +++++++++++++++++++++++
  crates/slot/tests/snes_shoulders.rs      |  30 +++
  crates/slot/tests/snes_then_gba.rs       | 125 +++++++++++
- 24 files changed, 901 insertions(+), 13 deletions(-)
+ 24 files changed, 903 insertions(+), 30 deletions(-)
  create mode 100644 crates/slot-retro/src/turbo_mode.rs
  create mode 100644 crates/slot-retro/tests/snes_turbo.rs
  create mode 100644 crates/slot/src/input/raw_buttons.rs
@@ -42,30 +43,31 @@ Subject: [PATCH] input
  create mode 100644 crates/slot/tests/snes_then_gba.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index 2bc7b78..abd7874 100644
+index b444805..d028a83 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -55,6 +55,7 @@ pub enum Action {
+@@ -62,7 +62,7 @@ pub enum Action {
      PreviousShelf,
      NextShelf,
      Favorite,
-+    VideoModeToggle,
+-    ForgetRecent,
++    ForgetRecentVideoModeToggle,
  }
  
  #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index 210244b..1017c2a 100644
+index 9b304e3..b6ac967 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
-@@ -12,6 +12,7 @@ mod libretro;
- mod link;
+@@ -13,6 +13,7 @@ mod link;
  mod mock;
+ pub mod rtc;
  mod rumble;
 +mod turbo_mode;
  
  pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
  pub use ffi::{
-@@ -22,3 +23,4 @@ pub use libretro::LibretroCore;
+@@ -23,3 +24,4 @@ pub use libretro::LibretroCore;
  pub use link::{Link, LinkChannel, LoopbackLink};
  pub use mock::MockCore;
  pub use rumble::Rumble;
@@ -146,60 +148,65 @@ index 0000000..e526493
 +    assert_eq!(TurboMode::from_flags(false, false), TurboMode::Off);
 +}
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 62c477d..6f98131 100644
+index a8f2bee..e61be14 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
-@@ -322,6 +322,7 @@ pub enum Shortcut {
-     ShaderBack,
-     FastForward,
-     Rewind,
-+    PictureNext,
+@@ -326,7 +326,7 @@ pub enum Shortcut {
+     SunlightUp,
+     SunlightDown,
+     Reset,
+-    Guide,
++    GuidePictureNext,
  }
  
  impl Shortcut {
-@@ -340,6 +341,7 @@ impl Shortcut {
-         Shortcut::ShaderBack,
-         Shortcut::FastForward,
-         Shortcut::Rewind,
-+        Shortcut::PictureNext,
+@@ -349,7 +349,7 @@ impl Shortcut {
+         Shortcut::SunlightUp,
+         Shortcut::SunlightDown,
+         Shortcut::Reset,
+-        Shortcut::Guide,
++        Shortcut::GuidePictureNext,
      ];
  
      pub fn label(self) -> &'static str {
-@@ -358,6 +360,7 @@ impl Shortcut {
-             Shortcut::ShaderBack => "Shader Back",
-             Shortcut::FastForward => "Fast Forward",
-             Shortcut::Rewind => "Rewind",
-+            Shortcut::PictureNext => "Picture Next",
+@@ -372,7 +372,7 @@ impl Shortcut {
+             Shortcut::SunlightUp => "Sunlight Up",
+             Shortcut::SunlightDown => "Sunlight Down",
+             Shortcut::Reset => "Reset Game",
+-            Shortcut::Guide => "Guide",
++            Shortcut::Guide => "GuidePictureNext => "Picture Next",
          }
      }
  
-@@ -377,6 +380,7 @@ impl Shortcut {
-             Shortcut::ShaderBack => "shader_back",
-             Shortcut::FastForward => "fast_forward",
-             Shortcut::Rewind => "rewind",
-+            Shortcut::PictureNext => "picture_next",
+@@ -396,7 +396,7 @@ impl Shortcut {
+             Shortcut::SunlightUp => "sunlight_up",
+             Shortcut::SunlightDown => "sunlight_down",
+             Shortcut::Reset => "reset",
+-            Shortcut::Guide => "guide",
++            Shortcut::Guide => "guidePictureNext => "picture_next",
          }
      }
  
-@@ -397,6 +401,7 @@ impl Shortcut {
-             Shortcut::ShaderBack => select(Device::B),
-             Shortcut::FastForward => Binding::plain(Device::R2),
+@@ -420,7 +420,7 @@ impl Shortcut {
              Shortcut::Rewind => Binding::plain(Device::L2),
-+            Shortcut::PictureNext => select(Device::X),
+             Shortcut::SunlightUp | Shortcut::SunlightDown | Shortcut::Reset | Shortcut::Guide => {
+                 None
+-            }
++            }PictureNext => select(Device::X),
          }
      }
  
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index bbde823..711b787 100644
+index 5124dbb..2cee1fd 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
-@@ -19,8 +19,22 @@ impl Platform {
+@@ -20,8 +20,22 @@ impl Platform {
  
      pub fn owns_shoulders(self) -> bool {
          match self {
--            Platform::Gba => false,
+-            Platform::Gba | Platform::Gbav => false,
 -            Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => true,
-+            Platform::Gba | Platform::Snes => false,
++            Platform::Gba | Platform::GbavSnes => false,
 +            Platform::Gb | Platform::Gbc | Platform::Nes => true,
 +        }
 +    }
@@ -233,61 +240,68 @@ index 2ea6532..fba322b 100644
 +    assert!(Platform::Nes.owns_shoulders());
  }
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index a9419bd..4cd949c 100644
+index 5d8d45d..1a437ca 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -95,10 +95,11 @@ pub enum QuickRow {
-     AutoLoad,
-     UndoSave,
-     UndoLoad,
-+    ScPictureNext,
+@@ -131,11 +131,11 @@ pub enum QuickRow {
+     RommPair,
+     RommStatus,
+     RommPairedServer,
+-    RommDisconnect,
++    RommDisconnectScPictureNext,
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 84] = [
-+    pub const ALL: [QuickRow; 85] = [
+-    pub const ALL: [QuickRow; 123] = [
++    pub const ALL: [QuickRow; 124] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -183,6 +184,7 @@ impl QuickRow {
-         QuickRow::AutoLoad,
-         QuickRow::UndoSave,
-         QuickRow::UndoLoad,
-+        QuickRow::ScPictureNext,
+@@ -258,7 +258,7 @@ impl QuickRow {
+         QuickRow::RommPair,
+         QuickRow::RommStatus,
+         QuickRow::RommPairedServer,
+-        QuickRow::RommDisconnect,
++        QuickRow::RommDisconnectScPictureNext,
      ];
  
-     pub const MAIN: [QuickRow; 5] = [
-@@ -245,6 +247,7 @@ impl QuickRow {
-         QuickRow::ScShaderBack,
-         QuickRow::ScFastForward,
-         QuickRow::ScRewind,
+     pub const MAIN: [QuickRow; 6] = [
+@@ -363,6 +363,7 @@ impl QuickRow {
+         QuickRow::ScShaderNext,
+         QuickRow::ScSunlightDown,
+         QuickRow::ScSunlightUp,
 +        QuickRow::ScPictureNext,
      ];
  
      pub const SCREEN: [QuickRow; 4] = [
-@@ -513,7 +516,8 @@ impl QuickRow {
-             | QuickRow::ScShaderNext
-             | QuickRow::ScShaderBack
-             | QuickRow::ScFastForward
--            | QuickRow::ScRewind => self.shortcut().map_or("", Shortcut::label),
-+            | QuickRow::ScRewind
+@@ -715,7 +716,8 @@ impl QuickRow {
+             | QuickRow::ScSunlightUp
+             | QuickRow::ScSunlightDown
+             | QuickRow::ScReset
+-            | QuickRow::ScGuide => self.shortcut().map_or("", Shortcut::label),
++            | QuickRow::ScGuide
 +            | QuickRow::ScPictureNext => self.shortcut().map_or("", Shortcut::label),
-             QuickRow::ShelfPrev | QuickRow::ShelfNext | QuickRow::ShelfFavorite => {
-                 self.carousel_action().map_or("", CarouselAction::label)
-             }
-@@ -595,6 +599,7 @@ impl QuickRow {
-             QuickRow::ScShaderBack => Shortcut::ShaderBack,
+             QuickRow::ShelfPrev
+             | QuickRow::ShelfNext
+             | QuickRow::ShelfFavorite
+@@ -820,10 +822,10 @@ impl QuickRow {
              QuickRow::ScFastForward => Shortcut::FastForward,
+             QuickRow::ScFastForwardToggle => Shortcut::FastForwardToggle,
              QuickRow::ScRewind => Shortcut::Rewind,
-+            QuickRow::ScPictureNext => Shortcut::PictureNext,
+-            QuickRow::ScSunlightUp => Shortcut::SunlightUp,
++            QuickRow::ScSunlightUpScPictureNext => Shortcut::SunlightUp,
+             QuickRow::ScSunlightDown => Shortcut::SunlightDown,
+             QuickRow::ScReset => Shortcut::Reset,
+-            QuickRow::ScGuide => Shortcut::Guide,
++            QuickRow::ScGuide => Shortcut::GuidePictureNext,
              _ => return None,
          })
      }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 1bf9889..067855a 100644
+index 297bf3d..6bf104d 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1015,7 +1015,7 @@ impl App {
+@@ -1473,7 +1473,7 @@ impl App {
          if !self.left_stick {
              hidden.push(QuickRow::LeftStick);
          }
@@ -296,15 +310,16 @@ index 1bf9889..067855a 100644
              hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
          }
          if !self.has_states || self.link_active() {
-@@ -1225,6 +1225,7 @@ impl App {
-             | QuickRow::ScShaderBack
-             | QuickRow::ScFastForward
-             | QuickRow::ScRewind
-+            | QuickRow::ScPictureNext
+@@ -1751,7 +1751,7 @@ impl App {
+             | QuickRow::ScSunlightUp
+             | QuickRow::ScSunlightDown
+             | QuickRow::ScReset
+-            | QuickRow::ScGuide
++            | QuickRow::ScGuideScPictureNext
              | QuickRow::Controls
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame => None,
-@@ -2584,6 +2585,7 @@ impl App {
+@@ -3575,6 +3575,7 @@ impl App {
                  {
                      self.set_picture(VideoMode::Actual)
                  }
@@ -312,24 +327,26 @@ index 1bf9889..067855a 100644
                  Action::Eject => self.eject(),
                  Action::GameMenu => self.game_menu_shortcut(),
                  Action::QuickMenu => self.tap_in_game_menu(Some(QuickRow::PLAY[0])),
-@@ -2834,6 +2836,7 @@ impl App {
-             | QuickRow::ScShaderBack
-             | QuickRow::ScFastForward
-             | QuickRow::ScRewind
-+            | QuickRow::ScPictureNext
+@@ -3894,7 +3895,7 @@ impl App {
+             | QuickRow::ScSunlightUp
+             | QuickRow::ScSunlightDown
+             | QuickRow::ScReset
+-            | QuickRow::ScGuide
++            | QuickRow::ScGuideScPictureNext
              | QuickRow::LidOff => {}
          }
      }
-@@ -3025,6 +3028,7 @@ impl App {
-             | QuickRow::ScShaderBack
-             | QuickRow::ScFastForward
-             | QuickRow::ScRewind
-+            | QuickRow::ScPictureNext
+@@ -4174,7 +4175,7 @@ impl App {
+             | QuickRow::ScSunlightUp
+             | QuickRow::ScSunlightDown
+             | QuickRow::ScReset
+-            | QuickRow::ScGuide
++            | QuickRow::ScGuideScPictureNext
              | QuickRow::Controls
              | QuickRow::ControlsShelf
              | QuickRow::ControlsInGame
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 2bad47a..652db6c 100644
+index f9cfc8e..b92a0c7 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
@@ -341,7 +358,7 @@ index 2bad47a..652db6c 100644
  };
  
  use crate::audio::Ring;
-@@ -95,6 +95,7 @@ struct Shared {
+@@ -96,6 +96,7 @@ struct Shared {
      rewind: AtomicBool,
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
@@ -349,7 +366,7 @@ index 2bad47a..652db6c 100644
      recording: AtomicBool,
      stop: AtomicBool,
      volume: AtomicU8,
-@@ -171,6 +172,7 @@ impl EmuHandle {
+@@ -172,6 +173,7 @@ impl EmuHandle {
              rewind: AtomicBool::new(false),
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
@@ -357,7 +374,7 @@ index 2bad47a..652db6c 100644
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
              volume: AtomicU8::new(100),
-@@ -366,6 +368,14 @@ impl EmuHandle {
+@@ -367,6 +369,14 @@ impl EmuHandle {
          self.shared.rewind.store(on, Ordering::Relaxed);
      }
  
@@ -372,7 +389,7 @@ index 2bad47a..652db6c 100644
      pub fn set_turbo(&self, on: bool) {
          self.shared.turbo.store(on, Ordering::Relaxed);
      }
-@@ -703,10 +713,13 @@ impl Worker {
+@@ -717,10 +727,13 @@ impl Worker {
                  loop {
                      ran += 1;
                      let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -391,14 +408,19 @@ index 2bad47a..652db6c 100644
                      core.set_frame_skip(!last);
                      let frame_began = Instant::now();
 diff --git a/crates/slot/src/input/bind.rs b/crates/slot/src/input/bind.rs
-index d02afed..4eaefb2 100644
+index 319a2c7..ba197a7 100644
 --- a/crates/slot/src/input/bind.rs
 +++ b/crates/slot/src/input/bind.rs
-@@ -56,5 +56,6 @@ pub(super) fn shortcut_action(s: Shortcut) -> Action {
-         Shortcut::ShaderBack => Action::ShaderPrev,
+@@ -57,9 +57,9 @@ pub(super) fn shortcut_action(s: Shortcut) -> Action {
          Shortcut::FastForward => Action::FfStart,
+         Shortcut::FastForwardToggle => Action::FfToggle,
          Shortcut::Rewind => Action::RewindStart,
-+        Shortcut::PictureNext => Action::VideoModeToggle,
+-        Shortcut::SunlightUp => Action::SunlightUp,
++        Shortcut::SunlightUpPictureNext => Action::SunlightUp,
+         Shortcut::SunlightDown => Action::SunlightDown,
+         Shortcut::Reset => Action::Reset,
+-        Shortcut::Guide => Action::Guide,
++        Shortcut::Guide => Action::GuideVideoModeToggle,
      }
  }
 diff --git a/crates/slot/src/input/mask.rs b/crates/slot/src/input/mask.rs
@@ -477,30 +499,32 @@ index 0000000..4687249
 +    }
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 8430276..34c4172 100644
+index 18e192d..4841bf5 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -50,6 +50,7 @@ pub mod root;
+@@ -59,7 +59,7 @@ pub mod server;
  pub mod session;
  pub mod shot_loader;
  pub mod shot_writer;
-+pub mod snes_input;
+-pub mod sntp;
++pub mod sntpsnes_input;
  pub mod state_writer;
- pub mod thumb;
- pub mod thumb_sized;
+ pub mod studio;
+ pub mod studio_faces;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 03e192f..84066e4 100644
+index b4181cd..ed11c04 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -175,6 +175,7 @@ impl Session {
-         let latched = self.gestures.ff_latched();
-         self.gestures.set_context(self.app.input_context());
-         let mut entries = self.app.binding_table().entries();
-+        crate::snes_input::keep_applicable(&mut entries, self.app.playing_platform());
+@@ -212,7 +212,7 @@ impl Session {
+                     contexts: Contexts::ALL,
+                 },
+             );
+-        }
++        }crate::snes_input::keep_applicable(&mut entries, self.app.playing_platform());
          if self.app.repair_offered() {
              let chord = Chord {
                  modifier: Some(Mod::Select),
-@@ -227,7 +228,9 @@ impl Session {
+@@ -265,7 +265,9 @@ impl Session {
              self.pad.apply(Action::GbaUp(btn));
          }
          if let Some(emu) = &self.emu {
@@ -511,14 +535,14 @@ index 03e192f..84066e4 100644
              if trace() && mask.0 != self.sent {
                  eprintln!("slot: pad {:#06x}", mask.0);
              }
-@@ -591,6 +594,7 @@ impl Session {
+@@ -656,6 +658,7 @@ impl Session {
          self.app.set_resume_unread(resume_unread);
          emu.set_volume(self.app.output_volume());
          emu.set_driven(self.driven);
 +        emu.set_pass_through(loaded.platform.passes_xy_through());
          self.app.set_snapshot(Box::new(emu.snapshot()));
          self.emu = Some(emu);
-         true
+         self.sunlight_sent = None;
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
 new file mode 100644
 index 0000000..5e5659a

@@ -3,6 +3,7 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Fri, 16 Oct 2026 09:17:12 +0400
 Subject: [PATCH] platform-md
 
+(cherry picked from commit 7ebdd4cf02a6b5ee7cc9bf137f5294ffb1dcfb90)
 ---
  crates/slot-retro/src/canvas.rs          |  33 ++++++
  crates/slot-retro/src/core.rs            |   3 +
@@ -19,7 +20,7 @@ Subject: [PATCH] platform-md
  crates/slot-ui/src/retro_cart.rs         |  14 ++-
  crates/slot-ui/src/shell.rs              |   2 +-
  crates/slot-ui/tests/chrome.rs           |   2 +-
- crates/slot/src/app.rs                   |  62 +++++++---
+ crates/slot/src/app.rs                   |  69 +++++++----
  crates/slot/src/core_options_policy.rs   |   3 +-
  crates/slot/src/emu.rs                   |   9 ++
  crates/slot/src/platform_video.rs        |  11 +-
@@ -27,14 +28,14 @@ Subject: [PATCH] platform-md
  crates/slot/src/root.rs                  |   6 +-
  crates/slot/src/session.rs               |   1 +
  crates/slot/src/snes_input.rs            |   4 +-
- crates/slot/src/video_mode.rs            |   8 +-
+ crates/slot/src/video_mode.rs            |   2 +-
  crates/slot/tests/md_emu.rs              | 106 +++++++++++++++++
  crates/slot/tests/md_seat.rs             | 145 +++++++++++++++++++++++
  crates/slot/tests/sega_common/mod.rs     |  25 ++++
  crates/slot/tests/sega_then_gba.rs       | 107 +++++++++++++++++
  crates/slot/tests/snes_rewind.rs         |   2 +-
  crates/slot/tests/snes_select.rs         |   4 +-
- 30 files changed, 796 insertions(+), 51 deletions(-)
+ 30 files changed, 793 insertions(+), 55 deletions(-)
  create mode 100644 crates/slot-store/tests/md_platform.rs
  create mode 100644 crates/slot/tests/md_emu.rs
  create mode 100644 crates/slot/tests/md_seat.rs
@@ -106,10 +107,10 @@ index 947fd92..1c8281c 100644
      fn a_video_buffer_of_the_wrong_length_is_left_alone() {
          let frame = white(256, 240);
 diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
-index cd7eba2..dd754e5 100644
+index e9c6540..43254ce 100644
 --- a/crates/slot-retro/src/core.rs
 +++ b/crates/slot-retro/src/core.rs
-@@ -105,6 +105,9 @@ pub trait RetroCore: Send {
+@@ -106,6 +106,9 @@ pub trait RetroCore: Send {
      fn take_av_change(&mut self) -> Option<AvInfo> {
          None
      }
@@ -120,10 +121,10 @@ index cd7eba2..dd754e5 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
-index d4bf72f..892bf13 100644
+index 9f6cf17..ed96fa1 100644
 --- a/crates/slot-retro/src/libretro.rs
 +++ b/crates/slot-retro/src/libretro.rs
-@@ -758,6 +758,10 @@ impl RetroCore for LibretroCore {
+@@ -790,6 +790,10 @@ impl RetroCore for LibretroCore {
          self.av = av;
          Some(av)
      }
@@ -135,34 +136,34 @@ index d4bf72f..892bf13 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 314533d..091a966 100644
+index fd4d9ad..6a59799 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -245,7 +245,7 @@ impl GameButton {
  
      pub fn of(platform: Platform) -> &'static [GameButton] {
          match platform {
--            Platform::Gba | Platform::Snes => &GameButton::ALL,
-+            Platform::Gba | Platform::Snes | Platform::Md => &GameButton::ALL,
+-            Platform::Gba | Platform::Gbav | Platform::Snes => &GameButton::ALL,
++            Platform::Gba | Platform::Gbav | Platform::Snes | Platform::Md => &GameButton::ALL,
              Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => &GameButton::GAME_BOY,
          }
      }
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index c8fda16..d1e4290 100644
+index 0d65716..7823543 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -65,7 +65,9 @@ impl Core {
+@@ -69,7 +69,9 @@ impl Core {
          match self {
              Core::Mgba => match platform {
-                 Platform::Gba | Platform::Gb | Platform::Gbc => true,
+                 Platform::Gba | Platform::Gbav | Platform::Gb | Platform::Gbc => true,
 -                Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => false,
 +                Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
 +                    false
 +                }
              },
              Core::Gpsp => match platform {
-                 Platform::Gba => true,
-@@ -74,7 +76,8 @@ impl Core {
+                 Platform::Gba | Platform::Gbav => true,
+@@ -78,7 +80,8 @@ impl Core {
                  | Platform::Nes
                  | Platform::Snes
                  | Platform::Gg
@@ -170,9 +171,9 @@ index c8fda16..d1e4290 100644
 +                | Platform::Sms
 +                | Platform::Md => false,
              },
-             Core::Fceumm | Core::Nestopia => match platform {
-                 Platform::Nes => true,
-@@ -83,7 +86,8 @@ impl Core {
+             Core::Gambatte => match platform {
+                 Platform::Gb | Platform::Gbc => true,
+@@ -91,7 +94,8 @@ impl Core {
                  | Platform::Gbc
                  | Platform::Snes
                  | Platform::Gg
@@ -182,7 +183,7 @@ index c8fda16..d1e4290 100644
              },
              Core::Snes9x | Core::Snes9x2005Plus => match platform {
                  Platform::Snes => true,
-@@ -92,10 +96,11 @@ impl Core {
+@@ -100,10 +104,11 @@ impl Core {
                  | Platform::Gbc
                  | Platform::Nes
                  | Platform::Gg
@@ -196,20 +197,20 @@ index c8fda16..d1e4290 100644
                  Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes => {
                      false
                  }
-@@ -108,7 +113,7 @@ impl Core {
-             Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
-             Platform::Nes => Core::Fceumm,
-             Platform::Snes => Core::Snes9x,
--            Platform::Gg | Platform::Sms => Core::GenesisPlusGx,
-+            Platform::Gg | Platform::Sms | Platform::Md => Core::GenesisPlusGx,
+@@ -117,7 +122,7 @@ impl Core {
+             Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
+             Platform::Nes => [Core::Fceumm, Core::Nestopia],
+             Platform::Snes => [Core::Snes9x, Core::Snes9x2005Plus],
+-            Platform::Gg | Platform::Sms => [Core::GenesisPlusGx, Core::GenesisPlusGx],
++            Platform::Gg | Platform::Sms | Platform::Md => [Core::GenesisPlusGx, Core::GenesisPlusGx],
          }
      }
  }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
-index b3c1cd3..94d2d47 100644
+index 697e12b..964dd6b 100644
 --- a/crates/slot-store/src/core_policy.rs
 +++ b/crates/slot-store/src/core_policy.rs
-@@ -44,7 +44,8 @@ impl Core {
+@@ -46,7 +46,8 @@ impl Core {
                  | Platform::Gbc
                  | Platform::Nes
                  | Platform::Snes
@@ -220,10 +221,10 @@ index b3c1cd3..94d2d47 100644
          }
      }
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index 995d0dc..cf24824 100644
+index 2b2f72e..6d16666 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
-@@ -10,6 +10,7 @@ pub enum Platform {
+@@ -11,6 +11,7 @@ pub enum Platform {
      Snes,
      Gg,
      Sms,
@@ -231,7 +232,7 @@ index 995d0dc..cf24824 100644
  }
  
  impl Platform {
-@@ -24,6 +25,7 @@ impl Platform {
+@@ -26,6 +27,7 @@ impl Platform {
              Platform::Snes => "Super Nintendo Entertainment System",
              Platform::Gg => "Sega Game Gear",
              Platform::Sms => "Sega Master System",
@@ -239,7 +240,7 @@ index 995d0dc..cf24824 100644
          }
      }
  
-@@ -36,6 +38,7 @@ impl Platform {
+@@ -39,6 +41,7 @@ impl Platform {
              Platform::Snes => "SNES",
              Platform::Gg => "GG",
              Platform::Sms => "SMS",
@@ -247,7 +248,7 @@ index 995d0dc..cf24824 100644
          }
      }
  
-@@ -47,6 +50,7 @@ impl Platform {
+@@ -57,6 +60,7 @@ impl Platform {
              Platform::Snes => &["sfc", "smc"],
              Platform::Gg => &["gg"],
              Platform::Sms => &["sms"],
@@ -255,7 +256,7 @@ index 995d0dc..cf24824 100644
          }
      }
  
-@@ -58,6 +62,7 @@ impl Platform {
+@@ -68,6 +72,7 @@ impl Platform {
              Platform::Snes => (256, 224),
              Platform::Gg => (160, 144),
              Platform::Sms => (256, 192),
@@ -264,7 +265,7 @@ index 995d0dc..cf24824 100644
      }
  
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
-index 2680944..0ed0e96 100644
+index 0f82df1..4774087 100644
 --- a/crates/slot-store/src/platform_policy.rs
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -3,7 +3,7 @@ use crate::platform::Platform;
@@ -274,9 +275,9 @@ index 2680944..0ed0e96 100644
 -    pub const SHELVES: [Platform; 7] = [
 +    pub const SHELVES: [Platform; 8] = [
          Platform::Gba,
+         Platform::Gbav,
          Platform::Gb,
-         Platform::Gbc,
-@@ -11,25 +11,31 @@ impl Platform {
+@@ -12,25 +12,31 @@ impl Platform {
          Platform::Snes,
          Platform::Gg,
          Platform::Sms,
@@ -285,9 +286,9 @@ index 2680944..0ed0e96 100644
  
      pub fn has_gb_palettes(self) -> bool {
          match self {
--            Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => false,
+-            Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => false,
 +            Platform::Gba
-+            | Platform::Nes
++            | Platform::Gbav | Platform::Nes
 +            | Platform::Snes
 +            | Platform::Gg
 +            | Platform::Sms
@@ -298,8 +299,8 @@ index 2680944..0ed0e96 100644
  
      pub fn owns_shoulders(self) -> bool {
          match self {
--            Platform::Gba | Platform::Snes => false,
-+            Platform::Gba | Platform::Snes | Platform::Md => false,
+-            Platform::Gba | Platform::GbavSnes => false,
++            Platform::Gba | Platform::GbavSnes | Platform::Md => false,
              Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Gg | Platform::Sms => true,
          }
      }
@@ -311,7 +312,7 @@ index 2680944..0ed0e96 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -41,7 +47,7 @@ impl Platform {
+@@ -42,7 +48,7 @@ impl Platform {
  
      pub fn select_x_toggles_picture(self) -> bool {
          match self {
@@ -320,12 +321,12 @@ index 2680944..0ed0e96 100644
              Platform::Gba
              | Platform::Gb
              | Platform::Gbc
-@@ -56,14 +62,14 @@ impl Platform {
-             Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
+@@ -58,14 +64,14 @@ impl Platform {
+             Platform::Gb | Platform::Gbc => Some((Core::Mgba, Core::Gambatte)),
              Platform::Nes => Some((Core::Fceumm, Core::Nestopia)),
              Platform::Snes => Some((Core::Snes9x, Core::Snes9x2005Plus)),
--            Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Sms => None,
-+            Platform::Gb | Platform::Gbc | Platform::Gg | Platform::Sms | Platform::Md => None,
+-            Platform::Gg | Platform::Sms => None,
++            Platform::Gg | Platform::Sms | Platform::Md => None,
          }
      }
  
@@ -337,7 +338,7 @@ index 2680944..0ed0e96 100644
          }
      }
  
-@@ -71,7 +77,22 @@ impl Platform {
+@@ -73,7 +79,22 @@ impl Platform {
          match self {
              Platform::Gba => &Shader::GBA,
              Platform::Gb | Platform::Gbc => &Shader::GB,
@@ -362,7 +363,7 @@ index 2680944..0ed0e96 100644
      }
  }
 diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
-index 58a072d..21ca97f 100644
+index 1b3c812..f2fec2b 100644
 --- a/crates/slot-store/src/scan.rs
 +++ b/crates/slot-store/src/scan.rs
 @@ -31,6 +31,11 @@ impl Cart {
@@ -606,16 +607,16 @@ index 0000000..dbf014b
 +    assert_eq!(read_slot_state(d.path()), s);
 +}
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index cc02063..92db389 100644
+index 5a86868..431872d 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -86,7 +86,12 @@ enum Shape {
+@@ -114,7 +114,12 @@ pub fn shelf_shape(cart: &Cart) -> (Option<GbShell>, bool) {
  
  pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
      match cart.platform {
--        Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => None,
+-        Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => None,
 +        Platform::Gba
-+        | Platform::Nes
++        | Platform::Gbav | Platform::Nes
 +        | Platform::Snes
 +        | Platform::Gg
 +        | Platform::Sms
@@ -623,22 +624,22 @@ index cc02063..92db389 100644
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
              Some(Outline::Notched) => GbShell::Notched,
              Some(Outline::Rounded) => GbShell::Rounded,
-@@ -158,7 +163,7 @@ const GB_SEATED_H: u32 = 259;
+@@ -186,7 +191,7 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
 -        Platform::Gba | Platform::Gg | Platform::Sms => (SEATED_W, SEATED_H),
 +        Platform::Gba | Platform::Gg | Platform::Sms | Platform::Md => (SEATED_W, SEATED_H),
-         Platform::Nes => (SEATED_W, NES_SEATED_H),
+         Platform::Gbav | Platform::Nes => (SEATED_W, NES_SEATED_H),
          Platform::Snes => (SEATED_W, SNES_SEATED_H),
          Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
-@@ -167,7 +172,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -195,7 +200,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
 -        Platform::Gba | Platform::Gg | Platform::Sms => Shape::Gba,
 +        Platform::Gba | Platform::Gg | Platform::Sms | Platform::Md => Shape::Gba,
-         Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
+         Platform::Gbav | Platform::Nes => return retro_box(RetroShell::Nes(NesShell::Nes)),
          Platform::Snes => return retro_box(RetroShell::Snes(SnesShell::Snes)),
          Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
 diff --git a/crates/slot-ui/src/retro_cart.rs b/crates/slot-ui/src/retro_cart.rs
@@ -674,11 +675,11 @@ index fbcf70d..d7577cc 100644
      let top = src.get(..(sw as usize * rows as usize * 4))?;
      cover_rgba(top, sw, rows, w, h)
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index d203906..0d08640 100644
+index da30474..fe7f003 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -91,7 +91,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
-         Platform::Gba => gba_shell_for(&gba_code(cart)),
+@@ -84,7 +84,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         Platform::Gba | Platform::Gbav => gba_shell_for(&gba_code(cart)),
          Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
          Platform::Nes | Platform::Snes => crate::retro_shell::plastic_for(cart),
 -        Platform::Gg | Platform::Sms => DEFAULT_SHELL,
@@ -687,31 +688,31 @@ index d203906..0d08640 100644
  }
  
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index 5a81391..4416948 100644
+index cbf2190..0dc1d66 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
  fn label_band(c: &Cart) -> (f32, f32) {
      let (y, h) = match c.platform {
-         Platform::Gba => (LABEL_Y as f32, LABEL_H as f32),
+         Platform::Gba | Platform::Gbav => (LABEL_Y as f32, LABEL_H as f32),
 -        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
 +        Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
      };
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 2cc0ce9..350c0f6 100644
+index 2e0e13c..c7d3384 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -473,6 +473,7 @@ pub struct App {
-     shot_tick_face: Option<(TexId, u32, u32)>,
-     delete_shot_text: Option<[(TexId, u32, u32); 2]>,
+@@ -749,6 +749,7 @@ pub struct App {
+     guide_hint_faces: Vec<TexId>,
+     guide_help_face: Option<((TexId, u32, u32), TexId)>,
      shelf_carts: Vec<(String, Recent)>,
 +    frame_w: u32,
      rested: Option<(usize, usize)>,
  }
  
-@@ -669,6 +670,7 @@ impl App {
+@@ -1077,6 +1078,7 @@ impl App {
              last_led: None,
              powering_off: false,
              shelf_carts: Vec::new(),
@@ -719,7 +720,7 @@ index 2cc0ce9..350c0f6 100644
              rested: None,
          }
      }
-@@ -1179,7 +1181,12 @@ impl App {
+@@ -1648,7 +1650,12 @@ impl App {
              (QuickRow::ColourCorrection, Platform::Gbc) => QuickRow::GbcColourCorrection,
              (
                  QuickRow::Bezel,
@@ -733,31 +734,24 @@ index 2cc0ce9..350c0f6 100644
              ) => QuickRow::GbaBezel,
              (QuickRow::Bezel, Platform::Gb) => QuickRow::GbBezel,
              (QuickRow::Bezel, Platform::Gbc) => QuickRow::GbcBezel,
-@@ -1340,9 +1347,12 @@ impl App {
+@@ -1895,7 +1902,7 @@ impl App {
                  .unwrap_or_default();
          }
          match platform {
--            Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
--                Vec::new()
--            }
-+            Platform::Gba
-+            | Platform::Nes
-+            | Platform::Snes
-+            | Platform::Gg
-+            | Platform::Sms
-+            | Platform::Md => Vec::new(),
-             Platform::Gb | Platform::Gbc => self
-                 .root()
-                 .map(|root| crate::bezel::list(root, platform))
-@@ -1364,9 +1374,12 @@ impl App {
+-            Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
++            Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+                 Vec::new()
+             }
+             _ if platform.hardware() == Platform::Gba && !self.framed_panel() => Vec::new(),
+@@ -1926,9 +1933,12 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
--            Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
+-            Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
 -                &mut self.state.bezel_gba
 -            }
 +            Platform::Gba
-+            | Platform::Nes
++            | Platform::Gbav | Platform::Nes
 +            | Platform::Snes
 +            | Platform::Gg
 +            | Platform::Sms
@@ -765,15 +759,15 @@ index 2cc0ce9..350c0f6 100644
              Platform::Gb => &mut self.state.bezel_gb,
              Platform::Gbc => &mut self.state.bezel_gbc,
          }
-@@ -1374,9 +1387,12 @@ impl App {
+@@ -1936,9 +1946,12 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
--            Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
+-            Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
 -                &self.state.bezel_gba
 -            }
 +            Platform::Gba
-+            | Platform::Nes
++            | Platform::Gbav | Platform::Nes
 +            | Platform::Snes
 +            | Platform::Gg
 +            | Platform::Sms
@@ -781,7 +775,7 @@ index 2cc0ce9..350c0f6 100644
              Platform::Gb => &self.state.bezel_gb,
              Platform::Gbc => &self.state.bezel_gbc,
          };
-@@ -1810,9 +1826,14 @@ impl App {
+@@ -2504,14 +2517,21 @@ impl App {
          self.video_mode = mode;
      }
  
@@ -790,13 +784,46 @@ index 2cc0ce9..350c0f6 100644
 +    }
 +
      pub fn source_rect(&self) -> [f32; 4] {
-         video_mode::source_rect(
-             self.platform,
-+            crate::platform_video::picture(self.platform, self.frame_w),
-             self.core.canvas(self.platform),
+         self.picture().1
+     }
+ 
++    fn picture_size(&self, platform: Platform) -> (u32, u32) {
++        crate::platform_video::picture(platform, self.frame_w)
++    }
++
+     fn picture(&self) -> (Sizing, [f32; 4]) {
+         let platform = self.playing_platform();
+-        video_mode::picture_for(
+-            platform,
++        video_mode::picture_for(platform, self.picture_size(platform), crate::platform_video::picture(self.platform, self.frame_w),
+             self.core.canvas(platform),
              self.video_mode,
-         )
-@@ -2163,7 +2184,7 @@ impl App {
+             self.drawn_scale(platform),
+@@ -2543,7 +2563,7 @@ impl App {
+     fn layout_of(&self, platform: Platform, sizing: Sizing, source: [f32; 4]) -> GameLayout {
+         let picture = match source == WHOLE_TEXTURE {
+             true => self.core.canvas(platform),
+-            false => platform.picture(),
++            false => self.picture_size(platform),
+         };
+         slot_gfx::game_layout(self.panel, picture, sizing)
+     }
+@@ -2555,12 +2575,10 @@ impl App {
+         scale: Scale,
+         stretch: Stretch,
+     ) -> (bool, [i32; 4]) {
+-        let (sizing, source) = video_mode::picture_for(platform, self.core.canvas(platform), mode, scale, stretch);
++        let (sizing, source) = video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform), mode, scale, stretch);
+         let layout = self.layout_of(platform, sizing, source);
+         let (_, crop) =
+-            video_mode::picture_for(
+-            platform,
+-            self.core.canvas(platform),
++            video_mode::picture_for(platform, self.picture_size(platform), self.core.canvas(platform),
+             VideoMode::Actual,
+             Scale::Integer,
+             stretch,
+@@ -3052,7 +3070,7 @@ impl App {
      }
  
      pub fn picture_rect(&self) -> [f32; 4] {
@@ -805,7 +832,7 @@ index 2cc0ce9..350c0f6 100644
          let (sw, sh) = self.core.canvas_f32(self.platform);
          let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
          [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
-@@ -2335,7 +2356,7 @@ impl App {
+@@ -3243,7 +3261,7 @@ impl App {
              Platform::Gbc => self.state.shader_gbc,
              Platform::Nes => self.state.shader_nes,
              Platform::Snes => self.state.shader_snes,
@@ -814,8 +841,8 @@ index 2cc0ce9..350c0f6 100644
          }
      }
  
-@@ -2352,7 +2373,7 @@ impl App {
-             Platform::Gba => self.state.colour_correction_gba,
+@@ -3260,7 +3278,7 @@ impl App {
+             Platform::Gba | Platform::Gbav => self.state.colour_correction_gba,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
 -            Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => false,
@@ -823,7 +850,7 @@ index 2cc0ce9..350c0f6 100644
          }
      }
  
-@@ -3154,7 +3175,7 @@ impl App {
+@@ -4314,7 +4332,7 @@ impl App {
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
              Platform::Nes => (&mut self.state.shader_nes, &Shader::RETRO[..]),
              Platform::Snes => (&mut self.state.shader_snes, &Shader::RETRO[..]),
@@ -832,8 +859,8 @@ index 2cc0ce9..350c0f6 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -3208,7 +3229,9 @@ impl App {
-                 Platform::Gba => QuickRow::GbaColourCorrection,
+@@ -4369,7 +4387,9 @@ impl App {
+                 Platform::Gba | Platform::Gbav => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
 -                Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => return false,
@@ -843,22 +870,22 @@ index 2cc0ce9..350c0f6 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -3642,7 +3665,7 @@ impl App {
+@@ -4862,7 +4882,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
--            Platform::Gba | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
-+            Platform::Gba | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
+-            Platform::Gba | Platform::Gbav | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => {
++            Platform::Gba | Platform::Gbav | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md => {
                  [0xe6, 0xe4, 0xda]
              }
          };
-@@ -6181,7 +6204,12 @@ fn free_stamp(taken: &[String], now: i64) -> String {
+@@ -11087,7 +11107,12 @@ fn free_stamp(taken: &[String], now: i64) -> String {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {
--        Platform::Gba | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => 0,
+-        Platform::Gba | Platform::Gbav | Platform::Nes | Platform::Snes | Platform::Gg | Platform::Sms => 0,
 +        Platform::Gba
-+        | Platform::Nes
++        | Platform::Gbav | Platform::Nes
 +        | Platform::Snes
 +        | Platform::Gg
 +        | Platform::Sms
@@ -885,10 +912,10 @@ index f32b730..2130fbb 100644
  
  pub fn apply_policy_options(core: &mut LibretroCore, which: Core) {
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index d555f4b..4c44d28 100644
+index b680223..da7562a 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -96,6 +96,7 @@ struct Shared {
+@@ -97,6 +97,7 @@ struct Shared {
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
      pass_through: AtomicBool,
@@ -896,7 +923,7 @@ index d555f4b..4c44d28 100644
      recording: AtomicBool,
      stop: AtomicBool,
      volume: AtomicU8,
-@@ -173,6 +174,7 @@ impl EmuHandle {
+@@ -174,6 +175,7 @@ impl EmuHandle {
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
              pass_through: AtomicBool::new(false),
@@ -904,7 +931,7 @@ index d555f4b..4c44d28 100644
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
              volume: AtomicU8::new(100),
-@@ -376,6 +378,10 @@ impl EmuHandle {
+@@ -377,6 +379,10 @@ impl EmuHandle {
          self.shared.pass_through.load(Ordering::Relaxed)
      }
  
@@ -915,7 +942,7 @@ index d555f4b..4c44d28 100644
      pub fn set_turbo(&self, on: bool) {
          self.shared.turbo.store(on, Ordering::Relaxed);
      }
-@@ -818,6 +824,9 @@ impl Worker {
+@@ -832,6 +838,9 @@ impl Worker {
                      }
                  }
                  flush_outbound(&mut transport, &link);
@@ -961,42 +988,42 @@ index 705c941..14d594c 100644
              if !framed {
                  hidden.push(QuickRow::Bezel);
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 809e51f..804dd7a 100644
+index ec08ded..5e6619c 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
 @@ -1,6 +1,6 @@
  use std::path::{Path, PathBuf};
  
--pub const DIRS: [&str; 41] = [
-+pub const DIRS: [&str; 45] = [
+-pub const DIRS: [&str; 52] = [
++pub const DIRS: [&str; 56] = [
      "BIOS",
      "Bezels",
      "Bezels/GBA",
-@@ -15,6 +15,7 @@ pub const DIRS: [&str; 41] = [
-     "Games/SNES",
+@@ -23,6 +23,7 @@ pub const DIRS: [&str; 52] = [
+     "Guides/GBC",
      "Games/GG",
      "Games/SMS",
 +    "Games/MD",
      "Labels",
      "Labels/GBA",
-     "Labels/GB",
-@@ -24,6 +25,7 @@ pub const DIRS: [&str; 41] = [
+     "Labels/GBAV",
+@@ -33,6 +34,7 @@ pub const DIRS: [&str; 52] = [
      "Labels/SNES",
      "Labels/GG",
      "Labels/SMS",
 +    "Labels/MD",
      "Saves",
      "Saves/GBA",
-     "Saves/GB",
-@@ -32,6 +34,7 @@ pub const DIRS: [&str; 41] = [
+     "Saves/GBAV",
+@@ -42,6 +44,7 @@ pub const DIRS: [&str; 52] = [
      "Saves/SNES",
      "Saves/GG",
      "Saves/SMS",
 +    "Saves/MD",
      "States",
      "States/GBA",
-     "States/GB",
-@@ -40,6 +43,7 @@ pub const DIRS: [&str; 41] = [
+     "States/GBAV",
+@@ -51,6 +54,7 @@ pub const DIRS: [&str; 52] = [
      "States/SNES",
      "States/GG",
      "States/SMS",
@@ -1005,11 +1032,11 @@ index 809e51f..804dd7a 100644
      "Wallpapers",
  ];
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 918423e..673110a 100644
+index e78277a..10370e8 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -287,6 +287,7 @@ impl Session {
-         self.bridge_link(|app| app.update(dt));
+@@ -325,6 +325,7 @@ impl Session {
+         self.sink.hold_open(self.app.headphones());
          if let Some(emu) = &self.emu {
              emu.set_volume(self.app.output_volume());
 +            self.app.set_frame_width(emu.frame_width());
@@ -1032,24 +1059,23 @@ index 1435ddf..7526c5f 100644
                  Platform::Gba
                  | Platform::Gb
 diff --git a/crates/slot/src/video_mode.rs b/crates/slot/src/video_mode.rs
-index 735ff8d..62129ed 100644
+index cd2a79d..d033b30 100644
 --- a/crates/slot/src/video_mode.rs
 +++ b/crates/slot/src/video_mode.rs
-@@ -40,8 +40,12 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
-     ini::write(root, VIDEO_MODE_FILE, stem, mode.as_str())
- }
+@@ -42,12 +42,12 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
  
--pub fn source_rect(platform: Platform, canvas: (u32, u32), mode: VideoMode) -> [f32; 4] {
--    let (w, h) = platform.picture();
-+pub fn source_rect(
-+    platform: Platform,
+ pub fn picture_for(
+     platform: Platform,
 +    (w, h): (u32, u32),
-+    canvas: (u32, u32),
-+    mode: VideoMode,
-+) -> [f32; 4] {
-     let (canvas_w, canvas_h) = canvas;
-     if mode == VideoMode::Actual || (w, h) == canvas {
-         return WHOLE_TEXTURE;
+     canvas: (u32, u32),
+     mode: VideoMode,
+     scale: Scale,
+     stretch: Stretch,
+ ) -> (Sizing, [f32; 4]) {
+-    let (w, h) = platform.picture();
+     let (cw, ch) = canvas;
+     let x = cw.saturating_sub(w) as f32 / 2.0 / cw as f32;
+     let y = ch.saturating_sub(h) as f32 / 2.0 / ch as f32;
 diff --git a/crates/slot/tests/md_emu.rs b/crates/slot/tests/md_emu.rs
 new file mode 100644
 index 0000000..960e490

@@ -4,6 +4,8 @@ Date: Sun, 18 Oct 2026 19:32:10 +0400
 Subject: [PATCH] crash-guard
 
 A game that took slot down while it loaded starts on the shelf next time. Detection is upstream's (v1.9.0 loading_mark.rs: a mark in SLOT_RUN, set when a cart goes in, cleared after 10 s of play, on the shelf or on a clean stop). Ours is what the player sees: the cart that crashed is selected on the shelf and the banner Last start failed says why. Upstream also moves the resume state aside (resume-refused-*) and unseats the cart, where our first guard kept both. The Config/starting.txt mark is gone. ADR 0084, ADR 0109.
+
+(cherry picked from commit 2dea2645d8a3f5c5c5f2f79380809be9c4c383f3)
 ---
  crates/slot-ui/src/lib.rs          |   1 +
  crates/slot-ui/src/quick_retro.rs  |   3 +-
@@ -18,17 +20,17 @@ A game that took slot down while it loaded starts on the shelf next time. Detect
  create mode 100644 crates/slot/tests/crash_guard.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 2c9be6e..b439936 100644
+index eb509ec..5b04b89 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -39,6 +39,7 @@ mod shelf;
- mod shell;
+@@ -43,6 +43,7 @@ mod shell;
+ mod shot_viewer;
  mod silhouette;
  mod slot_chrome;
 +mod start_toast;
  mod sticker;
  pub mod text;
- mod toast;
+ pub mod house_label;
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 index f89be41..df91a80 100644
 --- a/crates/slot-ui/src/quick_retro.rs
@@ -64,10 +66,10 @@ index 0000000..97f4b59
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index cc84414..71dd549 100644
+index 8996d1a..0a940fa 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -34,6 +34,7 @@ pub enum Toast {
+@@ -39,6 +39,7 @@ pub enum Toast {
      Retro(slot_store::RetroShader),
      Disc(crate::DiscToast),
      Battery(crate::BatteryToast),
@@ -75,7 +77,7 @@ index cc84414..71dd549 100644
  }
  
  impl Toast {
-@@ -80,6 +81,7 @@ impl Toast {
+@@ -90,6 +91,7 @@ impl Toast {
              Toast::Retro(s) => Toast::all().len() + s.index(),
              Toast::Disc(d) => Toast::disc_index(d),
              Toast::Battery(b) => Toast::battery_index(b),
@@ -83,7 +85,7 @@ index cc84414..71dd549 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -153,6 +155,7 @@ impl Toast {
+@@ -168,6 +170,7 @@ impl Toast {
              Toast::Retro(s) => s.toast(),
              Toast::Disc(d) => d.text(),
              Toast::Battery(b) => b.text(),
@@ -92,7 +94,7 @@ index cc84414..71dd549 100644
      }
  }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6eb820b..6cc8066 100644
+index b3061ec..26251bd 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,6 +1,7 @@
@@ -103,7 +105,7 @@ index 6eb820b..6cc8066 100644
  
  use std::collections::HashMap;
  use std::path::{Path, PathBuf};
-@@ -780,6 +781,7 @@ impl App {
+@@ -1192,6 +1193,7 @@ impl App {
          self.state.cart_platform = None;
          self.name_pending = true;
          self.persist_soon();

@@ -3,39 +3,45 @@ From: Felipe Paiva <felipe.paiva@gmail.com>
 Date: Mon, 12 Oct 2026 12:23:27 +0400
 Subject: [PATCH] step0-exhaustive-matches
 
+(cherry picked from commit 4ea1ee67d9de0a11aa25e4be9a861d7fddd9e80d)
 ---
- crates/slot-store/src/core.rs            |  5 ++++-
+ crates/slot-store/src/core.rs            | 10 ++++++++--
  crates/slot-store/src/lib.rs             |  1 +
  crates/slot-store/src/platform_policy.rs | 25 ++++++++++++++++++++++++
- crates/slot-store/src/scan.rs            |  2 +-
+ crates/slot-store/src/scan.rs            |  4 ++--
  crates/slot-ui/src/cart.rs               |  2 +-
- crates/slot/src/app.rs                   | 10 +++++-----
+ crates/slot/src/app.rs                   |  9 ++++++---
  crates/slot/src/core.rs                  |  2 +-
- 7 files changed, 38 insertions(+), 9 deletions(-)
+ 7 files changed, 44 insertions(+), 9 deletions(-)
  create mode 100644 crates/slot-store/src/platform_policy.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index 04d16f4..51f6ab7 100644
+index cd3f12e..d0498f7 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -44,7 +44,10 @@ impl Core {
+@@ -48,8 +48,14 @@ impl Core {
      pub fn runs(self, platform: Platform) -> bool {
          match self {
              Core::Mgba => true,
--            Core::Gpsp => platform == Platform::Gba,
+-            Core::Gpsp => platform.hardware() == Platform::Gba,
+-            Core::Gambatte => matches!(platform, Platform::Gb | Platform::Gbc),
 +            Core::Gpsp => match platform {
-+                Platform::Gba => true,
++                Platform::Gba | Platform::Gbav => true,
 +                Platform::Gb | Platform::Gbc => false,
++            },
++            Core::Gambatte => match platform {
++                Platform::Gb | Platform::Gbc => true,
++                Platform::Gba | Platform::Gbav => false,
 +            },
          }
      }
  
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 7760929..c5ef70a 100644
+index 6834ccb..6f9f773 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -15,6 +15,7 @@ mod gb_palette;
- mod gba;
+@@ -17,6 +17,7 @@ mod gba;
+ mod guides;
  pub mod ini;
  mod platform;
 +mod platform_policy;
@@ -44,7 +50,7 @@ index 7760929..c5ef70a 100644
  mod shots;
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 new file mode 100644
-index 0000000..c513aeb
+index 0000000..8b08306
 --- /dev/null
 +++ b/crates/slot-store/src/platform_policy.rs
 @@ -0,0 +1,25 @@
@@ -54,30 +60,37 @@ index 0000000..c513aeb
 +impl Platform {
 +    pub fn has_gb_palettes(self) -> bool {
 +        match self {
-+            Platform::Gba => false,
++            Platform::Gba | Platform::Gbav => false,
 +            Platform::Gb | Platform::Gbc => true,
 +        }
 +    }
 +
 +    pub fn owns_shoulders(self) -> bool {
 +        match self {
-+            Platform::Gba => false,
++            Platform::Gba | Platform::Gbav => false,
 +            Platform::Gb | Platform::Gbc => true,
 +        }
 +    }
 +
 +    pub fn picker_cores(self) -> Option<(Core, Core)> {
 +        match self {
-+            Platform::Gba => Some((Core::Mgba, Core::Gpsp)),
-+            Platform::Gb | Platform::Gbc => None,
++            Platform::Gba | Platform::Gbav => Some((Core::Mgba, Core::Gpsp)),
++            Platform::Gb | Platform::Gbc => Some((Core::Mgba, Core::Gambatte)),
 +        }
 +    }
 +}
 diff --git a/crates/slot-store/src/scan.rs b/crates/slot-store/src/scan.rs
-index 3cdb1da..f479047 100644
+index 3a2a201..12fb5da 100644
 --- a/crates/slot-store/src/scan.rs
 +++ b/crates/slot-store/src/scan.rs
-@@ -25,7 +25,7 @@ impl Cart {
+@@ -19,13 +19,13 @@ pub struct Cart {
+ impl Cart {
+     pub fn read_header(&mut self) {
+         match self.platform.hardware() {
+-            Platform::Gba => {
++            Platform::Gba | Platform::Gbav => {
+                 if let Some((title, code)) = header_title_code(&self.rom) {
+                     self.title = title;
                      self.code = code;
                  }
              }
@@ -87,10 +100,10 @@ index 3cdb1da..f479047 100644
                      self.title = title;
                  }
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 582cc4f..7946fdf 100644
+index 961a755..3ff94a1 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -85,7 +85,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -113,7 +113,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
              Some(Outline::Notched) => GbShell::Notched,
              Some(Outline::Rounded) => GbShell::Rounded,
@@ -100,58 +113,55 @@ index 582cc4f..7946fdf 100644
                  Class::Original | Class::DualMode => GbShell::Notched,
              },
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index dbb58c2..7f0fd6f 100644
+index cfd3b96..71bff0b 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1009,7 +1009,7 @@ impl App {
+@@ -1467,7 +1467,7 @@ impl App {
          if self.single_cart() {
              hidden.push(QuickRow::ExitGame);
          }
--        if self.playing_platform() != Platform::Gba {
+-        if self.playing_platform().hardware() != Platform::Gba {
 +        if self.playing_platform().owns_shoulders() {
              hidden.extend([QuickRow::GameL, QuickRow::GameR]);
          }
          if !self.left_stick {
-@@ -1720,7 +1720,7 @@ impl App {
+@@ -2600,7 +2600,7 @@ impl App {
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
--        matches!(self.phase, Phase::Playing { .. }) && self.platform != Platform::Gba
+-        matches!(self.phase, Phase::Playing { .. }) && self.platform.hardware() != Platform::Gba
 +        matches!(self.phase, Phase::Playing { .. }) && self.platform.owns_shoulders()
      }
  
      pub fn taken_buttons(&self) -> Vec<Btn> {
-@@ -3524,7 +3524,7 @@ impl App {
+@@ -4743,7 +4743,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
 -            _ => [0xe6, 0xe4, 0xda],
-+            Platform::Gba | Platform::Gbc => [0xe6, 0xe4, 0xda],
++            Platform::Gba | Platform::Gbav | Platform::Gbc => [0xe6, 0xe4, 0xda],
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -4962,10 +4962,10 @@ impl App {
+@@ -6393,6 +6393,9 @@ impl App {
          let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
              return;
          };
--        if cart.platform != Platform::Gba {
 +        if cart.platform.picker_cores().is_none() {
-             return;
-         }
--        let seat = slot_store::core_for(&root, &cart.stem);
-+        let seat = slot_store::core_for_platform(&root, &cart.stem, cart.platform);
++            return;
++        }
+         let seat =
+             slot_store::core_for_platform(&root, &cart.stem, cart.platform, self.state.gb_core);
          let now = self.now();
-         let mut picker = CorePicker::open(seat, now);
-         if self.core_faces_ready() {
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 0fed83a..24f4dd3 100644
+index 1808c85..80cd46b 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -130,7 +130,7 @@ pub fn palette_for(
+@@ -152,7 +152,7 @@ pub fn palette_for(
      rom: &Path,
      link: Option<u8>,
  ) -> Option<GbColors> {
--    (link.is_none() && platform != Platform::Gba && dmg_only(rom)).then_some(chosen)
+-    (link.is_none() && platform.hardware() != Platform::Gba && dmg_only(rom)).then_some(chosen)
 +    (link.is_none() && platform.has_gb_palettes() && dmg_only(rom)).then_some(chosen)
  }
  

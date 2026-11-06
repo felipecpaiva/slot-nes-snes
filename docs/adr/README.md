@@ -126,3 +126,4 @@ the patch set looks the way it does.
 | [0107](0107-neo-geo-cd-on-neocd.md) | Bring the Neo Geo CD into scope on pinned NeoCD, a disc shelf of its own with a BIOS model row | Accepted. Amends 0002 | 2026-10-21 |
 | [0108](0108-console-buttons-on-the-in-game-controls-page.md) | Every console button is a row on the In-Game Controls page, named and saved per system | Accepted. Amends 0099 and 0106 | 2026-10-22 |
 | [0109](0109-rebase-to-slot-v1-9-0.md) | Rebase onto slot v1.9.0, give SELECT+X to upstream's Screenshot and let upstream's loading mark carry the crash guard | Accepted. Amends 0084 and 0106 | 2026-10-25 |
+| [0110](0110-rebase-to-slot-v1-14-0.md) | Rebase onto slot v1.14.0, hide upstream's slot updater and keep the BaseOS check | Proposed. Amends 0109 | 2026-11-06 |
