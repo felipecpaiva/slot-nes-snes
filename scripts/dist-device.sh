@@ -93,15 +93,40 @@ check_gpsp_tarball() {
 	done
 }
 
+# Upstream's core:gambatte builds from a pinned commit but fetches the source tarball with no checksum, so
+# it is checked here the same way, against gambatte_tarball_sha256 in SLOT_PIN (ADR 0110).
+check_gambatte_tarball() {
+	: "${gambatte_tarball_sha256:?SLOT_PIN lacks gambatte_tarball_sha256}"
+	gac="$(slot_var GAMBATTE_COMMIT)"
+	[ -n "$gac" ] || {
+		echo "slot-nes-snes: no GAMBATTE_COMMIT in build/slot/taskfile.yml" >&2
+		exit 1
+	}
+	for f in "$root/vendor/gambatte-src.tar.gz" "$root/$dist/System/licenses/gambatte-$gac.tar.gz"; do
+		got="$(file_sha256 "$f" 2>/dev/null)"
+		[ "$got" = "$gambatte_tarball_sha256" ] || {
+			rm -rf "$root/$dist" "$root"/vendor/gambatte_libretro.so* "$root"/vendor/gambatte-src.*
+			echo "slot-nes-snes: ${f#"$root"/} has sha256 '$got', SLOT_PIN gambatte_tarball_sha256 wants $gambatte_tarball_sha256 (Gambatte $gac), removed the dist tree and the Gambatte cache" >&2
+			exit 1
+		}
+	done
+}
+
 build() {
 	name="$(release_name)"
 	dist="build/dist/$name"
 	check_cores
 	task_bin="$(sh "$root/scripts/fetch-task.sh")"
+	# Upstream's web task (the Gamebit page) needs bun, which the builder image lacks: build the page here
+	# when the host has it, and the task is up to date for the container. CI installs bun in the builder.
+	if command -v bun >/dev/null 2>&1; then
+		(cd "$root" && "$task_bin" -d build/slot web)
+	fi
 
 	DEVICE_ROOT=1 sh "$root/scripts/device-sh.sh" "'${task_bin#"$root"/}' -d build/slot dist:device OUT=../dist/$name"
 
 	check_gpsp_tarball
+	check_gambatte_tarball
 
 	sys="$root/$dist/System"
 	cp "$root/vendor/fceumm_libretro.so" "$root/vendor/snes9x_libretro.so" \
@@ -147,7 +172,7 @@ build() {
 	for p in "$root"/patches/*.patch; do
 		cp "$p" "$sys/licenses/slot-nes-snes-$(basename "$p")"
 	done
-	(cd "$sys" && $(command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256) mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so \
+	(cd "$sys" && $(command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256) mgba_libretro.so gpsp_libretro.so gambatte_libretro.so fceumm_libretro.so snes9x_libretro.so \
 		nestopia_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so \
 		pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so stella2014_libretro.so prosystem_libretro.so mednafen_vb_libretro.so fbneo_libretro.so fake08_libretro.so mednafen_supergrafx_libretro.so neocd_libretro.so >licenses/cores.sha256)
 	echo "device tree ready at $dist"

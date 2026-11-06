@@ -6,9 +6,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/scripts/lib.sh"
 read_pin
 
-cores="mgba gpsp fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx neocd"
+cores="mgba gpsp gambatte fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed mednafen_pce_fast mednafen_wswan mednafen_lynx mednafen_ngp picodrive stella2014 prosystem mednafen_vb fbneo fake08 mednafen_supergrafx neocd"
 # Games/ folders the zip may hold.
-games="GBA GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX PCECD SEGACD NEOCD"
+games="GBA GBAV GB GBC NES SNES GG SMS MD PS1 TG16 WS Lynx NGP 32X A2600 A7800 VB NEOGEO CPS1 CPS2 FDS PICO8 SGX PCECD SEGACD NEOCD"
 # Folders that ship empty, the user's own data lives there.
 empty="Config Saves States BIOS"
 # Folders that ship only upstream's README.txt on the sizes and formats they take (v1.8.0, #122).
@@ -93,22 +93,24 @@ done
 
 # System/ holds exactly this set: upstream's dist output plus our core and licence files.
 req="bezels/640x480.png bootlogo.bmp coresave.sh expansion.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
-mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
+mgba_libretro.so gpsp_libretro.so gambatte_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so stella2014_libretro.so prosystem_libretro.so mednafen_vb_libretro.so fbneo_libretro.so fake08_libretro.so mednafen_supergrafx_libretro.so neocd_libretro.so"
 for f in $req; do
 	[ -f "$sys/$f" ] || bad "System/$f is missing"
 done
 mc="$(slot_var MGBA_COMMIT)"
 gc="$(slot_var GPSP_COMMIT)"
+gac="$(slot_var GAMBATTE_COMMIT)"
 ev="$(slot_var EXFATPROGS_VERSION)"
-[ -n "$mc" ] && [ -n "$gc" ] && [ -n "$ev" ] || bad "no MGBA_COMMIT, GPSP_COMMIT or EXFATPROGS_VERSION in build/slot/taskfile.yml, run task build"
+[ -n "$mc" ] && [ -n "$gc" ] && [ -n "$gac" ] && [ -n "$ev" ] || bad "no MGBA_COMMIT, GPSP_COMMIT, GAMBATTE_COMMIT or EXFATPROGS_VERSION in build/slot/taskfile.yml, run task build"
 ok="bezels/640x480.png bootlogo.bmp coresave.sh expansion.sh launch_frontend.sh led.sh lid.sh repair.sh slotlink.sh slot fsck.exfat
 licenses/exfatprogs-GPL-2.0.txt licenses/exfatprogs-$ev.tar.gz
-mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
+mgba_libretro.so gpsp_libretro.so gambatte_libretro.so fceumm_libretro.so snes9x_libretro.so nestopia_libretro.so snes9x2005_plus_libretro.so
 genesis_plus_gx_libretro.so pcsx_rearmed_libretro.so mednafen_pce_fast_libretro.so mednafen_wswan_libretro.so mednafen_lynx_libretro.so mednafen_ngp_libretro.so picodrive_libretro.so stella2014_libretro.so prosystem_libretro.so mednafen_vb_libretro.so fbneo_libretro.so fake08_libretro.so mednafen_supergrafx_libretro.so neocd_libretro.so
 licenses/bezel-CC-BY-SA-4.0.txt licenses/shaders.txt licenses/retro-shaders.txt licenses/cores.sha256
 licenses/mgba-MPL-2.0.txt licenses/mgba-$mc.meta
 licenses/gpsp-GPL-2.0.txt licenses/gpsp-$gc.meta licenses/gpsp-$gc.tar.gz
+licenses/gambatte-GPL-2.0.txt licenses/gambatte-$gac.meta licenses/gambatte-$gac.tar.gz
 licenses/fceumm_libretro.so.meta licenses/fceumm-src.meta licenses/fceumm-src.tar.gz
 licenses/fceumm-GPL-2.0.txt licenses/fceumm-headerless-files.txt licenses/$src.tar.gz
 licenses/snes9x_libretro.so.meta licenses/snes9x-src.meta licenses/snes9x-src.tar.gz licenses/snes9x-LICENSE.txt
@@ -134,13 +136,17 @@ licenses/mednafen_supergrafx_libretro.so.meta licenses/mednafen_supergrafx-src.m
 licenses/neocd_libretro.so.meta licenses/neocd-src.meta licenses/neocd-src.tar.gz licenses/neocd-LGPL-3.0.txt licenses/neocd-GPL-3.0.txt licenses/neocd-notices.txt licenses/neocd-headerless-files.txt"
 for p in "$root"/build/slot/cores/mgba/*.patch; do ok="$ok licenses/mgba-$(basename "$p")"; done
 for p in "$root"/build/slot/cores/gpsp/*.patch; do ok="$ok licenses/gpsp-$(basename "$p")"; done
+for p in "$root"/build/slot/cores/gambatte/*.patch; do ok="$ok licenses/gambatte-$(basename "$p")"; done
 for p in "$root"/patches/*.patch; do ok="$ok licenses/slot-nes-snes-$(basename "$p")"; done
 find "$sys" ! -type d | sed "s|^$sys/||" | sort | while read -r f; do
+	case "$f" in web/*) continue ;; esac
 	case " $(echo $ok) " in *" $f "*) ;; *) echo "zip-check: System/$f is not expected in a release" >&2 ;; esac
 done 2>"$work/stray"
 for f in $ok; do
 	[ -f "$sys/$f" ] || bad "System/$f is missing"
 done
+# Upstream's Gamebit web page, built by its web task (v1.13): the page, not a list of its asset names.
+[ -f "$sys/web/index.html" ] || bad "System/web/index.html is missing"
 if [ -s "$work/stray" ]; then
 	cat "$work/stray" >&2
 	failed=1
@@ -159,8 +165,8 @@ done
 # snes9x2005_plus is built from snes9x 1.43 and its option keys are snes9x_2005_*, so "snes9x" is
 # legitimately in it: that one pair is skipped, and "Snes9x 2005 Plus" must stay out of snes9x.
 # FBNeo names its own Neo Geo CD driver "NeoCD", so NeoCD is known by its option key neocd_cdspeedhack.
-for pair in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed mednafen_pce_fast:Beetle.PCE.Fast mednafen_wswan:Beetle.WonderSwan mednafen_lynx:Beetle.Lynx mednafen_ngp:NeoPop picodrive:PicoDrive stella2014:Stella.2014 prosystem:ProSystem mednafen_vb:Beetle.VB fbneo:FinalBurn.Neo fake08:fake-08 mednafen_supergrafx:Beetle.SuperGrafx neocd:neocd_cdspeedhack; do
-	for other in mgba:mGBA gpsp:gpSP fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed mednafen_pce_fast:Beetle.PCE.Fast mednafen_wswan:Beetle.WonderSwan mednafen_lynx:Beetle.Lynx mednafen_ngp:NeoPop picodrive:PicoDrive stella2014:Stella.2014 prosystem:ProSystem mednafen_vb:Beetle.VB fbneo:FinalBurn.Neo fake08:fake-08 mednafen_supergrafx:Beetle.SuperGrafx neocd:neocd_cdspeedhack; do
+for pair in mgba:mGBA gpsp:gpSP gambatte:Gambatte fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed mednafen_pce_fast:Beetle.PCE.Fast mednafen_wswan:Beetle.WonderSwan mednafen_lynx:Beetle.Lynx mednafen_ngp:NeoPop picodrive:PicoDrive stella2014:Stella.2014 prosystem:ProSystem mednafen_vb:Beetle.VB fbneo:FinalBurn.Neo fake08:fake-08 mednafen_supergrafx:Beetle.SuperGrafx neocd:neocd_cdspeedhack; do
+	for other in mgba:mGBA gpsp:gpSP gambatte:Gambatte fceumm:FCEUmm snes9x:snes9x nestopia:Nestopia snes9x2005_plus:Snes9x.2005.Plus genesis_plus_gx:Genesis.Plus.GX pcsx_rearmed:PCSX-ReARMed mednafen_pce_fast:Beetle.PCE.Fast mednafen_wswan:Beetle.WonderSwan mednafen_lynx:Beetle.Lynx mednafen_ngp:NeoPop picodrive:PicoDrive stella2014:Stella.2014 prosystem:ProSystem mednafen_vb:Beetle.VB fbneo:FinalBurn.Neo fake08:fake-08 mednafen_supergrafx:Beetle.SuperGrafx neocd:neocd_cdspeedhack; do
 		f="$sys/${pair%%:*}_libretro.so"
 		[ -f "$f" ] || continue
 		[ "${pair%%:*}:${other%%:*}" != snes9x2005_plus:snes9x ] || continue
@@ -201,7 +207,7 @@ for core in fceumm snes9x nestopia snes9x2005_plus genesis_plus_gx pcsx_rearmed 
 		[ ! -f "$lic/$m" ] || grep -qx "commit=$cc" "$lic/$m" || bad "System/licenses/$m does not name the pinned commit $cc"
 	done
 done
-for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 nestopia:nestopia-src.tar.gz:nestopia_tarball_sha256 snes9x2005_plus:snes9x2005_plus-src.tar.gz:snes9x2005_plus_tarball_sha256 genesis_plus_gx:genesis_plus_gx-src.tar.gz:genesis_plus_gx_tarball_sha256 pcsx_rearmed:pcsx_rearmed-src.tar.gz:pcsx_rearmed_tarball_sha256 mednafen_pce_fast:mednafen_pce_fast-src.tar.gz:mednafen_pce_fast_tarball_sha256 mednafen_wswan:mednafen_wswan-src.tar.gz:mednafen_wswan_tarball_sha256 mednafen_lynx:mednafen_lynx-src.tar.gz:mednafen_lynx_tarball_sha256 mednafen_ngp:mednafen_ngp-src.tar.gz:mednafen_ngp_tarball_sha256 picodrive:picodrive-src.tar.gz:picodrive_tarball_sha256 picodrive:picodrive-emu2413-src.tar.gz:picodrive_emu2413_tarball_sha256 picodrive:picodrive-dr_libs-src.tar.gz:picodrive_dr_libs_tarball_sha256 picodrive:picodrive-libpicofe-src.tar.gz:picodrive_libpicofe_tarball_sha256 stella2014:stella2014-src.tar.gz:stella2014_tarball_sha256 prosystem:prosystem-src.tar.gz:prosystem_tarball_sha256 mednafen_vb:mednafen_vb-src.tar.gz:mednafen_vb_tarball_sha256 fbneo:fbneo-src.tar.gz:fbneo_tarball_sha256 fake08:fake08-src.tar.gz:fake08_tarball_sha256 fake08:fake08-z8lua-src.tar.gz:fake08_z8lua_tarball_sha256 mednafen_supergrafx:mednafen_supergrafx-src.tar.gz:mednafen_supergrafx_tarball_sha256 neocd:neocd-src.tar.gz:neocd_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256; do
+for pair in fceumm:fceumm-src.tar.gz:fceumm_tarball_sha256 snes9x:snes9x-src.tar.gz:snes9x_tarball_sha256 nestopia:nestopia-src.tar.gz:nestopia_tarball_sha256 snes9x2005_plus:snes9x2005_plus-src.tar.gz:snes9x2005_plus_tarball_sha256 genesis_plus_gx:genesis_plus_gx-src.tar.gz:genesis_plus_gx_tarball_sha256 pcsx_rearmed:pcsx_rearmed-src.tar.gz:pcsx_rearmed_tarball_sha256 mednafen_pce_fast:mednafen_pce_fast-src.tar.gz:mednafen_pce_fast_tarball_sha256 mednafen_wswan:mednafen_wswan-src.tar.gz:mednafen_wswan_tarball_sha256 mednafen_lynx:mednafen_lynx-src.tar.gz:mednafen_lynx_tarball_sha256 mednafen_ngp:mednafen_ngp-src.tar.gz:mednafen_ngp_tarball_sha256 picodrive:picodrive-src.tar.gz:picodrive_tarball_sha256 picodrive:picodrive-emu2413-src.tar.gz:picodrive_emu2413_tarball_sha256 picodrive:picodrive-dr_libs-src.tar.gz:picodrive_dr_libs_tarball_sha256 picodrive:picodrive-libpicofe-src.tar.gz:picodrive_libpicofe_tarball_sha256 stella2014:stella2014-src.tar.gz:stella2014_tarball_sha256 prosystem:prosystem-src.tar.gz:prosystem_tarball_sha256 mednafen_vb:mednafen_vb-src.tar.gz:mednafen_vb_tarball_sha256 fbneo:fbneo-src.tar.gz:fbneo_tarball_sha256 fake08:fake08-src.tar.gz:fake08_tarball_sha256 fake08:fake08-z8lua-src.tar.gz:fake08_z8lua_tarball_sha256 mednafen_supergrafx:mednafen_supergrafx-src.tar.gz:mednafen_supergrafx_tarball_sha256 neocd:neocd-src.tar.gz:neocd_tarball_sha256 gpsp:gpsp-$gc.tar.gz:gpsp_tarball_sha256 gambatte:gambatte-$gac.tar.gz:gambatte_tarball_sha256; do
 	f="$lic/$(echo "$pair" | cut -d: -f2)"
 	eval "want=\${$(echo "$pair" | cut -d: -f3):-}"
 	[ -n "$want" ] || bad "SLOT_PIN has no $(echo "$pair" | cut -d: -f3)"
@@ -230,6 +236,7 @@ for core in $cores; do
 	case $core in
 	mgba) need 'mgba-*.meta' mgba-MPL-2.0.txt ;;
 	gpsp) need 'gpsp-*.tar.gz' 'gpsp-*.meta' gpsp-GPL-2.0.txt ;;
+	gambatte) need 'gambatte-*.tar.gz' 'gambatte-*.meta' gambatte-GPL-2.0.txt ;;
 	fceumm) need fceumm_libretro.so.meta fceumm-src.tar.gz fceumm-src.meta fceumm-GPL-2.0.txt fceumm-headerless-files.txt ;;
 	snes9x) need snes9x_libretro.so.meta snes9x-src.tar.gz snes9x-src.meta snes9x-LICENSE.txt ;;
 	nestopia) need nestopia_libretro.so.meta nestopia-src.tar.gz nestopia-src.meta nestopia-GPL-2.0.txt ;;
