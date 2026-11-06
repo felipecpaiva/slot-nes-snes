@@ -72,9 +72,11 @@ fi
 # Upstream's header index tests (v1.14.0: slot header_index_boot, slot-store header_index) fail on the
 # unpatched tree on this Mac every time, `Here.gb`'s seeded entry is not found after boot; they run in
 # both trees too, and so does upstream's house_label unit test a_game_boy_label_is_the_shape_of_its_own_well
-# (a label shape off by 1.4 percent here, ADR 0110).
-both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:header_index_boot slot-store:header_index slot-ui:lib"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress slot:header_index_boot slot-store:header_index slot-ui:lib"
+# (a label shape off by 1.4 percent here, ADR 0110). Upstream's render_unwrap.rs (v1.13) compares where a
+# cart's pixels fall on the unwrap scene's wall and failed cart_stays_behind_the_front_wall on the macOS
+# runner only (PR 186), so it runs in both trees too.
+both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
 # crate:file is a test file under tests/, crate:lib is the crate's unit tests.
 sel() { if [ "${1#*:}" = lib ]; then echo --lib; else echo "--test ${1#*:}"; fi; }
 up="$(dirname "$1")/slot-upstream"
