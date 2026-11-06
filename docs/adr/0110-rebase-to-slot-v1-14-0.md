@@ -1,6 +1,6 @@
 # 0110. Rebase the patch set onto slot v1.14.0, hide upstream's slot updater and keep the BaseOS check
 
-- Status: Proposed. Amends [0109](0109-rebase-to-slot-v1-9-0.md) when accepted
+- Status: Accepted. Amends [0109](0109-rebase-to-slot-v1-9-0.md) when accepted
 - Date: 2026-11-06
 - Deciders: maintainer (Felipe Paiva)
 - Related: [REBASE.md](../REBASE.md), [ADR 0109](0109-rebase-to-slot-v1-9-0.md), [ADR 0108](0108-console-buttons-on-the-in-game-controls-page.md), patch 0157, `SLOT_PIN`
@@ -52,11 +52,23 @@ fail on pristine v1.14.0 here too (two of them depend on test order in a shared 
 - [x] Patch 0158 hides the slot update row (`update_slot_hidden.rs` tests it, upstream's update tests use a
       fake runner and are untouched).
 - [x] Gambatte host dylib fetched through upstream's task and pinned (`gambatte_host_sha256_arm64`).
-- [ ] Gambatte in the dist: device `.so` from upstream's `core:gambatte`, `gambatte_tarball_sha256` pin,
-      `cores.sha256`, `zip-check.sh`, LICENSING and SUPPLY-CHAIN.
-- [ ] Tests for what upstream now covers (CONTRIBUTING rule), `task test:controls`, device gate on the
-      RG34XXSP, release notes, `VERSION`, tag `v1.14.0-ns.1` (Felipe pushes it).
+- [x] Gambatte and Gamebit's web page in the dist: device `.so` from upstream's `core:gambatte`,
+      `gambatte_tarball_sha256` pin, `cores.sha256`, `zip-check.sh`, LICENSING, SUPPLY-CHAIN, Bun in CI.
+- [x] Device gate on the RG34XXSP (2026-11-06): boots in 3.9 s on the second boot (4.1 s on 1.9.0); the
+      controls check answers every button on all 23 added shelves and on Game Boy and Game Boy Color with
+      Gambatte and mGBA (`docs/device-controls/2026-11-06/`).
+- [ ] CI on PR 186, merge, tag `v1.14.0-ns.1` (Felipe pushes it).
+- [ ] Not tested on the device: Network, Check for Updates showing only BaseOS (needs Wi-Fi, a unit test
+      covers it), Gamebit and Cart Studio with the added shelves.
 - [ ] Why the two Gamebit sound tests flake only in the patched tree under load (they pass one at a time).
+
+## Accepted limit
+
+The first start after updating from 1.9.0 rebuilt the label pictures of all 11,010 games instead of
+converting the old cache (upstream says old caches are converted; ours were not, cause not found). The
+first games tested after that boot did not start for about 10 minutes, then everything was normal and a
+second boot was fast. It is in the release notes under Known limits. Finding why the conversion misses
+our caches is a follow-up.
 
 ## Consequences
 
