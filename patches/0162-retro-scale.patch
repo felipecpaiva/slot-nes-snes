@@ -1,0 +1,1429 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 7 Nov 2026 10:30:52 +0400
+Subject: [PATCH] retro-scale
+
+---
+ crates/slot-ui/src/quick_menu.rs        | 240 ++++++++++++++++++------
+ crates/slot-ui/src/quick_retro.rs       |  97 +++++++---
+ crates/slot/src/app.rs                  | 189 +++++++++++++++++--
+ crates/slot/src/app/retro_scale.rs      |  28 +++
+ crates/slot/src/lib.rs                  |   1 +
+ crates/slot/src/retro_scale.rs          |  34 ++++
+ crates/slot/tests/arcade_screen.rs      |   9 +-
+ crates/slot/tests/atari_screen.rs       |   6 +-
+ crates/slot/tests/fds_screen.rs         |   4 +-
+ crates/slot/tests/lynx_screen.rs        |   3 +-
+ crates/slot/tests/ngp_screen.rs         |   8 +-
+ crates/slot/tests/pcecd_platform.rs     |   2 +-
+ crates/slot/tests/pico8_screen.rs       |   2 +-
+ crates/slot/tests/ps1_screen.rs         |   3 +-
+ crates/slot/tests/quick_retro_shader.rs |   4 +
+ crates/slot/tests/retro_scale.rs        | 180 ++++++++++++++++++
+ crates/slot/tests/s32x_screen.rs        |   9 +-
+ crates/slot/tests/segacd_screen.rs      |   2 +-
+ crates/slot/tests/sgx_platform.rs       |   2 +-
+ crates/slot/tests/sms_region.rs         |   6 +-
+ crates/slot/tests/tg16_screen.rs        |   2 +-
+ crates/slot/tests/vb_screen.rs          |   9 +-
+ crates/slot/tests/wswan_screen.rs       |   2 +-
+ 23 files changed, 729 insertions(+), 113 deletions(-)
+ create mode 100644 crates/slot/src/app/retro_scale.rs
+ create mode 100644 crates/slot/src/retro_scale.rs
+ create mode 100644 crates/slot/tests/retro_scale.rs
+
+diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
+index 3bba82e..1333521 100644
+--- a/crates/slot-ui/src/quick_menu.rs
++++ b/crates/slot-ui/src/quick_menu.rs
+@@ -234,10 +234,33 @@ pub enum QuickRow {
+     NeocdBios,
+     GameL2,
+     GameR2,
++    NesScale,
++    SnesScale,
++    GgScale,
++    SmsScale,
++    MdScale,
++    Ps1Scale,
++    Tg16Scale,
++    WsScale,
++    LynxScale,
++    NgpScale,
++    S32xScale,
++    A2600Scale,
++    A7800Scale,
++    VbScale,
++    NeoGeoScale,
++    FdsScale,
++    Cps1Scale,
++    Pico8Scale,
++    Cps2Scale,
++    SgxScale,
++    PcecdScale,
++    NeocdScale,
++    SegaCdScale,
+ }
+ 
+ impl QuickRow {
+-    pub const ALL: [QuickRow; 225] = [
++    pub const ALL: [QuickRow; 248] = [
+         QuickRow::FastForward,
+         QuickRow::FastForwardSound,
+         QuickRow::Screen,
+@@ -463,6 +486,29 @@ impl QuickRow {
+         QuickRow::NeocdBios,
+         QuickRow::GameL2,
+         QuickRow::GameR2,
++        QuickRow::NesScale,
++        QuickRow::SnesScale,
++        QuickRow::GgScale,
++        QuickRow::SmsScale,
++        QuickRow::MdScale,
++        QuickRow::Ps1Scale,
++        QuickRow::Tg16Scale,
++        QuickRow::WsScale,
++        QuickRow::LynxScale,
++        QuickRow::NgpScale,
++        QuickRow::S32xScale,
++        QuickRow::A2600Scale,
++        QuickRow::A7800Scale,
++        QuickRow::VbScale,
++        QuickRow::NeoGeoScale,
++        QuickRow::FdsScale,
++        QuickRow::Cps1Scale,
++        QuickRow::Pico8Scale,
++        QuickRow::Cps2Scale,
++        QuickRow::SgxScale,
++        QuickRow::PcecdScale,
++        QuickRow::NeocdScale,
++        QuickRow::SegaCdScale,
+     ];
+ 
+     pub const MAIN: [QuickRow; 6] = [
+@@ -794,67 +840,98 @@ impl QuickRow {
+             | QuickRow::Scale
+             | QuickRow::Stretch
+             | QuickRow::Blending => &QuickRow::PLAY_SCREEN,
+-            QuickRow::NesShader | QuickRow::NesPicture | QuickRow::NesPalSpeed => {
+-                &QuickRow::SCREEN_NES
+-            }
+-            QuickRow::SnesShader | QuickRow::SnesPicture | QuickRow::SnesPalSpeed => {
+-                &QuickRow::SCREEN_SNES
+-            }
+-            QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
++            QuickRow::NesShader
++            | QuickRow::NesPicture
++            | QuickRow::NesScale
++            | QuickRow::NesPalSpeed => &QuickRow::SCREEN_NES,
++            QuickRow::SnesShader
++            | QuickRow::SnesPicture
++            | QuickRow::SnesScale
++            | QuickRow::SnesPalSpeed => &QuickRow::SCREEN_SNES,
++            QuickRow::GgShader | QuickRow::GgPicture | QuickRow::GgScale => &QuickRow::SCREEN_GG,
+             QuickRow::SmsShader
+             | QuickRow::SmsPicture
++            | QuickRow::SmsScale
+             | QuickRow::SmsPalSpeed
+             | QuickRow::SmsRegion => &QuickRow::SCREEN_SMS,
+-            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => &QuickRow::SCREEN_MD,
+-            QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
+-                &QuickRow::SCREEN_PS1
++            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdScale | QuickRow::MdPalSpeed => {
++                &QuickRow::SCREEN_MD
++            }
++            QuickRow::Ps1Shader
++            | QuickRow::Ps1Picture
++            | QuickRow::Ps1Scale
++            | QuickRow::Ps1PalSpeed => &QuickRow::SCREEN_PS1,
++            QuickRow::Tg16Shader | QuickRow::Tg16Picture | QuickRow::Tg16Scale => {
++                &QuickRow::SCREEN_TG16
++            }
++            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsScale | QuickRow::WsRefresh => {
++                &QuickRow::SCREEN_WS
+             }
+-            QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
+-            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
+             QuickRow::LynxShader
+             | QuickRow::LynxPicture
++            | QuickRow::LynxScale
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => &QuickRow::SCREEN_LYNX,
+-            QuickRow::NgpShader | QuickRow::NgpPicture => &QuickRow::SCREEN_NGP,
++            QuickRow::NgpShader | QuickRow::NgpPicture | QuickRow::NgpScale => {
++                &QuickRow::SCREEN_NGP
++            }
+             QuickRow::S32xShader
+             | QuickRow::S32xPicture
++            | QuickRow::S32xScale
+             | QuickRow::S32xPalSpeed
+             | QuickRow::S32xRenderer
+             | QuickRow::S32xSoundRate => &QuickRow::SCREEN_S32X,
+             QuickRow::A2600Shader
+             | QuickRow::A2600Picture
++            | QuickRow::A2600Scale
+             | QuickRow::A2600PalSpeed
+             | QuickRow::A2600LeftDifficulty
+             | QuickRow::A2600RightDifficulty
+             | QuickRow::A2600TvType => &QuickRow::SCREEN_A2600,
+             QuickRow::A7800Shader
+             | QuickRow::A7800Picture
++            | QuickRow::A7800Scale
+             | QuickRow::A7800PalSpeed
+             | QuickRow::A7800LeftDifficulty
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios => &QuickRow::SCREEN_A7800,
+             QuickRow::VbShader
+             | QuickRow::VbPicture
++            | QuickRow::VbScale
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
+-            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
+-            QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
+-            QuickRow::Pico8Shader | QuickRow::Pico8Picture => &QuickRow::SCREEN_PICO8,
+-            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+-                &QuickRow::SCREEN_CPS1
++            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture | QuickRow::NeoGeoScale => {
++                &QuickRow::SCREEN_NEOGEO
+             }
+-            QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
+-                &QuickRow::SCREEN_CPS2
++            QuickRow::FdsShader | QuickRow::FdsPicture | QuickRow::FdsScale => {
++                &QuickRow::SCREEN_FDS
+             }
+-            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => &QuickRow::SCREEN_SGX,
+-            QuickRow::PcecdShader | QuickRow::PcecdPicture => &QuickRow::SCREEN_PCECD,
+-            QuickRow::NeocdShader | QuickRow::NeocdPicture | QuickRow::NeocdBios => {
+-                &QuickRow::SCREEN_NEOCD
++            QuickRow::Pico8Shader | QuickRow::Pico8Picture | QuickRow::Pico8Scale => {
++                &QuickRow::SCREEN_PICO8
+             }
+-            QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
+-                &QuickRow::SCREEN_SEGACD
++            QuickRow::Cps1Shader
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps1Scale
++            | QuickRow::Cps1Rotation => &QuickRow::SCREEN_CPS1,
++            QuickRow::Cps2Shader
++            | QuickRow::Cps2Picture
++            | QuickRow::Cps2Scale
++            | QuickRow::Cps2Rotation => &QuickRow::SCREEN_CPS2,
++            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxScale | QuickRow::SgxPad => {
++                &QuickRow::SCREEN_SGX
+             }
++            QuickRow::PcecdShader | QuickRow::PcecdPicture | QuickRow::PcecdScale => {
++                &QuickRow::SCREEN_PCECD
++            }
++            QuickRow::NeocdShader
++            | QuickRow::NeocdPicture
++            | QuickRow::NeocdScale
++            | QuickRow::NeocdBios => &QuickRow::SCREEN_NEOCD,
++            QuickRow::SegaCdShader
++            | QuickRow::SegaCdPicture
++            | QuickRow::SegaCdScale
++            | QuickRow::SegaCdPalSpeed => &QuickRow::SCREEN_SEGACD,
+             _ => &QuickRow::MAIN,
+         }
+     }
+@@ -877,73 +954,100 @@ impl QuickRow {
+             QuickRow::WifiPower => Some(QuickRow::Wifi),
+             QuickRow::ControlsShelf => Some(QuickRow::Controls),
+             QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
+-            QuickRow::NesShader | QuickRow::NesPicture | QuickRow::NesPalSpeed => {
+-                Some(QuickRow::ScreenNes)
+-            }
+-            QuickRow::SnesShader | QuickRow::SnesPicture | QuickRow::SnesPalSpeed => {
+-                Some(QuickRow::ScreenSnes)
++            QuickRow::NesShader
++            | QuickRow::NesPicture
++            | QuickRow::NesScale
++            | QuickRow::NesPalSpeed => Some(QuickRow::ScreenNes),
++            QuickRow::SnesShader
++            | QuickRow::SnesPicture
++            | QuickRow::SnesScale
++            | QuickRow::SnesPalSpeed => Some(QuickRow::ScreenSnes),
++            QuickRow::GgShader | QuickRow::GgPicture | QuickRow::GgScale => {
++                Some(QuickRow::ScreenGg)
+             }
+-            QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
+             QuickRow::SmsShader
+             | QuickRow::SmsPicture
++            | QuickRow::SmsScale
+             | QuickRow::SmsPalSpeed
+             | QuickRow::SmsRegion => Some(QuickRow::ScreenSms),
+-            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => {
++            QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdScale | QuickRow::MdPalSpeed => {
+                 Some(QuickRow::ScreenMd)
+             }
+-            QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
+-                Some(QuickRow::ScreenPs1)
++            QuickRow::Ps1Shader
++            | QuickRow::Ps1Picture
++            | QuickRow::Ps1Scale
++            | QuickRow::Ps1PalSpeed => Some(QuickRow::ScreenPs1),
++            QuickRow::Tg16Shader | QuickRow::Tg16Picture | QuickRow::Tg16Scale => {
++                Some(QuickRow::ScreenTg16)
+             }
+-            QuickRow::Tg16Shader | QuickRow::Tg16Picture => Some(QuickRow::ScreenTg16),
+-            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
++            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsScale | QuickRow::WsRefresh => {
+                 Some(QuickRow::ScreenWs)
+             }
+             QuickRow::LynxShader
+             | QuickRow::LynxPicture
++            | QuickRow::LynxScale
+             | QuickRow::LynxSpeed
+             | QuickRow::LynxFlip => Some(QuickRow::ScreenLynx),
+-            QuickRow::NgpShader | QuickRow::NgpPicture => Some(QuickRow::ScreenNgp),
++            QuickRow::NgpShader | QuickRow::NgpPicture | QuickRow::NgpScale => {
++                Some(QuickRow::ScreenNgp)
++            }
+             QuickRow::S32xShader
+             | QuickRow::S32xPicture
++            | QuickRow::S32xScale
+             | QuickRow::S32xPalSpeed
+             | QuickRow::S32xRenderer
+             | QuickRow::S32xSoundRate => Some(QuickRow::ScreenS32x),
+             QuickRow::A2600Shader
+             | QuickRow::A2600Picture
++            | QuickRow::A2600Scale
+             | QuickRow::A2600PalSpeed
+             | QuickRow::A2600LeftDifficulty
+             | QuickRow::A2600RightDifficulty
+             | QuickRow::A2600TvType => Some(QuickRow::ScreenA2600),
+             QuickRow::A7800Shader
+             | QuickRow::A7800Picture
++            | QuickRow::A7800Scale
+             | QuickRow::A7800PalSpeed
+             | QuickRow::A7800LeftDifficulty
+             | QuickRow::A7800RightDifficulty
+             | QuickRow::A7800Bios => Some(QuickRow::ScreenA7800),
+             QuickRow::VbShader
+             | QuickRow::VbPicture
++            | QuickRow::VbScale
+             | QuickRow::VbSpeed
+             | QuickRow::VbPalette
+             | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
+-            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
+-            QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
+-            QuickRow::Pico8Shader | QuickRow::Pico8Picture => Some(QuickRow::ScreenPico8),
+-            QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
+-                Some(QuickRow::ScreenCps1)
++            QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture | QuickRow::NeoGeoScale => {
++                Some(QuickRow::ScreenNeoGeo)
+             }
+-            QuickRow::Cps2Shader | QuickRow::Cps2Picture | QuickRow::Cps2Rotation => {
+-                Some(QuickRow::ScreenCps2)
++            QuickRow::FdsShader | QuickRow::FdsPicture | QuickRow::FdsScale => {
++                Some(QuickRow::ScreenFds)
+             }
+-            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => {
+-                Some(QuickRow::ScreenSgx)
++            QuickRow::Pico8Shader | QuickRow::Pico8Picture | QuickRow::Pico8Scale => {
++                Some(QuickRow::ScreenPico8)
+             }
+-            QuickRow::PcecdShader | QuickRow::PcecdPicture => Some(QuickRow::ScreenPcecd),
+-            QuickRow::NeocdShader | QuickRow::NeocdPicture | QuickRow::NeocdBios => {
+-                Some(QuickRow::ScreenNeocd)
++            QuickRow::Cps1Shader
++            | QuickRow::Cps1Picture
++            | QuickRow::Cps1Scale
++            | QuickRow::Cps1Rotation => Some(QuickRow::ScreenCps1),
++            QuickRow::Cps2Shader
++            | QuickRow::Cps2Picture
++            | QuickRow::Cps2Scale
++            | QuickRow::Cps2Rotation => Some(QuickRow::ScreenCps2),
++            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxScale | QuickRow::SgxPad => {
++                Some(QuickRow::ScreenSgx)
+             }
+-            QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
+-                Some(QuickRow::ScreenSegaCd)
++            QuickRow::PcecdShader | QuickRow::PcecdPicture | QuickRow::PcecdScale => {
++                Some(QuickRow::ScreenPcecd)
+             }
++            QuickRow::NeocdShader
++            | QuickRow::NeocdPicture
++            | QuickRow::NeocdScale
++            | QuickRow::NeocdBios => Some(QuickRow::ScreenNeocd),
++            QuickRow::SegaCdShader
++            | QuickRow::SegaCdPicture
++            | QuickRow::SegaCdScale
++            | QuickRow::SegaCdPalSpeed => Some(QuickRow::ScreenSegaCd),
+             _ => None,
+         }
+     }
+@@ -1139,9 +1243,33 @@ impl QuickRow {
+             QuickRow::ScreenGb => "Game Boy",
+             QuickRow::GbBezel => "Bezel",
+             QuickRow::GbcBezel => "Bezel",
+-            QuickRow::GbaScale | QuickRow::GbScale | QuickRow::GbcScale | QuickRow::Scale => {
+-                "Scale"
+-            }
++            QuickRow::GbaScale
++            | QuickRow::GbScale
++            | QuickRow::GbcScale
++            | QuickRow::NesScale
++            | QuickRow::SnesScale
++            | QuickRow::GgScale
++            | QuickRow::SmsScale
++            | QuickRow::MdScale
++            | QuickRow::Ps1Scale
++            | QuickRow::Tg16Scale
++            | QuickRow::WsScale
++            | QuickRow::LynxScale
++            | QuickRow::NgpScale
++            | QuickRow::S32xScale
++            | QuickRow::A2600Scale
++            | QuickRow::A7800Scale
++            | QuickRow::VbScale
++            | QuickRow::NeoGeoScale
++            | QuickRow::FdsScale
++            | QuickRow::Cps1Scale
++            | QuickRow::Pico8Scale
++            | QuickRow::Cps2Scale
++            | QuickRow::SgxScale
++            | QuickRow::PcecdScale
++            | QuickRow::NeocdScale
++            | QuickRow::SegaCdScale
++            | QuickRow::Scale => "Scale",
+             QuickRow::GbStretch | QuickRow::GbcStretch | QuickRow::Stretch => "Stretch",
+             QuickRow::GbaBlending
+             | QuickRow::GbcBlending
+diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
+index a6f5b9d..a8ba869 100644
+--- a/crates/slot-ui/src/quick_retro.rs
++++ b/crates/slot-ui/src/quick_retro.rs
+@@ -3,98 +3,145 @@ use crate::toast::Toast;
+ use slot_store::RetroShader;
+ 
+ impl QuickRow {
+-    pub const SCREEN_NES: [QuickRow; 3] = [
++    pub const SCREEN_NES: [QuickRow; 4] = [
+         QuickRow::NesShader,
+         QuickRow::NesPicture,
+         QuickRow::NesPalSpeed,
++        QuickRow::NesScale,
+     ];
+-    pub const SCREEN_SNES: [QuickRow; 3] = [
++    pub const SCREEN_SNES: [QuickRow; 4] = [
+         QuickRow::SnesShader,
+         QuickRow::SnesPicture,
+         QuickRow::SnesPalSpeed,
++        QuickRow::SnesScale,
+     ];
+-    pub const SCREEN_GG: [QuickRow; 2] = [QuickRow::GgShader, QuickRow::GgPicture];
+-    pub const SCREEN_SMS: [QuickRow; 4] = [
++    pub const SCREEN_GG: [QuickRow; 3] =
++        [QuickRow::GgShader, QuickRow::GgPicture, QuickRow::GgScale];
++    pub const SCREEN_SMS: [QuickRow; 5] = [
+         QuickRow::SmsShader,
+         QuickRow::SmsPicture,
+         QuickRow::SmsPalSpeed,
+         QuickRow::SmsRegion,
++        QuickRow::SmsScale,
+     ];
+-    pub const SCREEN_MD: [QuickRow; 3] = [
++    pub const SCREEN_MD: [QuickRow; 4] = [
+         QuickRow::MdShader,
+         QuickRow::MdPicture,
+         QuickRow::MdPalSpeed,
++        QuickRow::MdScale,
+     ];
+-    pub const SCREEN_PS1: [QuickRow; 3] = [
++    pub const SCREEN_PS1: [QuickRow; 4] = [
+         QuickRow::Ps1Shader,
+         QuickRow::Ps1Picture,
+         QuickRow::Ps1PalSpeed,
++        QuickRow::Ps1Scale,
+     ];
+-    pub const SCREEN_TG16: [QuickRow; 2] = [QuickRow::Tg16Shader, QuickRow::Tg16Picture];
+-    pub const SCREEN_WS: [QuickRow; 3] =
+-        [QuickRow::WsShader, QuickRow::WsPicture, QuickRow::WsRefresh];
+-    pub const SCREEN_LYNX: [QuickRow; 4] = [
++    pub const SCREEN_TG16: [QuickRow; 3] = [
++        QuickRow::Tg16Shader,
++        QuickRow::Tg16Picture,
++        QuickRow::Tg16Scale,
++    ];
++    pub const SCREEN_WS: [QuickRow; 4] = [
++        QuickRow::WsShader,
++        QuickRow::WsPicture,
++        QuickRow::WsRefresh,
++        QuickRow::WsScale,
++    ];
++    pub const SCREEN_LYNX: [QuickRow; 5] = [
+         QuickRow::LynxShader,
+         QuickRow::LynxPicture,
+         QuickRow::LynxSpeed,
+         QuickRow::LynxFlip,
++        QuickRow::LynxScale,
+     ];
+-    pub const SCREEN_NGP: [QuickRow; 2] = [QuickRow::NgpShader, QuickRow::NgpPicture];
+-    pub const SCREEN_S32X: [QuickRow; 5] = [
++    pub const SCREEN_NGP: [QuickRow; 3] = [
++        QuickRow::NgpShader,
++        QuickRow::NgpPicture,
++        QuickRow::NgpScale,
++    ];
++    pub const SCREEN_S32X: [QuickRow; 6] = [
+         QuickRow::S32xShader,
+         QuickRow::S32xPicture,
+         QuickRow::S32xPalSpeed,
+         QuickRow::S32xRenderer,
+         QuickRow::S32xSoundRate,
++        QuickRow::S32xScale,
+     ];
+-    pub const SCREEN_A2600: [QuickRow; 6] = [
++    pub const SCREEN_A2600: [QuickRow; 7] = [
+         QuickRow::A2600Shader,
+         QuickRow::A2600Picture,
+         QuickRow::A2600PalSpeed,
+         QuickRow::A2600LeftDifficulty,
+         QuickRow::A2600RightDifficulty,
+         QuickRow::A2600TvType,
++        QuickRow::A2600Scale,
+     ];
+-    pub const SCREEN_A7800: [QuickRow; 6] = [
++    pub const SCREEN_A7800: [QuickRow; 7] = [
+         QuickRow::A7800Shader,
+         QuickRow::A7800Picture,
+         QuickRow::A7800PalSpeed,
+         QuickRow::A7800LeftDifficulty,
+         QuickRow::A7800RightDifficulty,
+         QuickRow::A7800Bios,
++        QuickRow::A7800Scale,
+     ];
+-    pub const SCREEN_VB: [QuickRow; 5] = [
++    pub const SCREEN_VB: [QuickRow; 6] = [
+         QuickRow::VbShader,
+         QuickRow::VbPicture,
+         QuickRow::VbSpeed,
+         QuickRow::VbPalette,
+         QuickRow::VbRightPad,
++        QuickRow::VbScale,
++    ];
++    pub const SCREEN_NEOGEO: [QuickRow; 3] = [
++        QuickRow::NeoGeoShader,
++        QuickRow::NeoGeoPicture,
++        QuickRow::NeoGeoScale,
+     ];
+-    pub const SCREEN_NEOGEO: [QuickRow; 2] = [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture];
+-    pub const SCREEN_FDS: [QuickRow; 2] = [QuickRow::FdsShader, QuickRow::FdsPicture];
+-    pub const SCREEN_CPS1: [QuickRow; 3] = [
++    pub const SCREEN_FDS: [QuickRow; 3] = [
++        QuickRow::FdsShader,
++        QuickRow::FdsPicture,
++        QuickRow::FdsScale,
++    ];
++    pub const SCREEN_CPS1: [QuickRow; 4] = [
+         QuickRow::Cps1Shader,
+         QuickRow::Cps1Picture,
+         QuickRow::Cps1Rotation,
++        QuickRow::Cps1Scale,
++    ];
++    pub const SCREEN_PICO8: [QuickRow; 3] = [
++        QuickRow::Pico8Shader,
++        QuickRow::Pico8Picture,
++        QuickRow::Pico8Scale,
+     ];
+-    pub const SCREEN_PICO8: [QuickRow; 2] = [QuickRow::Pico8Shader, QuickRow::Pico8Picture];
+-    pub const SCREEN_CPS2: [QuickRow; 3] = [
++    pub const SCREEN_CPS2: [QuickRow; 4] = [
+         QuickRow::Cps2Shader,
+         QuickRow::Cps2Picture,
+         QuickRow::Cps2Rotation,
++        QuickRow::Cps2Scale,
++    ];
++    pub const SCREEN_SGX: [QuickRow; 4] = [
++        QuickRow::SgxShader,
++        QuickRow::SgxPicture,
++        QuickRow::SgxPad,
++        QuickRow::SgxScale,
++    ];
++    pub const SCREEN_PCECD: [QuickRow; 3] = [
++        QuickRow::PcecdShader,
++        QuickRow::PcecdPicture,
++        QuickRow::PcecdScale,
+     ];
+-    pub const SCREEN_SGX: [QuickRow; 3] =
+-        [QuickRow::SgxShader, QuickRow::SgxPicture, QuickRow::SgxPad];
+-    pub const SCREEN_PCECD: [QuickRow; 2] = [QuickRow::PcecdShader, QuickRow::PcecdPicture];
+-    pub const SCREEN_NEOCD: [QuickRow; 3] = [
++    pub const SCREEN_NEOCD: [QuickRow; 4] = [
+         QuickRow::NeocdShader,
+         QuickRow::NeocdPicture,
+         QuickRow::NeocdBios,
++        QuickRow::NeocdScale,
+     ];
+-    pub const SCREEN_SEGACD: [QuickRow; 3] = [
++    pub const SCREEN_SEGACD: [QuickRow; 4] = [
+         QuickRow::SegaCdShader,
+         QuickRow::SegaCdPicture,
+         QuickRow::SegaCdPalSpeed,
++        QuickRow::SegaCdScale,
+     ];
+ }
+ 
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index d06f94f..a904d71 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -9,6 +9,7 @@ mod neocd_bios;
+ mod pcecd_bios;
+ mod ps1_discs;
+ mod segacd_bios;
++mod retro_scale;
+ mod shelf_order;
+ mod silent_start;
+ mod start_guard;
+@@ -784,6 +785,7 @@ pub struct App {
+     sms_region: crate::sms_region::Region,
+     cpu_mode: crate::cpu_governor::CpuMode,
+     shelf_order: crate::shelf_order::ShelfOrder,
++    retro_scale: std::collections::HashMap<Platform, Scale>,
+     s32x_speed: crate::s32x_speed::S32xSpeed,
+     atari: crate::atari_switches::AtariSwitches,
+     vb_screen: crate::vb_screen::VbScreen,
+@@ -1138,6 +1140,7 @@ impl App {
+             sms_region: crate::sms_region::Region::Auto,
+             cpu_mode: crate::cpu_governor::CpuMode::Performance,
+             shelf_order: crate::shelf_order::ShelfOrder::Classic,
++            retro_scale: std::collections::HashMap::new(),
+             s32x_speed: crate::s32x_speed::S32xSpeed::default(),
+             atari: crate::atari_switches::AtariSwitches::default(),
+             vb_screen: crate::vb_screen::VbScreen::default(),
+@@ -1163,6 +1166,7 @@ impl App {
+         crate::boot_time::mark("scan");
+         let mut app = App::new(carts);
+         app.read_shelf_order(root);
++        app.read_retro_scale(root);
+         app.root = Some(root.to_path_buf());
+         app.loading = loading;
+         app.state = read_slot_state(root);
+@@ -1781,6 +1785,29 @@ impl App {
+             (QuickRow::Scale, Platform::Gba) => QuickRow::GbaScale,
+             (QuickRow::Scale, Platform::Gb) => QuickRow::GbScale,
+             (QuickRow::Scale, Platform::Gbc) => QuickRow::GbcScale,
++            (QuickRow::Scale, Platform::Nes) => QuickRow::NesScale,
++            (QuickRow::Scale, Platform::Snes) => QuickRow::SnesScale,
++            (QuickRow::Scale, Platform::Gg) => QuickRow::GgScale,
++            (QuickRow::Scale, Platform::Sms) => QuickRow::SmsScale,
++            (QuickRow::Scale, Platform::Md) => QuickRow::MdScale,
++            (QuickRow::Scale, Platform::Ps1) => QuickRow::Ps1Scale,
++            (QuickRow::Scale, Platform::Tg16) => QuickRow::Tg16Scale,
++            (QuickRow::Scale, Platform::Ws) => QuickRow::WsScale,
++            (QuickRow::Scale, Platform::Lynx) => QuickRow::LynxScale,
++            (QuickRow::Scale, Platform::Ngp) => QuickRow::NgpScale,
++            (QuickRow::Scale, Platform::S32x) => QuickRow::S32xScale,
++            (QuickRow::Scale, Platform::A2600) => QuickRow::A2600Scale,
++            (QuickRow::Scale, Platform::A7800) => QuickRow::A7800Scale,
++            (QuickRow::Scale, Platform::Vb) => QuickRow::VbScale,
++            (QuickRow::Scale, Platform::NeoGeo) => QuickRow::NeoGeoScale,
++            (QuickRow::Scale, Platform::Fds) => QuickRow::FdsScale,
++            (QuickRow::Scale, Platform::Cps1) => QuickRow::Cps1Scale,
++            (QuickRow::Scale, Platform::Pico8) => QuickRow::Pico8Scale,
++            (QuickRow::Scale, Platform::Cps2) => QuickRow::Cps2Scale,
++            (QuickRow::Scale, Platform::Sgx) => QuickRow::SgxScale,
++            (QuickRow::Scale, Platform::Pcecd) => QuickRow::PcecdScale,
++            (QuickRow::Scale, Platform::Neocd) => QuickRow::NeocdScale,
++            (QuickRow::Scale, Platform::SegaCd) => QuickRow::SegaCdScale,
+             (QuickRow::Stretch, Platform::Gb) => QuickRow::GbStretch,
+             (QuickRow::Stretch, Platform::Gbc) => QuickRow::GbcStretch,
+             (QuickRow::PlayBrightness, _) => QuickRow::Brightness,
+@@ -1809,6 +1836,29 @@ impl App {
+             QuickRow::GbaScale => Some(scale_value(self.resolved_scale(Platform::Gba))),
+             QuickRow::GbScale => Some(scale_value(self.resolved_scale(Platform::Gb))),
+             QuickRow::GbcScale => Some(scale_value(self.resolved_scale(Platform::Gbc))),
++            QuickRow::NesScale => Some(scale_value(self.resolved_scale(Platform::Nes))),
++            QuickRow::SnesScale => Some(scale_value(self.resolved_scale(Platform::Snes))),
++            QuickRow::GgScale => Some(scale_value(self.resolved_scale(Platform::Gg))),
++            QuickRow::SmsScale => Some(scale_value(self.resolved_scale(Platform::Sms))),
++            QuickRow::MdScale => Some(scale_value(self.resolved_scale(Platform::Md))),
++            QuickRow::Ps1Scale => Some(scale_value(self.resolved_scale(Platform::Ps1))),
++            QuickRow::Tg16Scale => Some(scale_value(self.resolved_scale(Platform::Tg16))),
++            QuickRow::WsScale => Some(scale_value(self.resolved_scale(Platform::Ws))),
++            QuickRow::LynxScale => Some(scale_value(self.resolved_scale(Platform::Lynx))),
++            QuickRow::NgpScale => Some(scale_value(self.resolved_scale(Platform::Ngp))),
++            QuickRow::S32xScale => Some(scale_value(self.resolved_scale(Platform::S32x))),
++            QuickRow::A2600Scale => Some(scale_value(self.resolved_scale(Platform::A2600))),
++            QuickRow::A7800Scale => Some(scale_value(self.resolved_scale(Platform::A7800))),
++            QuickRow::VbScale => Some(scale_value(self.resolved_scale(Platform::Vb))),
++            QuickRow::NeoGeoScale => Some(scale_value(self.resolved_scale(Platform::NeoGeo))),
++            QuickRow::FdsScale => Some(scale_value(self.resolved_scale(Platform::Fds))),
++            QuickRow::Cps1Scale => Some(scale_value(self.resolved_scale(Platform::Cps1))),
++            QuickRow::Pico8Scale => Some(scale_value(self.resolved_scale(Platform::Pico8))),
++            QuickRow::Cps2Scale => Some(scale_value(self.resolved_scale(Platform::Cps2))),
++            QuickRow::SgxScale => Some(scale_value(self.resolved_scale(Platform::Sgx))),
++            QuickRow::PcecdScale => Some(scale_value(self.resolved_scale(Platform::Pcecd))),
++            QuickRow::NeocdScale => Some(scale_value(self.resolved_scale(Platform::Neocd))),
++            QuickRow::SegaCdScale => Some(scale_value(self.resolved_scale(Platform::SegaCd))),
+             QuickRow::GbStretch => Some(stretch_value(self.resolved_stretch(Platform::Gb))),
+             QuickRow::GbcStretch => Some(stretch_value(self.resolved_stretch(Platform::Gbc))),
+             QuickRow::GbaBlending => Some(blending_value(self.state.blending_gba)),
+@@ -2469,6 +2519,29 @@ impl App {
+             (QuickRow::GbaScale, Platform::Gba),
+             (QuickRow::GbScale, Platform::Gb),
+             (QuickRow::GbcScale, Platform::Gbc),
++            (QuickRow::NesScale, Platform::Nes),
++            (QuickRow::SnesScale, Platform::Snes),
++            (QuickRow::GgScale, Platform::Gg),
++            (QuickRow::SmsScale, Platform::Sms),
++            (QuickRow::MdScale, Platform::Md),
++            (QuickRow::Ps1Scale, Platform::Ps1),
++            (QuickRow::Tg16Scale, Platform::Tg16),
++            (QuickRow::WsScale, Platform::Ws),
++            (QuickRow::LynxScale, Platform::Lynx),
++            (QuickRow::NgpScale, Platform::Ngp),
++            (QuickRow::S32xScale, Platform::S32x),
++            (QuickRow::A2600Scale, Platform::A2600),
++            (QuickRow::A7800Scale, Platform::A7800),
++            (QuickRow::VbScale, Platform::Vb),
++            (QuickRow::NeoGeoScale, Platform::NeoGeo),
++            (QuickRow::FdsScale, Platform::Fds),
++            (QuickRow::Cps1Scale, Platform::Cps1),
++            (QuickRow::Pico8Scale, Platform::Pico8),
++            (QuickRow::Cps2Scale, Platform::Cps2),
++            (QuickRow::SgxScale, Platform::Sgx),
++            (QuickRow::PcecdScale, Platform::Pcecd),
++            (QuickRow::NeocdScale, Platform::Neocd),
++            (QuickRow::SegaCdScale, Platform::SegaCd),
+         ] {
+             if self.scale_choices(platform).len() < 2 {
+                 hidden.push(row);
+@@ -2818,7 +2891,8 @@ impl App {
+     }
+ 
+     fn picture_size(&self, platform: Platform, mode: VideoMode) -> (u32, u32) {
+-        crate::platform_video::shown(platform, self.frame_w, mode)
++        let playing = matches!(self.phase, Phase::Playing { .. }) && self.playing_platform() == platform;
++        crate::platform_video::shown(platform, if playing { self.frame_w } else { 0 }, mode)
+     }
+ 
+     fn picture(&self) -> (Sizing, [f32; 4]) {
+@@ -2838,7 +2912,7 @@ impl App {
+             Platform::Gba | Platform::Gbav => self.state.scale_gba,
+             Platform::Gb => self.state.scale_gb,
+             Platform::Gbc => self.state.scale_gbc,
+-            _ => Scale::default(),
++            _ => self.retro_scale.get(&platform).copied().unwrap_or_default(),
+         }
+     }
+ 
+@@ -2859,7 +2933,7 @@ impl App {
+ 
+     fn layout_of(&self, platform: Platform, sizing: Sizing, source: [f32; 4]) -> GameLayout {
+         let picture = match source == WHOLE_TEXTURE {
+-            true => self.core.canvas(platform),
++            true => self.canvas_for(platform),
+             false => self.picture_size(platform, VideoMode::Actual),
+         };
+         slot_gfx::game_layout(self.panel, picture, sizing)
+@@ -2875,7 +2949,7 @@ impl App {
+         let (sizing, source) = video_mode::picture_for(
+             platform,
+             self.picture_size(platform, mode),
+-            self.core.canvas(platform),
++            self.canvas_for(platform),
+             mode,
+             scale,
+             stretch,
+@@ -2884,7 +2958,7 @@ impl App {
+         let (_, crop) = video_mode::picture_for(
+             platform,
+             self.picture_size(platform, VideoMode::Actual),
+-            self.core.canvas(platform),
++            self.canvas_for(platform),
+             VideoMode::Actual,
+             Scale::Integer,
+             stretch,
+@@ -2912,9 +2986,6 @@ impl App {
+     }
+ 
+     pub fn scale_choices(&self, platform: Platform) -> Vec<Scale> {
+-        if !platform.classic() {
+-            return Vec::new();
+-        }
+         let mut seen = Vec::new();
+         let mut choices = Vec::new();
+         for &scale in Self::scale_candidates(platform) {
+@@ -2948,9 +3019,6 @@ impl App {
+     }
+ 
+     pub fn resolved_scale(&self, platform: Platform) -> Scale {
+-        if !platform.classic() {
+-            return Scale::default();
+-        }
+         let stored = self.scale_of(platform);
+         let shown = self.shown_as(platform, VideoMode::Actual, stored, Stretch::Classic);
+         self.scale_choices(platform)
+@@ -3004,7 +3072,7 @@ impl App {
+             Platform::Gba | Platform::Gbav => self.state.scale_gba = to,
+             Platform::Gb => self.state.scale_gb = to,
+             Platform::Gbc => self.state.scale_gbc = to,
+-            _ => {}
++            _ => self.set_retro_scale(platform, to),
+         }
+     }
+ 
+@@ -4401,6 +4469,29 @@ impl App {
+             | QuickRow::GbaScale
+             | QuickRow::GbScale
+             | QuickRow::GbcScale
++            | QuickRow::NesScale
++            | QuickRow::SnesScale
++            | QuickRow::GgScale
++            | QuickRow::SmsScale
++            | QuickRow::MdScale
++            | QuickRow::Ps1Scale
++            | QuickRow::Tg16Scale
++            | QuickRow::WsScale
++            | QuickRow::LynxScale
++            | QuickRow::NgpScale
++            | QuickRow::S32xScale
++            | QuickRow::A2600Scale
++            | QuickRow::A7800Scale
++            | QuickRow::VbScale
++            | QuickRow::NeoGeoScale
++            | QuickRow::FdsScale
++            | QuickRow::Cps1Scale
++            | QuickRow::Pico8Scale
++            | QuickRow::Cps2Scale
++            | QuickRow::SgxScale
++            | QuickRow::PcecdScale
++            | QuickRow::NeocdScale
++            | QuickRow::SegaCdScale
+             | QuickRow::GbStretch
+             | QuickRow::GbcStretch
+             | QuickRow::GbaBlending
+@@ -4676,10 +4767,59 @@ impl App {
+             self.persist();
+             return;
+         }
+-        if let QuickRow::GbaScale | QuickRow::GbScale | QuickRow::GbcScale = row {
++        if let QuickRow::GbaScale
++        | QuickRow::GbScale
++        | QuickRow::GbcScale
++        | QuickRow::NesScale
++        | QuickRow::SnesScale
++        | QuickRow::GgScale
++        | QuickRow::SmsScale
++        | QuickRow::MdScale
++        | QuickRow::Ps1Scale
++        | QuickRow::Tg16Scale
++        | QuickRow::WsScale
++        | QuickRow::LynxScale
++        | QuickRow::NgpScale
++        | QuickRow::S32xScale
++        | QuickRow::A2600Scale
++        | QuickRow::A7800Scale
++        | QuickRow::VbScale
++        | QuickRow::NeoGeoScale
++        | QuickRow::FdsScale
++        | QuickRow::Cps1Scale
++        | QuickRow::Pico8Scale
++        | QuickRow::Cps2Scale
++        | QuickRow::SgxScale
++        | QuickRow::PcecdScale
++        | QuickRow::NeocdScale
++        | QuickRow::SegaCdScale = row
++        {
+             let platform = match row {
+                 QuickRow::GbaScale => Platform::Gba,
+                 QuickRow::GbScale => Platform::Gb,
++                QuickRow::NesScale => Platform::Nes,
++                QuickRow::SnesScale => Platform::Snes,
++                QuickRow::GgScale => Platform::Gg,
++                QuickRow::SmsScale => Platform::Sms,
++                QuickRow::MdScale => Platform::Md,
++                QuickRow::Ps1Scale => Platform::Ps1,
++                QuickRow::Tg16Scale => Platform::Tg16,
++                QuickRow::WsScale => Platform::Ws,
++                QuickRow::LynxScale => Platform::Lynx,
++                QuickRow::NgpScale => Platform::Ngp,
++                QuickRow::S32xScale => Platform::S32x,
++                QuickRow::A2600Scale => Platform::A2600,
++                QuickRow::A7800Scale => Platform::A7800,
++                QuickRow::VbScale => Platform::Vb,
++                QuickRow::NeoGeoScale => Platform::NeoGeo,
++                QuickRow::FdsScale => Platform::Fds,
++                QuickRow::Cps1Scale => Platform::Cps1,
++                QuickRow::Pico8Scale => Platform::Pico8,
++                QuickRow::Cps2Scale => Platform::Cps2,
++                QuickRow::SgxScale => Platform::Sgx,
++                QuickRow::PcecdScale => Platform::Pcecd,
++                QuickRow::NeocdScale => Platform::Neocd,
++                QuickRow::SegaCdScale => Platform::SegaCd,
+                 _ => Platform::Gbc,
+             };
+             self.cycle_scale(platform, right);
+@@ -4939,6 +5079,29 @@ impl App {
+             | QuickRow::GbaScale
+             | QuickRow::GbScale
+             | QuickRow::GbcScale
++            | QuickRow::NesScale
++            | QuickRow::SnesScale
++            | QuickRow::GgScale
++            | QuickRow::SmsScale
++            | QuickRow::MdScale
++            | QuickRow::Ps1Scale
++            | QuickRow::Tg16Scale
++            | QuickRow::WsScale
++            | QuickRow::LynxScale
++            | QuickRow::NgpScale
++            | QuickRow::S32xScale
++            | QuickRow::A2600Scale
++            | QuickRow::A7800Scale
++            | QuickRow::VbScale
++            | QuickRow::NeoGeoScale
++            | QuickRow::FdsScale
++            | QuickRow::Cps1Scale
++            | QuickRow::Pico8Scale
++            | QuickRow::Cps2Scale
++            | QuickRow::SgxScale
++            | QuickRow::PcecdScale
++            | QuickRow::NeocdScale
++            | QuickRow::SegaCdScale
+             | QuickRow::GbStretch
+             | QuickRow::GbcStretch
+             | QuickRow::Blending
+diff --git a/crates/slot/src/app/retro_scale.rs b/crates/slot/src/app/retro_scale.rs
+new file mode 100644
+index 0000000..8d3d217
+--- /dev/null
++++ b/crates/slot/src/app/retro_scale.rs
+@@ -0,0 +1,28 @@
++use std::path::Path;
++
++use slot_store::{Core, Platform, Scale};
++
++use super::App;
++
++impl App {
++    pub(super) fn read_retro_scale(&mut self, root: &Path) {
++        self.retro_scale = crate::retro_scale::read(root);
++    }
++
++    pub(super) fn set_retro_scale(&mut self, platform: Platform, scale: Scale) {
++        self.retro_scale.insert(platform, scale);
++        if let Some(root) = &self.root {
++            crate::retro_scale::save(root, platform, scale, &self.card_writes);
++        }
++    }
++
++    /// The canvas a shelf's picture is placed on: the playing core's while that shelf plays, its default
++    /// core's otherwise (the Screen pages size every shelf's choices from the shelf).
++    pub(super) fn canvas_for(&self, platform: Platform) -> (u32, u32) {
++        if matches!(self.phase, super::Phase::Playing { .. }) && self.playing_platform() == platform
++        {
++            return self.core.game_canvas(platform, self.vertical);
++        }
++        Core::pair(platform)[0].game_canvas(platform, false)
++    }
++}
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 487a0ec..feed21d 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -71,6 +71,7 @@ pub mod print_scene;
+ pub mod ps1_load;
+ pub mod resample;
+ pub mod retro_quick;
++pub mod retro_scale;
+ pub mod rewind;
+ pub mod romm;
+ pub mod root;
+diff --git a/crates/slot/src/retro_scale.rs b/crates/slot/src/retro_scale.rs
+new file mode 100644
+index 0000000..abc3ae0
+--- /dev/null
++++ b/crates/slot/src/retro_scale.rs
+@@ -0,0 +1,34 @@
++use std::collections::HashMap;
++use std::path::Path;
++
++use slot_store::{ini, Platform, Scale};
++
++use crate::card_log::CardWrites;
++
++pub const RETRO_SCALE_FILE: &str = "Config/retro_scale.txt";
++
++/// Scale per added shelf, one `FOLDER=scale` line each, kept out of slot.state so upstream's state file and
++/// the tests that hold it byte for byte stay as they are (ADR 0110).
++pub fn read(root: &Path) -> HashMap<Platform, Scale> {
++    let mut out = HashMap::new();
++    for (key, value) in ini::read(root, RETRO_SCALE_FILE) {
++        let platform = Platform::SHELVES
++            .into_iter()
++            .find(|p| !p.classic() && p.dir_name() == key);
++        match (platform, Scale::parse(&value)) {
++            (Some(platform), Some(scale)) => {
++                out.insert(platform, scale);
++            }
++            _ => eprintln!("slot: retro scale: ignoring {key}={value}"),
++        }
++    }
++    out
++}
++
++pub fn save(root: &Path, platform: Platform, scale: Scale, writes: &CardWrites) {
++    let written = ini::write(root, RETRO_SCALE_FILE, platform.dir_name(), scale.name());
++    if let Err(e) = &written {
++        eprintln!("slot: retro scale: could not write retro_scale.txt: {e}");
++    }
++    writes.wrote("retro_scale.txt", &written);
++}
+diff --git a/crates/slot/tests/arcade_screen.rs b/crates/slot/tests/arcade_screen.rs
+index 060cc44..1a1da81 100644
+--- a/crates/slot/tests/arcade_screen.rs
++++ b/crates/slot/tests/arcade_screen.rs
+@@ -31,14 +31,19 @@ fn each_arcade_board_has_its_own_screen_section_after_the_virtual_boy() {
+     assert_eq!(QuickRow::ScreenCps2.label(), "CPS2");
+     assert_eq!(
+         QuickRow::SCREEN_NEOGEO,
+-        [QuickRow::NeoGeoShader, QuickRow::NeoGeoPicture]
++        [
++            QuickRow::NeoGeoShader,
++            QuickRow::NeoGeoPicture,
++            QuickRow::NeoGeoScale
++        ]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_CPS1,
+         [
+             QuickRow::Cps1Shader,
+             QuickRow::Cps1Picture,
+-            QuickRow::Cps1Rotation
++            QuickRow::Cps1Rotation,
++            QuickRow::Cps1Scale
+         ]
+     );
+     assert_eq!(QuickRow::Cps2Rotation.label(), "Vertical Games");
+diff --git a/crates/slot/tests/atari_screen.rs b/crates/slot/tests/atari_screen.rs
+index eea8b1e..13458f5 100644
+--- a/crates/slot/tests/atari_screen.rs
++++ b/crates/slot/tests/atari_screen.rs
+@@ -57,7 +57,8 @@ fn the_atari_sections_follow_the_32x_in_the_screen_list_with_six_rows_each() {
+             "PAL Speed",
+             "Left Difficulty",
+             "Right Difficulty",
+-            "TV Type"
++            "TV Type",
++            "Scale"
+         ]
+     );
+     assert_eq!(
+@@ -68,7 +69,8 @@ fn the_atari_sections_follow_the_32x_in_the_screen_list_with_six_rows_each() {
+             "PAL Speed",
+             "Left Difficulty",
+             "Right Difficulty",
+-            "BIOS"
++            "BIOS",
++            "Scale"
+         ]
+     );
+     for (section, rows) in [
+diff --git a/crates/slot/tests/fds_screen.rs b/crates/slot/tests/fds_screen.rs
+index 1b0aa59..99675e4 100644
+--- a/crates/slot/tests/fds_screen.rs
++++ b/crates/slot/tests/fds_screen.rs
+@@ -47,11 +47,11 @@ fn the_disk_system_follows_cps2_with_the_nes_rows_but_no_pal_speed() {
+     assert_eq!(QuickRow::ScreenFds.child(), Some(QuickRow::FdsShader));
+     assert_eq!(
+         QuickRow::SCREEN_FDS.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Scale"]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_NES.map(QuickRow::label),
+-        ["Shader", "Picture", "PAL Speed"]
++        ["Shader", "Picture", "PAL Speed", "Scale"]
+     );
+     for row in QuickRow::SCREEN_FDS {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenFds));
+diff --git a/crates/slot/tests/lynx_screen.rs b/crates/slot/tests/lynx_screen.rs
+index ec35755..4ad0f03 100644
+--- a/crates/slot/tests/lynx_screen.rs
++++ b/crates/slot/tests/lynx_screen.rs
+@@ -63,7 +63,8 @@ fn lynx_follows_wonderswan_in_the_screen_list_and_opens_its_own_section() {
+             QuickRow::LynxShader,
+             QuickRow::LynxPicture,
+             QuickRow::LynxSpeed,
+-            QuickRow::LynxFlip
++            QuickRow::LynxFlip,
++            QuickRow::LynxScale
+         ]
+     );
+     for row in QuickRow::SCREEN_LYNX {
+diff --git a/crates/slot/tests/ngp_screen.rs b/crates/slot/tests/ngp_screen.rs
+index 154ccd1..5a10968 100644
+--- a/crates/slot/tests/ngp_screen.rs
++++ b/crates/slot/tests/ngp_screen.rs
+@@ -42,11 +42,15 @@ fn the_neogeo_pocket_follows_lynx_in_the_screen_list_with_a_shader_and_picture_s
+     assert_eq!(QuickRow::ScreenNgp.child(), Some(QuickRow::NgpShader));
+     assert_eq!(
+         QuickRow::SCREEN_NGP,
+-        [QuickRow::NgpShader, QuickRow::NgpPicture]
++        [
++            QuickRow::NgpShader,
++            QuickRow::NgpPicture,
++            QuickRow::NgpScale
++        ]
+     );
+     assert_eq!(
+         QuickRow::SCREEN_NGP.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Scale"]
+     );
+     for row in QuickRow::SCREEN_NGP {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenNgp));
+diff --git a/crates/slot/tests/pcecd_platform.rs b/crates/slot/tests/pcecd_platform.rs
+index 7f76d84..51adb33 100644
+--- a/crates/slot/tests/pcecd_platform.rs
++++ b/crates/slot/tests/pcecd_platform.rs
+@@ -130,7 +130,7 @@ fn the_pc_engine_cd_follows_the_supergrafx_in_the_screen_list_with_shader_and_pi
+     assert_eq!(QuickRow::ScreenPcecd.child(), Some(QuickRow::PcecdShader));
+     assert_eq!(
+         QuickRow::SCREEN_PCECD.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Scale"]
+     );
+     for row in QuickRow::SCREEN_PCECD {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenPcecd));
+diff --git a/crates/slot/tests/pico8_screen.rs b/crates/slot/tests/pico8_screen.rs
+index 6ea881b..d3b3177 100644
+--- a/crates/slot/tests/pico8_screen.rs
++++ b/crates/slot/tests/pico8_screen.rs
+@@ -49,7 +49,7 @@ fn pico_8_has_a_screen_section_with_shader_and_picture_after_the_disk_system() {
+     assert_eq!(QuickRow::ScreenPico8.child(), Some(QuickRow::Pico8Shader));
+     assert_eq!(
+         QuickRow::SCREEN_PICO8.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Scale"]
+     );
+     for row in QuickRow::SCREEN_PICO8 {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenPico8));
+diff --git a/crates/slot/tests/ps1_screen.rs b/crates/slot/tests/ps1_screen.rs
+index 1626ce5..5557f3c 100644
+--- a/crates/slot/tests/ps1_screen.rs
++++ b/crates/slot/tests/ps1_screen.rs
+@@ -45,7 +45,8 @@ fn playstation_follows_mega_drive_in_the_screen_list_and_opens_its_own_section()
+         [
+             QuickRow::Ps1Shader,
+             QuickRow::Ps1Picture,
+-            QuickRow::Ps1PalSpeed
++            QuickRow::Ps1PalSpeed,
++            QuickRow::Ps1Scale
+         ]
+     );
+     for row in QuickRow::SCREEN_PS1 {
+diff --git a/crates/slot/tests/quick_retro_shader.rs b/crates/slot/tests/quick_retro_shader.rs
+index e5da7fd..7d5f20a 100644
+--- a/crates/slot/tests/quick_retro_shader.rs
++++ b/crates/slot/tests/quick_retro_shader.rs
+@@ -135,6 +135,10 @@ fn the_nes_and_snes_pages_hold_shader_picture_and_pal_speed_rows_and_back_out_to
+             "{console:?}"
+         );
+         press(&mut app, Btn::Down);
++        // Scale closes the page where this panel gives the shelf more than one choice, and hides otherwise.
++        if app.quick_menu().map(QuickRow::label) == Some("Scale") {
++            press(&mut app, Btn::Down);
++        }
+         assert_eq!(app.quick_menu(), Some(row), "{console:?}");
+         press(&mut app, Btn::B);
+         assert_eq!(app.quick_menu(), Some(console), "{console:?}");
+diff --git a/crates/slot/tests/retro_scale.rs b/crates/slot/tests/retro_scale.rs
+new file mode 100644
+index 0000000..bfe98ff
+--- /dev/null
++++ b/crates/slot/tests/retro_scale.rs
+@@ -0,0 +1,180 @@
++//! Scale on the added shelves (ADR 0110): upstream's Scale row, one per shelf, saved in its own file.
++
++mod common;
++
++use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
++use slot::app::{App, Phase};
++use slot_input::{Action, Btn};
++use slot_store::{read_slot_state, write_slot_state, Platform, Scale, SlotState};
++use slot_ui::{QuickRow, QuickValue};
++use tempfile::TempDir;
++
++const PAGES: [(Platform, QuickRow, QuickRow); 23] = [
++    (Platform::Nes, QuickRow::NesScale, QuickRow::ScreenNes),
++    (Platform::Snes, QuickRow::SnesScale, QuickRow::ScreenSnes),
++    (Platform::Gg, QuickRow::GgScale, QuickRow::ScreenGg),
++    (Platform::Sms, QuickRow::SmsScale, QuickRow::ScreenSms),
++    (Platform::Md, QuickRow::MdScale, QuickRow::ScreenMd),
++    (Platform::Ps1, QuickRow::Ps1Scale, QuickRow::ScreenPs1),
++    (Platform::Tg16, QuickRow::Tg16Scale, QuickRow::ScreenTg16),
++    (Platform::Ws, QuickRow::WsScale, QuickRow::ScreenWs),
++    (Platform::Lynx, QuickRow::LynxScale, QuickRow::ScreenLynx),
++    (Platform::Ngp, QuickRow::NgpScale, QuickRow::ScreenNgp),
++    (Platform::S32x, QuickRow::S32xScale, QuickRow::ScreenS32x),
++    (Platform::A2600, QuickRow::A2600Scale, QuickRow::ScreenA2600),
++    (Platform::A7800, QuickRow::A7800Scale, QuickRow::ScreenA7800),
++    (Platform::Vb, QuickRow::VbScale, QuickRow::ScreenVb),
++    (
++        Platform::NeoGeo,
++        QuickRow::NeoGeoScale,
++        QuickRow::ScreenNeoGeo,
++    ),
++    (Platform::Fds, QuickRow::FdsScale, QuickRow::ScreenFds),
++    (Platform::Cps1, QuickRow::Cps1Scale, QuickRow::ScreenCps1),
++    (Platform::Pico8, QuickRow::Pico8Scale, QuickRow::ScreenPico8),
++    (Platform::Cps2, QuickRow::Cps2Scale, QuickRow::ScreenCps2),
++    (Platform::Sgx, QuickRow::SgxScale, QuickRow::ScreenSgx),
++    (Platform::Pcecd, QuickRow::PcecdScale, QuickRow::ScreenPcecd),
++    (
++        Platform::SegaCd,
++        QuickRow::SegaCdScale,
++        QuickRow::ScreenSegaCd,
++    ),
++    (Platform::Neocd, QuickRow::NeocdScale, QuickRow::ScreenNeocd),
++];
++
++fn root_with_every_shelf() -> TempDir {
++    let d = tmp_root_with_carts(&["Emerald"]);
++    write_slot_state(
++        d.path(),
++        &SlotState {
++            clock_set: true,
++            ..SlotState::default()
++        },
++    )
++    .expect("write slot.state");
++    for (p, ..) in PAGES {
++        let dir = d.path().join("Games").join(p.dir_name());
++        std::fs::create_dir_all(&dir).unwrap();
++        std::fs::write(
++            dir.join(format!("Game.{}", p.extensions()[0])),
++            vec![0u8; 0x400],
++        )
++        .unwrap();
++    }
++    d
++}
++
++fn boot(d: &TempDir) -> App {
++    let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
++    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
++    a.set_panel((640, 480));
++    a
++}
++
++fn press(a: &mut App, btn: Btn) {
++    a.apply(Action::GbaDown(btn));
++    a.apply(Action::GbaUp(btn));
++}
++
++fn open_at(a: &mut App, row: QuickRow) {
++    a.apply(Action::QuickMenu);
++    let mut path = vec![row];
++    while let Some(parent) = path.last().and_then(|r| r.parent()) {
++        path.push(parent);
++    }
++    for (depth, step) in path.iter().rev().enumerate() {
++        if depth > 0 {
++            press(a, Btn::A);
++        }
++        for _ in 0..step.position(&a.hidden_rows()) {
++            press(a, Btn::Down);
++        }
++    }
++    assert_eq!(a.quick_menu(), Some(row), "the bar never reached {row:?}");
++}
++
++#[test]
++fn every_added_shelf_has_a_scale_row_on_its_own_screen_page() {
++    for (_, scale, screen) in PAGES {
++        assert_eq!(scale.parent(), Some(screen), "{scale:?}");
++        assert_eq!(scale.label(), "Scale");
++    }
++}
++
++#[test]
++fn every_added_shelf_starts_on_the_picture_it_always_had() {
++    let d = root_with_every_shelf();
++    let a = boot(&d);
++    for (p, row, _) in PAGES {
++        assert_eq!(a.resolved_scale(p), Scale::SpFrame, "{p:?}");
++        assert_eq!(a.quick_value(row), Some(QuickValue::SpFrame), "{p:?}");
++        assert!(
++            !a.hidden_rows().contains(&row),
++            "{p:?} hides its Scale row on 640x480"
++        );
++    }
++    assert!(!d.path().join("Config/retro_scale.txt").exists());
++}
++
++#[test]
++fn cycling_a_shelf_scale_saves_to_its_own_file_and_survives_a_reboot() {
++    let d = root_with_every_shelf();
++    let mut a = boot(&d);
++    open_at(&mut a, QuickRow::NesScale);
++    press(&mut a, Btn::Right);
++    assert_eq!(a.quick_value(QuickRow::NesScale), Some(QuickValue::Integer));
++    assert_eq!(
++        a.quick_value(QuickRow::SnesScale),
++        Some(QuickValue::SpFrame)
++    );
++    let file = std::fs::read_to_string(d.path().join("Config/retro_scale.txt")).unwrap();
++    assert_eq!(file.trim(), "NES = integer");
++    let after = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
++    assert!(
++        !after.contains("scale_nes"),
++        "the state file got a key of ours:\n{after}"
++    );
++    assert_eq!(
++        read_slot_state(d.path()).scale_gba,
++        SlotState::default().scale_gba,
++        "Game Boy Scale moved"
++    );
++    drop(a);
++    let again = boot(&d);
++    assert_eq!(again.resolved_scale(Platform::Nes), Scale::Integer);
++    assert_eq!(
++        again.quick_value(QuickRow::NesScale),
++        Some(QuickValue::Integer)
++    );
++}
++
++#[test]
++fn a_shelf_with_one_choice_on_this_panel_hides_its_row() {
++    let d = root_with_every_shelf();
++    let mut a = boot(&d);
++    a.set_panel((720, 480));
++    assert_eq!(a.scale_choices(Platform::Nes), [Scale::Integer]);
++    assert!(a.hidden_rows().contains(&QuickRow::NesScale));
++    assert!(!a.hidden_rows().contains(&QuickRow::SnesScale));
++    a.set_panel((640, 480));
++    assert!(!a.hidden_rows().contains(&QuickRow::NesScale));
++}
++
++#[test]
++fn a_file_with_unknown_lines_is_read_without_them() {
++    let d = root_with_every_shelf();
++    std::fs::write(
++        d.path().join("Config/retro_scale.txt"),
++        "SNES=fit\nGBA=integer\nNES=sideways\nNOPE=fit\n",
++    )
++    .unwrap();
++    let a = boot(&d);
++    assert_eq!(a.resolved_scale(Platform::Snes), Scale::Fit);
++    assert_eq!(a.resolved_scale(Platform::Nes), Scale::SpFrame);
++    assert_ne!(
++        a.resolved_scale(Platform::Gba),
++        Scale::Integer,
++        "a GBA line in our file moved the GBA shelf"
++    );
++}
+diff --git a/crates/slot/tests/s32x_screen.rs b/crates/slot/tests/s32x_screen.rs
+index a2aae68..eddd6d4 100644
+--- a/crates/slot/tests/s32x_screen.rs
++++ b/crates/slot/tests/s32x_screen.rs
+@@ -53,7 +53,14 @@ fn the_32x_follows_the_neo_geo_pocket_in_the_screen_list_with_its_own_five_row_s
+     assert_eq!(QuickRow::ScreenS32x.child(), Some(QuickRow::S32xShader));
+     assert_eq!(
+         QuickRow::SCREEN_S32X.map(QuickRow::label),
+-        ["Shader", "Picture", "PAL Speed", "Renderer", "Sound Rate"]
++        [
++            "Shader",
++            "Picture",
++            "PAL Speed",
++            "Renderer",
++            "Sound Rate",
++            "Scale"
++        ]
+     );
+     for row in QuickRow::SCREEN_S32X {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenS32x));
+diff --git a/crates/slot/tests/segacd_screen.rs b/crates/slot/tests/segacd_screen.rs
+index 4b500de..e55d8ad 100644
+--- a/crates/slot/tests/segacd_screen.rs
++++ b/crates/slot/tests/segacd_screen.rs
+@@ -52,7 +52,7 @@ fn sega_cd_follows_the_pc_engine_cd_with_the_mega_drive_rows() {
+     );
+     assert_eq!(
+         QuickRow::SCREEN_SEGACD.map(QuickRow::label),
+-        ["Shader", "Picture", "PAL Speed"]
++        ["Shader", "Picture", "PAL Speed", "Scale"]
+     );
+     for row in QuickRow::SCREEN_SEGACD {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenSegaCd));
+diff --git a/crates/slot/tests/sgx_platform.rs b/crates/slot/tests/sgx_platform.rs
+index 6c783a7..be475ae 100644
+--- a/crates/slot/tests/sgx_platform.rs
++++ b/crates/slot/tests/sgx_platform.rs
+@@ -185,7 +185,7 @@ fn supergrafx_follows_pico8_in_the_screen_list_and_opens_shader_and_picture() {
+     assert_eq!(QuickRow::ScreenSgx.child(), Some(QuickRow::SgxShader));
+     assert_eq!(
+         QuickRow::SCREEN_SGX.map(QuickRow::label),
+-        ["Shader", "Picture", "Pad"]
++        ["Shader", "Picture", "Pad", "Scale"]
+     );
+     for row in QuickRow::SCREEN_SGX {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenSgx));
+diff --git a/crates/slot/tests/sms_region.rs b/crates/slot/tests/sms_region.rs
+index bfc9979..c95da84 100644
+--- a/crates/slot/tests/sms_region.rs
++++ b/crates/slot/tests/sms_region.rs
+@@ -109,7 +109,11 @@ fn only_the_master_system_section_has_a_region_row_and_it_starts_on_auto() {
+     write_cart(root.path(), Platform::Sms);
+     let app = boot(root.path());
+     assert_eq!(QuickRow::SmsRegion.label(), "Region");
+-    assert_eq!(QuickRow::SCREEN_SMS.last(), Some(&QuickRow::SmsRegion));
++    // Scale is last on every added shelf's page, so Region is the one before it.
++    assert_eq!(
++        QuickRow::SCREEN_SMS.iter().rev().nth(1),
++        Some(&QuickRow::SmsRegion)
++    );
+     assert_eq!(QuickRow::SmsRegion.parent(), Some(QuickRow::ScreenSms));
+     for page in [
+         &QuickRow::SCREEN_NES[..],
+diff --git a/crates/slot/tests/tg16_screen.rs b/crates/slot/tests/tg16_screen.rs
+index f39cbcf..d0ef590 100644
+--- a/crates/slot/tests/tg16_screen.rs
++++ b/crates/slot/tests/tg16_screen.rs
+@@ -57,7 +57,7 @@ fn turbografx_follows_playstation_in_the_screen_list_and_opens_its_own_section()
+ fn the_turbografx_section_is_shader_and_picture_with_no_pal_speed_row() {
+     assert_eq!(
+         QuickRow::SCREEN_TG16.map(QuickRow::label),
+-        ["Shader", "Picture"]
++        ["Shader", "Picture", "Scale"]
+     );
+ }
+ 
+diff --git a/crates/slot/tests/vb_screen.rs b/crates/slot/tests/vb_screen.rs
+index 4403de2..57bea8a 100644
+--- a/crates/slot/tests/vb_screen.rs
++++ b/crates/slot/tests/vb_screen.rs
+@@ -54,7 +54,14 @@ fn the_virtual_boy_follows_the_atari_7800_with_its_own_five_row_section() {
+     assert_eq!(QuickRow::ScreenVb.child(), Some(QuickRow::VbShader));
+     assert_eq!(
+         QuickRow::SCREEN_VB.map(QuickRow::label),
+-        ["Shader", "Picture", "VB Speed", "Palette", "Right Pad"]
++        [
++            "Shader",
++            "Picture",
++            "VB Speed",
++            "Palette",
++            "Right Pad",
++            "Scale"
++        ]
+     );
+     for row in QuickRow::SCREEN_VB {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenVb));
+diff --git a/crates/slot/tests/wswan_screen.rs b/crates/slot/tests/wswan_screen.rs
+index 52d5730..3910337 100644
+--- a/crates/slot/tests/wswan_screen.rs
++++ b/crates/slot/tests/wswan_screen.rs
+@@ -43,7 +43,7 @@ fn wonderswan_follows_turbografx_in_the_screen_list_with_shader_picture_and_refr
+     assert_eq!(QuickRow::ScreenWs.child(), Some(QuickRow::WsShader));
+     assert_eq!(
+         QuickRow::SCREEN_WS.map(QuickRow::label),
+-        ["Shader", "Picture", "Refresh"]
++        ["Shader", "Picture", "Refresh", "Scale"]
+     );
+     for row in QuickRow::SCREEN_WS {
+         assert_eq!(row.parent(), Some(QuickRow::ScreenWs));
