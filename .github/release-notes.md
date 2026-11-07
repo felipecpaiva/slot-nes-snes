@@ -31,7 +31,7 @@ Since slot's own 1.14.0, the patch set adds:
 This release carries everything slot added in 1.10 to 1.14: the Gambatte core for Game Boy and Game
 Boy Color (START on a Game Boy cart switches between it and mGBA), the Scale, Stretch and Frame Blending
 rows, Shimmerless, Saturation and Contrast, the Network menu with Wi-Fi, Gamebit (slot's web page for the
-card) and Cart Studio. Scale, Stretch and Frame Blending are on the Game Boy shelves only for now. In the
+card) and Cart Studio. Scale is a row on every shelf (SP Screen, Integer, Fit, on the Screen page of each system); Stretch and Frame Blending are on the Game Boy shelves only, the added shelves keep their Picture row. In the
 Network menu, Check for Updates offers BaseOS updates only: slot's own list names slot's zip, which would
 replace this build with plain slot. Update this build as described below.
 

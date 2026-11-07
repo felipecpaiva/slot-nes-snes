@@ -218,6 +218,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 |---|---|---|
 | Shader | every new system | Off, Grid, Dot, Sharp, Scanlines, crt-pi, crt-1tap, Line, Pixel (Game Gear adds LCD3x) |
 | Picture | every new system | Crop (NES, Disk System, SNES, TurboGrafx-16, SuperGrafx, PC Engine CD), Stretch, Actual, 4:3 (NES, Disk System, SNES, Master System, Mega Drive, Sega CD, 32X, Neo Geo, Neo Geo CD, CPS1, CPS2, SuperGrafx, PC Engine CD, Atari 2600 and 7800, where it is the default) |
+| Scale | every new system | SP Screen (today's picture, the default), Integer, Fit. Only the choices that look different on your panel are offered, so a shelf with one hides the row. Saved per system in `Config/retro_scale.txt` (slot's own Scale row, since 1.10, is on the Game Boy shelves) |
 | PAL Speed | NES, SNES, Master System, Mega Drive, Sega CD, 32X, PlayStation, Atari 2600 and 7800 | Native (50 Hz, the default) or Panel (60 Hz, about 20% fast) |
 | Region | Master System | Auto, Japan, USA, Europe |
 | Renderer, Sound Rate | 32X | Accurate, Good, Fast; 44 kHz, 22 kHz |
@@ -232,7 +233,7 @@ Every system has its own section on the Screen page, and its own rows in the in-
 | Pad | SuperGrafx | 2 Buttons (the default), 6 Buttons |
 | BIOS | Neo Geo CD | CDZ (the default), Front Loader, Top Loader; not shown in game, it applies at the next start |
 
-PICO-8 has the two common rows only: Shader and Picture (Actual, the 3x picture, is the default).
+PICO-8 has the common rows only: Shader, Picture (Actual, the 3x picture, is the default) and Scale.
 
 What you pick in a row becomes that system's default from the next game. A cart's own picture
 setting still wins for that cart. 4:3 draws the picture at a TV's aspect, 640x480 centred.

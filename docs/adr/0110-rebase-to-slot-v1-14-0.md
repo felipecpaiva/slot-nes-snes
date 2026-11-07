@@ -76,15 +76,15 @@ not start. A second boot was fast. An earlier version of this ADR said our cache
 wrong. It is in the release notes under Known limits. Slot could convert in the background without holding
 games back, which would be an upstream issue.
 
-## Follow-up: Scale, Stretch and Frame Blending on the added shelves
+## Scale, Stretch and Frame Blending on the added shelves (patch 0162)
 
-Not built yet, proposed (a separate pull request):
-
-- **Scale** on every added shelf's Screen page and in-game Screen page: SP Screen (today's picture, the
-  default), Integer and Fit. `video_mode::picture_for` already takes a `Scale`; the shelves pin it to the
-  default today. Needs one state field per shelf, like `scale_gba`.
-- **Stretch** is not added: the Picture row (Stretch, Actual, Crop, 4:3) already covers it, and a second row
-  for the same thing would confuse.
+- **Scale** is a row on every added shelf's Screen page and in the in-game Screen page: SP Screen (today's
+  picture, the default), Integer and Fit, and only the choices that look different on the panel are offered
+  (`scale_choices`), so a shelf with one hides the row. It is saved per shelf in `Config/retro_scale.txt` (one
+  `FOLDER = scale` line each), not in `slot.state`: that keeps upstream's state file and the upstream
+  `durability.rs` literal as they are. The row is last on each page, so the rows above it keep their places.
+  The choices of a shelf that is not playing are sized on its default core's canvas (`App::canvas_for`).
+- **Stretch** is not added: the Picture row (Stretch, Actual, Crop, 4:3) already covers it.
 - **Frame Blending** is not added: it is a core option on mGBA, gpSP and Gambatte, and none of our cores has one.
 
 ## Consequences
