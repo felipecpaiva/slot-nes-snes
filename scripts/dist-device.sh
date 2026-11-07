@@ -119,8 +119,11 @@ build() {
 	task_bin="$(sh "$root/scripts/fetch-task.sh")"
 	# Upstream's web task (the Gamebit page) needs bun, which the builder image lacks: build the page here
 	# when the host has it, and the task is up to date for the container. CI installs bun in the builder.
+	# task_bin is a linux binary: on any other host the page is built with the host's own task.
 	if command -v bun >/dev/null 2>&1; then
-		(cd "$root" && "$task_bin" -d build/slot web)
+		host_task="$task_bin"
+		[ "$(uname -s)" = Linux ] || host_task=task
+		(cd "$root" && "$host_task" -d build/slot web)
 	fi
 
 	DEVICE_ROOT=1 sh "$root/scripts/device-sh.sh" "'${task_bin#"$root"/}' -d build/slot dist:device OUT=../dist/$name"
