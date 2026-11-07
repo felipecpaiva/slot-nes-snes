@@ -151,7 +151,10 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 for pt in $serial; do
-	(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --test-threads=1) >"$log.serial" 2>&1 || {
+	# The Gamebit sound tests tie the scene clock to wall clock and still flake on a loaded runner (main 0baefef,
+	# the_tear_plays_after_the_print): on CI a failed binary gets one more run, like the parallel run above.
+	run_serial() { (cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --test-threads=1) >"$log.serial" 2>&1; }
+	run_serial "$1" || { [ "${CI:-}" = true ] && echo "slot-nes-snes: $pt failed once, running it again" >&2 && run_serial "$1"; } || {
 		tail -n 40 "$log.serial" >&2
 		echo "slot-nes-snes: $pt failed when run one test at a time" >&2
 		exit 1
