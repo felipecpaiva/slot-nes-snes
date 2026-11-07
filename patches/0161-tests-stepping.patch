@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sat, 7 Nov 2026 09:03:28 +0400
+Subject: [PATCH] tests-stepping
+
+---
+ crates/slot/tests/lynx_pacing.rs  |  6 ++++--
+ crates/slot/tests/nes_states.rs   |  4 +++-
+ crates/slot/tests/pal_pacing.rs   |  6 ++++--
+ crates/slot/tests/stepping/mod.rs | 11 +++++++++++
+ crates/slot/tests/wswan_input.rs  |  4 +++-
+ 5 files changed, 25 insertions(+), 6 deletions(-)
+ create mode 100644 crates/slot/tests/stepping/mod.rs
+
+diff --git a/crates/slot/tests/lynx_pacing.rs b/crates/slot/tests/lynx_pacing.rs
+index 6d8bb25..0c5b97b 100644
+--- a/crates/slot/tests/lynx_pacing.rs
++++ b/crates/slot/tests/lynx_pacing.rs
+@@ -2,11 +2,13 @@ mod common;
+ mod core_common;
+ mod lynx_common;
+ mod real_seat;
++mod stepping;
+ 
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+ use std::sync::Arc;
+ use std::time::{Duration, Instant};
++use stepping::stepped;
+ 
+ use common::core_lock;
+ use core_common::require_core;
+@@ -210,7 +212,7 @@ fn seated_lynx(hz75: bool, speed: Option<&str>) -> Option<(tempfile::TempDir, Se
+     let emu = session.emu().expect("no emu");
+     assert!(wait_for(|| emu.locked()), "the worker never locked");
+     for _ in 0..120 {
+-        assert!(!session.step_emulator(PANEL, Duration::from_millis(500)));
++        assert!(stepped(&session, PANEL, Duration::from_millis(500)));
+     }
+     Some((carts, session))
+ }
+@@ -222,7 +224,7 @@ fn paced_fps(session: &Session) -> f64 {
+ fn session_frames_in_60_ticks(session: &Session) -> u64 {
+     let before = session.frames_published();
+     for _ in 0..60 {
+-        assert!(!session.step_emulator(PANEL, Duration::from_millis(500)));
++        assert!(stepped(&session, PANEL, Duration::from_millis(500)));
+     }
+     session.frames_published() - before
+ }
+diff --git a/crates/slot/tests/nes_states.rs b/crates/slot/tests/nes_states.rs
+index f8a64e3..b0390da 100644
+--- a/crates/slot/tests/nes_states.rs
++++ b/crates/slot/tests/nes_states.rs
+@@ -3,9 +3,11 @@ mod core_common;
+ mod nes_common;
+ mod real_seat;
+ mod snes_common;
++mod stepping;
+ 
+ use std::path::PathBuf;
+ use std::time::Duration;
++use stepping::stepped;
+ 
+ use common::core_lock;
+ use core_common::require_core;
+@@ -75,7 +77,7 @@ fn decode(png_bytes: &[u8]) -> (Vec<u8>, u32, u32) {
+ 
+ fn step(session: &Session, frames: u32) {
+     for _ in 0..frames {
+-        assert!(!session.step_emulator(PRESENT, Duration::from_secs(2)));
++        assert!(stepped(&session, PRESENT, Duration::from_secs(2)));
+     }
+ }
+ 
+diff --git a/crates/slot/tests/pal_pacing.rs b/crates/slot/tests/pal_pacing.rs
+index 8470af4..dc70ccb 100644
+--- a/crates/slot/tests/pal_pacing.rs
++++ b/crates/slot/tests/pal_pacing.rs
+@@ -3,11 +3,13 @@ mod core_common;
+ mod nes_common;
+ mod real_seat;
+ mod sega_common;
++mod stepping;
+ 
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::Arc;
+ use std::time::{Duration, Instant};
++use stepping::stepped;
+ 
+ use common::core_lock;
+ use nes_common::{fceumm, nes_rom};
+@@ -311,11 +313,11 @@ fn seated_europe_nes(pal_speed: Option<&str>) -> Option<(tempfile::TempDir, Sess
+ 
+ fn session_frames_in_60_ticks(session: &Session) -> u64 {
+     for _ in 0..12 {
+-        assert!(!session.step_emulator(PANEL, Duration::from_millis(500)));
++        assert!(stepped(&session, PANEL, Duration::from_millis(500)));
+     }
+     let before = session.frames_published();
+     for _ in 0..60 {
+-        assert!(!session.step_emulator(PANEL, Duration::from_millis(500)));
++        assert!(stepped(&session, PANEL, Duration::from_millis(500)));
+     }
+     session.frames_published() - before
+ }
+diff --git a/crates/slot/tests/stepping/mod.rs b/crates/slot/tests/stepping/mod.rs
+new file mode 100644
+index 0000000..4f1dee9
+--- /dev/null
++++ b/crates/slot/tests/stepping/mod.rs
+@@ -0,0 +1,11 @@
++//! step_emulator returns late since slot 1.14: false when a frame was served, and also false when the
++//! emulator is not locked and ran nothing. A test that wants a frame needs both halves.
++
++use std::time::Duration;
++
++use slot::emu::EmuHandle;
++use slot::session::Session;
++
++pub fn stepped(session: &Session, present: Duration, timeout: Duration) -> bool {
++    !session.step_emulator(present, timeout) && session.emu().is_some_and(EmuHandle::locked)
++}
+diff --git a/crates/slot/tests/wswan_input.rs b/crates/slot/tests/wswan_input.rs
+index 9c067dc..764bb65 100644
+--- a/crates/slot/tests/wswan_input.rs
++++ b/crates/slot/tests/wswan_input.rs
+@@ -1,9 +1,11 @@
+ mod common;
+ mod core_common;
+ mod real_seat;
++mod stepping;
+ mod wswan_common;
+ 
+ use std::time::{Duration, Instant};
++use stepping::stepped;
+ 
+ use common::core_lock;
+ use slot::ws_input::{pad_code, Layout, WsPad, HORIZONTAL, OFF, VERTICAL};
+@@ -225,7 +227,7 @@ fn a_select_tap_on_the_handheld_turns_a_vertical_game_through_a_real_session() {
+     let step = |session: &mut slot::session::Session, events: Vec<RawEvent>, now: u64| {
+         session.feed(events, now);
+         session.update(1.0 / 60.0);
+-        assert!(!session.step_emulator(present, Duration::from_secs(2)));
++        assert!(stepped(&session, present, Duration::from_secs(2)));
+     };
+     let mut now = 10_000;
+     step(&mut session, vec![RawEvent::Down(Btn::Select)], now);

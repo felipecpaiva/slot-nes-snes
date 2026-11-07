@@ -114,9 +114,9 @@ folders show. The README has the full steps.
 
 ## Known limits
 
-- The first start after updating from an older release rebuilds the label pictures of every game
-  (11,000 games took about 10 minutes on the RG34XXSP). Games on the first shelves start late during
-  that time. It happens once, a second boot is as fast as before.
+- The first start after updating from an older release converts the label pictures of every game to
+  slot's new cache format (11,000 games took about 10 minutes on the RG34XXSP's SD card). Games start
+  late during that time. It happens once, a second boot is as fast as before.
 - Gamebit and Cart Studio are slot's own and have not been tested with the added shelves.
 - Neo Geo CD is silent while a disc loads.
 - Atari Lynx has a short audio gap at the very first frame of a game that runs at 75 Hz. Lynx carts

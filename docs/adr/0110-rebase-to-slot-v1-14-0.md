@@ -64,11 +64,13 @@ fail on pristine v1.14.0 here too (two of them depend on test order in a shared 
 
 ## Accepted limit
 
-The first start after updating from 1.9.0 rebuilt the label pictures of all 11,010 games instead of
-converting the old cache (upstream says old caches are converted; ours were not, cause not found). The
-first games tested after that boot did not start for about 10 minutes, then everything was normal and a
-second boot was fast. It is in the release notes under Known limits. Finding why the conversion misses
-our caches is a follow-up.
+The first start after updating from 1.9.0 logged `label cache: 11010 new labels`: slot 1.14 converts the old
+`.rgba` cache files to its `.lz4` format at boot (the card then held 1,689 `.lz4` and 72 orphaned `.rgba` files
+for the GBA shelf, the orphans being games renamed or removed since). That is upstream's conversion, not ours:
+it is file work on an SD card and took about 10 minutes for 12,800 files, and the games tested during it did
+not start. A second boot was fast. An earlier version of this ADR said our caches were not converted; that was
+wrong. It is in the release notes under Known limits. Slot could convert in the background without holding
+games back, which would be an upstream issue.
 
 ## Consequences
 
