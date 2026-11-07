@@ -1,6 +1,6 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic H700 handhelds
 (tested on the RG34XXSP), as a patch set on slot's own source. The base is in the tag: this release is
-built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.1` is our first release on it. GBA, GB and
+built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.2` adds Scale on the new shelves to `-ns.1`. GBA, GB and
 GBC stay byte-identical to that slot.
 
 ## What is new
@@ -11,6 +11,8 @@ Since slot's own 1.14.0, the patch set adds:
   Atari 2600, Atari 7800, Virtual Boy, Neo Geo CD, PICO-8, and arcade boards on FinalBurn Neo (Neo Geo,
   CPS1, CPS2), on top of the shelves of the earlier notes. That is 26 system shelves beside Recents
   and Favorites.
+- **Scale on every shelf**: a Scale row on the Screen page of each added system, SP Screen (the default),
+  Integer or Fit, saved per system. A shelf where the choices look the same hides the row.
 - **Shelf order by release year**: Settings > General > Shelf Order, Classic or Release Year. The
   Screen page follows the same order.
 - **Expansion Card**: a second TF card holds whole systems' game folders, for the large disc shelves.
