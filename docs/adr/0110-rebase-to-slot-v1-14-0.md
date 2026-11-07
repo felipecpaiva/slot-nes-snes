@@ -60,15 +60,32 @@ fail on pristine v1.14.0 here too (two of them depend on test order in a shared 
 - [ ] CI on PR 186, merge, tag `v1.14.0-ns.1` (Felipe pushes it).
 - [ ] Not tested on the device: Network, Check for Updates showing only BaseOS (needs Wi-Fi, a unit test
       covers it), Gamebit and Cart Studio with the added shelves.
-- [ ] Why the two Gamebit sound tests flake only in the patched tree under load (they pass one at a time).
+- [x] The two Gamebit sound tests (`server_ui` buzz and tear, 2026-11-07): a frame step costs the same in both
+      trees (600 steps of `advance_at` and `render` on `server_ui`'s rig: 7 and 9 microseconds, render about 50
+      in both), so our patches add no work per frame. The patched tree boots a little slower (27 shelves), and
+      the tests tie the scene clock to wall clock, so they only flake under the parallel run. They stay in the
+      serial list of `scripts/run-tests.sh`; closed as contention.
 
 ## Accepted limit
 
-The first start after updating from 1.9.0 rebuilt the label pictures of all 11,010 games instead of
-converting the old cache (upstream says old caches are converted; ours were not, cause not found). The
-first games tested after that boot did not start for about 10 minutes, then everything was normal and a
-second boot was fast. It is in the release notes under Known limits. Finding why the conversion misses
-our caches is a follow-up.
+The first start after updating from 1.9.0 logged `label cache: 11010 new labels`: slot 1.14 converts the old
+`.rgba` cache files to its `.lz4` format at boot (the card then held 1,689 `.lz4` and 72 orphaned `.rgba` files
+for the GBA shelf, the orphans being games renamed or removed since). That is upstream's conversion, not ours:
+it is file work on an SD card and took about 10 minutes for 12,800 files, and the games tested during it did
+not start. A second boot was fast. An earlier version of this ADR said our caches were not converted; that was
+wrong. It is in the release notes under Known limits. Slot could convert in the background without holding
+games back, which would be an upstream issue.
+
+## Follow-up: Scale, Stretch and Frame Blending on the added shelves
+
+Not built yet, proposed (a separate pull request):
+
+- **Scale** on every added shelf's Screen page and in-game Screen page: SP Screen (today's picture, the
+  default), Integer and Fit. `video_mode::picture_for` already takes a `Scale`; the shelves pin it to the
+  default today. Needs one state field per shelf, like `scale_gba`.
+- **Stretch** is not added: the Picture row (Stretch, Actual, Crop, 4:3) already covers it, and a second row
+  for the same thing would confuse.
+- **Frame Blending** is not added: it is a core option on mGBA, gpSP and Gambatte, and none of our cores has one.
 
 ## Consequences
 

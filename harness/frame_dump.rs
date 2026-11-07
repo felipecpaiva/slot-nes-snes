@@ -206,8 +206,9 @@ impl Rig for CoreRig {
     }
 
     fn step(&self) -> bool {
-        // Since upstream v1.14 (not in v1.9) step_emulator returns whether the frame was late, true when it was.
+        // Since upstream v1.14 (not in v1.9) step_emulator returns whether the frame was late, true when it was, and false too when the emulator is not locked and ran nothing.
         !self.session.step_emulator(present(), STEP_TIMEOUT)
+            && self.session.emu().is_some_and(|emu| emu.locked())
     }
 
     fn locked(&self) -> bool {
