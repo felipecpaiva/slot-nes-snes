@@ -40,7 +40,10 @@ ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:
 # one in run 39239204575, where the patched tree failed both, so a both-trees compare there only
 # measures which way the runner fell. On CI it is information only, like the tests above; locally it
 # stays in the both-trees list below, where both trees pass it.
-[ "${CI:-}" = true ] && ci_timing="$ci_timing slot:render_in_game_menu"
+# render_gallery_stress.rs times the gallery by the runner's GPU the same way: the patched tree failed
+# the_gallery_holds_up_under_a_thousand_shots on main (run 42380659245) and in release run 42357595086 while
+# the unpatched tree passed, and a rerun passed. Information only on CI, both trees locally.
+[ "${CI:-}" = true ] && ci_timing="$ci_timing slot:render_in_game_menu slot:render_gallery_stress"
 ci_skips=""
 if [ "${CI:-}" = true ]; then
 	for pt in $ci_timing; do
@@ -77,7 +80,7 @@ fi
 # cart's pixels fall on the unwrap scene's wall and failed cart_stays_behind_the_front_wall on the macOS
 # runner only (PR 186), so it runs in both trees too.
 both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
 # crate:file is a test file under tests/, crate:lib is the crate's unit tests.
 sel() { if [ "${1#*:}" = lib ]; then echo --lib; else echo "--test ${1#*:}"; fi; }
 up="$(dirname "$1")/slot-upstream"
