@@ -60,7 +60,11 @@ fail on pristine v1.14.0 here too (two of them depend on test order in a shared 
 - [ ] CI on PR 186, merge, tag `v1.14.0-ns.1` (Felipe pushes it).
 - [ ] Not tested on the device: Network, Check for Updates showing only BaseOS (needs Wi-Fi, a unit test
       covers it), Gamebit and Cart Studio with the added shelves.
-- [ ] Why the two Gamebit sound tests flake only in the patched tree under load (they pass one at a time).
+- [x] The two Gamebit sound tests (`server_ui` buzz and tear, 2026-11-07): a frame step costs the same in both
+      trees (600 steps of `advance_at` and `render` on `server_ui`'s rig: 7 and 9 microseconds, render about 50
+      in both), so our patches add no work per frame. The patched tree boots a little slower (27 shelves), and
+      the tests tie the scene clock to wall clock, so they only flake under the parallel run. They stay in the
+      serial list of `scripts/run-tests.sh`; closed as contention.
 
 ## Accepted limit
 
@@ -71,6 +75,17 @@ it is file work on an SD card and took about 10 minutes for 12,800 files, and th
 not start. A second boot was fast. An earlier version of this ADR said our caches were not converted; that was
 wrong. It is in the release notes under Known limits. Slot could convert in the background without holding
 games back, which would be an upstream issue.
+
+## Follow-up: Scale, Stretch and Frame Blending on the added shelves
+
+Not built yet, proposed (a separate pull request):
+
+- **Scale** on every added shelf's Screen page and in-game Screen page: SP Screen (today's picture, the
+  default), Integer and Fit. `video_mode::picture_for` already takes a `Scale`; the shelves pin it to the
+  default today. Needs one state field per shelf, like `scale_gba`.
+- **Stretch** is not added: the Picture row (Stretch, Actual, Crop, 4:3) already covers it, and a second row
+  for the same thing would confuse.
+- **Frame Blending** is not added: it is a core option on mGBA, gpSP and Gambatte, and none of our cores has one.
 
 ## Consequences
 
