@@ -1,0 +1,522 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Sun, 8 Nov 2026 09:47:27 +0400
+Subject: [PATCH] gamebit-added-shelves
+
+---
+ crates/slot/src/server/games.rs           |  18 +-
+ crates/slot/src/server/states.rs          |   4 +-
+ crates/slot/tests/server_shelves.rs       | 197 ++++++++++++++++++++++
+ web/src/api/client.ts                     |   6 +
+ web/src/api/platforms.ts                  |  33 +++-
+ web/src/lib/__tests__/moreShelves.spec.ts |  24 +++
+ web/src/lib/coverMode.ts                  |  30 ++++
+ web/src/views/DashboardView.vue           |  20 ++-
+ web/src/views/PlatformView.vue            |   6 +-
+ 9 files changed, 325 insertions(+), 13 deletions(-)
+ create mode 100644 crates/slot/tests/server_shelves.rs
+ create mode 100644 web/src/lib/__tests__/moreShelves.spec.ts
+
+diff --git a/crates/slot/src/server/games.rs b/crates/slot/src/server/games.rs
+index 086c262..b0c0def 100644
+--- a/crates/slot/src/server/games.rs
++++ b/crates/slot/src/server/games.rs
+@@ -27,7 +27,12 @@ pub(super) fn ok() -> Reply {
+ }
+ 
+ fn platform_for(tag: &str) -> Option<Platform> {
+-    Platform::ALL.into_iter().find(|p| p.dir_name().eq_ignore_ascii_case(tag))
++    Platform::ALL.into_iter().chain(added_shelves()).find(|p| p.dir_name().eq_ignore_ascii_case(tag))
++}
++
++/// The shelves this build adds to upstream's four, in shelf order (tags keeps upstream's four first).
++fn added_shelves() -> impl Iterator<Item = Platform> {
++    Platform::SHELVES.into_iter().filter(|p| !p.classic())
+ }
+ 
+ fn parse_id(text: &str) -> Option<usize> {
+@@ -44,7 +49,8 @@ pub fn tags(req: Request) -> Reply {
+         return Reply::error(405, "method not allowed");
+     }
+     let tags: Vec<&str> = Platform::ALL.iter().map(|p| p.dir_name()).collect();
+-    Reply::json(json!({ "tags": tags, "groups": {} }))
++    let more: Vec<&str> = added_shelves().map(|p| p.dir_name()).collect();
++    Reply::json(json!({ "tags": tags, "groups": {}, "more": more }))
+ }
+ 
+ pub(super) fn at(root: &Path, segments: &[&str]) -> Result<PathBuf, Refused> {
+@@ -97,7 +103,7 @@ impl Index {
+             .into_iter()
+             .filter_map(|(lower, name)| lower.strip_suffix(".txt").map(|s| (s.to_string(), name)))
+             .collect();
+-        let states = Core::ALL
++        let states = Core::EVERY
+             .iter()
+             .filter(|c| c.runs(platform))
+             .map(|c| {
+@@ -134,7 +140,7 @@ impl Index {
+ }
+ 
+ fn resume_cores(root: &Path, cart: &Cart) -> Vec<&'static str> {
+-    Core::ALL
++    Core::EVERY
+         .iter()
+         .filter(|c| c.runs(cart.platform))
+         .filter(|c| StateRing::new(root, cart.platform, **c, &cart.stem).has_resume())
+@@ -333,7 +339,7 @@ fn art(root: &Path, cart: &Cart, req: &mut Request) -> Reply {
+ }
+ 
+ fn state_dirs(root: &Path, cart: &Cart) -> Vec<PathBuf> {
+-    Core::ALL
++    Core::EVERY
+         .iter()
+         .filter_map(|c| at(root, &["States", cart.platform.dir_name(), c.as_str(), &cart.stem]).ok())
+         .collect()
+@@ -466,7 +472,7 @@ fn rename(root: &Path, index: &Index, cart: &Cart, name: &str) -> Result<(), Ref
+         }
+         None => None,
+     };
+-    for core in Core::ALL {
++    for core in Core::EVERY {
+         let from = at(root, &["States", tag, core.as_str(), &cart.stem])?;
+         if from.is_dir() {
+             plan.push((from, at(root, &["States", tag, core.as_str(), &new_stem])?));
+diff --git a/crates/slot/src/server/states.rs b/crates/slot/src/server/states.rs
+index b34f32f..8e125fb 100644
+--- a/crates/slot/src/server/states.rs
++++ b/crates/slot/src/server/states.rs
+@@ -11,7 +11,7 @@ use super::{Reply, Request};
+ const RESUME: &str = "resume";
+ 
+ fn core_for(name: &str) -> Option<Core> {
+-    Core::ALL.into_iter().find(|c| c.as_str() == name)
++    Core::EVERY.into_iter().find(|c| c.as_str() == name)
+ }
+ 
+ fn ring_for(root: &Path, cart: &Cart, core: Core) -> Result<StateRing, Refused> {
+@@ -38,7 +38,7 @@ fn core_entry(root: &Path, cart: &Cart, core: Core) -> Option<Value> {
+ }
+ 
+ fn listing(root: &Path, cart: &Cart) -> Reply {
+-    let cores: Vec<Value> = Core::ALL.into_iter().filter(|c| c.runs(cart.platform)).filter_map(|c| core_entry(root, cart, c)).collect();
++    let cores: Vec<Value> = Core::EVERY.into_iter().filter(|c| c.runs(cart.platform)).filter_map(|c| core_entry(root, cart, c)).collect();
+     Reply::json(json!({ "cores": cores }))
+ }
+ 
+diff --git a/crates/slot/tests/server_shelves.rs b/crates/slot/tests/server_shelves.rs
+new file mode 100644
+index 0000000..f3a0fdd
+--- /dev/null
++++ b/crates/slot/tests/server_shelves.rs
+@@ -0,0 +1,197 @@
++//! Gamebit's server on the shelves this build adds to upstream's four Game Boy ones.
++use slot::server::Server;
++use slot_store::{Core, Platform, StateRing};
++use std::io::{Cursor, Read, Write};
++use std::net::TcpStream;
++use std::path::Path;
++use std::time::Duration;
++
++const AUTH: &str = "c2xvdDoxMjM0";
++
++fn start() -> (tempfile::TempDir, Server) {
++    let dir = tempfile::tempdir().unwrap();
++    let server = Server::start(dir.path().to_path_buf(), 0, "1234".to_string()).unwrap();
++    (dir, server)
++}
++
++fn call_bytes(port: u16, method: &str, target: &str) -> (u16, Vec<u8>) {
++    let raw = format!(
++        "{method} {target} HTTP/1.1\r\nHost: x\r\nAuthorization: Basic {AUTH}\r\nContent-Length: 0\r\n\r\n"
++    );
++    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
++    s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
++    s.write_all(raw.as_bytes()).unwrap();
++    let mut out = Vec::new();
++    let _ = s.read_to_end(&mut out);
++    let split = out.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
++    let head = String::from_utf8_lossy(&out[..split]).into_owned();
++    let status = head
++        .split_whitespace()
++        .nth(1)
++        .and_then(|c| c.parse().ok())
++        .unwrap_or(0);
++    (status, out[split + 4..].to_vec())
++}
++
++fn json(port: u16, method: &str, target: &str) -> (u16, serde_json::Value) {
++    let (status, body) = call_bytes(port, method, target);
++    (
++        status,
++        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
++    )
++}
++
++fn put(root: &Path, rel: &str, data: &[u8]) {
++    let path = root.join(rel);
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    std::fs::write(path, data).unwrap();
++}
++
++fn added() -> Vec<Platform> {
++    Platform::SHELVES
++        .into_iter()
++        .filter(|p| !p.classic())
++        .collect()
++}
++
++/// The stem a shelf accepts: the arcade shelves only list sets from their set table.
++fn stem_of(p: Platform) -> &'static str {
++    match p {
++        Platform::Cps1 => "1941",
++        Platform::Cps2 => "1944",
++        Platform::NeoGeo => "19yy",
++        _ => "Alpha",
++    }
++}
++
++fn rom_name(p: Platform) -> String {
++    format!("{}.{}", stem_of(p), p.extensions()[0])
++}
++
++/// MORE_CART in the web page: `  NES: [312, 328],` lines.
++fn more_cart_table() -> std::collections::HashMap<String, [u32; 2]> {
++    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/src/lib/coverMode.ts");
++    let text = std::fs::read_to_string(path).unwrap();
++    let body = text
++        .split("MORE_CART")
++        .nth(1)
++        .unwrap()
++        .split("\n}")
++        .next()
++        .unwrap()
++        .to_string();
++    let mut out = std::collections::HashMap::new();
++    for line in body.lines().filter(|l| l.contains(": [")) {
++        let (tag, dims) = line.trim().trim_end_matches(',').split_once(": [").unwrap();
++        let dims: Vec<u32> = dims
++            .trim_end_matches(']')
++            .split(", ")
++            .map(|n| n.parse().unwrap())
++            .collect();
++        out.insert(tag.trim_matches('\'').to_string(), [dims[0], dims[1]]);
++    }
++    assert_eq!(out.len(), 23);
++    out
++}
++
++#[test]
++fn tags_keep_the_four_game_boy_shelves_first_and_list_the_rest_as_more() {
++    let (_d, server) = start();
++    let (status, v) = json(server.port(), "GET", "/api/tags");
++    assert_eq!(status, 200);
++    let tags: Vec<&str> = v["tags"]
++        .as_array()
++        .unwrap()
++        .iter()
++        .map(|t| t.as_str().unwrap())
++        .collect();
++    assert_eq!(tags, Platform::ALL.map(|p| p.dir_name()));
++    let more: Vec<&str> = v["more"]
++        .as_array()
++        .unwrap()
++        .iter()
++        .map(|t| t.as_str().unwrap())
++        .collect();
++    assert_eq!(
++        more,
++        added().iter().map(|p| p.dir_name()).collect::<Vec<_>>()
++    );
++    assert_eq!(more.len(), 23);
++    server.stop();
++}
++
++#[test]
++fn every_added_shelf_lists_its_game_and_serves_its_cart() {
++    let table = more_cart_table();
++    let (d, server) = start();
++    for p in added() {
++        put(
++            d.path(),
++            &format!("Games/{}/{}", p.dir_name(), rom_name(p)),
++            &[0u8; 0x400],
++        );
++    }
++    for p in added() {
++        let tag = p.dir_name();
++        let (status, v) = json(server.port(), "GET", &format!("/api/games/{tag}"));
++        assert_eq!(status, 200, "{tag}");
++        assert_eq!(v["games"].as_array().unwrap().len(), 1, "{tag}: {v}");
++        assert_eq!(v["games"][0]["rom"], rom_name(p), "{tag}");
++        let url = v["games"][0]["cartUrl"].as_str().unwrap().to_string();
++        let (status, body) = call_bytes(server.port(), "GET", &url);
++        assert_eq!(status, 200, "{tag} cart");
++        let d = image_webp::WebPDecoder::new(Cursor::new(&body))
++            .unwrap_or_else(|e| panic!("{tag}: {e}"));
++        let (w, h) = d.dimensions();
++        assert_eq!(
++            [w, h],
++            table[tag],
++            "{tag}: web/src/lib/coverMode.ts MORE_CART is not the size the server renders"
++        );
++    }
++    server.stop();
++}
++
++#[test]
++fn an_unknown_tag_is_still_not_found() {
++    let (_d, server) = start();
++    let (status, _) = json(server.port(), "GET", "/api/games/ATARI5200");
++    assert_eq!(status, 404);
++    server.stop();
++}
++
++#[test]
++fn a_state_under_an_added_cores_dir_is_counted_listed_renamed_and_purged() {
++    let (d, server) = start();
++    let p = Platform::Nes;
++    put(d.path(), "Games/NES/Alpha.nes", &[0u8; 0x400]);
++    let core = Core::EVERY
++        .into_iter()
++        .find(|c| c.runs(p) && !Platform::ALL.iter().any(|g| c.runs(*g)))
++        .unwrap();
++    let ring = StateRing::new(d.path(), p, core, "Alpha");
++    ring.write_resume(b"resume").unwrap();
++    ring.push(b"state", b"png", "2026-11-08_10-00-00").unwrap();
++    let port = server.port();
++    let (_, v) = json(port, "GET", "/api/games/NES");
++    assert_eq!(v["games"][0]["statesCount"], 1, "{v}");
++    let (status, v) = json(port, "GET", "/api/games/NES/0/states");
++    assert_eq!(status, 200);
++    assert_eq!(v["cores"][0]["id"], core.as_str(), "{v}");
++    assert_eq!(v["cores"][0]["resume"], true);
++    assert_eq!(v["cores"][0]["states"].as_array().unwrap().len(), 1);
++    let (status, _) = json(port, "POST", "/api/games/NES/0/rename?name=Gamma.nes");
++    assert_eq!(status, 200);
++    let moved = StateRing::new(d.path(), p, core, "Gamma");
++    assert_eq!(moved.read_resume().unwrap().unwrap(), b"resume");
++    assert_eq!(moved.list().unwrap().len(), 1);
++    let (status, _) = json(port, "DELETE", "/api/games/NES/0?purge=true&rom=Gamma.nes");
++    assert_eq!(status, 200);
++    assert!(!d
++        .path()
++        .join("States/NES")
++        .join(core.as_str())
++        .join("Gamma")
++        .exists());
++    server.stop();
++}
+diff --git a/web/src/api/client.ts b/web/src/api/client.ts
+index e0a5b6f..4ccf440 100644
+--- a/web/src/api/client.ts
++++ b/web/src/api/client.ts
+@@ -93,6 +93,12 @@ export async function getTags(): Promise<string[]> {
+   return (await res.json()).tags
+ }
+ 
++export async function getMoreTags(): Promise<string[]> {
++  const res = await request('/api/tags')
++  if (!res.ok) throw new Error(`getTags ${res.status}`)
++  return (await res.json()).more ?? []
++}
++
+ export interface GameRow {
+   id: number
+   rom: string
+diff --git a/web/src/api/platforms.ts b/web/src/api/platforms.ts
+index d2afa24..cdd5822 100644
+--- a/web/src/api/platforms.ts
++++ b/web/src/api/platforms.ts
+@@ -9,6 +9,33 @@ export const PLATFORM_NAMES: Record<string, string> = {
+   GBC: 'Game Boy Color',
+ }
+ 
++// The shelves this build adds to the four above. Their order comes from /api/tags "more", these are the names.
++export const MORE_NAMES: Record<string, string> = {
++  NES: 'Nintendo Entertainment System',
++  SNES: 'Super Nintendo Entertainment System',
++  GG: 'Sega Game Gear',
++  SMS: 'Sega Master System',
++  MD: 'Sega Mega Drive',
++  PS1: 'Sony PlayStation',
++  TG16: 'NEC TurboGrafx-16',
++  WS: 'Bandai WonderSwan',
++  Lynx: 'Atari Lynx',
++  NGP: 'SNK Neo Geo Pocket',
++  '32X': 'Sega 32X',
++  A2600: 'Atari 2600',
++  A7800: 'Atari 7800',
++  VB: 'Nintendo Virtual Boy',
++  NEOGEO: 'SNK Neo Geo',
++  CPS1: 'Capcom CPS1',
++  CPS2: 'Capcom CPS2',
++  FDS: 'Famicom Disk System',
++  PICO8: 'PICO-8',
++  SGX: 'NEC SuperGrafx',
++  PCECD: 'NEC PC Engine CD',
++  SEGACD: 'Sega CD',
++  NEOCD: 'SNK Neo Geo CD',
++}
++
+ export const HOME_TAGS = ['GB', 'GBC', 'GBA'] as const
+ 
+ export const VIDEO_TAG = 'GBAV'
+@@ -29,5 +56,9 @@ export function platformIcon(tag: string): string {
+ }
+ 
+ export function platformName(tag: string): string {
+-  return PLATFORM_NAMES[tag] ?? tag
++  return PLATFORM_NAMES[tag] ?? MORE_NAMES[tag] ?? tag
++}
++
++export function isMoreShelf(tag: string): boolean {
++  return tag in MORE_NAMES
+ }
+diff --git a/web/src/lib/__tests__/moreShelves.spec.ts b/web/src/lib/__tests__/moreShelves.spec.ts
+new file mode 100644
+index 0000000..4544e1f
+--- /dev/null
++++ b/web/src/lib/__tests__/moreShelves.spec.ts
+@@ -0,0 +1,24 @@
++import { describe, expect, it } from 'vitest'
++import { isMoreShelf, MORE_NAMES, PLATFORM_TAGS, platformName } from '@/api/platforms'
++import { cartAspect, MORE_CART } from '../coverMode'
++
++describe('the shelves this build adds', () => {
++  it('have a name and a cart shape each, and none is one of the four Game Boy shelves', () => {
++    expect(Object.keys(MORE_CART).sort()).toEqual(Object.keys(MORE_NAMES).sort())
++    expect(Object.keys(MORE_NAMES)).toHaveLength(23)
++    for (const tag of PLATFORM_TAGS) expect(isMoreShelf(tag)).toBe(false)
++  })
++
++  it('are named and shaped from their own tables', () => {
++    expect(platformName('NES')).toBe('Nintendo Entertainment System')
++    expect(platformName('NOPE')).toBe('NOPE')
++    expect(cartAspect('PS1')).toBe(1)
++    expect(cartAspect('NES')).toBeCloseTo(312 / 328, 6)
++  })
++
++  it('leave the Game Boy shelves as they were', () => {
++    expect(platformName('GBAV')).toBe('Game Boy Advance Video')
++    expect(cartAspect('GBC')).toBeCloseTo(312 / 337, 6)
++    expect(cartAspect('GBA')).toBeCloseTo(360 / 212, 6)
++  })
++})
+diff --git a/web/src/lib/coverMode.ts b/web/src/lib/coverMode.ts
+index 77b0c87..4f30c5a 100644
+--- a/web/src/lib/coverMode.ts
++++ b/web/src/lib/coverMode.ts
+@@ -1,7 +1,37 @@
+ const GBA_CART = 360 / 212
+ const GB_CART = 312 / 337
+ 
++// Cart picture size (w, h) of each shelf this build adds; slot's server_shelves test holds it equal to the
++// size the server renders.
++export const MORE_CART: Record<string, [number, number]> = {
++  NES: [312, 328],
++  SNES: [360, 225],
++  GG: [312, 304],
++  SMS: [360, 218],
++  MD: [360, 246],
++  PS1: [360, 360],
++  TG16: [360, 218],
++  WS: [360, 224],
++  Lynx: [360, 222],
++  NGP: [312, 268],
++  '32X': [360, 246],
++  A2600: [312, 373],
++  A7800: [312, 373],
++  VB: [360, 351],
++  NEOGEO: [360, 266],
++  CPS1: [360, 300],
++  CPS2: [222, 329],
++  FDS: [312, 367],
++  PICO8: [312, 400],
++  SGX: [360, 218],
++  PCECD: [360, 360],
++  SEGACD: [360, 360],
++  NEOCD: [360, 360],
++}
++
+ export function cartAspect(tag: string): number {
++  const more = MORE_CART[tag]
++  if (more) return more[0] / more[1]
+   return tag === 'GB' || tag === 'GBC' ? GB_CART : GBA_CART
+ }
+ 
+diff --git a/web/src/views/DashboardView.vue b/web/src/views/DashboardView.vue
+index 18a56dd..6884f10 100644
+--- a/web/src/views/DashboardView.vue
++++ b/web/src/views/DashboardView.vue
+@@ -1,7 +1,8 @@
+ <script setup lang="ts">
+-import { computed, watch } from 'vue'
++import { computed, onMounted, ref, watch } from 'vue'
+ import { useRouter } from 'vue-router'
+ import { HOME_TAGS, platformIcon, platformName } from '@/api/platforms'
++import { getMoreTags } from '@/api/client'
+ import { Wallpaper, Power } from 'lucide-vue-next'
+ import ToolsTab from '@/components/tools/ToolsTab.vue'
+ 
+@@ -20,6 +21,13 @@ watch(() => props.tab, t => {
+   if (t && !VALID_TABS.includes(t)) router.replace('/dashboard/games')
+ }, { immediate: true })
+ 
++const moreTags = ref<string[]>([])
++onMounted(async () => {
++  try {
++    moreTags.value = await getMoreTags()
++  } catch {}
++})
++
+ function openPlatform(tag: string) {
+   router.push({ name: 'platform', params: { tag } })
+ }
+@@ -45,6 +53,16 @@ const cardClass = 'text-left cursor-pointer rounded-xl border border-border bg-c
+           <img :src="platformIcon(tag)" :alt="platformName(tag)" class="h-32 sm:h-48 w-full object-contain" />
+           <span class="slot-label text-sm text-center">{{ platformName(tag) }}</span>
+         </button>
++        <button
++          v-for="tag in moreTags"
++          :key="tag"
++          type="button"
++          :class="[cardClass, 'flex flex-col items-center justify-center gap-2 px-6 py-8']"
++          @click="openPlatform(tag)"
++        >
++          <span class="slot-label text-lg text-center">{{ tag }}</span>
++          <span class="text-sm text-center text-muted-foreground">{{ platformName(tag) }}</span>
++        </button>
+       </div>
+     </template>
+ 
+diff --git a/web/src/views/PlatformView.vue b/web/src/views/PlatformView.vue
+index 4b91a6d..ac1e41a 100644
+--- a/web/src/views/PlatformView.vue
++++ b/web/src/views/PlatformView.vue
+@@ -2,7 +2,7 @@
+ import { computed, ref } from 'vue'
+ import { useRouter } from 'vue-router'
+ import { useI18n } from 'vue-i18n'
+-import { platformName, VIDEO_HOME, VIDEO_TAG } from '@/api/platforms'
++import { isMoreShelf, platformName, VIDEO_HOME, VIDEO_TAG } from '@/api/platforms'
+ import Dropdown from '@/components/ui/Dropdown.vue'
+ import type { DropdownItem } from '@/components/ui/Dropdown.vue'
+ import BiosSlot from '@/components/platform/BiosSlot.vue'
+@@ -22,7 +22,7 @@ const displayName = computed(() => platformName(props.tag))
+ const hasVideo = computed(() => props.tag === VIDEO_HOME)
+ 
+ const activeTab = computed<TabKey>(() => {
+-  if (props.tab === 'bezels' || props.tab === 'bios') return props.tab
++  if (props.tab === 'bezels' || (props.tab === 'bios' && !isMoreShelf(props.tag))) return props.tab
+   return props.tab === 'video' && hasVideo.value ? 'video' : 'games'
+ })
+ 
+@@ -37,7 +37,7 @@ const tabs = computed(() => [
+   { key: 'games' as TabKey, label: t('platform.tabGames') },
+   ...(hasVideo.value ? [{ key: 'video' as TabKey, label: t('platform.tabVideo') }] : []),
+   { key: 'bezels' as TabKey, label: t('platform.tabBezels') },
+-  { key: 'bios' as TabKey, label: t('platform.tabBios') },
++  ...(isMoreShelf(props.tag) ? [] : [{ key: 'bios' as TabKey, label: t('platform.tabBios') }]),
+ ])
+ 
+ function selectTab(tab: TabKey) {

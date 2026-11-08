@@ -11,6 +11,8 @@ Since slot's own 1.14.0, the patch set adds:
   Atari 2600, Atari 7800, Virtual Boy, Neo Geo CD, PICO-8, and arcade boards on FinalBurn Neo (Neo Geo,
   CPS1, CPS2), on top of the shelves of the earlier notes. That is 26 system shelves beside Recents
   and Favorites.
+- **Gamebit on every shelf**: slot's web page lists, uploads, renames and removes games on the 23 added
+  shelves too, with their own cart pictures.
 - **Shelf order by release year**: Settings > General > Shelf Order, Classic or Release Year. The
   Screen page follows the same order.
 - **Expansion Card**: a second TF card holds whole systems' game folders, for the large disc shelves.
@@ -117,7 +119,9 @@ folders show. The README has the full steps.
 - The first start after updating from an older release converts the label pictures of every game to
   slot's new cache format (11,000 games took about 10 minutes on the RG34XXSP's SD card). Games start
   late during that time. It happens once, a second boot is as fast as before.
-- Gamebit and Cart Studio are slot's own and have not been tested with the added shelves.
+- Gamebit lists the added shelves with text cards (no icons), has no BIOS tab for them, and takes one file at a
+  time, so a disc game of several files has to go on the card another way. It only reads the main card, not
+  the Expansion Card. Cart Studio is slot's own and has not been tested with the added shelves.
 - Neo Geo CD is silent while a disc loads.
 - Atari Lynx has a short audio gap at the very first frame of a game that runs at 75 Hz. Lynx carts
   made to be held sideways, and the NeoGeo Pocket in-game save, are still to be checked by hand on the
