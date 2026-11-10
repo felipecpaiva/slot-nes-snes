@@ -47,7 +47,7 @@ The generated test cart moves to ngp_common for every NGP test.
  crates/slot/src/core_options_policy.rs       |  12 +-
  crates/slot/src/platform_video.rs            |   6 +-
  crates/slot/src/retro_quick.rs               |   5 +-
- crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/root.rs                      |   4 +
  crates/slot/src/snes_input.rs                |   7 +-
  crates/slot/src/ws_input.rs                  |   3 +-
  crates/slot/tests/crop_overscan.rs           |   3 +-
@@ -57,14 +57,14 @@ The generated test cart moves to ngp_common for every NGP test.
  crates/slot/tests/ngp_seat.rs                |  26 +++
  crates/slot/tests/snes_select.rs             |   4 +-
  crates/slot/tests/system_picture.rs          |   4 +-
- 33 files changed, 548 insertions(+), 129 deletions(-)
+ 33 files changed, 547 insertions(+), 128 deletions(-)
  create mode 100644 crates/slot-store/src/ngp.rs
  create mode 100644 crates/slot-store/tests/ngp_platform.rs
  create mode 100644 crates/slot/tests/ngp_common/mod.rs
  create mode 100644 crates/slot/tests/ngp_seat.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 962f830..592a630 100644
+index 3c7075b..47714d9 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -256,7 +256,8 @@ impl GameButton {
@@ -74,11 +74,11 @@ index 962f830..592a630 100644
 -            | Platform::Tg16 => &GameButton::GAME_BOY,
 +            | Platform::Tg16
 +            | Platform::Ngp => &GameButton::GAME_BOY,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &GameButton::ALL,
          }
-     }
- 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index 448f258..9c2a8b0 100644
+index 8a92244..e6a89bd 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
 @@ -20,6 +20,7 @@ pub enum Core {
@@ -86,34 +86,34 @@ index 448f258..9c2a8b0 100644
      MednafenWswan,
      MednafenLynx,
 +    MednafenNgp,
+     #[cfg(feature = "nds")]
+     Dsperate,
  }
- 
- impl Core {
-@@ -39,6 +40,7 @@ impl Core {
+@@ -44,6 +45,7 @@ impl Core {
              Core::MednafenPceFast => "mednafen_pce_fast",
              Core::MednafenWswan => "mednafen_wswan",
              Core::MednafenLynx => "mednafen_lynx",
 +            Core::MednafenNgp => "mednafen_ngp",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "dsperate",
          }
-     }
- 
-@@ -60,6 +62,7 @@ impl Core {
+@@ -67,6 +69,7 @@ impl Core {
              Core::MednafenPceFast => "Beetle PCE Fast",
              Core::MednafenWswan => "Beetle Cygne",
              Core::MednafenLynx => "Beetle Lynx",
 +            Core::MednafenNgp => "Beetle NeoPop",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "DSperate",
          }
-     }
- 
-@@ -77,6 +80,7 @@ impl Core {
+@@ -86,6 +89,7 @@ impl Core {
              "mednafen_pce_fast" => Some(Core::MednafenPceFast),
              "mednafen_wswan" => Some(Core::MednafenWswan),
              "mednafen_lynx" => Some(Core::MednafenLynx),
 +            "mednafen_ngp" => Some(Core::MednafenNgp),
+             #[cfg(feature = "nds")]
+             "dsperate" => Some(Core::Dsperate),
              _ => None,
-         }
-     }
-@@ -93,7 +97,8 @@ impl Core {
+@@ -106,7 +110,8 @@ impl Core {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -123,7 +123,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::Gpsp => match platform {
                  Platform::Gba | Platform::Gbav => true,
-@@ -107,7 +112,8 @@ impl Core {
+@@ -120,7 +125,8 @@ impl Core {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -133,7 +133,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::Gambatte => match platform {
                  Platform::Gb | Platform::Gbc => true,
-@@ -125,7 +131,8 @@ impl Core {
+@@ -138,7 +144,8 @@ impl Core {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -143,7 +143,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::Snes9x | Core::Snes9x2005Plus => match platform {
                  Platform::Snes => true,
-@@ -139,7 +146,8 @@ impl Core {
+@@ -152,7 +159,8 @@ impl Core {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -153,7 +153,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::GenesisPlusGx => match platform {
                  Platform::Gg | Platform::Sms | Platform::Md => true,
-@@ -151,7 +159,8 @@ impl Core {
+@@ -164,7 +172,8 @@ impl Core {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -163,7 +163,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::PcsxRearmed => match platform {
                  Platform::Ps1 => true,
-@@ -165,7 +174,8 @@ impl Core {
+@@ -178,7 +187,8 @@ impl Core {
                  | Platform::Md
                  | Platform::Tg16
                  | Platform::Ws
@@ -173,7 +173,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::MednafenPceFast => match platform {
                  Platform::Tg16 => true,
-@@ -179,7 +189,8 @@ impl Core {
+@@ -192,7 +202,8 @@ impl Core {
                  | Platform::Md
                  | Platform::Ps1
                  | Platform::Ws
@@ -183,7 +183,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::MednafenWswan => match platform {
                  Platform::Ws => true,
-@@ -193,7 +204,8 @@ impl Core {
+@@ -206,7 +217,8 @@ impl Core {
                  | Platform::Md
                  | Platform::Ps1
                  | Platform::Tg16
@@ -193,7 +193,7 @@ index 448f258..9c2a8b0 100644
              },
              Core::MednafenLynx => match platform {
                  Platform::Lynx => true,
-@@ -207,7 +219,23 @@ impl Core {
+@@ -220,7 +232,23 @@ impl Core {
                  | Platform::Md
                  | Platform::Ps1
                  | Platform::Tg16
@@ -216,16 +216,16 @@ index 448f258..9c2a8b0 100644
 +                | Platform::Ws
 +                | Platform::Lynx => false,
              },
-         }
-     }
-@@ -223,6 +251,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
+@@ -238,6 +266,7 @@ impl Core {
              Platform::Tg16 => Core::MednafenPceFast,
              Platform::Ws => Core::MednafenWswan,
              Platform::Lynx => Core::MednafenLynx,
 +            Platform::Ngp => Core::MednafenNgp,
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
          }
-     }
- }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
 index 4d054ef..637bead 100644
 --- a/crates/slot-store/src/core_policy.rs
@@ -300,18 +300,18 @@ index 4d054ef..637bead 100644
      }
  }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 1bbcc86..b109e42 100644
+index be22fd4..fb8f736 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -19,6 +19,7 @@ mod guides;
+@@ -20,6 +20,7 @@ mod guides;
  pub mod ini;
  pub mod lynx;
  pub mod nes;
 +pub mod ngp;
- mod platform;
- mod platform_policy;
- pub mod ps1;
-@@ -57,8 +58,8 @@ pub use retro_shader::RetroShader;
+ pub mod overlay;
+ #[cfg(feature = "nds")]
+ mod nds_header;
+@@ -67,8 +68,8 @@ pub use retro_shader::RetroShader;
  pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart, StoreError};
  pub use sega_shader::{
@@ -377,7 +377,7 @@ index 0000000..7cdffcf
 +    header(rom).is_some_and(|h| h.colour)
 +}
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index a24436a..c10285b 100644
+index 5cb4d07..dfc8346 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -16,6 +16,7 @@ pub enum Platform {
@@ -385,41 +385,41 @@ index a24436a..c10285b 100644
      Ws,
      Lynx,
 +    Ngp,
+     #[cfg(feature = "nds")]
+     Nds,
  }
- 
- impl Platform {
-@@ -36,6 +37,7 @@ impl Platform {
+@@ -47,6 +48,7 @@ impl Platform {
              Platform::Tg16 => "NEC TurboGrafx-16",
              Platform::Ws => "Bandai WonderSwan",
              Platform::Lynx => "Atari Lynx",
 +            Platform::Ngp => "SNK Neo Geo Pocket",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "Nintendo DS",
          }
-     }
- 
-@@ -54,6 +56,7 @@ impl Platform {
+@@ -67,6 +69,7 @@ impl Platform {
              Platform::Tg16 => "TG16",
              Platform::Ws => "WS",
              Platform::Lynx => "Lynx",
 +            Platform::Ngp => "NGP",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "NDS",
          }
-     }
- 
-@@ -77,6 +80,7 @@ impl Platform {
+@@ -92,6 +95,7 @@ impl Platform {
              Platform::Tg16 => &["pce"],
              Platform::Ws => &["ws", "wsc"],
              Platform::Lynx => &["lnx", "lyx"],
 +            Platform::Ngp => &["ngp", "ngc", "ngpc"],
+             #[cfg(feature = "nds")]
+             Platform::Nds => &["nds"],
          }
-     }
- 
-@@ -93,6 +97,7 @@ impl Platform {
+@@ -110,6 +114,7 @@ impl Platform {
              Platform::Tg16 => (256, 240),
              Platform::Ws => (224, 144),
              Platform::Lynx => (160, 102),
 +            Platform::Ngp => (160, 152),
+             #[cfg(feature = "nds")]
+             Platform::Nds => (256, 192),
          }
-     }
- 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 index ce969d6..8843358 100644
 --- a/crates/slot-store/src/platform_policy.rs
@@ -935,20 +935,20 @@ index 8ae043e..7528141 100644
      write_sega_shaders(d.path(), &s).expect("write");
      assert_eq!(
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 5298db6..b06192d 100644
+index 5b0fd0b..54a3aca 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -125,7 +125,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -142,7 +142,8 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          | Platform::Ps1
          | Platform::Tg16
          | Platform::Ws
 -        | Platform::Lynx => None,
 +        | Platform::Lynx
 +        | Platform::Ngp => None,
+         #[cfg(feature = "nds")]
+         Platform::Nds => None,
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
-             Some(Outline::Notched) => GbShell::Notched,
-             Some(Outline::Rounded) => GbShell::Rounded,
-@@ -206,7 +207,7 @@ const GB_SEATED_H: u32 = 259;
+@@ -238,7 +239,7 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
@@ -957,7 +957,7 @@ index 5298db6..b06192d 100644
          Platform::Lynx => (SEATED_W, LYNX_SEATED_H),
          Platform::Ws => (SEATED_W, WS_SEATED_H),
          Platform::Ps1 => (SEATED_W, PS1_SEATED_H),
-@@ -222,7 +223,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -256,7 +257,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
@@ -989,10 +989,10 @@ index a8183f0..a9929e2 100644
      let top = src.get(..(sw as usize * rows as usize * 4))?;
      cover_rgba(top, sw, rows, w, h)
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index 6605fd4..e9cb8bf 100644
+index a80e163..7af4972 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -92,6 +92,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -94,6 +94,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
          | Platform::Tg16
          | Platform::Ws
          | Platform::Lynx => crate::retro_shell::plastic_for(cart),
@@ -1001,7 +1001,7 @@ index 6605fd4..e9cb8bf 100644
  }
  
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index 13a212d..c9f2828 100644
+index e79c8c0..1e2c631 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -1014,10 +1014,10 @@ index 13a212d..c9f2828 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 35168dd..e57e287 100644
+index d6548f7..2e158a0 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1987,7 +1987,8 @@ impl App {
+@@ -3288,7 +3288,8 @@ impl App {
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Ws
@@ -1027,27 +1027,27 @@ index 35168dd..e57e287 100644
                  Vec::new()
              }
              _ if platform.hardware() == Platform::Gba && !self.framed_panel() => Vec::new(),
-@@ -2027,7 +2028,8 @@ impl App {
+@@ -3328,7 +3329,8 @@ impl App {
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Ws
 -            | Platform::Lynx => &mut self.state.bezel_gba,
 +            | Platform::Lynx
 +            | Platform::Ngp => &mut self.state.bezel_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &mut self.state.bezel_gba,
              Platform::Gb => &mut self.state.bezel_gb,
-             Platform::Gbc => &mut self.state.bezel_gbc,
-         }
-@@ -2044,7 +2046,8 @@ impl App {
+@@ -3347,7 +3349,8 @@ impl App {
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Ws
 -            | Platform::Lynx => &self.state.bezel_gba,
 +            | Platform::Lynx
 +            | Platform::Ngp => &self.state.bezel_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &self.state.bezel_gba,
              Platform::Gb => &self.state.bezel_gb,
-             Platform::Gbc => &self.state.bezel_gbc,
-         };
-@@ -3375,6 +3378,7 @@ impl App {
+@@ -4927,6 +4930,7 @@ impl App {
              Platform::Tg16 => self.sega_shaders.tg16,
              Platform::Ws => crate::ws_load::drawn_shader(self.sega_shaders.ws, self.vertical),
              Platform::Lynx => self.sega_shaders.lynx,
@@ -1055,7 +1055,7 @@ index 35168dd..e57e287 100644
          }
      }
  
-@@ -3411,7 +3415,8 @@ impl App {
+@@ -4978,7 +4982,8 @@ impl App {
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Ws
@@ -1065,7 +1065,7 @@ index 35168dd..e57e287 100644
          }
      }
  
-@@ -4587,6 +4592,7 @@ impl App {
+@@ -6296,6 +6301,7 @@ impl App {
              Platform::Tg16 => (&mut self.sega_shaders.tg16, &Shader::RETRO[..]),
              Platform::Ws => (&mut self.sega_shaders.ws, &Shader::GG[..]),
              Platform::Lynx => (&mut self.sega_shaders.lynx, &Shader::RETRO[..]),
@@ -1073,7 +1073,7 @@ index 35168dd..e57e287 100644
          };
          *shader = shader.step(choices, right);
          let said = match *shader {
-@@ -4650,7 +4656,8 @@ impl App {
+@@ -6361,7 +6367,8 @@ impl App {
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Ws
@@ -1083,7 +1083,7 @@ index 35168dd..e57e287 100644
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -5155,7 +5162,8 @@ impl App {
+@@ -6896,7 +6903,8 @@ impl App {
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Ws
@@ -1093,21 +1093,21 @@ index 35168dd..e57e287 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -11402,7 +11410,8 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -14620,7 +14628,8 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::Ps1
          | Platform::Tg16
          | Platform::Ws
 -        | Platform::Lynx => 0,
 +        | Platform::Lynx
 +        | Platform::Ngp => 0,
+         #[cfg(feature = "nds")]
+         Platform::Nds => 0,
          Platform::Gb => 1,
-         Platform::Gbc => 2,
-     }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 869ce14..07d572b 100644
+index c3cf73c..7623c94 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -229,7 +229,8 @@ pub fn colour_option(
+@@ -261,7 +261,8 @@ pub fn colour_option(
          | Core::PcsxRearmed
          | Core::MednafenPceFast
          | Core::MednafenWswan
@@ -1208,18 +1208,10 @@ index 4a139da..8d25101 100644
              Platform::Gg => 1,
              Platform::Sms => 2,
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 223da4b..b60d260 100644
+index d857d13..9b0c8d3 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
-@@ -1,6 +1,6 @@
- use std::path::{Path, PathBuf};
- 
--pub const DIRS: [&str; 72] = [
-+pub const DIRS: [&str; 76] = [
-     "BIOS",
-     "Bezels",
-     "Bezels/GBA",
-@@ -28,6 +28,7 @@ pub const DIRS: [&str; 72] = [
+@@ -30,6 +30,7 @@ pub const DIRS: &[&str] = &[
      "Games/TG16",
      "Games/WS",
      "Games/Lynx",
@@ -1227,30 +1219,30 @@ index 223da4b..b60d260 100644
      "Labels",
      "Labels/GBA",
      "Labels/GBAV",
-@@ -43,6 +44,7 @@ pub const DIRS: [&str; 72] = [
+@@ -47,6 +48,7 @@ pub const DIRS: &[&str] = &[
      "Labels/TG16",
      "Labels/WS",
      "Labels/Lynx",
 +    "Labels/NGP",
-     "Saves",
-     "Saves/GBA",
-     "Saves/GBAV",
-@@ -57,6 +59,7 @@ pub const DIRS: [&str; 72] = [
+     "Overlays",
+     "Overlays/GBA",
+     "Overlays/GB",
+@@ -67,6 +69,7 @@ pub const DIRS: &[&str] = &[
      "Saves/TG16",
      "Saves/WS",
      "Saves/Lynx",
 +    "Saves/NGP",
+     #[cfg(feature = "nds")]
+     "Saves/NDS",
      "States",
-     "States/GBA",
-     "States/GBAV",
-@@ -71,6 +74,7 @@ pub const DIRS: [&str; 72] = [
+@@ -83,6 +86,7 @@ pub const DIRS: &[&str] = &[
      "States/TG16",
      "States/WS",
      "States/Lynx",
 +    "States/NGP",
+     #[cfg(feature = "nds")]
+     "States/NDS",
      "System",
-     "Wallpapers",
- ];
 diff --git a/crates/slot/src/snes_input.rs b/crates/slot/src/snes_input.rs
 index d718904..213d008 100644
 --- a/crates/slot/src/snes_input.rs
@@ -1298,7 +1290,7 @@ index 8a762d8..d053283 100644
          assert_eq!(picture_choices(platform), want, "{platform:?}");
      }
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index 3234de7..4735609 100644
+index 297bffe..966b6e5 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

@@ -9,7 +9,7 @@ Subject: [PATCH] console-rows
  crates/slot-store/src/console_controls.rs | 129 ++++++++
  crates/slot-store/src/lib.rs              |   4 +
  crates/slot-ui/src/console_rows.rs        |  20 ++
- crates/slot-ui/src/lib.rs                 |  10 +-
+ crates/slot-ui/src/lib.rs                 |   3 +-
  crates/slot-ui/src/quick_menu.rs          |  20 +-
  crates/slot-ui/tests/quick_menu.rs        |   2 +-
  crates/slot/src/app.rs                    |  37 ++-
@@ -24,14 +24,14 @@ Subject: [PATCH] console-rows
  crates/slot/src/session.rs                |  10 +-
  crates/slot/tests/ps1_input.rs            |   8 +-
  crates/slot/tests/snes_raw_buttons.rs     |  13 +-
- 19 files changed, 820 insertions(+), 80 deletions(-)
+ 19 files changed, 820 insertions(+), 73 deletions(-)
  create mode 100644 crates/slot-store/src/console_controls.rs
  create mode 100644 crates/slot-ui/src/console_rows.rs
  create mode 100644 crates/slot/src/app/console_controls.rs
  create mode 100644 crates/slot/src/console_pad.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 2239803..8632d49 100644
+index e078c33..3d065f8 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -168,7 +168,7 @@ impl Binding {
@@ -61,7 +61,7 @@ index 2239803..8632d49 100644
  }
  
  impl GameButton {
-@@ -288,10 +290,12 @@ impl GameButton {
+@@ -290,10 +292,12 @@ impl GameButton {
              GameButton::R => "R Button",
              GameButton::TurboA => "Turbo A",
              GameButton::TurboB => "Turbo B",
@@ -75,7 +75,7 @@ index 2239803..8632d49 100644
          match self {
              GameButton::Up => "up",
              GameButton::Down => "down",
-@@ -305,10 +309,12 @@ impl GameButton {
+@@ -307,10 +311,12 @@ impl GameButton {
              GameButton::R => "r",
              GameButton::TurboA => "turbo_a",
              GameButton::TurboB => "turbo_b",
@@ -89,7 +89,7 @@ index 2239803..8632d49 100644
          match self {
              GameButton::Up => Device::Up,
              GameButton::Down => Device::Down,
-@@ -322,6 +328,8 @@ impl GameButton {
+@@ -324,6 +330,8 @@ impl GameButton {
              GameButton::R => Device::R1,
              GameButton::TurboA => Device::X,
              GameButton::TurboB => Device::Y,
@@ -98,7 +98,7 @@ index 2239803..8632d49 100644
          }
      }
  
-@@ -455,13 +463,13 @@ impl Shortcut {
+@@ -457,13 +465,13 @@ impl Shortcut {
  
  #[derive(Copy, Clone, PartialEq, Eq, Debug)]
  pub struct Controls {
@@ -250,18 +250,18 @@ index 0000000..9e93505
 +        .try_for_each(|g| write_console_binding(root, platform, g, factory.game(g)))
 +}
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index f54b694..d414be5 100644
+index 2fffc6f..6eb65f7 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -11,6 +11,7 @@ mod bindings;
- mod bios_dump;
+@@ -12,6 +12,7 @@ mod bios_dump;
  pub mod cart_shell;
+ mod collections;
  mod config;
 +mod console_controls;
  mod core;
  mod core_policy;
  pub mod fds;
-@@ -52,6 +53,9 @@ pub use bindings::{
+@@ -59,6 +60,9 @@ pub use collections::{
  };
  pub use cart_shell::{Outline, ShellChoice, ShellFinish, CART_SHELL_FILE, LABELS_SHELL_FILE};
  pub use config::{move_config, CONFIG_DIR};
@@ -298,70 +298,67 @@ index 0000000..e22fcf9
 +    ];
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index c546dcf..84cd265 100644
+index 0f0b02a..19ccbd6 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -14,6 +14,7 @@ mod battery_toast;
- mod board;
- mod cart;
+@@ -16,6 +16,7 @@ mod cart;
+ mod checkbox;
+ mod edit_text;
  mod clock;
 +mod console_rows;
  mod disc_insert;
  mod disc_toast;
  mod draw;
-@@ -140,14 +141,7 @@ pub use ps1_case::{
-     DISC_PRINT_R, DISC_PX, OBI_PAPER,
- };
- pub use quick_menu::{
--    clock_legend_faces, core_button_legends, delete_legends, draw_menu_ground, link_button_legends,
--    fetch_choice_legends, fetch_legends, fetch_skip_legend, print_stop_legend, prompt_legends,
--    studio_legend,
--    StudioGlyph, quick_description_face, quick_label_face, quick_legend_faces,
+@@ -159,7 +160,7 @@ pub use quick_menu::{
+     fetch_choice_legends, fetch_legends, fetch_skip_legend, print_stop_legend, prompt_legends,
+     studio_legend,
+     StudioGlyph, quick_description_face, quick_label_face, quick_legend_faces,
 -    quick_pointer_face, quick_row_top, quick_row_top_at, quick_scroll, quick_value_face,
--    quick_warning_value_face, quick_window, repair_legends, update_legends, QuickMenu,
--    QuickMenuFaces, QuickRow, QuickScroll, QuickValue, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH,
--    QUICK_VISIBLE,
-+clock_legend_faces , core_button_legends , delete_legends , draw_menu_ground , link_button_legends , fetch_choice_legends , fetch_legends , fetch_skip_legend , print_stop_legend , prompt_legends , studio_legend , StudioGlyph , quick_description_face , quick_label_face , quick_legend_faces , quick_pointer_face , quick_row_top , quick_row_top_at , quick_scroll , quick_text_label_face , quick_value_face , quick_warning_value_face , quick_window , repair_legends , update_legends , QuickMenu , QuickMenuFaces , QuickRow , QuickScroll , QuickValue , QUICK_EDGE , QUICK_LABEL_X , QUICK_PITCH , QUICK_VISIBLE ,
- };
- pub use rebuild::{headline_face, rebuild_count_face, rebuild_title_face, RebuildScreen};
- pub use refusal::Refusal;
++    quick_pointer_face, quick_row_top, quick_row_top_at, quick_scroll, quick_text_label_face, quick_value_face,
+     quick_warning_value_face, quick_window, repair_legends, update_legends, visible_rows, QuickMenu,
+     QuickMenuFaces, QuickRow, QuickScroll, QuickValue, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH,
+     QUICK_VISIBLE,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index c0602e8..2dddfc1 100644
+index 8305580..8a49485 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -231,10 +231,12 @@ pub enum QuickRow {
+@@ -239,6 +239,8 @@ pub enum QuickRow {
      ScreenNeocd,
      NeocdPicture,
      NeocdBios,
 +    GameL2,
 +    GameR2,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -246,7 +248,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 218] = [
-+    pub const ALL: [QuickRow; 220] = [
+-    pub const ALL: [QuickRow; 228 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 230 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -457,6 +459,8 @@ impl QuickRow {
+@@ -477,6 +479,8 @@ impl QuickRow {
          QuickRow::ScreenNeocd,
          QuickRow::NeocdPicture,
          QuickRow::NeocdBios,
 +        QuickRow::GameL2,
 +        QuickRow::GameR2,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -778,7 +782,7 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -826,7 +830,7 @@ impl QuickRow {
              QuickRow::PlayScreen | QuickRow::PlayGameplay | QuickRow::PlayControls => {
                  &QuickRow::SETTINGS
              }
 -            r if r.game_button().is_some() => &QuickRow::CONTROLS,
 +            r if r.game_button().is_some() => &QuickRow::IN_GAME,
              r if r.shortcut().is_some() => &QuickRow::SHORTCUTS,
-             r if r.carousel_action().is_some() => &QuickRow::SHELF_KEYS,
-             QuickRow::Shader
-@@ -1096,7 +1100,9 @@ impl QuickRow {
+             QuickRow::CollPrev
+             | QuickRow::CollNext => &QuickRow::COLLECTION_KEYS,
+@@ -1156,7 +1160,9 @@ impl QuickRow {
              | QuickRow::GameL
              | QuickRow::GameR
              | QuickRow::GameTurboA
@@ -372,7 +369,7 @@ index c0602e8..2dddfc1 100644
              QuickRow::ScSave
              | QuickRow::ScLoad
              | QuickRow::ScScreenshot
-@@ -1313,6 +1319,8 @@ impl QuickRow {
+@@ -1384,6 +1390,8 @@ impl QuickRow {
              QuickRow::GameR => GameButton::R,
              QuickRow::GameTurboA => GameButton::TurboA,
              QuickRow::GameTurboB => GameButton::TurboB,
@@ -381,7 +378,7 @@ index c0602e8..2dddfc1 100644
              _ => return None,
          })
      }
-@@ -1755,6 +1763,10 @@ pub fn quick_label_face(row: QuickRow, lit: bool) -> UndoFace {
+@@ -1850,6 +1858,10 @@ pub fn quick_label_face(row: QuickRow, lit: bool) -> UndoFace {
      quick_text_face(row.label(), if lit { MENU_INK } else { DIM_INK })
  }
  
@@ -392,7 +389,7 @@ index c0602e8..2dddfc1 100644
  fn cap_centre(label: &fontdue::Font, h: u32) -> f32 {
      match label.horizontal_line_metrics(MENU_PX) {
          Some(v) => {
-@@ -2364,7 +2376,7 @@ pub struct QuickScroll {
+@@ -2492,7 +2504,7 @@ pub struct QuickScroll {
  
  fn scrolls(page: &[QuickRow]) -> bool {
      [
@@ -402,10 +399,10 @@ index c0602e8..2dddfc1 100644
          &QuickRow::GENERAL,
          &QuickRow::PLAY_SCREEN,
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index 7e9089d..e6f2d97 100644
+index 64f0789..a1ce1ed 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -535,7 +535,7 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
+@@ -552,7 +552,7 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
  
  #[test]
  fn the_thumb_reaches_the_bottom_only_on_the_last_row() {
@@ -413,20 +410,18 @@ index 7e9089d..e6f2d97 100644
 +    let rows = QuickRow::IN_GAME;
      let mut last_y = f32::MIN;
      for (i, row) in rows.iter().enumerate() {
-         let bar = slot_ui::quick_scroll(*row, &[]).expect("the controls page scrolls");
+         let bar = slot_ui::quick_scroll(slot_ui::Canvas::FRAMED, *row, &[]).expect("the controls page scrolls");
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 6e0717c..b40be93 100644
+index 917d22c..16dcd64 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1,6 +1,7 @@
- mod arcade_bios;
- mod atari_pad;
+@@ -1,4 +1,5 @@
  mod battery_warn;
 +mod console_controls;
  mod fast_scroll;
  mod fds_bios;
  mod lynx_bios;
-@@ -570,6 +571,7 @@ pub struct App {
+@@ -643,6 +644,7 @@ pub struct App {
      capture: Option<BindCapture>,
      plugged_face: Option<TexId>,
      binding_faces: HashMap<String, [(TexId, u32, u32); 2]>,
@@ -434,7 +429,7 @@ index 6e0717c..b40be93 100644
      carousel: CarouselKeys,
      shortcuts: ShortcutKeys,
      vol_before: Vec<(u8, bool, Millis)>,
-@@ -1032,6 +1034,7 @@ impl App {
+@@ -1167,6 +1169,7 @@ impl App {
              capture: None,
              plugged_face: None,
              binding_faces: HashMap::new(),
@@ -442,7 +437,7 @@ index 6e0717c..b40be93 100644
              carousel: CarouselKeys::default(),
              shortcuts: ShortcutKeys::default(),
              vol_before: Vec::new(),
-@@ -1645,7 +1648,7 @@ impl App {
+@@ -2760,7 +2763,7 @@ impl App {
          if !matches!(offer, Some(PendingUndo::Reset { .. })) || !self.may_load_state() {
              hidden.push(QuickRow::UndoReset);
          }
@@ -451,7 +446,7 @@ index 6e0717c..b40be93 100644
      }
  
      fn refresh_albums(&mut self) {
-@@ -2023,6 +2026,8 @@ impl App {
+@@ -3163,6 +3166,8 @@ impl App {
              | QuickRow::GameR
              | QuickRow::GameTurboA
              | QuickRow::GameTurboB
@@ -460,7 +455,7 @@ index 6e0717c..b40be93 100644
              | QuickRow::ScSave
              | QuickRow::ScLoad
              | QuickRow::ScScreenshot
-@@ -2050,6 +2055,7 @@ impl App {
+@@ -3193,6 +3198,7 @@ impl App {
  
      pub fn set_quick_menu_faces(&mut self, faces: QuickMenuFaces) {
          self.quick_menu_faces = Some(faces);
@@ -468,7 +463,7 @@ index 6e0717c..b40be93 100644
      }
  
      pub fn set_quick_clock_faces(&mut self, dim: (TexId, u32, u32), lit: (TexId, u32, u32)) {
-@@ -2492,6 +2498,7 @@ impl App {
+@@ -3955,6 +3961,7 @@ impl App {
          if self.romm.protocol == crate::romm::Protocol::Http {
              hidden.push(QuickRow::RommSelfSigned);
          }
@@ -476,7 +471,7 @@ index 6e0717c..b40be93 100644
          hidden
      }
  
-@@ -3012,7 +3019,7 @@ impl App {
+@@ -4529,7 +4536,7 @@ impl App {
  
      fn bound_to_game(&self, b: Btn) -> bool {
          GameButton::of(self.platform).iter().any(|g| {
@@ -485,7 +480,7 @@ index 6e0717c..b40be93 100644
                  .game(*g)
                  .is_some_and(|x| x.modifier.is_none() && crate::input::device_btn(x.button) == b)
          })
-@@ -3092,7 +3099,9 @@ impl App {
+@@ -4609,7 +4616,9 @@ impl App {
      }
  
      pub fn clash(&self, row: QuickRow) -> Option<QuickRow> {
@@ -496,7 +491,7 @@ index 6e0717c..b40be93 100644
      }
  
      pub fn binding_table(&self) -> crate::input::Table {
-@@ -3124,7 +3133,7 @@ impl App {
+@@ -4650,7 +4659,7 @@ impl App {
  
      fn binding_of(&self, row: QuickRow) -> Option<Binding> {
          if let Some(g) = row.game_button() {
@@ -505,7 +500,7 @@ index 6e0717c..b40be93 100644
          }
          if let Some(s) = row.shortcut() {
              return self.shortcuts.get(s);
-@@ -3134,6 +3143,9 @@ impl App {
+@@ -4660,6 +4669,9 @@ impl App {
  
      fn reset_page(&mut self, row: QuickRow) {
          self.reset_prompt = None;
@@ -515,7 +510,7 @@ index 6e0717c..b40be93 100644
          let (what, written) = if row.game_button().is_some() {
              self.controls = Controls::default();
              let Some(root) = &self.root else {
-@@ -3161,7 +3173,8 @@ impl App {
+@@ -4690,7 +4702,8 @@ impl App {
  
      fn page_is_default(&self, row: QuickRow) -> bool {
          if row.game_button().is_some() {
@@ -525,7 +520,7 @@ index 6e0717c..b40be93 100644
          } else if row.shortcut().is_some() {
              self.shortcuts == ShortcutKeys::default()
          } else {
-@@ -3195,6 +3208,12 @@ impl App {
+@@ -4734,6 +4747,12 @@ impl App {
      }
  
      fn set_binding(&mut self, row: QuickRow, binding: Option<Binding>) {
@@ -538,7 +533,7 @@ index 6e0717c..b40be93 100644
          if let Some(g) = row.game_button() {
              self.controls.set_game(g, binding);
              if let Some(root) = &self.root {
-@@ -4133,7 +4152,7 @@ impl App {
+@@ -5785,7 +5804,7 @@ impl App {
      }
  
      fn in_game_menu_input(&mut self, row: QuickRow, action: Action) {
@@ -547,7 +542,7 @@ index 6e0717c..b40be93 100644
          let hidden = &hidden[..];
          if row.binds() {
              match action {
-@@ -4373,6 +4392,8 @@ impl App {
+@@ -6038,6 +6057,8 @@ impl App {
              | QuickRow::GameR
              | QuickRow::GameTurboA
              | QuickRow::GameTurboB
@@ -556,7 +551,7 @@ index 6e0717c..b40be93 100644
              | QuickRow::ScSave
              | QuickRow::ScLoad
              | QuickRow::ScScreenshot
-@@ -4907,6 +4928,8 @@ impl App {
+@@ -6609,6 +6630,8 @@ impl App {
              | QuickRow::GameR
              | QuickRow::GameTurboA
              | QuickRow::GameTurboB
@@ -565,7 +560,7 @@ index 6e0717c..b40be93 100644
              | QuickRow::ScSave
              | QuickRow::ScLoad
              | QuickRow::ScScreenshot
-@@ -6252,7 +6275,7 @@ impl App {
+@@ -8340,7 +8363,7 @@ impl App {
          if let (Some(row), Phase::Playing { .. }, true) =
              (self.in_game_menu_shown(), &self.phase, self.screen >= 1.0)
          {
@@ -1138,10 +1133,10 @@ index 0000000..3b5eb7e
 +    }
 +}
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index b10d6e0..35ad258 100644
+index 7998ecf..2be8caf 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -125,6 +125,7 @@ struct Shared {
+@@ -129,6 +129,7 @@ struct Shared {
      disc_event: Mutex<Option<DiscEvent>>,
      fds_flip: AtomicU32,
      flash: Mutex<Option<crate::ngp_flash::Seat>>,
@@ -1149,7 +1144,7 @@ index b10d6e0..35ad258 100644
  }
  
  #[derive(Default)]
-@@ -210,6 +211,7 @@ impl EmuHandle {
+@@ -218,6 +219,7 @@ impl EmuHandle {
              disc_event: Mutex::new(None),
              fds_flip: AtomicU32::new(0),
              flash: Mutex::new(None),
@@ -1157,7 +1152,7 @@ index b10d6e0..35ad258 100644
          });
          let (tx, rx) = channel();
          let worker = Worker {
-@@ -403,6 +405,10 @@ impl EmuHandle {
+@@ -425,6 +427,10 @@ impl EmuHandle {
          self.shared.pass_through.store(on, Ordering::Relaxed);
      }
  
@@ -1168,7 +1163,7 @@ index b10d6e0..35ad258 100644
      pub fn set_ws_pad(&self, code: u8) {
          self.shared.ws_pad.store(code, Ordering::Relaxed);
      }
-@@ -886,6 +892,7 @@ impl Worker {
+@@ -919,6 +925,7 @@ impl Worker {
                      if flipped {
                          self.keep_fds_side(core.as_mut());
                      }
@@ -1177,18 +1172,18 @@ index b10d6e0..35ad258 100644
                      if last {
                          drawn = took;
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 333bef1..7586829 100644
+index 29a616a..595e41d 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -1047,6 +1047,7 @@ impl Frontend {
-         self.cart_faces.sync(self.session.app_mut(), compositor);
-         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
+@@ -1172,6 +1172,7 @@ impl Frontend {
+         sync_box_text(self.session.app_mut(), compositor, &mut self.box_text);
+         sync_box_art(self.session.app_mut(), compositor, &mut self.box_art);
          sync_binding_faces(self.session.app_mut(), compositor);
 +        sync_console_labels(self.session.app_mut(), compositor);
          sync_about(self.session.app_mut(), compositor, &mut self.about);
          sync_update(self.session.app_mut(), compositor, &mut self.update_text);
          sync_fetch_art(self.session.app_mut(), compositor, &mut self.fetch_sync);
-@@ -1750,6 +1751,19 @@ fn sync_binding_faces(app: &mut App, compositor: &mut Compositor) {
+@@ -1915,6 +1916,19 @@ fn sync_binding_faces(app: &mut App, compositor: &mut Compositor) {
      }
  }
  
@@ -1239,10 +1234,10 @@ index 9015020..3ed7a66 100644
      }
  }
 diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
-index 7bf9002..792f106 100644
+index 1abd7e8..8b48cb8 100644
 --- a/crates/slot/src/input/mod.rs
 +++ b/crates/slot/src/input/mod.rs
-@@ -17,5 +17,5 @@ pub use bind::{btn_device, device_btn};
+@@ -18,5 +18,5 @@ pub use bind::{btn_device, device_btn};
  pub use device::DeviceInput;
  #[cfg(feature = "host")]
  pub use host::HostInput;
@@ -1317,10 +1312,10 @@ index dbf55a0..c423390 100644
      }
  }
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 09a5cbb..81e76c7 100644
+index 4cacfcd..0dc06a5 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -19,6 +19,7 @@ pub mod build_info;
+@@ -20,6 +20,7 @@ pub mod build_info;
  pub mod cable;
  pub mod card_log;
  pub mod cart_faces;
@@ -1329,10 +1324,10 @@ index 09a5cbb..81e76c7 100644
  pub mod core_faces;
  pub mod core_options_policy;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 7560b3f..de66c23 100644
+index 03c5786..38c4e32 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -269,11 +269,10 @@ impl Session {
+@@ -277,11 +277,10 @@ impl Session {
              self.pad.apply(Action::GbaUp(btn));
          }
          if let Some(emu) = &self.emu {
@@ -1348,7 +1343,7 @@ index 7560b3f..de66c23 100644
              if trace() && mask.0 != self.sent {
                  eprintln!("slot: pad {:#06x}", mask.0);
              }
-@@ -720,6 +719,7 @@ impl Session {
+@@ -729,6 +728,7 @@ impl Session {
          let sgx_six = self.app.latch_sgx_pad(loaded.platform);
          emu.set_pass_through(loaded.platform.passes_xy_through() || sgx_six);
          let vb_buttons = self.app.latch_vb_pad(loaded.platform);

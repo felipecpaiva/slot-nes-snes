@@ -18,15 +18,15 @@ Subject: [PATCH] gamebit-added-shelves
  create mode 100644 web/src/lib/__tests__/moreShelves.spec.ts
 
 diff --git a/crates/slot/src/server/games.rs b/crates/slot/src/server/games.rs
-index 086c262..b0c0def 100644
+index a4d8229..648ce3f 100644
 --- a/crates/slot/src/server/games.rs
 +++ b/crates/slot/src/server/games.rs
-@@ -27,7 +27,12 @@ pub(super) fn ok() -> Reply {
+@@ -34,7 +34,12 @@ fn served() -> impl Iterator<Item = Platform> {
  }
  
  fn platform_for(tag: &str) -> Option<Platform> {
--    Platform::ALL.into_iter().find(|p| p.dir_name().eq_ignore_ascii_case(tag))
-+    Platform::ALL.into_iter().chain(added_shelves()).find(|p| p.dir_name().eq_ignore_ascii_case(tag))
+-    served().find(|p| p.dir_name().eq_ignore_ascii_case(tag))
++    served().chain(added_shelves()).find(|p| p.dir_name().eq_ignore_ascii_case(tag))
 +}
 +
 +/// The shelves this build adds to upstream's four, in shelf order (tags keeps upstream's four first).
@@ -35,17 +35,17 @@ index 086c262..b0c0def 100644
  }
  
  fn parse_id(text: &str) -> Option<usize> {
-@@ -44,7 +49,8 @@ pub fn tags(req: Request) -> Reply {
+@@ -51,7 +56,8 @@ pub fn tags(req: Request) -> Reply {
          return Reply::error(405, "method not allowed");
      }
-     let tags: Vec<&str> = Platform::ALL.iter().map(|p| p.dir_name()).collect();
+     let tags: Vec<&str> = served().map(|p| p.dir_name()).collect();
 -    Reply::json(json!({ "tags": tags, "groups": {} }))
 +    let more: Vec<&str> = added_shelves().map(|p| p.dir_name()).collect();
 +    Reply::json(json!({ "tags": tags, "groups": {}, "more": more }))
  }
  
  pub(super) fn at(root: &Path, segments: &[&str]) -> Result<PathBuf, Refused> {
-@@ -97,7 +103,7 @@ impl Index {
+@@ -104,7 +110,7 @@ impl Index {
              .into_iter()
              .filter_map(|(lower, name)| lower.strip_suffix(".txt").map(|s| (s.to_string(), name)))
              .collect();
@@ -54,7 +54,7 @@ index 086c262..b0c0def 100644
              .iter()
              .filter(|c| c.runs(platform))
              .map(|c| {
-@@ -134,7 +140,7 @@ impl Index {
+@@ -141,7 +147,7 @@ impl Index {
  }
  
  fn resume_cores(root: &Path, cart: &Cart) -> Vec<&'static str> {
@@ -63,7 +63,7 @@ index 086c262..b0c0def 100644
          .iter()
          .filter(|c| c.runs(cart.platform))
          .filter(|c| StateRing::new(root, cart.platform, **c, &cart.stem).has_resume())
-@@ -333,7 +339,7 @@ fn art(root: &Path, cart: &Cart, req: &mut Request) -> Reply {
+@@ -341,7 +347,7 @@ fn art(root: &Path, cart: &Cart, req: &mut Request) -> Reply {
  }
  
  fn state_dirs(root: &Path, cart: &Cart) -> Vec<PathBuf> {
@@ -72,13 +72,13 @@ index 086c262..b0c0def 100644
          .iter()
          .filter_map(|c| at(root, &["States", cart.platform.dir_name(), c.as_str(), &cart.stem]).ok())
          .collect()
-@@ -466,7 +472,7 @@ fn rename(root: &Path, index: &Index, cart: &Cart, name: &str) -> Result<(), Ref
+@@ -509,7 +515,7 @@ fn rename(root: &Path, index: &Index, cart: &Cart, name: &str) -> Result<(), Ref
          }
          None => None,
      };
 -    for core in Core::ALL {
 +    for core in Core::EVERY {
-         let from = at(root, &["States", tag, core.as_str(), &cart.stem])?;
+         let from = root.join("States").join(tag).join(core.as_str()).join(&cart.stem);
          if from.is_dir() {
              plan.push((from, at(root, &["States", tag, core.as_str(), &new_stem])?));
 diff --git a/crates/slot/src/server/states.rs b/crates/slot/src/server/states.rs

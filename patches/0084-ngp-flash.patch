@@ -70,10 +70,10 @@ index 8843358..4d426ad 100644
 +    }
  }
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 07d572b..471e54a 100644
+index 7623c94..05f0359 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -118,7 +118,7 @@ fn open_named(
+@@ -148,7 +148,7 @@ fn open_named(
      paths: &[PathBuf],
  ) -> Option<Box<dyn RetroCore>> {
      let bios = root::bios_dir(root);
@@ -83,10 +83,10 @@ index 07d572b..471e54a 100644
          if !path.exists() {
              continue;
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index b7a733b..dedceb7 100644
+index 0be3115..78650cf 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -122,6 +122,7 @@ struct Shared {
+@@ -126,6 +126,7 @@ struct Shared {
      clock: Mutex<Clock>,
      clocked: Condvar,
      disc_event: Mutex<Option<DiscEvent>>,
@@ -94,7 +94,7 @@ index b7a733b..dedceb7 100644
  }
  
  #[derive(Default)]
-@@ -205,6 +206,7 @@ impl EmuHandle {
+@@ -213,6 +214,7 @@ impl EmuHandle {
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
              disc_event: Mutex::new(None),
@@ -102,7 +102,7 @@ index b7a733b..dedceb7 100644
          });
          let (tx, rx) = channel();
          let worker = Worker {
-@@ -452,6 +454,10 @@ impl EmuHandle {
+@@ -474,6 +476,10 @@ impl EmuHandle {
          self.shared.disc_event.lock().ok()?.take()
      }
  
@@ -113,16 +113,16 @@ index b7a733b..dedceb7 100644
      pub fn snapshot(&self) -> EmuSnapshot {
          EmuSnapshot {
              cmds: self.cmds.clone(),
-@@ -1040,6 +1046,8 @@ impl Worker {
-         if dropped > 0 || starved > 0 || crate::session::trace() {
-             eprintln!("slot: audio: {dropped} samples dropped, {starved} starved");
+@@ -1078,6 +1084,8 @@ impl Worker {
+         if dropped > 0 || starved > 0 || xruns > 0 || crate::session::trace() {
+             eprintln!("slot: audio: {dropped} samples dropped, {starved} starved, {xruns} xruns");
          }
 +        drop(core);
 +        crate::ngp_flash::published_after_unload(&self.shared.flash);
      }
  
      fn apply(
-@@ -1082,6 +1090,9 @@ impl Worker {
+@@ -1120,6 +1128,9 @@ impl Worker {
                  Err(e) => eprintln!("slot: refresh: {e}"),
              },
              Cmd::Sav(reply) => {
@@ -133,17 +133,17 @@ index b7a733b..dedceb7 100644
              }
              Cmd::Thumb(reply) => {
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index fabe4b1..4bfbab8 100644
+index 97d5ac9..026b52f 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -53,6 +53,7 @@ pub mod net_time;
+@@ -55,6 +55,7 @@ pub mod loading_mark;
  pub mod network_faces;
  pub mod networks;
  pub mod lynx_turn;
 +pub mod ngp_flash;
  pub mod no_state;
  pub mod pal_speed;
- pub mod panel_turn;
+ pub mod pacer;
 diff --git a/crates/slot/src/ngp_flash.rs b/crates/slot/src/ngp_flash.rs
 new file mode 100644
 index 0000000..ba6057b
@@ -336,10 +336,10 @@ index 0000000..ba6057b
 +    }
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 523cbdf..c8ebae9 100644
+index dfe88cf..e771445 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -617,6 +617,7 @@ impl Session {
+@@ -626,6 +626,7 @@ impl Session {
                      false => persist::read_resume(&root, platform, core, &stem),
                  };
                  launch("resume state read");
@@ -347,7 +347,7 @@ index 523cbdf..c8ebae9 100644
                  let palette = crate::core::palette_for(chosen, platform, &rom, player);
                  let mut opened = open_core(
                      &root, core, platform, serial, colour, blending, palette, player,
-@@ -679,6 +680,7 @@ impl Session {
+@@ -688,6 +689,7 @@ impl Session {
              sav.flatten(),
              resume.flatten(),
          );
@@ -355,7 +355,7 @@ index 523cbdf..c8ebae9 100644
          let emu = match loaded.player.filter(|_| loaded.platform == Platform::Gba) {
              Some(p) => EmuHandle::spawn_linked(core, rom, ring, sav, resume, p),
              None => EmuHandle::spawn(core, rom, ring, sav, resume),
-@@ -690,6 +692,7 @@ impl Session {
+@@ -699,6 +701,7 @@ impl Session {
              emu.refuse_resume();
          }
          self.app.set_resume_unread(resume_unread);

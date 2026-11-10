@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 10 Nov 2026 15:13:58 +0400
+Subject: [PATCH] adapt-pacer-1-15-2
+
+---
+ crates/slot/src/device_app.rs | 4 ++--
+ crates/slot/src/pacer.rs      | 9 +++++++++
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index e139781..1ec9b45 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -166,7 +166,7 @@ pub fn run() {
+             return;
+         }
+         if doze.resting() {
+-            (pacer.last_return, pacer.seen) = (None, None);
++            pacer.forget();
+             continue;
+         }
+         let late = frontend.step_emulator(pacer.period(), STEP_TIMEOUT);
+@@ -208,7 +208,7 @@ pub fn run() {
+         let bottom_took = bottom_began.elapsed();
+         slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
+         let view = frontend.app().fast_scroll_view();
+-        if let Some(line) = fast_scroll.frame(view, Instant::now(), pacer.period) {
++        if let Some(line) = fast_scroll.frame(view, Instant::now(), pacer.period()) {
+             eprintln!("{line}");
+         }
+         let dropped = pacer.swapped(work, swap_took > Duration::from_millis(1));
+diff --git a/crates/slot/src/pacer.rs b/crates/slot/src/pacer.rs
+index 586871b..63c9d16 100644
+--- a/crates/slot/src/pacer.rs
++++ b/crates/slot/src/pacer.rs
+@@ -5,6 +5,8 @@ const WORK_WINDOW: usize = 32;
+ 
+ pub struct Pacer {
+     last_return: Option<Instant>,
++    /// The gap the last latch was seen after, for the frame trace.
++    pub seen: Option<Duration>,
+     period: Duration,
+     work: Duration,
+     works: [Duration; WORK_WINDOW],
+@@ -22,6 +24,7 @@ impl Pacer {
+     pub fn new() -> Self {
+         Pacer {
+             last_return: None,
++            seen: None,
+             period: Duration::from_micros(16_760),
+             work: Duration::from_millis(4),
+             works: [Duration::from_millis(4); WORK_WINDOW],
+@@ -38,6 +41,11 @@ impl Pacer {
+         }
+     }
+ 
++    /// Forget the last latch, so a rest in between is not counted as a missed one.
++    pub fn forget(&mut self) {
++        (self.last_return, self.seen) = (None, None);
++    }
++
+     pub fn period(&self) -> Duration {
+         self.period
+     }
+@@ -81,6 +89,7 @@ impl Pacer {
+         self.works[self.next] = work;
+         self.next = (self.next + 1) % WORK_WINDOW;
+         self.work = self.works.iter().copied().max().unwrap_or(work);
++        self.seen = seen;
+         self.last_return = Some(now);
+         missed
+     }

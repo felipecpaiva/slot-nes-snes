@@ -34,7 +34,12 @@ fi
 # own afterwards as information only. Locally they still gate. Our pal_pacing_clock.rs (issue 66) counts frames an
 # undriven 50 fps worker runs in two seconds of wall clock, so it joins them, and so does pal_pacing.rs (a_75_fps_core_runs_75_frames_in_60_display_ticks failed on
 # the macOS runner on main after the v1.14.0 merge: its worker drops a tick when it restarts its rate clock).
-ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock slot:pal_pacing"
+ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock slot:pal_pacing slot:render_layout_golden slot:nds_emu"
+# Upstream's render_layout_golden.rs (v1.15) hashes whole frames against a fixture recorded on upstream's machine, and the
+# runner's GPU renders other pixels (PR 196), so it is information only on CI like the other pixel tests above; locally
+# it gates, with our two settings-long-list hashes (ADR 0112).
+# Upstream's nds_emu.rs (v1.15) times how far a worker steps ahead of its caller and failed
+# stepping_ahead_overlaps_the_core_with_the_caller on the runner (PR 196, run 42816683879); it passes here, so it gates locally only.
 # Upstream's render_in_game_menu.rs steps its menu by wall-clock frame time (Frontend::advance). On the
 # macOS runner the unpatched tree fails it either way: both tests in runs 39151890455 and 39235648529,
 # one in run 39239204575, where the patched tree failed both, so a both-trees compare there only
@@ -79,8 +84,16 @@ fi
 # (a label shape off by 1.4 percent here, ADR 0110). Upstream's render_unwrap.rs (v1.13) compares where a
 # cart's pixels fall on the unwrap scene's wall and failed cart_stays_behind_the_front_wall on the macOS
 # runner only (PR 186), so it runs in both trees too.
-both_trees="slot-gfx:layout slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
-[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:render_native slot:rumble slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+both_trees="slot-gfx:layout slot:art_jobs slot:e2e slot:romm_gifts slot:render_in_game_menu slot:render_native slot:rumble slot:render_gallery_stress slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+[ "${CI:-}" = true ] && both_trees="slot-gfx:layout slot:art_jobs slot:e2e slot:romm_gifts slot:render_native slot:rumble slot:render_unwrap slot:header_index_boot slot-store:header_index slot-ui:lib"
+# Upstream's art_jobs.rs (v1.15) counts how many label jobs run at once and got 2 for 3 on a loaded macOS host in the
+# parallel run (ADR 0112); it passes alone in both trees, so it runs in both trees too.
+# Upstream's e2e.rs the_whole_pass_from_boot_to_resume reads the resume state right after the eject and fails every
+# time on this Mac in the unpatched tree too (the eject writes on a thread now), so it runs in both trees.
+# Upstream's romm_gifts.rs a_rescan_asks_for_the_boxes_again fails on the unpatched v1.15.2 tree on this Mac too, so it
+# runs in both trees. Upstream's clock.rs tests set the process wide TZ variable and flake in the parallel run in
+# both trees (the_cores_read_the_cart_clock_in_the_city_on_the_card, picking_a_new_city_moves_the_cart_clock_with_it),
+# so it runs one test at a time with the Gamebit tests (ADR 0112).
 # crate:file is a test file under tests/, crate:lib is the crate's unit tests.
 sel() { if [ "${1#*:}" = lib ]; then echo --lib; else echo "--test ${1#*:}"; fi; }
 up="$(dirname "$1")/slot-upstream"
@@ -105,7 +118,7 @@ done
 # print cues expect the scene clock to run in step with the test's. Both pass on the unpatched tree in the
 # parallel run on this Mac but flake in the patched one (it boots a little slower, 26 shelves more), and
 # pass every time one test at a time. They gate that way, after the parallel run (ADR 0110).
-serial="slot:server_ui slot:server_carts"
+serial="slot:server_ui slot:server_carts slot:clock"
 for pt in $serial; do
 	names="$(cd "$1" && cargo test -q -p "${pt%%:*}" --test "${pt#*:}" -- --list --format terse 2>/dev/null |
 		sed -n 's/: test$//p' | sed 's/^/--skip /' | tr '\n' ' ')"
@@ -205,7 +218,8 @@ echo "skip report (tests that printed a skip message, with the reason):"
 # cores are built before the tests, so such a skip means the suite did not test what check
 # promises. The exception is a message that also names a cart, ROM, card, BIOS or the Games folder ("no vendored
 # core or no Game Boy cart"), which cannot tell which is missing; it is listed as a ROM skip.
-# Non-ROM skips are labelled [tool] (zbarimg) or [asset] (bootlogo) so they do not mix in.
+# Non-ROM skips are labelled [tool] (zbarimg) or [asset] (bootlogo) so they do not mix in. Upstream's dsperate.rs skips
+# without slot_ds.dylib: the Nintendo DS core is behind `feature = "nds"`, which this build leaves off (ADR 0112), so it is [nds].
 awk '
 	/^     Running / { bin = $0; sub(/^ *Running /, "", bin); sub(/ \(.*$/, "", bin); next }
 	/^   Doc-tests / { bin = "doc-tests " $2; next }
@@ -214,7 +228,8 @@ awk '
 		l = tolower(line)
 		rom = l ~ /(^|[^a-z])(carts?|roms?|cards?|bios|games)([^a-z]|$)/
 		tag = ""
-		if (!rom && l ~ /(^|[^a-z])(dylib|libretro|cores?)([^a-z]|$)/) tag = "CORE MISSING "
+		if (l ~ /slot_ds\.dylib/) tag = "[nds] "
+		else if (!rom && l ~ /(^|[^a-z])(dylib|libretro|cores?)([^a-z]|$)/) tag = "CORE MISSING "
 		else if (l ~ /zbarimg/) tag = "[tool] "
 		else if (tolower($0) ~ /bootlogo/) tag = "[asset] "
 		n[tag bin ": " line]++

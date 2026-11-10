@@ -17,8 +17,8 @@ Subject: [PATCH] retro-shaders
  crates/slot-ui/src/quick_retro.rs             |  23 +-
  crates/slot-ui/src/toast.rs                   |   3 +
  crates/slot-ui/tests/retro_faces.rs           |  46 +++
- crates/slot/src/app.rs                        |   2 +
- crates/slot/src/frontend.rs                   |   5 +-
+ crates/slot/src/app.rs                        |   3 +
+ crates/slot/src/frontend.rs                   |   4 +-
  crates/slot/tests/nes_snes_shader.rs          |  26 +-
  crates/slot/tests/quick_retro_shader.rs       |  26 +-
  16 files changed, 678 insertions(+), 16 deletions(-)
@@ -29,14 +29,15 @@ Subject: [PATCH] retro-shaders
  create mode 100644 crates/slot-ui/tests/retro_faces.rs
 
 diff --git a/crates/slot-gfx/src/lcd3x.rs b/crates/slot-gfx/src/lcd3x.rs
-index d0a4bbb..8885441 100644
+index 94baa4e..53eea43 100644
 --- a/crates/slot-gfx/src/lcd3x.rs
 +++ b/crates/slot-gfx/src/lcd3x.rs
-@@ -17,11 +17,19 @@ pub enum ScreenEffect {
+@@ -17,12 +17,20 @@ pub enum ScreenEffect {
      Dot,
      Simpletex,
      Shimmerless,
 +    Retro(u8),
+     LcdGrid,
  }
  
  impl ScreenEffect {
@@ -51,10 +52,10 @@ index d0a4bbb..8885441 100644
 +            ScreenEffect::Retro(_) => 0.0,
 +        }
      }
- }
  
+     pub fn lcd_for(panel: (u32, u32)) -> ScreenEffect {
 diff --git a/crates/slot-gfx/src/pipeline.rs b/crates/slot-gfx/src/pipeline.rs
-index 8ae498e..08d3968 100644
+index 34d3e4e..eaa2418 100644
 --- a/crates/slot-gfx/src/pipeline.rs
 +++ b/crates/slot-gfx/src/pipeline.rs
 @@ -4,6 +4,8 @@ use crate::quad::Quad;
@@ -82,7 +83,7 @@ index 8ae498e..08d3968 100644
          })
      }
  
-@@ -236,6 +240,9 @@ impl GamePass {
+@@ -255,6 +259,9 @@ impl GamePass {
          if self.bottom > 0.0 {
              src[3] *= (OUT_H as f32 - self.bottom) / OUT_H as f32;
          }
@@ -452,20 +453,20 @@ index 0000000..2f3387f
 +    assert!(RETRO.iter().all(|e| e.mode() == 0.0));
 +}
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index f741021..7caf49d 100644
+index a043b6b..bad4df6 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -20,6 +20,7 @@ pub mod ini;
- pub mod nes;
+@@ -24,6 +24,7 @@ pub mod overlay;
+ mod nds_header;
  mod platform;
  mod platform_policy;
 +mod retro_shader;
  mod ring;
  mod scan;
  mod shots;
-@@ -46,6 +47,7 @@ pub use guides::{
-     GUIDE_SPOTS_FILE,
- };
+@@ -56,6 +57,7 @@ pub use overlay::{overlay_entries, OverlayEntry, OverlayPart};
+ #[cfg(feature = "nds")]
+ pub use nds_header::{read_banner, NdsBanner};
  pub use platform::Platform;
 +pub use retro_shader::RetroShader;
  pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
@@ -543,10 +544,10 @@ index 0000000..33db154
 +    ];
 +}
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 4055b02..a139ac0 100644
+index d02fb04..523235d 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -460,6 +460,7 @@ pub enum Shader {
+@@ -567,6 +567,7 @@ pub enum Shader {
      Dot,
      Simpletex,
      Shimmerless,
@@ -554,7 +555,7 @@ index 4055b02..a139ac0 100644
  }
  
  impl Shader {
-@@ -478,7 +479,6 @@ impl Shader {
+@@ -585,7 +586,6 @@ impl Shader {
          Shader::Simpletex,
          Shader::Shimmerless,
      ];
@@ -562,7 +563,7 @@ index 4055b02..a139ac0 100644
  
      pub fn name(self) -> &'static str {
          match self {
-@@ -488,6 +488,7 @@ impl Shader {
+@@ -595,6 +595,7 @@ impl Shader {
              Shader::Dot => "dot",
              Shader::Simpletex => "simpletex",
              Shader::Shimmerless => "shimmerless",
@@ -570,7 +571,7 @@ index 4055b02..a139ac0 100644
          }
      }
  
-@@ -502,6 +503,7 @@ impl Shader {
+@@ -609,6 +610,7 @@ impl Shader {
          ]
          .into_iter()
          .find(|s| s.name() == name)
@@ -706,18 +707,18 @@ index 0000000..3000082
 +    assert_eq!(back.shader_snes, Shader::Off);
 +}
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 54cedc4..6483815 100644
+index b8c0c62..78efd18 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -918,6 +918,7 @@ pub enum QuickValue {
+@@ -991,6 +991,7 @@ pub enum QuickValue {
      Ghosting,
      Https,
      Http,
 +    Retro(slot_store::RetroShader),
- }
- 
- impl QuickValue {
-@@ -1003,7 +1004,10 @@ impl QuickValue {
+     All,
+     Collections,
+     OneShelf,
+@@ -1090,7 +1091,10 @@ impl QuickValue {
      ];
  
      pub fn index(self) -> usize {
@@ -729,7 +730,7 @@ index 54cedc4..6483815 100644
      }
  
      pub fn text(self) -> &'static str {
-@@ -1058,6 +1062,7 @@ impl QuickValue {
+@@ -1152,6 +1156,7 @@ impl QuickValue {
              QuickValue::Ghosting => "Ghosting",
              QuickValue::Https => "HTTPS",
              QuickValue::Http => "HTTP",
@@ -773,18 +774,18 @@ index a8efab0..d16f48d 100644
 +    }
 +}
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index 7aa1e32..f7f6be9 100644
+index 2919e20..26daf57 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -36,6 +36,7 @@ pub enum Toast {
-     Forgotten,
+@@ -38,6 +38,7 @@ pub enum Toast {
+     KidUnlocked,
      Palette(GbColors),
      Duplicate(QuickRow),
 +    Retro(slot_store::RetroShader),
  }
  
  impl Toast {
-@@ -84,6 +85,7 @@ impl Toast {
+@@ -88,6 +89,7 @@ impl Toast {
                      + GbColors::all().count()
                      + bound_rows().position(|r| r == row).unwrap_or(0)
              }
@@ -792,8 +793,8 @@ index 7aa1e32..f7f6be9 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -159,6 +161,7 @@ impl Toast {
-             Toast::Forgotten => "Network forgotten",
+@@ -165,6 +167,7 @@ impl Toast {
+             Toast::KidUnlocked => "Kid Mode is off until restart",
              Toast::Palette(p) => p.label(),
              Toast::Duplicate(_) => "",
 +            Toast::Retro(s) => s.toast(),
@@ -853,10 +854,18 @@ index 0000000..43ac034
 +    }
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index c6a6a2b..c846d9c 100644
+index a66fbb3..217a46d 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -4237,6 +4237,7 @@ impl App {
+@@ -4726,6 +4726,7 @@ impl App {
+             Shader::Dot => ScreenEffect::Dot,
+             Shader::Simpletex => ScreenEffect::Simpletex,
+             Shader::Shimmerless => ScreenEffect::Shimmerless,
++            Shader::Retro(s) => ScreenEffect::Retro(s.index() as u8),
+         }
+     }
+ 
+@@ -5945,6 +5946,7 @@ impl App {
              Shader::Dot => Toast::ShaderDot,
              Shader::Simpletex => Toast::ShaderSimpletex,
              Shader::Shimmerless => Toast::ShaderShimmerless,
@@ -864,7 +873,7 @@ index c6a6a2b..c846d9c 100644
          };
          self.persist();
          self.hud.toast(said, self.now());
-@@ -10930,6 +10931,7 @@ fn shader_value(shader: Shader) -> QuickValue {
+@@ -14119,6 +14121,7 @@ fn shader_value(shader: Shader) -> QuickValue {
          Shader::Dot => QuickValue::Dot,
          Shader::Simpletex => QuickValue::Simpletex,
          Shader::Shimmerless => QuickValue::Shimmerless,
@@ -873,18 +882,10 @@ index c6a6a2b..c846d9c 100644
  }
  
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index a5d2abe..d140eea 100644
+index 7b2c941..3e64d7f 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -1020,6 +1020,7 @@ impl Frontend {
-             slot_store::Shader::Dot => ScreenEffect::Dot,
-             slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
-             slot_store::Shader::Shimmerless => ScreenEffect::Shimmerless,
-+            slot_store::Shader::Retro(s) => ScreenEffect::Retro(s.index() as u8),
-         });
-         compositor.set_shake(self.session.app().screen_shake());
-         compositor.set_screen_power(self.session.app().screen_power());
-@@ -1427,7 +1428,7 @@ impl UiFaces {
+@@ -1582,7 +1582,7 @@ impl UiFaces {
                  .map(|r| [false, true].map(|lit| quick_label_face(*r, lit)))
                  .collect(),
              quick_pointer: quick_pointer_face(),
@@ -893,7 +894,7 @@ index a5d2abe..d140eea 100644
                  .iter()
                  .map(|v| [false, true].map(|lit| quick_value_face(v.text(), lit)))
                  .collect(),
-@@ -1467,7 +1468,7 @@ impl UiFaces {
+@@ -1622,7 +1622,7 @@ impl UiFaces {
                  .iter()
                  .map(|f| menu_face(f.line()))
                  .collect(),

@@ -69,31 +69,35 @@ index 0bed6d3..4d054ef 100644
          match self {
              Core::Mgba | Core::Gpsp | Core::Gambatte => true,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index d38ecad..bced15a 100644
+index 4d0f6a1..9d67398 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -167,10 +167,11 @@ pub enum QuickRow {
+@@ -175,6 +175,7 @@ pub enum QuickRow {
      LynxShader,
      ScreenLynx,
      LynxPicture,
 +    LynxSpeed,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -182,7 +183,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 154] = [
-+    pub const ALL: [QuickRow; 155] = [
+-    pub const ALL: [QuickRow; 164 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 165 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -329,6 +330,7 @@ impl QuickRow {
+@@ -349,6 +350,7 @@ impl QuickRow {
          QuickRow::LynxShader,
          QuickRow::ScreenLynx,
          QuickRow::LynxPicture,
 +        QuickRow::LynxSpeed,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -647,7 +649,9 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -698,7 +700,9 @@ impl QuickRow {
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
              QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
@@ -104,7 +108,7 @@ index d38ecad..bced15a 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -691,7 +695,9 @@ impl QuickRow {
+@@ -742,7 +746,9 @@ impl QuickRow {
              QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
                  Some(QuickRow::ScreenWs)
              }
@@ -112,17 +116,17 @@ index d38ecad..bced15a 100644
 +            QuickRow::LynxShader | QuickRow::LynxPicture | QuickRow::LynxSpeed => {
 +                Some(QuickRow::ScreenLynx)
 +            }
+             QuickRow::CollPrev => Some(QuickRow::ControlsCollections),
+             QuickRow::ControlsCollections => Some(QuickRow::Controls),
              _ => None,
-         }
-     }
-@@ -915,6 +921,7 @@ impl QuickRow {
+@@ -977,6 +983,7 @@ impl QuickRow {
              QuickRow::SmsRegion => "Region",
              QuickRow::Cpu => "CPU",
              QuickRow::WsRefresh => "Refresh",
 +            QuickRow::LynxSpeed => "Lynx Speed",
-         }
-     }
- 
+             QuickRow::GbaOverlay
+             | QuickRow::GbOverlay
+             | QuickRow::GbcOverlay
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 index 6129214..e81083c 100644
 --- a/crates/slot-ui/src/quick_retro.rs
@@ -141,10 +145,10 @@ index 6129214..e81083c 100644
  
  impl QuickValue {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 86930ce..0db7304 100644
+index c6883e5..7d9c45e 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1789,7 +1789,8 @@ impl App {
+@@ -2911,7 +2911,8 @@ impl App {
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
@@ -154,7 +158,7 @@ index 86930ce..0db7304 100644
              QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
-@@ -4168,7 +4169,8 @@ impl App {
+@@ -5835,7 +5836,8 @@ impl App {
              | QuickRow::Tg16Picture
              | QuickRow::WsRefresh
              | QuickRow::LynxShader
@@ -164,7 +168,7 @@ index 86930ce..0db7304 100644
          }
      }
  
-@@ -4422,6 +4424,7 @@ impl App {
+@@ -6117,6 +6119,7 @@ impl App {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed
@@ -292,10 +296,10 @@ index cc01328..bfc980b 100644
      fn a_core_with_no_frame_rate_keeps_its_sample_rate() {
          let av = AvInfo {
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 843ecbb..b7a733b 100644
+index b49e9ef..0be3115 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -116,6 +116,8 @@ struct Shared {
+@@ -120,6 +120,8 @@ struct Shared {
      locked: AtomicBool,
      present_ns: AtomicU64,
      native_pal: AtomicBool,
@@ -304,7 +308,7 @@ index 843ecbb..b7a733b 100644
      requested: AtomicBool,
      clock: Mutex<Clock>,
      clocked: Condvar,
-@@ -197,6 +199,8 @@ impl EmuHandle {
+@@ -205,6 +207,8 @@ impl EmuHandle {
              locked: AtomicBool::new(false),
              present_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
              native_pal: AtomicBool::new(false),
@@ -313,7 +317,7 @@ index 843ecbb..b7a733b 100644
              requested: AtomicBool::new(false),
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
-@@ -286,6 +290,14 @@ impl EmuHandle {
+@@ -294,6 +298,14 @@ impl EmuHandle {
          self.shared.native_pal.store(native, Ordering::Relaxed);
      }
  
@@ -328,7 +332,7 @@ index 843ecbb..b7a733b 100644
      pub fn locked(&self) -> bool {
          self.shared.locked.load(Ordering::Acquire)
      }
-@@ -660,6 +672,7 @@ impl Worker {
+@@ -682,6 +694,7 @@ impl Worker {
          let mut owed = 0u32;
          let mut pace = PRESENT;
          let mut owed = 0.0f64;
@@ -336,7 +340,7 @@ index 843ecbb..b7a733b 100644
          while !self.shared.stop.load(Ordering::Relaxed) {
              for cmd in self.cmds.try_iter() {
                  self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
-@@ -729,12 +742,20 @@ impl Worker {
+@@ -751,12 +764,20 @@ impl Worker {
                  rate.restart(deadline, self.current_tick());
                  self.shared.clocked.notify_all();
              }
@@ -357,7 +361,7 @@ index 843ecbb..b7a733b 100644
                  resampler = av_rate::rebuilt_resampler(av, period, device_hz);
              }
              let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
-@@ -916,9 +937,21 @@ impl Worker {
+@@ -949,9 +970,21 @@ impl Worker {
  
                  if let Some(next) = core.take_av_change() {
                      av = next;
@@ -413,10 +417,10 @@ index c689d07..b964a01 100644
  }
  
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 83f1b59..45236e0 100644
+index 95cfe28..8da4760 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -684,6 +684,7 @@ impl Session {
+@@ -693,6 +693,7 @@ impl Session {
          emu.set_volume(self.app.output_volume());
          emu.set_driven(self.driven);
          emu.set_native_pal(self.app.native_pal(loaded.platform));

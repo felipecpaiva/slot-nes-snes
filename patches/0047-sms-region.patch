@@ -27,31 +27,35 @@ European carts ran at 60 Hz and PAL pacing never engaged for them.
  create mode 100644 crates/slot/tests/sms_region.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index ba0e420..792d18e 100644
+index 41515e2..175727b 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -155,10 +155,11 @@ pub enum QuickRow {
+@@ -163,6 +163,7 @@ pub enum QuickRow {
      SmsPalSpeed,
      MdPalSpeed,
      Ps1PalSpeed,
 +    SmsRegion,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -170,7 +171,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 142] = [
-+    pub const ALL: [QuickRow; 143] = [
+-    pub const ALL: [QuickRow; 152 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 153 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -305,6 +306,7 @@ impl QuickRow {
+@@ -325,6 +326,7 @@ impl QuickRow {
          QuickRow::SmsPalSpeed,
          QuickRow::MdPalSpeed,
          QuickRow::Ps1PalSpeed,
 +        QuickRow::SmsRegion,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -605,9 +607,10 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -656,9 +658,10 @@ impl QuickRow {
                  &QuickRow::SCREEN_SNES
              }
              QuickRow::GgShader | QuickRow::GgPicture => &QuickRow::SCREEN_GG,
@@ -65,7 +69,7 @@ index ba0e420..792d18e 100644
              QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => &QuickRow::SCREEN_MD,
              QuickRow::Ps1Shader | QuickRow::Ps1Picture | QuickRow::Ps1PalSpeed => {
                  &QuickRow::SCREEN_PS1
-@@ -641,9 +644,10 @@ impl QuickRow {
+@@ -692,9 +695,10 @@ impl QuickRow {
                  Some(QuickRow::ScreenSnes)
              }
              QuickRow::GgShader | QuickRow::GgPicture => Some(QuickRow::ScreenGg),
@@ -79,15 +83,15 @@ index ba0e420..792d18e 100644
              QuickRow::MdShader | QuickRow::MdPicture | QuickRow::MdPalSpeed => {
                  Some(QuickRow::ScreenMd)
              }
-@@ -859,6 +863,7 @@ impl QuickRow {
+@@ -921,6 +925,7 @@ impl QuickRow {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed => "PAL Speed",
 +            QuickRow::SmsRegion => "Region",
-         }
-     }
- 
-@@ -1038,6 +1043,10 @@ pub enum QuickValue {
+             QuickRow::GbaOverlay
+             | QuickRow::GbOverlay
+             | QuickRow::GbcOverlay
+@@ -1111,6 +1116,10 @@ pub enum QuickValue {
      Crop,
      Native,
      Panel,
@@ -95,10 +99,10 @@ index ba0e420..792d18e 100644
 +    Japan,
 +    Usa,
 +    Europe,
- }
- 
- impl QuickValue {
-@@ -1130,6 +1139,10 @@ impl QuickValue {
+     All,
+     Collections,
+     OneShelf,
+@@ -1217,6 +1226,10 @@ impl QuickValue {
              QuickValue::Crop => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 2,
              QuickValue::Native => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 3,
              QuickValue::Panel => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 4,
@@ -109,7 +113,7 @@ index ba0e420..792d18e 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1192,6 +1205,10 @@ impl QuickValue {
+@@ -1286,6 +1299,10 @@ impl QuickValue {
              QuickValue::Crop => "Crop",
              QuickValue::Native => "Native",
              QuickValue::Panel => "Panel",
@@ -182,10 +186,10 @@ index a97f888..fd99f87 100644
      for (i, v) in every.iter().enumerate() {
          assert_eq!(v.index(), i, "{v:?} does not answer to its own place");
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index b4a647f..cc7841c 100644
+index f365e14..4c44cda 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -755,6 +755,7 @@ pub struct App {
+@@ -846,6 +846,7 @@ pub struct App {
      sega_shaders: slot_store::SegaShaders,
      pictures: crate::platform_video::SystemPictures,
      pal_speeds: crate::pal_speed::PalSpeeds,
@@ -193,7 +197,7 @@ index b4a647f..cc7841c 100644
      rested: Option<(usize, usize)>,
  }
  
-@@ -1087,6 +1088,7 @@ impl App {
+@@ -1241,6 +1242,7 @@ impl App {
              sega_shaders: slot_store::SegaShaders::default(),
              pictures: crate::platform_video::SystemPictures::default(),
              pal_speeds: crate::pal_speed::PalSpeeds::default(),
@@ -201,23 +205,23 @@ index b4a647f..cc7841c 100644
              rested: None,
          }
      }
-@@ -1115,6 +1117,7 @@ impl App {
+@@ -1271,6 +1273,7 @@ impl App {
          app.sega_shaders = slot_store::read_sega_shaders(root);
          app.pictures = crate::platform_video::SystemPictures::read(root);
          app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
 +        app.sms_region = crate::sms_region::Region::read(root);
+         app.install_collections(slot_store::read_collections(root));
          app.restock_recents();
          app.restock_favorites();
-         for at in 0..app.shelves.len() {
-@@ -1755,6 +1758,7 @@ impl App {
+@@ -2877,6 +2880,7 @@ impl App {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
 +            QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
-             QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
-@@ -4080,7 +4084,8 @@ impl App {
+             QuickRow::AutoLoad => Some(match self.state.auto_load {
+@@ -5747,7 +5751,8 @@ impl App {
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
@@ -227,7 +231,7 @@ index b4a647f..cc7841c 100644
          }
      }
  
-@@ -4132,6 +4137,13 @@ impl App {
+@@ -5804,6 +5809,13 @@ impl App {
              }
              return;
          }
@@ -241,7 +245,7 @@ index b4a647f..cc7841c 100644
          if let QuickRow::Saturation | QuickRow::Contrast = row {
              let (level, max) = match row {
                  QuickRow::Saturation => (&mut self.state.saturation, SATURATION_MAX),
-@@ -4305,7 +4317,8 @@ impl App {
+@@ -6000,7 +6012,8 @@ impl App {
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
@@ -252,10 +256,10 @@ index b4a647f..cc7841c 100644
              QuickRow::ScreenGeneral
              | QuickRow::Brightness
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 8650eac..e971425 100644
+index cc53ad4..6375d18 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -146,6 +146,7 @@ fn open_named(
+@@ -176,6 +176,7 @@ fn open_named(
                      palette,
                  );
                  apply_blending(&mut opened, core, blending);
@@ -264,10 +268,10 @@ index 8650eac..e971425 100644
                      apply_link_options(&mut opened, core, player);
                  }
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 9fe44e3..0354a1d 100644
+index 7280fad..515acdb 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -67,7 +67,9 @@ pub mod session;
+@@ -73,7 +73,9 @@ pub mod session;
  pub mod shelf_restock;
  pub mod shot_loader;
  pub mod shot_writer;

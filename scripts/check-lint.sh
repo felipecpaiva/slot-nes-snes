@@ -41,6 +41,13 @@ keys() {
 	} | sort
 }
 
+# Upstream v1.15.2's own durability.rs does not compile (its SlotState literal lacks eight fields, ADR 0112), so the
+# upstream baseline would fail before it counts anything: give the pristine tree the missing fields for this run only.
+dur="$up/crates/slot-store/tests/durability.rs"
+cp "$dur" "$tmp/durability.orig"
+trap 'cp "$tmp/durability.orig" "$dur"; rm -rf "$tmp"' EXIT
+perl -0pi -e 's/(\n([ \t]+)shelf_cart: None,\n)([ \t]{8}\}\n[ \t]{4}\);\n\}\n)/$1$2overlay_gba: None,\n$2overlay_gb: None,\n$2overlay_gbc: None,\n$2shelf_mode: slot_store::ShelfMode::All,\n$2collection: None,\n$2gba_video: false,\n$2kid_mode: slot_store::KidMode::Off,\n$2kid_shelf: "all".into(),\n$3/' "$dur"
+
 clippy "$up" up
 clippy "$ours" ours
 keys up "$up" >"$tmp/up.keys"

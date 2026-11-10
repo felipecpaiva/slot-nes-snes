@@ -60,7 +60,7 @@ disc tagged (Japan).
  crates/slot/src/neocd_save.rs                |  10 +
  crates/slot/src/platform_video.rs            |   7 +-
  crates/slot/src/retro_quick.rs               |  12 +-
- crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/root.rs                      |   4 +
  crates/slot/src/session.rs                   |   1 +
  crates/slot/src/shelf_order.rs               |   4 +-
  crates/slot/src/snes_input.rs                |   1 +
@@ -75,13 +75,13 @@ disc tagged (Japan).
  crates/slot/tests/shelf_order.rs             |   9 +-
  crates/slot/tests/snes_select.rs             |   1 +
  crates/slot/tests/system_picture.rs          |   1 +
- 45 files changed, 713 insertions(+), 69 deletions(-)
+ 45 files changed, 712 insertions(+), 68 deletions(-)
  create mode 100644 crates/slot-store/tests/neocd_platform.rs
  create mode 100644 crates/slot/src/neocd_save.rs
  create mode 100644 crates/slot/tests/neocd_platform.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index daf9fc7..2239803 100644
+index 055ebb9..e078c33 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -255,6 +255,7 @@ impl GameButton {
@@ -93,7 +93,7 @@ index daf9fc7..2239803 100644
              | Platform::Cps2 => &GameButton::ALL,
              Platform::Gb
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index dab97b1..79760af 100644
+index 5f58046..d68f29e 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
 @@ -28,6 +28,7 @@ pub enum Core {
@@ -101,34 +101,34 @@ index dab97b1..79760af 100644
      Fake08,
      MednafenSupergrafx,
 +    Neocd,
+     #[cfg(feature = "nds")]
+     Dsperate,
  }
- 
- impl Core {
-@@ -54,6 +55,7 @@ impl Core {
+@@ -59,6 +60,7 @@ impl Core {
              Core::MednafenVb => "mednafen_vb",
              Core::Fake08 => "fake08",
              Core::MednafenSupergrafx => "mednafen_supergrafx",
 +            Core::Neocd => "neocd",
              Core::Fbneo => "fbneo",
-         }
-     }
-@@ -83,6 +85,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "dsperate",
+@@ -90,6 +92,7 @@ impl Core {
              Core::MednafenVb => "Beetle VB",
              Core::Fake08 => "FAKE-08",
              Core::MednafenSupergrafx => "Beetle SuperGrafx",
 +            Core::Neocd => "NeoCD",
              Core::Fbneo => "FinalBurn Neo",
-         }
-     }
-@@ -108,6 +111,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "DSperate",
+@@ -117,6 +120,7 @@ impl Core {
              "mednafen_vb" => Some(Core::MednafenVb),
              "fake08" => Some(Core::Fake08),
              "mednafen_supergrafx" => Some(Core::MednafenSupergrafx),
 +            "neocd" => Some(Core::Neocd),
              "fbneo" => Some(Core::Fbneo),
-             _ => None,
-         }
-@@ -138,7 +142,8 @@ impl Core {
+             #[cfg(feature = "nds")]
+             "dsperate" => Some(Core::Dsperate),
+@@ -151,7 +155,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -138,7 +138,7 @@ index dab97b1..79760af 100644
              },
              Core::Gpsp => match platform {
                  Platform::Gba | Platform::Gbav => true,
-@@ -165,7 +170,8 @@ impl Core {
+@@ -178,7 +183,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -148,7 +148,7 @@ index dab97b1..79760af 100644
              },
              Core::Gambatte => match platform {
                  Platform::Gb | Platform::Gbc => true,
-@@ -196,7 +202,8 @@ impl Core {
+@@ -209,7 +215,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -158,7 +158,7 @@ index dab97b1..79760af 100644
              },
              Core::Snes9x | Core::Snes9x2005Plus => match platform {
                  Platform::Snes => true,
-@@ -223,7 +230,8 @@ impl Core {
+@@ -236,7 +243,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -168,7 +168,7 @@ index dab97b1..79760af 100644
              },
              Core::GenesisPlusGx => match platform {
                  Platform::Gg | Platform::Sms | Platform::Md | Platform::SegaCd => true,
-@@ -247,7 +255,8 @@ impl Core {
+@@ -260,7 +268,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -178,7 +178,7 @@ index dab97b1..79760af 100644
              },
              Core::PcsxRearmed => match platform {
                  Platform::Ps1 => true,
-@@ -274,7 +283,8 @@ impl Core {
+@@ -287,7 +296,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -188,7 +188,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenPceFast => match platform {
                  Platform::Tg16 | Platform::Pcecd => true,
-@@ -300,7 +310,8 @@ impl Core {
+@@ -313,7 +323,8 @@ impl Core {
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2
@@ -198,7 +198,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenWswan => match platform {
                  Platform::Ws => true,
-@@ -327,7 +338,8 @@ impl Core {
+@@ -340,7 +351,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -208,7 +208,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenLynx => match platform {
                  Platform::Lynx => true,
-@@ -354,7 +366,8 @@ impl Core {
+@@ -367,7 +379,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -218,7 +218,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenNgp => match platform {
                  Platform::Ngp => true,
-@@ -381,7 +394,8 @@ impl Core {
+@@ -394,7 +407,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -228,7 +228,7 @@ index dab97b1..79760af 100644
              },
              Core::Picodrive => match platform {
                  Platform::S32x => true,
-@@ -408,7 +422,8 @@ impl Core {
+@@ -421,7 +435,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -238,7 +238,7 @@ index dab97b1..79760af 100644
              },
              Core::Stella2014 => match platform {
                  Platform::A2600 => true,
-@@ -435,7 +450,8 @@ impl Core {
+@@ -448,7 +463,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -248,7 +248,7 @@ index dab97b1..79760af 100644
              },
              Core::Prosystem => match platform {
                  Platform::A7800 => true,
-@@ -462,7 +478,8 @@ impl Core {
+@@ -475,7 +491,8 @@ impl Core {
                  | Platform::Pico8
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -258,7 +258,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenVb => match platform {
                  Platform::Vb => true,
-@@ -489,7 +506,8 @@ impl Core {
+@@ -502,7 +519,8 @@ impl Core {
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2
@@ -268,7 +268,7 @@ index dab97b1..79760af 100644
              },
              Core::Fbneo => match platform {
                  Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
-@@ -514,7 +532,8 @@ impl Core {
+@@ -527,7 +545,8 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -278,7 +278,7 @@ index dab97b1..79760af 100644
              },
              Core::Fake08 => match platform {
                  Platform::Pico8 => true,
-@@ -541,7 +560,8 @@ impl Core {
+@@ -554,7 +573,8 @@ impl Core {
                  | Platform::Cps1
                  | Platform::Cps2
                  | Platform::Vb
@@ -288,7 +288,7 @@ index dab97b1..79760af 100644
              },
              Core::MednafenSupergrafx => match platform {
                  Platform::Sgx => true,
-@@ -568,7 +588,36 @@ impl Core {
+@@ -581,7 +601,36 @@ impl Core {
                  | Platform::Cps2
                  | Platform::Vb
                  | Platform::Fds
@@ -324,16 +324,16 @@ index dab97b1..79760af 100644
 +                | Platform::Cps1
 +                | Platform::Cps2 => false,
              },
-         }
-     }
-@@ -592,6 +641,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
+@@ -607,6 +656,7 @@ impl Core {
              Platform::Vb => Core::MednafenVb,
              Platform::Pico8 => Core::Fake08,
              Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => Core::Fbneo,
 +            Platform::Neocd => Core::Neocd,
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
          }
-     }
- }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
 index 99362f9..f72b23e 100644
 --- a/crates/slot-store/src/core_policy.rs
@@ -420,10 +420,10 @@ index 99362f9..f72b23e 100644
      }
  }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 76092af..d9e3ba4 100644
+index fc5e1ce..3c87739 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -66,10 +66,10 @@ pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
+@@ -76,10 +76,10 @@ pub use ring::{is_stamp, StateEntry, StateRing, RING_MAX};
  pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart, StoreError};
  pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
@@ -439,7 +439,7 @@ index 76092af..d9e3ba4 100644
  pub use shelf_carts::{read_shelf_carts, write_shelf_carts, SHELF_CARTS_FILE};
  pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index e112041..2721277 100644
+index 4ee1d3d..e1206a2 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -29,6 +29,7 @@ pub enum Platform {
@@ -447,42 +447,42 @@ index e112041..2721277 100644
      Pcecd,
      SegaCd,
 +    Neocd,
+     #[cfg(feature = "nds")]
+     Nds,
  }
- 
- impl Platform {
-@@ -62,6 +63,7 @@ impl Platform {
+@@ -73,6 +74,7 @@ impl Platform {
              Platform::Cps2 => "Capcom CPS-2",
              Platform::Fds => "Nintendo Famicom Disk System",
              Platform::SegaCd => "Sega CD",
 +            Platform::Neocd => "SNK Neo Geo CD",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "Nintendo DS",
          }
-     }
- 
-@@ -93,6 +95,7 @@ impl Platform {
+@@ -106,6 +108,7 @@ impl Platform {
              Platform::Cps2 => "CPS2",
              Platform::Fds => "FDS",
              Platform::SegaCd => "SEGACD",
 +            Platform::Neocd => "NEOCD",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "NDS",
          }
-     }
- 
-@@ -127,6 +130,7 @@ impl Platform {
+@@ -142,6 +145,7 @@ impl Platform {
              Platform::Sgx => &["sgx", "pce"],
              Platform::Pcecd => &["cue", "chd", "ccd"],
              Platform::SegaCd => &["chd", "cue", "m3u", "iso"],
 +            Platform::Neocd => &["cue", "chd"],
+             #[cfg(feature = "nds")]
+             Platform::Nds => &["nds"],
          }
-     }
- 
-@@ -151,7 +155,7 @@ impl Platform {
+@@ -168,7 +172,7 @@ impl Platform {
              Platform::Pico8 => (128, 128),
              Platform::Sgx => (256, 240),
              Platform::Pcecd => (256, 240),
 -            Platform::NeoGeo => (320, 224),
 +            Platform::NeoGeo | Platform::Neocd => (320, 224),
              Platform::Cps1 | Platform::Cps2 => (384, 224),
-         }
-     }
+             #[cfg(feature = "nds")]
+             Platform::Nds => (256, 192),
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 index 5ecd302..d3e89d9 100644
 --- a/crates/slot-store/src/platform_policy.rs
@@ -934,10 +934,10 @@ index a6942ba..60226c2 100644
      assert_eq!(Platform::SegaCd.dir_name(), "SEGACD");
      assert_eq!(Platform::SegaCd.name(), "Sega CD");
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 0c0cdc3..464ad16 100644
+index 36375ee..eb74c8e 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -128,6 +128,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -145,6 +145,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          | Platform::Tg16
          | Platform::Sgx
          | Platform::Pcecd
@@ -945,7 +945,7 @@ index 0c0cdc3..464ad16 100644
          | Platform::Ws
          | Platform::Lynx
          | Platform::Ngp
-@@ -224,7 +225,9 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -256,7 +257,9 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
          Platform::Ngp => (SEATED_W, NGP_SEATED_H),
          Platform::Lynx => (SEATED_W, LYNX_SEATED_H),
          Platform::Ws => (SEATED_W, WS_SEATED_H),
@@ -956,7 +956,7 @@ index 0c0cdc3..464ad16 100644
          Platform::Nes => (SEATED_W, NES_SEATED_H),
          Platform::Fds => (SEATED_W, FDS_SEATED_H),
          Platform::Gg => (SEATED_W, GG_SEATED_H),
-@@ -249,7 +252,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+@@ -283,7 +286,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
          Platform::Ws => return retro_box(RetroShell::Ws(WsShell::Mono)),
          Platform::Lynx => return retro_box(RetroShell::Lynx),
          Platform::Ngp => return retro_box(RetroShell::Ngp),
@@ -979,35 +979,39 @@ index 00392b5..7ccdf6c 100644
  }
  
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 29f70f1..a282875 100644
+index 19b2fc2..3fde5fa 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -227,10 +227,13 @@ pub enum QuickRow {
+@@ -235,6 +235,9 @@ pub enum QuickRow {
      ScreenSegaCd,
      SegaCdPicture,
      SegaCdPalSpeed,
 +    NeocdShader,
 +    ScreenNeocd,
 +    NeocdPicture,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -242,7 +245,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 214] = [
-+    pub const ALL: [QuickRow; 217] = [
+-    pub const ALL: [QuickRow; 224 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 227 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -449,6 +452,9 @@ impl QuickRow {
+@@ -469,6 +472,9 @@ impl QuickRow {
          QuickRow::ScreenSegaCd,
          QuickRow::SegaCdPicture,
          QuickRow::SegaCdPalSpeed,
 +        QuickRow::NeocdShader,
 +        QuickRow::ScreenNeocd,
 +        QuickRow::NeocdPicture,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -558,7 +564,7 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -593,7 +599,7 @@ impl QuickRow {
          QuickRow::ScPictureNext,
      ];
  
@@ -1016,7 +1020,7 @@ index 29f70f1..a282875 100644
          QuickRow::ScreenGeneral,
          QuickRow::ScreenGba,
          QuickRow::ScreenGbc,
-@@ -585,6 +591,7 @@ impl QuickRow {
+@@ -620,6 +626,7 @@ impl QuickRow {
          QuickRow::ScreenSgx,
          QuickRow::ScreenPcecd,
          QuickRow::ScreenSegaCd,
@@ -1024,7 +1028,7 @@ index 29f70f1..a282875 100644
      ];
  
      pub const SCREEN_GENERAL: [QuickRow; 4] = [
-@@ -684,6 +691,7 @@ impl QuickRow {
+@@ -723,6 +730,7 @@ impl QuickRow {
              | QuickRow::ScreenSgx
              | QuickRow::ScreenPcecd
              | QuickRow::ScreenSegaCd
@@ -1032,7 +1036,7 @@ index 29f70f1..a282875 100644
              | QuickRow::ScreenWs
              | QuickRow::ScreenLynx
              | QuickRow::ScreenNgp
-@@ -833,6 +841,7 @@ impl QuickRow {
+@@ -884,6 +892,7 @@ impl QuickRow {
              }
              QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => &QuickRow::SCREEN_SGX,
              QuickRow::PcecdShader | QuickRow::PcecdPicture => &QuickRow::SCREEN_PCECD,
@@ -1040,7 +1044,7 @@ index 29f70f1..a282875 100644
              QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
                  &QuickRow::SCREEN_SEGACD
              }
-@@ -919,6 +928,7 @@ impl QuickRow {
+@@ -970,6 +979,7 @@ impl QuickRow {
                  Some(QuickRow::ScreenSgx)
              }
              QuickRow::PcecdShader | QuickRow::PcecdPicture => Some(QuickRow::ScreenPcecd),
@@ -1048,7 +1052,7 @@ index 29f70f1..a282875 100644
              QuickRow::SegaCdShader | QuickRow::SegaCdPicture | QuickRow::SegaCdPalSpeed => {
                  Some(QuickRow::ScreenSegaCd)
              }
-@@ -988,6 +998,7 @@ impl QuickRow {
+@@ -1042,6 +1052,7 @@ impl QuickRow {
              QuickRow::ScreenSgx => Some(QuickRow::SCREEN_SGX[0]),
              QuickRow::ScreenPcecd => Some(QuickRow::SCREEN_PCECD[0]),
              QuickRow::ScreenSegaCd => Some(QuickRow::SCREEN_SEGACD[0]),
@@ -1056,7 +1060,7 @@ index 29f70f1..a282875 100644
              _ => None,
          }
      }
-@@ -1144,7 +1155,7 @@ impl QuickRow {
+@@ -1206,7 +1217,7 @@ impl QuickRow {
              | QuickRow::Cps2Shader => "Shader",
              QuickRow::Pico8Shader => "Shader",
              QuickRow::SgxShader => "Shader",
@@ -1065,7 +1069,7 @@ index 29f70f1..a282875 100644
              QuickRow::SgxPad => "Pad",
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
-@@ -1166,6 +1177,7 @@ impl QuickRow {
+@@ -1228,6 +1239,7 @@ impl QuickRow {
              QuickRow::ScreenSgx => "SuperGrafx",
              QuickRow::ScreenPcecd => "PC Engine CD",
              QuickRow::ScreenSegaCd => "Sega CD",
@@ -1073,7 +1077,7 @@ index 29f70f1..a282875 100644
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -1187,7 +1199,7 @@ impl QuickRow {
+@@ -1249,7 +1261,7 @@ impl QuickRow {
              | QuickRow::Pico8Picture
              | QuickRow::SgxPicture
              | QuickRow::PcecdPicture => "Picture",
@@ -1082,7 +1086,7 @@ index 29f70f1..a282875 100644
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -1265,6 +1277,7 @@ impl QuickRow {
+@@ -1336,6 +1348,7 @@ impl QuickRow {
                  | QuickRow::ScreenSgx
                  | QuickRow::ScreenPcecd
                  | QuickRow::ScreenSegaCd
@@ -1126,10 +1130,10 @@ index 0332433..23d276a 100644
          | Platform::Cps1
          | Platform::Cps2 => return box_contain(&src, sw, sh, w, h),
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index f5c3b51..f6919b1 100644
+index 78e9309..9371f91 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -93,6 +93,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -95,6 +95,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
          | Platform::Tg16
          | Platform::Sgx
          | Platform::Pcecd
@@ -1138,7 +1142,7 @@ index f5c3b51..f6919b1 100644
          | Platform::Lynx
          | Platform::Ngp
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index b5e2c0f..10ac104 100644
+index 25a3d22..8fdcfce 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -1151,10 +1155,10 @@ index b5e2c0f..10ac104 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index 9721a2e..7e9089d 100644
+index ba4cf8a..64f0789 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -113,7 +113,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -116,7 +116,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
@@ -1163,7 +1167,7 @@ index 9721a2e..7e9089d 100644
      );
      assert_eq!(
          QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-@@ -206,7 +206,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -215,7 +215,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              QuickRow::RommPair,
              QuickRow::RommDisconnect,
              QuickRow::ScreenNes,
@@ -1173,10 +1177,10 @@ index 9721a2e..7e9089d 100644
      );
      for page in [
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 74261b1..ed1abd8 100644
+index c7f0ae1..ab5a6c7 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1733,6 +1733,7 @@ impl App {
+@@ -2853,6 +2853,7 @@ impl App {
              (QuickRow::Shader, Platform::Pico8) => QuickRow::Pico8Shader,
              (QuickRow::Shader, Platform::Sgx) => QuickRow::SgxShader,
              (QuickRow::Shader, Platform::Pcecd) => QuickRow::PcecdShader,
@@ -1184,7 +1188,7 @@ index 74261b1..ed1abd8 100644
              (QuickRow::Shader, Platform::SegaCd) => QuickRow::SegaCdShader,
              (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
              (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
-@@ -1846,6 +1847,7 @@ impl App {
+@@ -2966,6 +2967,7 @@ impl App {
              QuickRow::Pico8Shader => Some(shader_value(self.sega_shaders.pico8)),
              QuickRow::SgxShader => Some(shader_value(self.sega_shaders.sgx)),
              QuickRow::PcecdShader => Some(shader_value(self.sega_shaders.pcecd)),
@@ -1192,7 +1196,7 @@ index 74261b1..ed1abd8 100644
              QuickRow::SegaCdShader => Some(shader_value(self.sega_shaders.segacd)),
              QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
              QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
-@@ -1858,6 +1860,7 @@ impl App {
+@@ -2978,6 +2980,7 @@ impl App {
              | QuickRow::Tg16Picture
              | QuickRow::SgxPicture
              | QuickRow::PcecdPicture
@@ -1200,7 +1204,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::SegaCdPicture
              | QuickRow::WsPicture
              | QuickRow::LynxPicture
-@@ -1976,6 +1979,7 @@ impl App {
+@@ -3110,6 +3113,7 @@ impl App {
              | QuickRow::ScreenTg16
              | QuickRow::ScreenSgx
              | QuickRow::ScreenPcecd
@@ -1208,7 +1212,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::ScreenSegaCd
              | QuickRow::ScreenWs
              | QuickRow::ScreenLynx
-@@ -2098,6 +2102,7 @@ impl App {
+@@ -3397,6 +3401,7 @@ impl App {
              Platform::Nes | Platform::Fds
              | Platform::Snes | Platform::Gg | Platform::Sms | Platform::Md
              | Platform::SegaCd
@@ -1216,7 +1220,7 @@ index 74261b1..ed1abd8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -2151,6 +2156,7 @@ impl App {
+@@ -3450,6 +3455,7 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::SegaCd
@@ -1224,7 +1228,7 @@ index 74261b1..ed1abd8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -2181,6 +2187,7 @@ impl App {
+@@ -3482,6 +3488,7 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::SegaCd
@@ -1232,7 +1236,7 @@ index 74261b1..ed1abd8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -3544,6 +3551,7 @@ impl App {
+@@ -5094,6 +5101,7 @@ impl App {
              Platform::Sgx => self.sega_shaders.sgx,
              Platform::Pcecd => self.sega_shaders.pcecd,
              Platform::SegaCd => self.sega_shaders.segacd,
@@ -1240,7 +1244,7 @@ index 74261b1..ed1abd8 100644
              Platform::NeoGeo => self.sega_shaders.neogeo,
              Platform::Cps1 => self.sega_shaders.cps1,
              Platform::Cps2 => self.sega_shaders.cps2,
-@@ -3608,6 +3616,7 @@ impl App {
+@@ -5173,6 +5181,7 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::SegaCd
@@ -1248,7 +1252,7 @@ index 74261b1..ed1abd8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -4264,6 +4273,7 @@ impl App {
+@@ -5920,6 +5929,7 @@ impl App {
              | QuickRow::ScreenTg16
              | QuickRow::ScreenSgx
              | QuickRow::ScreenPcecd
@@ -1256,7 +1260,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::ScreenSegaCd
              | QuickRow::ScreenWs
              | QuickRow::ScreenLynx
-@@ -4402,9 +4412,11 @@ impl App {
+@@ -6067,9 +6077,11 @@ impl App {
              | QuickRow::Tg16Shader
              | QuickRow::SgxShader
              | QuickRow::PcecdShader
@@ -1268,7 +1272,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::SegaCdShader
              | QuickRow::SegaCdPicture
              | QuickRow::WsRefresh
-@@ -4724,6 +4736,7 @@ impl App {
+@@ -6417,6 +6429,7 @@ impl App {
              | QuickRow::Tg16Shader
              | QuickRow::SgxShader
              | QuickRow::PcecdShader
@@ -1276,7 +1280,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::SegaCdShader
              | QuickRow::WsShader
              | QuickRow::LynxShader
-@@ -4758,6 +4771,7 @@ impl App {
+@@ -6451,6 +6464,7 @@ impl App {
              | QuickRow::Tg16Picture
              | QuickRow::SgxPicture
              | QuickRow::PcecdPicture
@@ -1284,7 +1288,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::SegaCdPicture
              | QuickRow::NgpPicture
              | QuickRow::S32xPicture
-@@ -4832,6 +4846,7 @@ impl App {
+@@ -6528,6 +6542,7 @@ impl App {
              | QuickRow::ScreenTg16
              | QuickRow::ScreenSgx
              | QuickRow::ScreenPcecd
@@ -1292,7 +1296,7 @@ index 74261b1..ed1abd8 100644
              | QuickRow::ScreenSegaCd
              | QuickRow::ScreenWs
              | QuickRow::ScreenLynx
-@@ -4951,6 +4966,7 @@ impl App {
+@@ -6658,6 +6673,7 @@ impl App {
              Platform::Sgx => (&mut self.sega_shaders.sgx, &Shader::RETRO[..]),
              Platform::Pcecd => (&mut self.sega_shaders.pcecd, &Shader::RETRO[..]),
              Platform::SegaCd => (&mut self.sega_shaders.segacd, &Shader::RETRO[..]),
@@ -1300,7 +1304,7 @@ index 74261b1..ed1abd8 100644
              Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
              Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
              Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
-@@ -5017,6 +5033,7 @@ impl App {
+@@ -6726,6 +6742,7 @@ impl App {
                  | Platform::Sms
                  | Platform::Md
                  | Platform::SegaCd
@@ -1308,7 +1312,7 @@ index 74261b1..ed1abd8 100644
                  | Platform::Ps1
                  | Platform::Tg16
                  | Platform::Sgx
-@@ -5535,6 +5552,7 @@ impl App {
+@@ -7274,6 +7291,7 @@ impl App {
              | Platform::Sms
              | Platform::Md
              | Platform::SegaCd
@@ -1316,7 +1320,7 @@ index 74261b1..ed1abd8 100644
              | Platform::Ps1
              | Platform::Tg16
              | Platform::Sgx
-@@ -11800,6 +11818,7 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -15016,6 +15034,7 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::Sms
          | Platform::Md
          | Platform::SegaCd
@@ -1349,10 +1353,10 @@ index 521d04e..caa7be6 100644
              | Platform::Tg16
              | Platform::Sgx
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 213c198..c2201b1 100644
+index 953d453..6ae6886 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -243,7 +243,8 @@ pub fn colour_option(
+@@ -275,7 +275,8 @@ pub fn colour_option(
          | Core::Prosystem
          | Core::MednafenVb
          | Core::Fake08
@@ -1429,10 +1433,10 @@ index e117eb4..02f7f5d 100644
      }
  }
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index daa42dd..6bda8ad 100644
+index 307f802..33a89e5 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -57,6 +57,7 @@ pub mod net_time;
+@@ -59,6 +59,7 @@ pub mod loading_mark;
  pub mod network_faces;
  pub mod networks;
  pub mod lynx_turn;
@@ -1562,18 +1566,10 @@ index 17767a8..d8f5ced 100644
          .iter()
          .zip(systems)
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 5e72a0b..7ddef00 100644
+index 3abd496..14328bc 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
-@@ -1,6 +1,6 @@
- use std::path::{Path, PathBuf};
- 
--pub const DIRS: [&str; 124] = [
-+pub const DIRS: [&str; 128] = [
-     "BIOS",
-     "Bezels",
-     "Bezels/GBA",
-@@ -41,6 +41,7 @@ pub const DIRS: [&str; 124] = [
+@@ -43,6 +43,7 @@ pub const DIRS: &[&str] = &[
      "Games/SGX",
      "Games/PCECD",
      "Games/SEGACD",
@@ -1581,35 +1577,35 @@ index 5e72a0b..7ddef00 100644
      "Labels",
      "Labels/GBA",
      "Labels/GBAV",
-@@ -69,6 +70,7 @@ pub const DIRS: [&str; 124] = [
+@@ -73,6 +74,7 @@ pub const DIRS: &[&str] = &[
      "Labels/SGX",
      "Labels/PCECD",
      "Labels/SEGACD",
 +    "Labels/NEOCD",
-     "Saves",
-     "Saves/GBA",
-     "Saves/GBAV",
-@@ -96,6 +98,7 @@ pub const DIRS: [&str; 124] = [
+     "Overlays",
+     "Overlays/GBA",
+     "Overlays/GB",
+@@ -106,6 +108,7 @@ pub const DIRS: &[&str] = &[
      "Saves/SGX",
      "Saves/PCECD",
      "Saves/SEGACD",
 +    "Saves/NEOCD",
+     #[cfg(feature = "nds")]
+     "Saves/NDS",
      "States",
-     "States/GBA",
-     "States/GBAV",
-@@ -123,6 +126,7 @@ pub const DIRS: [&str; 124] = [
+@@ -135,6 +138,7 @@ pub const DIRS: &[&str] = &[
      "States/SGX",
      "States/PCECD",
      "States/SEGACD",
 +    "States/NEOCD",
+     #[cfg(feature = "nds")]
+     "States/NDS",
      "System",
-     "Wallpapers",
- ];
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index fec6f4c..58d3405 100644
+index fcc0b2d..c7b3ebd 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -659,6 +659,7 @@ impl Session {
+@@ -668,6 +668,7 @@ impl Session {
                  let sav = persist::read_sav(&root, platform, &stem);
                  let sav =
                      sav.map(|s| crate::fds_save::checked_sav(&root, platform, &stem, &rom, s));
@@ -1695,7 +1691,7 @@ index 2f43657..33d42be 100644
          assert_eq!(offers_four_three(platform), tv, "{platform:?}");
          assert_eq!(
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index cc05c93..14bb8ed 100644
+index 9ca03fe..fe86766 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

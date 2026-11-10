@@ -316,31 +316,35 @@ index 3641883..b196558 100644
 +        .unwrap_or_else(|| head.map_or(Turn::Upright, |h| turn_of(&h)))
 +}
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index bced15a..c21f651 100644
+index 9d67398..971369d 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -168,10 +168,11 @@ pub enum QuickRow {
+@@ -176,6 +176,7 @@ pub enum QuickRow {
      ScreenLynx,
      LynxPicture,
      LynxSpeed,
 +    LynxFlip,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -183,7 +184,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 155] = [
-+    pub const ALL: [QuickRow; 156] = [
+-    pub const ALL: [QuickRow; 165 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 166 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -331,6 +332,7 @@ impl QuickRow {
+@@ -351,6 +352,7 @@ impl QuickRow {
          QuickRow::ScreenLynx,
          QuickRow::LynxPicture,
          QuickRow::LynxSpeed,
 +        QuickRow::LynxFlip,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -649,9 +651,10 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -700,9 +702,10 @@ impl QuickRow {
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
              QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => &QuickRow::SCREEN_WS,
@@ -354,7 +358,7 @@ index bced15a..c21f651 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -695,9 +698,10 @@ impl QuickRow {
+@@ -746,9 +749,10 @@ impl QuickRow {
              QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
                  Some(QuickRow::ScreenWs)
              }
@@ -365,17 +369,17 @@ index bced15a..c21f651 100644
 +            | QuickRow::LynxPicture
 +            | QuickRow::LynxSpeed
 +            | QuickRow::LynxFlip => Some(QuickRow::ScreenLynx),
+             QuickRow::CollPrev => Some(QuickRow::ControlsCollections),
+             QuickRow::ControlsCollections => Some(QuickRow::Controls),
              _ => None,
-         }
-     }
-@@ -922,6 +926,7 @@ impl QuickRow {
+@@ -984,6 +988,7 @@ impl QuickRow {
              QuickRow::Cpu => "CPU",
              QuickRow::WsRefresh => "Refresh",
              QuickRow::LynxSpeed => "Lynx Speed",
 +            QuickRow::LynxFlip => "Flip Right Carts",
-         }
-     }
- 
+             QuickRow::GbaOverlay
+             | QuickRow::GbOverlay
+             | QuickRow::GbcOverlay
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 index e81083c..6045a1b 100644
 --- a/crates/slot-ui/src/quick_retro.rs
@@ -394,10 +398,10 @@ index e81083c..6045a1b 100644
  }
  
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 0db7304..35168dd 100644
+index 7d9c45e..d6548f7 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -647,6 +647,7 @@ pub struct App {
+@@ -738,6 +738,7 @@ pub struct App {
      battery: Option<Battery>,
      battery_warned: Option<u8>,
      lynx_bios_warned: bool,
@@ -405,7 +409,7 @@ index 0db7304..35168dd 100644
      last_led: Option<LedState>,
      powering_off: bool,
      radio: Box<dyn RadioJobs>,
-@@ -1094,6 +1095,7 @@ impl App {
+@@ -1248,6 +1249,7 @@ impl App {
              battery: None,
              battery_warned: None,
              lynx_bios_warned: false,
@@ -413,23 +417,23 @@ index 0db7304..35168dd 100644
              last_led: None,
              powering_off: false,
              shelf_carts: Vec::new(),
-@@ -1137,6 +1139,7 @@ impl App {
+@@ -1293,6 +1295,7 @@ impl App {
          app.ws_native = crate::ws_refresh::native(root);
          app.sms_region = crate::sms_region::Region::read(root);
          app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
 +        app.lynx_flip = crate::lynx_turn::flips_right(root);
+         app.install_collections(slot_store::read_collections(root));
          app.restock_recents();
          app.restock_favorites();
-         for at in 0..app.shelves.len() {
-@@ -1794,6 +1797,7 @@ impl App {
+@@ -2916,6 +2919,7 @@ impl App {
              QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
 +            QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
              QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
-             QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
-@@ -3382,6 +3386,10 @@ impl App {
+             QuickRow::AutoLoad => Some(match self.state.auto_load {
+@@ -4947,6 +4951,10 @@ impl App {
          self.seated_cart().map_or(self.platform, |c| c.platform)
      }
  
@@ -440,7 +444,7 @@ index 0db7304..35168dd 100644
      pub fn native_pal(&self, platform: Platform) -> bool {
          platform == Platform::Ws || self.pal_speeds.native(platform)
      }
-@@ -4170,7 +4178,8 @@ impl App {
+@@ -5837,7 +5845,8 @@ impl App {
              | QuickRow::WsRefresh
              | QuickRow::LynxShader
              | QuickRow::LynxPicture
@@ -450,7 +454,7 @@ index 0db7304..35168dd 100644
          }
      }
  
-@@ -4229,6 +4238,13 @@ impl App {
+@@ -5901,6 +5910,13 @@ impl App {
              }
              return;
          }
@@ -464,7 +468,7 @@ index 0db7304..35168dd 100644
          if row == QuickRow::SmsRegion {
              self.sms_region = self.sms_region.stepped(right);
              if let Some(root) = &self.root {
-@@ -4425,6 +4441,7 @@ impl App {
+@@ -6120,6 +6136,7 @@ impl App {
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed
              | QuickRow::LynxSpeed
@@ -473,10 +477,10 @@ index 0db7304..35168dd 100644
              | QuickRow::Cpu
              | QuickRow::WsRefresh
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index c1e174a..869ce14 100644
+index a53a4b6..c3cf73c 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -136,6 +136,9 @@ fn open_named(
+@@ -166,6 +166,9 @@ fn open_named(
                  if !Core::ALL.contains(&core) {
                      opened.answer_av();
                  }
@@ -487,17 +491,17 @@ index c1e174a..869ce14 100644
                      &mut opened,
                      core,
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 25090b7..fabe4b1 100644
+index d044c93..97d5ac9 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -52,6 +52,7 @@ pub mod loading_mark;
- pub mod net_time;
+@@ -54,6 +54,7 @@ pub mod link_state;
+ pub mod loading_mark;
  pub mod network_faces;
  pub mod networks;
 +pub mod lynx_turn;
  pub mod no_state;
  pub mod pal_speed;
- pub mod panel_turn;
+ pub mod pacer;
 diff --git a/crates/slot/src/lynx_turn.rs b/crates/slot/src/lynx_turn.rs
 new file mode 100644
 index 0000000..de44043
@@ -567,10 +571,10 @@ index 0000000..de44043
 +    writes.wrote("lynx_flip.txt", &written);
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 45236e0..523cbdf 100644
+index 8da4760..dfe88cf 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -608,6 +608,7 @@ impl Session {
+@@ -617,6 +617,7 @@ impl Session {
          let chosen = self.app.gb_colors();
          let colour = self.app.colour_correction_for(platform);
          let blending = self.app.blending_for(platform);
@@ -578,7 +582,7 @@ index 45236e0..523cbdf 100644
          let join = std::thread::Builder::new()
              .name("slot-open".into())
              .spawn(move || {
-@@ -629,6 +630,14 @@ impl Session {
+@@ -638,6 +639,14 @@ impl Session {
                      &stem,
                      &rom,
                  );

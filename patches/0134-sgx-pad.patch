@@ -34,31 +34,35 @@ With 2 buttons nothing changes: X and Y are turbo, L1 and R1 are slot's.
  create mode 100644 crates/slot/tests/sgx_then_gba.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 0ed0281..95e9c1f 100644
+index 96e1bbf..61351a5 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -219,10 +219,11 @@ pub enum QuickRow {
+@@ -227,6 +227,7 @@ pub enum QuickRow {
      SgxShader,
      ScreenSgx,
      SgxPicture,
 +    SgxPad,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -234,7 +235,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 206] = [
-+    pub const ALL: [QuickRow; 207] = [
+-    pub const ALL: [QuickRow; 216 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 217 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -433,6 +434,7 @@ impl QuickRow {
+@@ -453,6 +454,7 @@ impl QuickRow {
          QuickRow::SgxShader,
          QuickRow::ScreenSgx,
          QuickRow::SgxPicture,
 +        QuickRow::SgxPad,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -805,13 +807,13 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -856,13 +858,13 @@ impl QuickRow {
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
              QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
              QuickRow::Pico8Shader | QuickRow::Pico8Picture => &QuickRow::SCREEN_PICO8,
@@ -73,7 +77,7 @@ index 0ed0281..95e9c1f 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -885,13 +887,15 @@ impl QuickRow {
+@@ -936,13 +938,15 @@ impl QuickRow {
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
              QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
              QuickRow::Pico8Shader | QuickRow::Pico8Picture => Some(QuickRow::ScreenPico8),
@@ -87,10 +91,10 @@ index 0ed0281..95e9c1f 100644
 +            QuickRow::SgxShader | QuickRow::SgxPicture | QuickRow::SgxPad => {
 +                Some(QuickRow::ScreenSgx)
 +            }
+             QuickRow::CollPrev => Some(QuickRow::ControlsCollections),
+             QuickRow::ControlsCollections => Some(QuickRow::Controls),
              _ => None,
-         }
-     }
-@@ -1112,6 +1116,7 @@ impl QuickRow {
+@@ -1174,6 +1178,7 @@ impl QuickRow {
              | QuickRow::Cps2Shader => "Shader",
              QuickRow::Pico8Shader => "Shader",
              QuickRow::SgxShader => "Shader",
@@ -98,16 +102,16 @@ index 0ed0281..95e9c1f 100644
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
-@@ -1398,6 +1403,8 @@ pub enum QuickValue {
+@@ -1471,6 +1476,8 @@ pub enum QuickValue {
      Turned,
      Classic,
      ReleaseYear,
 +    TwoButtons,
 +    SixButtons,
- }
- 
- impl QuickValue {
-@@ -1521,6 +1528,8 @@ impl QuickValue {
+     All,
+     Collections,
+     OneShelf,
+@@ -1608,6 +1615,8 @@ impl QuickValue {
              QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
              QuickValue::Classic => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 34,
              QuickValue::ReleaseYear => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 35,
@@ -116,7 +120,7 @@ index 0ed0281..95e9c1f 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1614,6 +1623,8 @@ impl QuickValue {
+@@ -1708,6 +1717,8 @@ impl QuickValue {
              QuickValue::Turned => "Turned",
              QuickValue::Classic => "Classic",
              QuickValue::ReleaseYear => "Release Year",
@@ -187,10 +191,10 @@ index a85dfb6..4b759db 100644
      );
      for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index db46983..99c844a 100644
+index e421d1b..8b925b7 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -777,6 +777,8 @@ pub struct App {
+@@ -866,6 +866,8 @@ pub struct App {
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
      vb_buttons_seated: bool,
@@ -199,7 +203,7 @@ index db46983..99c844a 100644
      arcade_turns: crate::arcade_turn::ArcadeTurns,
      rested: Option<(usize, usize)>,
      fast_trail: bool,
-@@ -1124,6 +1126,8 @@ impl App {
+@@ -1276,6 +1278,8 @@ impl App {
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
              vb_buttons_seated: false,
@@ -208,15 +212,15 @@ index db46983..99c844a 100644
              arcade_turns: crate::arcade_turn::ArcadeTurns::default(),
              rested: None,
              fast_trail: false,
-@@ -1161,6 +1165,7 @@ impl App {
+@@ -1315,6 +1319,7 @@ impl App {
          app.s32x_speed = crate::s32x_speed::S32xSpeed::read(root);
          app.atari = crate::atari_switches::AtariSwitches::read(root);
          app.vb_screen = crate::vb_screen::VbScreen::read(root);
 +        app.sgx_pad = crate::sgx_pad::SgxPad::read(root);
          app.arcade_turns = crate::arcade_turn::ArcadeTurns::read(root);
          app.lynx_flip = crate::lynx_turn::flips_right(root);
-         app.restock_recents();
-@@ -1597,13 +1602,13 @@ impl App {
+         app.install_collections(slot_store::read_collections(root));
+@@ -2703,7 +2708,7 @@ impl App {
          if self.single_cart() {
              hidden.push(QuickRow::ExitGame);
          }
@@ -224,6 +228,8 @@ index db46983..99c844a 100644
 +        if self.playing_platform().owns_shoulders() && !self.sgx_six_seated {
              hidden.extend([QuickRow::GameL, QuickRow::GameR]);
          }
+         #[cfg(feature = "nds")]
+@@ -2718,7 +2723,7 @@ impl App {
          if !self.left_stick {
              hidden.push(QuickRow::LeftStick);
          }
@@ -232,7 +238,7 @@ index db46983..99c844a 100644
              hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
          }
          if !self.has_states || self.link_active() {
-@@ -1875,6 +1880,7 @@ impl App {
+@@ -2995,6 +3000,7 @@ impl App {
              | QuickRow::A7800RightDifficulty
              | QuickRow::A7800Bios => self.atari.quick_value(row),
              QuickRow::VbPalette | QuickRow::VbRightPad => self.vb_screen.quick_value(row),
@@ -240,7 +246,7 @@ index db46983..99c844a 100644
              QuickRow::Cps1Rotation | QuickRow::Cps2Rotation => self.arcade_turns.quick_value(row),
              QuickRow::LynxFlip => Some(QuickValue::flag(self.lynx_flip)),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
-@@ -2953,7 +2959,9 @@ impl App {
+@@ -4470,7 +4476,9 @@ impl App {
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
@@ -251,7 +257,7 @@ index db46983..99c844a 100644
      }
  
      pub fn taken_buttons(&self) -> Vec<Btn> {
-@@ -3533,6 +3541,20 @@ impl App {
+@@ -5096,6 +5104,20 @@ impl App {
          self.vb_buttons_seated
      }
  
@@ -272,7 +278,7 @@ index db46983..99c844a 100644
      pub fn triggers_to_game(&self) -> bool {
          let platform = self.playing_platform();
          !platform.owns_triggers() || (platform == Platform::Vb && self.vb_buttons_seated)
-@@ -4382,6 +4404,7 @@ impl App {
+@@ -6047,6 +6069,7 @@ impl App {
              | QuickRow::VbPalette
              | QuickRow::VbRightPad
              | QuickRow::FdsShader
@@ -280,7 +286,7 @@ index db46983..99c844a 100644
              | QuickRow::NeoGeoShader
              | QuickRow::FdsPicture
              | QuickRow::Pico8Shader
-@@ -4462,6 +4485,9 @@ impl App {
+@@ -6132,6 +6155,9 @@ impl App {
          if self
              .vb_screen
              .change(row, right, self.root.as_deref(), &self.card_writes)
@@ -290,7 +296,7 @@ index db46983..99c844a 100644
          {
              return;
          }
-@@ -4722,7 +4748,8 @@ impl App {
+@@ -6415,7 +6441,8 @@ impl App {
              QuickRow::VbPicture
              | QuickRow::VbSpeed
              | QuickRow::VbPalette
@@ -301,10 +307,10 @@ index db46983..99c844a 100644
              QuickRow::ScreenGeneral
              | QuickRow::Brightness
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 105e7bf..a43a9ac 100644
+index 83b3f3d..b4764ba 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -155,6 +155,7 @@ fn open_named(
+@@ -185,6 +185,7 @@ fn open_named(
                  crate::sms_region::apply(&mut opened, root, platform);
                  crate::s32x_speed::apply(&mut opened, root, platform);
                  crate::vb_screen::apply(&mut opened, root, platform);
@@ -367,22 +373,22 @@ index 82d85db..dbf55a0 100644
              .filter(|(b, _)| self.holds(*b) && !bound_to_game(&controls, *b))
              .fold(0, |bits, (_, bit)| bits | bit);
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 91c701a..daa42dd 100644
+index a616af5..307f802 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -74,6 +74,7 @@ pub mod root;
- pub mod server;
+@@ -80,6 +80,7 @@ pub mod server;
  pub mod s32x_speed;
+ pub mod screen;
  pub mod session;
 +pub mod sgx_pad;
  pub mod shelf_order;
  pub mod shelf_restock;
  pub mod shot_loader;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index ee9fa0f..fec6f4c 100644
+index 5a55a26..fcc0b2d 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -212,7 +212,11 @@ impl Session {
+@@ -220,7 +220,11 @@ impl Session {
                      contexts: Contexts::ALL,
                  },
              );
@@ -395,7 +401,7 @@ index ee9fa0f..fec6f4c 100644
          if self.app.repair_offered() {
              let chord = Chord {
                  modifier: Some(Mod::Select),
-@@ -265,9 +269,9 @@ impl Session {
+@@ -273,9 +277,9 @@ impl Session {
              self.pad.apply(Action::GbaUp(btn));
          }
          if let Some(emu) = &self.emu {
@@ -407,7 +413,7 @@ index ee9fa0f..fec6f4c 100644
                  self.app.triggers_to_game(),
              );
              if trace() && mask.0 != self.sent {
-@@ -711,7 +715,8 @@ impl Session {
+@@ -720,7 +724,8 @@ impl Session {
          emu.set_driven(self.driven);
          emu.set_native_pal(self.app.native_pal(loaded.platform));
          emu.set_measures_rate(!self.app.core().reports_its_frame_rate());

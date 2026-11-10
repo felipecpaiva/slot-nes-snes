@@ -25,7 +25,7 @@ Subject: [PATCH] core-picker-pairs
  create mode 100644 crates/slot/tests/nes_core_picker.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index 87d4852..62dc2aa 100644
+index 6f74db7..7964439 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
 @@ -13,6 +13,8 @@ pub enum Core {
@@ -34,37 +34,37 @@ index 87d4852..62dc2aa 100644
      Snes9x,
 +    Nestopia,
 +    Snes9x2005Plus,
+     #[cfg(feature = "nds")]
+     Dsperate,
  }
- 
- impl Core {
-@@ -25,6 +27,8 @@ impl Core {
+@@ -30,6 +32,8 @@ impl Core {
              Core::Gambatte => "gambatte",
              Core::Fceumm => "fceumm",
              Core::Snes9x => "snes9x",
 +            Core::Nestopia => "nestopia",
 +            Core::Snes9x2005Plus => "snes9x2005_plus",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "dsperate",
          }
-     }
- 
-@@ -39,6 +43,8 @@ impl Core {
+@@ -46,6 +50,8 @@ impl Core {
              Core::Gambatte => "Gambatte",
              Core::Fceumm => "FCEUmm",
              Core::Snes9x => "Snes9x",
 +            Core::Nestopia => "Nestopia",
 +            Core::Snes9x2005Plus => "Snes9x 2005+",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "DSperate",
          }
-     }
- 
-@@ -49,6 +55,8 @@ impl Core {
+@@ -58,6 +64,8 @@ impl Core {
              "gambatte" => Some(Core::Gambatte),
              "fceumm" => Some(Core::Fceumm),
              "snes9x" => Some(Core::Snes9x),
 +            "nestopia" => Some(Core::Nestopia),
 +            "snes9x2005_plus" => Some(Core::Snes9x2005Plus),
+             #[cfg(feature = "nds")]
+             "dsperate" => Some(Core::Dsperate),
              _ => None,
-         }
-     }
-@@ -67,11 +75,11 @@ impl Core {
+@@ -80,11 +88,11 @@ impl Core {
                  Platform::Gb | Platform::Gbc => true,
                  Platform::Gba | Platform::Gbav | Platform::Nes => false,
              },
@@ -78,7 +78,7 @@ index 87d4852..62dc2aa 100644
                  Platform::Snes => true,
                  Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes => false,
              },
-@@ -82,8 +90,8 @@ impl Core {
+@@ -97,8 +105,8 @@ impl Core {
          match platform {
              Platform::Gba | Platform::Gbav => [Core::Mgba, Core::Gpsp],
              Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
@@ -86,9 +86,9 @@ index 87d4852..62dc2aa 100644
 -            Platform::Snes => Core::Snes9x,
 +            Platform::Nes => [Core::Fceumm, Core::Nestopia],
 +            Platform::Snes => [Core::Snes9x, Core::Snes9x2005Plus],
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
          }
-     }
- }
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
 index c855e71..091ed9b 100644
 --- a/crates/slot-store/src/core_policy.rs
@@ -217,10 +217,10 @@ index fba322b..f43156b 100644
  
  #[test]
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index d465c69..bbda5e1 100644
+index 44650cf..f229fd3 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -208,7 +208,7 @@ pub fn colour_option(
+@@ -240,7 +240,7 @@ pub fn colour_option(
                  "GBC only"
              },
          )),
@@ -297,10 +297,10 @@ index 608db1a..d970b55 100644
          self.started.get_or_insert(now);
      }
 diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
-index 16ddb87..25b92c6 100644
+index 13887ad..1abc7b3 100644
 --- a/crates/slot/src/frontend.rs
 +++ b/crates/slot/src/frontend.rs
-@@ -25,6 +25,7 @@ use crate::app::{App, LinkRow, Phase, UpdateCart, UpdateScene};
+@@ -26,6 +26,7 @@ use crate::app::{App, LinkRow, Phase, UpdateCart, UpdateScene};
  
  use crate::build_info::Build;
  use crate::cart_faces::CartFaces;
@@ -308,15 +308,15 @@ index 16ddb87..25b92c6 100644
  use crate::face_builder::FaceBuilder;
  use crate::label_cache::{self, Rebuild};
  use crate::link_art_builder::LinkArtBuilder;
-@@ -54,6 +55,7 @@ pub struct Frontend {
-     core_asked: Option<String>,
+@@ -57,6 +58,7 @@ pub struct Frontend {
+     core_asked: Option<(Console, String)>,
      core_tex: CoreTextures,
-     core_built: Option<String>,
+     core_built: Option<(Console, String)>,
 +    pair_faces: Option<PairFaces>,
      undo_tex: Option<TexId>,
      switcher: Switcher,
      guide_page: GuidePage,
-@@ -546,6 +548,7 @@ impl Frontend {
+@@ -577,6 +579,7 @@ impl Frontend {
              core_asked: None,
              core_tex: CoreTextures::default(),
              core_built: None,
@@ -324,7 +324,7 @@ index 16ddb87..25b92c6 100644
              undo_tex: None,
              switcher: Switcher::default(),
              guide_page: GuidePage::default(),
-@@ -920,7 +923,9 @@ impl Frontend {
+@@ -1005,7 +1008,9 @@ impl Frontend {
              legend_light,
              descriptions,
          });
@@ -335,7 +335,7 @@ index 16ddb87..25b92c6 100644
          app.set_core_gb_part_faces(gb_sockets, gb_chips, gb_blank);
          app.set_core_legend_faces(core_legend, core_legend_light);
          app.set_link_menu_faces(roles);
-@@ -1070,6 +1075,9 @@ impl Frontend {
+@@ -1201,6 +1206,9 @@ impl Frontend {
              &mut self.core_tex,
              &mut self.core_built,
          );
@@ -345,7 +345,7 @@ index 16ddb87..25b92c6 100644
          if !self.link_art_done {
              if let Some(art) = self.link_art.take() {
                  let mut up = |f: &slot_ui::CartFace| Sprite {
-@@ -1421,11 +1429,11 @@ impl UiFaces {
+@@ -1576,11 +1584,11 @@ impl UiFaces {
                  quick_description_face(&["Supports single button and MENU+button."]),
                  quick_description_face(&["Supports single button and two button chords."]),
              ],
@@ -360,10 +360,10 @@ index 16ddb87..25b92c6 100644
                  .map(|c| chip_face(Some(*c)))
                  .collect(),
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 81ff86e..c1a015a 100644
+index f6fcbf4..a37d7c6 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -18,6 +18,7 @@ pub mod cable;
+@@ -19,6 +19,7 @@ pub mod cable;
  pub mod card_log;
  pub mod cart_faces;
  pub mod core;
@@ -509,7 +509,7 @@ index 0000000..af9f24d
 +    }
 +}
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index 7b54cde..a07125d 100644
+index 1ac3577..3b72114 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

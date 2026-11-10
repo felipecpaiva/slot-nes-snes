@@ -1,11 +1,12 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic H700 handhelds
 (tested on the RG34XXSP), as a patch set on slot's own source. The base is in the tag: this release is
-built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.3` adds Gamebit on the new shelves to `-ns.2` (Scale) and `-ns.1`. GBA, GB and
+built on slot's tagged release 1.15.2 (`3449869`), and `-ns.1` is our first release on it. It carries Scale
+(`-ns.2` on 1.14.0), Gamebit on the new shelves and its icons (`-ns.3` and later) too. GBA, GB and
 GBC stay byte-identical to that slot.
 
 ## What is new
 
-Since slot's own 1.14.0, the patch set adds:
+Since slot's own 1.15.2, the patch set adds:
 
 - **More shelves**: Famicom Disk System, Sega CD / Mega-CD, PC Engine CD, PC Engine SuperGrafx,
   Atari 2600, Atari 7800, Virtual Boy, Neo Geo CD, PICO-8, and arcade boards on FinalBurn Neo (Neo Geo,
@@ -30,9 +31,13 @@ Since slot's own 1.14.0, the patch set adds:
   aside), and long shelves scroll 3 carts at a time when you hold Left or Right.
 - A faster scan of the arcade shelves, and [BIOS] files kept off every shelf.
 
-## From slot 1.9 to 1.14
+## From slot 1.9 to 1.15
 
-This release carries everything slot added in 1.10 to 1.14: the Gambatte core for Game Boy and Game
+This release carries everything slot added in 1.10 to 1.15. In 1.15: Collections (hold Y on a game to add it to one,
+they stack behind Favorites on L2 / R2; a game of any shelf can go in one), Game Boy Advance Video behind Game Boy
+Advance (L2 / R2 on the GBA shelf switches), Kid Mode (Settings > General), Gambatte rumble, the cart clock in
+your city, Auto Load State with a Power On choice, and the LCD shader draws to fit 4:3 screens. ROM names with a stray space or dot at
+the end are renamed at boot on the Game Boy shelves only. From 1.10 to 1.14: the Gambatte core for Game Boy and Game
 Boy Color (START on a Game Boy cart switches between it and mGBA), the Scale, Stretch and Frame Blending
 rows, Shimmerless, Saturation and Contrast, the Network menu with Wi-Fi, Gamebit (slot's web page for the
 card) and Cart Studio. Scale is a row on every shelf (SP Screen, Integer, Fit, on the Screen page of each system); Stretch and Frame Blending are on the Game Boy shelves only, the added shelves keep their Picture row. In the

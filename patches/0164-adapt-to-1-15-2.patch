@@ -1,0 +1,680 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Felipe Paiva <felipe.paiva@gmail.com>
+Date: Tue, 10 Nov 2026 13:19:47 +0400
+Subject: [PATCH] adapt-to-1-15-2
+
+---
+ crates/slot-gfx/src/lcd3x.rs                 |  1 +
+ crates/slot-retro/src/lib.rs                 |  3 +-
+ crates/slot-store/src/slot_state.rs          | 10 +++----
+ crates/slot-store/tests/durability.rs        |  8 +++++
+ crates/slot-ui/src/disc_insert.rs            |  2 +-
+ crates/slot-ui/src/lid_fit.rs                |  4 +--
+ crates/slot-ui/tests/render_nes_shelves.rs   |  2 +-
+ crates/slot-ui/tests/screen_scroll.rs        |  7 +++--
+ crates/slot/src/app.rs                       | 31 +++++++++++++++++---
+ crates/slot/src/app/shelf_order.rs           | 11 ++++---
+ crates/slot/src/lib.rs                       |  1 -
+ crates/slot/tests/cpu_governor.rs            |  2 +-
+ crates/slot/tests/fds_saves.rs               |  2 +-
+ crates/slot/tests/fixtures/layout_golden.txt |  4 +--
+ crates/slot/tests/flush_without_state.rs     |  1 +
+ crates/slot/tests/gg_seat.rs                 |  2 +-
+ crates/slot/tests/lynx_seat.rs               |  2 +-
+ crates/slot/tests/md_seat.rs                 |  2 +-
+ crates/slot/tests/neocd_platform.rs          |  2 +-
+ crates/slot/tests/nes_core_picker.rs         |  2 +-
+ crates/slot/tests/nes_eject_save.rs          |  2 +-
+ crates/slot/tests/pcecd_platform.rs          |  2 +-
+ crates/slot/tests/ps1_card.rs                |  2 +-
+ crates/slot/tests/ps1_options.rs             |  2 +-
+ crates/slot/tests/ps1_seat.rs                |  2 +-
+ crates/slot/tests/render_canvas_fill.rs      |  2 +-
+ crates/slot/tests/render_screen_scroll.rs    |  2 +-
+ crates/slot/tests/s32x_saves.rs              |  2 +-
+ crates/slot/tests/select_x_gba.rs            |  8 +++++
+ crates/slot/tests/sgx_platform.rs            |  2 +-
+ crates/slot/tests/shelf_order.rs             | 17 +++++++----
+ crates/slot/tests/sms_seat.rs                |  2 +-
+ crates/slot/tests/tg16_saves.rs              |  2 +-
+ crates/slot/tests/vb_saves.rs                |  2 +-
+ crates/slot/tests/wswan_saves.rs             |  2 +-
+ 35 files changed, 99 insertions(+), 51 deletions(-)
+
+diff --git a/crates/slot-gfx/src/lcd3x.rs b/crates/slot-gfx/src/lcd3x.rs
+index 27702db..267e445 100644
+--- a/crates/slot-gfx/src/lcd3x.rs
++++ b/crates/slot-gfx/src/lcd3x.rs
+@@ -30,6 +30,7 @@ impl ScreenEffect {
+             ScreenEffect::Dot => 3.0,
+             ScreenEffect::Simpletex => 4.0,
+             ScreenEffect::Shimmerless => 5.0,
++            ScreenEffect::LcdGrid => 6.0,
+             ScreenEffect::Retro(_) => 0.0,
+         }
+     }
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index 23de019..6c0e067 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -19,8 +19,7 @@ mod rumble;
+ mod turbo_mode;
+ 
+ pub use analog::{publish_sticks, published_sticks, DUALSHOCK, PLAIN_PAD};
+-pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+-pub use core::{mask_for, AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
++pub use core::{mask_for, AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ pub use dsperate::{ds_buttons, DsperateCore, DS_H, DS_W};
+ pub use ffi::{
+     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
+index 9e9df52..e5ed5e8 100644
+--- a/crates/slot-store/src/slot_state.rs
++++ b/crates/slot-store/src/slot_state.rs
+@@ -819,11 +819,6 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
+             r.stem
+         ))
+     ));
+-    text.push_str(&format!(
+-        "shader_nes={}\nshader_snes={}\n",
+-        s.shader_nes.name(),
+-        s.shader_snes.name()
+-    ));
+     text.push_str(&format!("shelf_mode={}\n", s.shelf_mode.key()));
+     text.push_str(&format!("kid_mode={}\n", s.kid_mode.key()));
+     text.push_str(&format!("kid_shelf={}\n", s.kid_shelf));
+@@ -832,6 +827,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
+         s.collection.as_deref().unwrap_or("")
+     ));
+     text.push_str(&format!("gba_video={}\n", s.gba_video as u8));
++    text.push_str(&format!(
++        "shader_nes={}\nshader_snes={}\n",
++        s.shader_nes.name(),
++        s.shader_snes.name()
++    ));
+     atomic_write(&state_path(root), text.as_bytes())?;
+     write_list(root, RECENTS_FILE, &s.recents)?;
+     write_list(root, FAVORITES_FILE, &s.favorites)
+diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
+index 00b7d7b..b815939 100644
+--- a/crates/slot-store/tests/durability.rs
++++ b/crates/slot-store/tests/durability.rs
+@@ -282,6 +282,14 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
+             favorites: Vec::new(),
+             shelf: None,
+             shelf_cart: None,
++            overlay_gba: None,
++            overlay_gb: None,
++            overlay_gbc: None,
++            shelf_mode: slot_store::ShelfMode::All,
++            collection: None,
++            gba_video: false,
++            kid_mode: slot_store::KidMode::Off,
++            kid_shelf: "all".into(),
+         }
+     );
+ }
+diff --git a/crates/slot-ui/src/disc_insert.rs b/crates/slot-ui/src/disc_insert.rs
+index bf8b5f9..8b79b67 100644
+--- a/crates/slot-ui/src/disc_insert.rs
++++ b/crates/slot-ui/src/disc_insert.rs
+@@ -33,7 +33,7 @@ pub(crate) fn draw(
+     let (bw, bh) = cart_box(chrome.cart.platform);
+     let scale = chrome.scale.clamp(0.0, 1.0);
+     let (w0, h0) = (bw as f32 * scale, bh as f32 * scale);
+-    let (x0, y0) = (chrome.rest, foot_y(bh as f32) - h0);
++    let (x0, y0) = (chrome.rest, foot_y(chrome.canvas, bh as f32) - h0);
+     let (open, travel) = opening(k);
+     let case_alpha = alpha * (1.0 - travel);
+     let l = look(RetroShell::Ps1(Ps1Case::Us));
+diff --git a/crates/slot-ui/src/lid_fit.rs b/crates/slot-ui/src/lid_fit.rs
+index 78a1060..26677ca 100644
+--- a/crates/slot-ui/src/lid_fit.rs
++++ b/crates/slot-ui/src/lid_fit.rs
+@@ -6,7 +6,7 @@ use crate::shelf::{foot_y, Shelf};
+ 
+ const SAME_SHAPE: f32 = 0.001;
+ 
+-pub fn shelf_cart_of(shelf: &Shelf, x: f32, scale: f32) -> Placed {
++pub fn shelf_cart_of(canvas: Canvas, shelf: &Shelf, x: f32, scale: f32) -> Placed {
+     let (cw, ch) = shelf
+         .carts
+         .get(shelf.index)
+@@ -14,7 +14,7 @@ pub fn shelf_cart_of(shelf: &Shelf, x: f32, scale: f32) -> Placed {
+     let (w, h) = (cw as f32 * scale, ch as f32 * scale);
+     Placed {
+         x,
+-        y: foot_y(ch as f32) - h,
++        y: foot_y(canvas, ch as f32) - h,
+         w,
+         h,
+     }
+diff --git a/crates/slot-ui/tests/render_nes_shelves.rs b/crates/slot-ui/tests/render_nes_shelves.rs
+index 52943dd..5b24aaf 100644
+--- a/crates/slot-ui/tests/render_nes_shelves.rs
++++ b/crates/slot-ui/tests/render_nes_shelves.rs
+@@ -278,7 +278,7 @@ fn a_shadow_falls_under_every_variant() {
+             c.create_texture(face.w, face.h, &face.rgba),
+             c.create_texture(shadow.w, shadow.h, &shadow.rgba),
+         );
+-        let (x, y) = ((OUT_W - cw) / 2, rest_y(ch as f32) as u32);
++        let (x, y) = ((OUT_W - cw) / 2, rest_y(slot_gfx::Canvas::FRAMED, ch as f32) as u32);
+         let list = [
+             Draw::Rect {
+                 x: 0.0,
+diff --git a/crates/slot-ui/tests/screen_scroll.rs b/crates/slot-ui/tests/screen_scroll.rs
+index 4acf987..dc39af6 100644
+--- a/crates/slot-ui/tests/screen_scroll.rs
++++ b/crates/slot-ui/tests/screen_scroll.rs
+@@ -1,3 +1,4 @@
++use slot_gfx::Canvas;
+ use slot_ui::{quick_row_top_at, quick_window, QuickRow, QUICK_PITCH};
+ 
+ const LEGEND_TOP: f32 = 427.0;
+@@ -5,9 +6,9 @@ const LEGEND_TOP: f32 = 427.0;
+ #[test]
+ fn every_drawn_row_of_the_nine_system_screen_list_sits_above_the_legend() {
+     for selected in QuickRow::SCREEN {
+-        let (start, len) = quick_window(selected, &[]);
++        let (start, len) = quick_window(Canvas::FRAMED, selected, &[]);
+         for row in &QuickRow::SCREEN[start..start + len] {
+-            let top = quick_row_top_at(*row, selected, &[]);
++            let top = quick_row_top_at(Canvas::FRAMED, *row, selected, &[]);
+             assert!(
+                 top >= 0.0 && top + QUICK_PITCH <= LEGEND_TOP,
+                 "on {selected:?}, {row:?} is drawn at y {top}"
+@@ -19,7 +20,7 @@ fn every_drawn_row_of_the_nine_system_screen_list_sits_above_the_legend() {
+ #[test]
+ fn the_selected_row_of_the_screen_list_is_always_drawn() {
+     for selected in QuickRow::SCREEN {
+-        let (start, len) = quick_window(selected, &[]);
++        let (start, len) = quick_window(Canvas::FRAMED, selected, &[]);
+         assert!(
+             (start..start + len).contains(&selected.position(&[])),
+             "{selected:?} is outside the drawn rows {start}..{}",
+diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
+index 88d4866..34f6a56 100644
+--- a/crates/slot/src/app.rs
++++ b/crates/slot/src/app.rs
+@@ -3623,21 +3623,21 @@ impl App {
+ 
+     fn overlay_pick(&mut self, platform: Platform) -> &mut Option<String> {
+         match platform {
+-            Platform::Gba | Platform::Gbav => &mut self.state.overlay_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &mut self.state.overlay_nds,
+             Platform::Gb => &mut self.state.overlay_gb,
+             Platform::Gbc => &mut self.state.overlay_gbc,
++            _ => &mut self.state.overlay_gba,
+         }
+     }
+ 
+     pub fn resolved_overlay(&self, platform: Platform) -> Option<slot_store::OverlayEntry> {
+         let pick = match platform {
+-            Platform::Gba | Platform::Gbav => &self.state.overlay_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &self.state.overlay_nds,
+             Platform::Gb => &self.state.overlay_gb,
+             Platform::Gbc => &self.state.overlay_gbc,
++            _ => &self.state.overlay_gba,
+         };
+         let name = pick.as_deref()?;
+         self.overlay_entries(platform)
+@@ -3974,6 +3974,29 @@ impl App {
+             (QuickRow::GbaScale, Platform::Gba),
+             (QuickRow::GbScale, Platform::Gb),
+             (QuickRow::GbcScale, Platform::Gbc),
++            (QuickRow::NesScale, Platform::Nes),
++            (QuickRow::SnesScale, Platform::Snes),
++            (QuickRow::GgScale, Platform::Gg),
++            (QuickRow::SmsScale, Platform::Sms),
++            (QuickRow::MdScale, Platform::Md),
++            (QuickRow::Ps1Scale, Platform::Ps1),
++            (QuickRow::Tg16Scale, Platform::Tg16),
++            (QuickRow::WsScale, Platform::Ws),
++            (QuickRow::LynxScale, Platform::Lynx),
++            (QuickRow::NgpScale, Platform::Ngp),
++            (QuickRow::S32xScale, Platform::S32x),
++            (QuickRow::A2600Scale, Platform::A2600),
++            (QuickRow::A7800Scale, Platform::A7800),
++            (QuickRow::VbScale, Platform::Vb),
++            (QuickRow::NeoGeoScale, Platform::NeoGeo),
++            (QuickRow::FdsScale, Platform::Fds),
++            (QuickRow::Cps1Scale, Platform::Cps1),
++            (QuickRow::Pico8Scale, Platform::Pico8),
++            (QuickRow::Cps2Scale, Platform::Cps2),
++            (QuickRow::SgxScale, Platform::Sgx),
++            (QuickRow::PcecdScale, Platform::Pcecd),
++            (QuickRow::NeocdScale, Platform::Neocd),
++            (QuickRow::SegaCdScale, Platform::SegaCd),
+         ] {
+             if self.scale_choices(platform).len() < 2 {
+                 hidden.push(row);
+@@ -10066,7 +10089,7 @@ impl App {
+         let shell = self.shelf().selected_shell();
+         let shelf = match shell {
+             Some(_) => shelf_cart_shaped(self.canvas(), shell, rest, scale),
+-            None => shelf_cart_of(self.shelf(), rest, scale),
++            None => shelf_cart_of(self.canvas(), self.shelf(), rest, scale),
+         };
+         let board = board_from_shaped(self.canvas(), shell, shelf, progress);
+         let ready = self.core_faces_ready();
+@@ -15217,11 +15240,11 @@ struct OverlayScan {
+ 
+ pub fn overlay_slot(platform: Platform) -> usize {
+     match platform {
+-        Platform::Gba | Platform::Gbav => 0,
+         Platform::Gb => 1,
+         Platform::Gbc => 2,
+         #[cfg(feature = "nds")]
+         Platform::Nds => 3,
++        _ => 0,
+     }
+ }
+ 
+diff --git a/crates/slot/src/app/shelf_order.rs b/crates/slot/src/app/shelf_order.rs
+index cd249c9..86c01ec 100644
+--- a/crates/slot/src/app/shelf_order.rs
++++ b/crates/slot/src/app/shelf_order.rs
+@@ -36,12 +36,15 @@ impl App {
+         self.shelves.sort_by_key(|(rack, _)| match rack {
+             Rack::Recents => 0,
+             Rack::Favorites => 1,
++            Rack::Collection(i) => 2 + *i,
+             Rack::Of(p) => {
+-                2 + platforms
+-                    .iter()
+-                    .position(|q| q == p)
+-                    .unwrap_or(platforms.len())
++                1_000
++                    + platforms
++                        .iter()
++                        .position(|q| q == p)
++                        .unwrap_or(platforms.len())
+             }
++            Rack::AllGames => usize::MAX,
+         });
+     }
+ }
+diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
+index 07f0805..08e4d4e 100644
+--- a/crates/slot/src/lib.rs
++++ b/crates/slot/src/lib.rs
+@@ -91,7 +91,6 @@ pub mod shot_loader;
+ pub mod shot_writer;
+ pub mod sms_region;
+ pub mod snes_input;
+-pub mod sntp;
+ pub mod state_writer;
+ pub mod studio;
+ pub mod studio_faces;
+diff --git a/crates/slot/tests/cpu_governor.rs b/crates/slot/tests/cpu_governor.rs
+index 8503088..2188838 100644
+--- a/crates/slot/tests/cpu_governor.rs
++++ b/crates/slot/tests/cpu_governor.rs
+@@ -48,7 +48,7 @@ fn open_cpu_row(app: &mut App) {
+ fn the_cpu_row_sits_on_the_general_page_just_above_lid_power_off() {
+     let at = |r: QuickRow| QuickRow::GENERAL.iter().position(|g| *g == r);
+     assert_eq!(at(QuickRow::Cpu).map(|i| i + 1), at(QuickRow::LidOff));
+-    assert_eq!(at(QuickRow::LidOff).map(|i| i + 1), at(QuickRow::DateTime));
++    assert_eq!(at(QuickRow::LidOff).map(|i| i + 1), at(QuickRow::KidMode));
+     assert_eq!(QuickRow::Cpu.parent(), Some(QuickRow::General));
+     assert_eq!(QuickRow::Cpu.label(), "CPU");
+ }
+diff --git a/crates/slot/tests/fds_saves.rs b/crates/slot/tests/fds_saves.rs
+index 95b52b4..6791309 100644
+--- a/crates/slot/tests/fds_saves.rs
++++ b/crates/slot/tests/fds_saves.rs
+@@ -51,7 +51,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn written() -> Vec<u8> {
+diff --git a/crates/slot/tests/fixtures/layout_golden.txt b/crates/slot/tests/fixtures/layout_golden.txt
+index 49f43ce..b2ce7a3 100644
+--- a/crates/slot/tests/fixtures/layout_golden.txt
++++ b/crates/slot/tests/fixtures/layout_golden.txt
+@@ -2,8 +2,8 @@ shelf 720x480 8b6c56839ff543b6
+ shelf 640x480 2613b35201b52555
+ quick-menu 720x480 7dfd6f3a95095f38
+ quick-menu 640x480 51aa6cae52a0bada
+-settings-long-list 720x480 6abb8920e34235e5
+-settings-long-list 640x480 c908e79e61a6067e
++settings-long-list 720x480 2e84a58e8f076fd1
++settings-long-list 640x480 fe7a69f5bcbce253
+ gba-sp-frame 720x480 ca438bd6f9bf87c0
+ gba-sp-frame 640x480 3c37d7ef4065304a
+ gba-integer 720x480 ca438bd6f9bf87c0
+diff --git a/crates/slot/tests/flush_without_state.rs b/crates/slot/tests/flush_without_state.rs
+index d39c523..de03e1b 100644
+--- a/crates/slot/tests/flush_without_state.rs
++++ b/crates/slot/tests/flush_without_state.rs
+@@ -42,6 +42,7 @@ fn an_eject_writes_the_save_ram_even_when_the_core_gives_no_state() {
+     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+     let mut a = app_playing_with(d.path(), "Emerald", Box::new(NoState));
+     a.apply(Action::Eject);
++    a.settle_saves();
+     assert_eq!(
+         persist::read_sav(d.path(), Platform::Gba, "Emerald")
+             .ok()
+diff --git a/crates/slot/tests/gg_seat.rs b/crates/slot/tests/gg_seat.rs
+index 99cecab..d218617 100644
+--- a/crates/slot/tests/gg_seat.rs
++++ b/crates/slot/tests/gg_seat.rs
+@@ -27,7 +27,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn seated(dylib: &Path) -> tempfile::TempDir {
+diff --git a/crates/slot/tests/lynx_seat.rs b/crates/slot/tests/lynx_seat.rs
+index 5f093cd..9088317 100644
+--- a/crates/slot/tests/lynx_seat.rs
++++ b/crates/slot/tests/lynx_seat.rs
+@@ -72,7 +72,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/md_seat.rs b/crates/slot/tests/md_seat.rs
+index 4842866..146e91e 100644
+--- a/crates/slot/tests/md_seat.rs
++++ b/crates/slot/tests/md_seat.rs
+@@ -29,7 +29,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn seated(dylib: &Path, h40: bool) -> tempfile::TempDir {
+diff --git a/crates/slot/tests/neocd_platform.rs b/crates/slot/tests/neocd_platform.rs
+index 94c44e5..9834a11 100644
+--- a/crates/slot/tests/neocd_platform.rs
++++ b/crates/slot/tests/neocd_platform.rs
+@@ -203,7 +203,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/nes_core_picker.rs b/crates/slot/tests/nes_core_picker.rs
+index 91f2264..464797c 100644
+--- a/crates/slot/tests/nes_core_picker.rs
++++ b/crates/slot/tests/nes_core_picker.rs
+@@ -180,7 +180,7 @@ fn right_then_a_on_a_nes_cart_writes_nestopia() {
+     app.apply(Action::GbaDown(Btn::A));
+     app.update(0.5);
+     assert_eq!(
+-        read_selected_cores(d.path()).get("Contra"),
++        read_selected_cores(d.path()).get("NES/Contra"),
+         Some(&Core::Nestopia)
+     );
+     let text = std::fs::read_to_string(d.path().join("Config/selected_core.txt")).unwrap();
+diff --git a/crates/slot/tests/nes_eject_save.rs b/crates/slot/tests/nes_eject_save.rs
+index aff4a58..b66c854 100644
+--- a/crates/slot/tests/nes_eject_save.rs
++++ b/crates/slot/tests/nes_eject_save.rs
+@@ -55,7 +55,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn sav(root: &Path, platform: Platform) -> PathBuf {
+diff --git a/crates/slot/tests/pcecd_platform.rs b/crates/slot/tests/pcecd_platform.rs
+index 51adb33..a10ec32 100644
+--- a/crates/slot/tests/pcecd_platform.rs
++++ b/crates/slot/tests/pcecd_platform.rs
+@@ -282,7 +282,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/ps1_card.rs b/crates/slot/tests/ps1_card.rs
+index 4362b6e..e455fad 100644
+--- a/crates/slot/tests/ps1_card.rs
++++ b/crates/slot/tests/ps1_card.rs
+@@ -48,7 +48,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/ps1_options.rs b/crates/slot/tests/ps1_options.rs
+index fb9f927..bcf7335 100644
+--- a/crates/slot/tests/ps1_options.rs
++++ b/crates/slot/tests/ps1_options.rs
+@@ -251,7 +251,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/ps1_seat.rs b/crates/slot/tests/ps1_seat.rs
+index bbd617a..876f876 100644
+--- a/crates/slot/tests/ps1_seat.rs
++++ b/crates/slot/tests/ps1_seat.rs
+@@ -35,7 +35,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn resume_bytes(root: &Path) -> Option<u64> {
+diff --git a/crates/slot/tests/render_canvas_fill.rs b/crates/slot/tests/render_canvas_fill.rs
+index 05a7d0a..0006d22 100644
+--- a/crates/slot/tests/render_canvas_fill.rs
++++ b/crates/slot/tests/render_canvas_fill.rs
+@@ -256,7 +256,7 @@ fn menu_text_is_the_same_size_on_every_panel() {
+         high.len()
+     );
+     assert_eq!(
+-        bounds(&ink(&square, 40, 112)),
++        bounds(&ink(&square, 40, 86)),
+         bounds(&ink(&reference, 40, 70)),
+         "the first row's text is not the 720x480 text, 42 rows lower"
+     );
+diff --git a/crates/slot/tests/render_screen_scroll.rs b/crates/slot/tests/render_screen_scroll.rs
+index 6755021..6250b8e 100644
+--- a/crates/slot/tests/render_screen_scroll.rs
++++ b/crates/slot/tests/render_screen_scroll.rs
+@@ -110,7 +110,7 @@ fn moving_to_playstation_scrolls_its_row_into_view() {
+     assert_eq!(f.app().quick_menu(), Some(QuickRow::ScreenPs1));
+     f.compose(&mut c);
+     let px = c.read_frame();
+-    let top = quick_row_top_at(QuickRow::ScreenPs1, QuickRow::ScreenPs1, &hidden) as usize;
++    let top = quick_row_top_at(slot_gfx::Canvas::FRAMED, QuickRow::ScreenPs1, QuickRow::ScreenPs1, &hidden) as usize;
+     assert!(
+         top + QUICK_PITCH as usize <= LEGEND_TOP,
+         "PlayStation sits at y {top}"
+diff --git a/crates/slot/tests/s32x_saves.rs b/crates/slot/tests/s32x_saves.rs
+index 4664ba7..b02793d 100644
+--- a/crates/slot/tests/s32x_saves.rs
++++ b/crates/slot/tests/s32x_saves.rs
+@@ -49,7 +49,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/select_x_gba.rs b/crates/slot/tests/select_x_gba.rs
+index 7986c6b..3f22564 100644
+--- a/crates/slot/tests/select_x_gba.rs
++++ b/crates/slot/tests/select_x_gba.rs
+@@ -64,6 +64,9 @@ auto_load=1
+ bezel_gba=ags-102
+ bezel_gb=ags-102
+ bezel_gbc=ags-102
++overlay_gba=
++overlay_gb=
++overlay_gbc=
+ scale_gba=fit
+ scale_gb=sp-frame
+ scale_gbc=sp-frame
+@@ -74,6 +77,11 @@ blending_gb=off
+ blending_gbc=off
+ shelf=
+ shelf_cart=
++shelf_mode=all
++kid_mode=off
++kid_shelf=all
++collection=
++gba_video=0
+ shader_nes=off
+ shader_snes=off
+ ";
+diff --git a/crates/slot/tests/sgx_platform.rs b/crates/slot/tests/sgx_platform.rs
+index be475ae..571c408 100644
+--- a/crates/slot/tests/sgx_platform.rs
++++ b/crates/slot/tests/sgx_platform.rs
+@@ -309,7 +309,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/shelf_order.rs b/crates/slot/tests/shelf_order.rs
+index f5817a5..30af589 100644
+--- a/crates/slot/tests/shelf_order.rs
++++ b/crates/slot/tests/shelf_order.rs
+@@ -101,17 +101,22 @@ fn press(a: &mut App, btn: Btn) {
+     }
+ }
+ 
+-fn shelves_after(a: &mut App, btn: Btn, n: usize) -> Vec<&'static str> {
++fn shelves_after(a: &mut App, btn: Btn, n: usize) -> Vec<String> {
+     (0..n)
+         .map(|_| {
+             press(a, btn);
+-            a.shelf_platform_name().expect("a shelf name")
++            a.shelf_platform_name().expect("a shelf name").to_string()
+         })
+         .collect()
+ }
+ 
++/// Game Boy Advance Video sits behind Game Boy Advance since slot 1.15, so the shelf walk skips it.
+ fn names(platforms: impl IntoIterator<Item = Platform>) -> Vec<&'static str> {
+-    platforms.into_iter().map(Platform::name).collect()
++    platforms
++        .into_iter()
++        .filter(|p| *p != Platform::Gbav)
++        .map(Platform::name)
++        .collect()
+ }
+ 
+ #[test]
+@@ -142,7 +147,7 @@ fn a_card_without_the_file_keeps_the_classic_order_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(Platform::SHELVES);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 28), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 27), want);
+ }
+ 
+ #[test]
+@@ -152,7 +157,7 @@ fn release_year_puts_the_systems_oldest_first_after_recents() {
+     assert_eq!(a.shelf_platform_name(), Some("Recents"));
+     let mut want = names(RELEASE_YEAR);
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::R1, 28), want);
++    assert_eq!(shelves_after(&mut a, Btn::R1, 27), want);
+ }
+ 
+ #[test]
+@@ -161,7 +166,7 @@ fn l1_walks_the_release_year_order_backwards_from_recents() {
+     let mut a = boot_with(d.path(), SlotState::default());
+     let mut want = names(RELEASE_YEAR.into_iter().rev());
+     want.push("Recents");
+-    assert_eq!(shelves_after(&mut a, Btn::L1, 28), want);
++    assert_eq!(shelves_after(&mut a, Btn::L1, 27), want);
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/sms_seat.rs b/crates/slot/tests/sms_seat.rs
+index d7043f6..26d74cf 100644
+--- a/crates/slot/tests/sms_seat.rs
++++ b/crates/slot/tests/sms_seat.rs
+@@ -28,7 +28,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn seated(dylib: &Path) -> tempfile::TempDir {
+diff --git a/crates/slot/tests/tg16_saves.rs b/crates/slot/tests/tg16_saves.rs
+index 3721c53..c929e30 100644
+--- a/crates/slot/tests/tg16_saves.rs
++++ b/crates/slot/tests/tg16_saves.rs
+@@ -51,7 +51,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ #[test]
+diff --git a/crates/slot/tests/vb_saves.rs b/crates/slot/tests/vb_saves.rs
+index c0b7f64..08afeeb 100644
+--- a/crates/slot/tests/vb_saves.rs
++++ b/crates/slot/tests/vb_saves.rs
+@@ -46,7 +46,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn marked() -> Vec<u8> {
+diff --git a/crates/slot/tests/wswan_saves.rs b/crates/slot/tests/wswan_saves.rs
+index cfca3d6..34c5431 100644
+--- a/crates/slot/tests/wswan_saves.rs
++++ b/crates/slot/tests/wswan_saves.rs
+@@ -44,7 +44,7 @@ fn eject(session: &mut Session) {
+         matches!(session.app().phase(), Phase::Ejecting { .. }),
+         "holding Menu did not eject: {:?}",
+         session.app().phase()
+-    );
++    );    session.app_mut().settle_saves();
+ }
+ 
+ fn played_until_marked(root: &Path) -> Session {

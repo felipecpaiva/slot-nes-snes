@@ -56,6 +56,7 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
 | 2026-10-21 | main 1b20432 | v1.8.0 | one session, device steps pending | bindings.rs, gesture.rs, input/mod.rs, session.rs, quick_menu.rs (slot-ui src and tests), toast.rs, app.rs, frontend.rs, lib.rs (slot-retro, slot-store, slot-ui), device_app.rs, launch_frontend.sh, snes_select.rs, retro_pipeline.rs |
 | 2026-10-25 | v1.8.0 | v1.9.0 (v1.8.1 on the way) | one session, device steps pending (no tag) | app.rs, root.rs, quick_menu.rs (slot-ui src and tests), lib.rs (slot, slot-store), alsa.rs, libretro.rs, repair.sh, console rows in app.rs |
 | 2026-11-06 | v1.9.0 | v1.14.0 (v1.10 to v1.14, one jump) | one long session, device steps pending (no tag yet) | 39 of 156 patches conflict: platform-nes and each platform patch (Platform::Gbav and Core::Gambatte arms), canvas, core-picker-pairs, cart-art, shaders, crop-overscan, lynx-screen, label-top and others; app.rs, video_mode.rs, quick_menu.rs, core.rs, root.rs, cart.rs, lib.rs files |
+| 2026-11-10 | v1.14.0 | v1.15.2 (v1.15.0 to v1.15.2, one jump) | one long session, device steps pending (no tag yet) | cherry-picked 163 of 164 patches (the old rustfmt patch is dropped); conflicts in core.rs, platform.rs, platform_policy.rs, bindings.rs, cart.rs, root.rs, app.rs (62 hunks over the series), emu.rs, frontend.rs, quick_menu.rs, input/device.rs, audio/alsa.rs, server/games.rs |
 
 ## Lessons
 
@@ -109,3 +110,8 @@ One row per rebase. Time taken is wall clock from step 1 to the tag.
   exception in the same pull request. `step_emulator` returned true for a frame in 1.9 and returns
   late in 1.14. Upstream's own timing tests flake on a loaded macOS host: `scripts/run-tests.sh` has the
   both trees, serial and runner sensitive lists for them.
+- v1.15.2 (ADR 0112): a structural merge helper (by item, `fn` level) plus a splice for "upstream only inserted arms" resolved
+  most of 62 `app.rs` hunks, but a function that upstream moved took our edits to its old body with it: diff the lines our series added against the new
+  tree before testing. Upstream's tests changed with the code (`write_selected_core` takes the platform, `foot_y` takes the canvas), and
+  upstream 1.15.2's own `durability.rs` does not compile. After the host cores rebuild, a dylib can fail macOS's signature check (SIGKILL
+  "Code Signature Invalid"): copy it to a new file and `codesign --force -s -` it.

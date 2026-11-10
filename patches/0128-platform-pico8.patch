@@ -49,7 +49,7 @@ lands.
  crates/slot/src/ngp_flash.rs                 |   4 +
  crates/slot/src/platform_video.rs            |  11 +-
  crates/slot/src/retro_quick.rs               |  16 +-
- crates/slot/src/root.rs                      |   6 +-
+ crates/slot/src/root.rs                      |   4 +
  crates/slot/src/shelf_order.rs               |   4 +-
  crates/slot/src/snes_input.rs                |   3 +-
  crates/slot/src/ws_input.rs                  |   3 +-
@@ -64,14 +64,14 @@ lands.
  crates/slot/tests/shelf_order.rs             |  11 +-
  crates/slot/tests/snes_select.rs             |   9 +-
  crates/slot/tests/system_picture.rs          |   3 +-
- 42 files changed, 805 insertions(+), 57 deletions(-)
+ 42 files changed, 804 insertions(+), 56 deletions(-)
  create mode 100644 crates/slot-store/src/pico8.rs
  create mode 100644 crates/slot-store/tests/pico8_platform.rs
  create mode 100644 crates/slot/tests/pico8_screen.rs
  create mode 100644 crates/slot/tests/pico8_seat.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 8c6eb4c..faeb4a1 100644
+index b9a7e63..fcdfd30 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -265,7 +265,8 @@ impl GameButton {
@@ -81,11 +81,11 @@ index 8c6eb4c..faeb4a1 100644
 -            | Platform::A7800 => &GameButton::GAME_BOY,
 +            | Platform::A7800
 +            | Platform::Pico8 => &GameButton::GAME_BOY,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &GameButton::ALL,
          }
-     }
- 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index 55a382e..fbdf684 100644
+index 7386ddb..b387655 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
 @@ -26,6 +26,7 @@ pub enum Core {
@@ -93,34 +93,34 @@ index 55a382e..fbdf684 100644
      MednafenVb,
      Fbneo,
 +    Fake08,
+     #[cfg(feature = "nds")]
+     Dsperate,
  }
- 
- impl Core {
-@@ -50,6 +51,7 @@ impl Core {
+@@ -55,6 +56,7 @@ impl Core {
              Core::Stella2014 => "stella2014",
              Core::Prosystem => "prosystem",
              Core::MednafenVb => "mednafen_vb",
 +            Core::Fake08 => "fake08",
              Core::Fbneo => "fbneo",
-         }
-     }
-@@ -77,6 +79,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "dsperate",
+@@ -84,6 +86,7 @@ impl Core {
              Core::Stella2014 => "Stella 2014",
              Core::Prosystem => "ProSystem",
              Core::MednafenVb => "Beetle VB",
 +            Core::Fake08 => "FAKE-08",
              Core::Fbneo => "FinalBurn Neo",
-         }
-     }
-@@ -100,6 +103,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "DSperate",
+@@ -109,6 +112,7 @@ impl Core {
              "stella2014" => Some(Core::Stella2014),
              "prosystem" => Some(Core::Prosystem),
              "mednafen_vb" => Some(Core::MednafenVb),
 +            "fake08" => Some(Core::Fake08),
              "fbneo" => Some(Core::Fbneo),
-             _ => None,
-         }
-@@ -124,6 +128,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             "dsperate" => Some(Core::Dsperate),
+@@ -137,6 +141,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -128,7 +128,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -147,6 +152,7 @@ impl Core {
+@@ -160,6 +165,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -136,7 +136,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -174,6 +180,7 @@ impl Core {
+@@ -187,6 +193,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -144,7 +144,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -197,6 +204,7 @@ impl Core {
+@@ -210,6 +217,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -152,7 +152,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -218,6 +226,7 @@ impl Core {
+@@ -231,6 +239,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -160,7 +160,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -241,6 +250,7 @@ impl Core {
+@@ -254,6 +263,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -168,7 +168,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -264,6 +274,7 @@ impl Core {
+@@ -277,6 +287,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -176,7 +176,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -287,6 +298,7 @@ impl Core {
+@@ -300,6 +311,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -184,7 +184,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -310,6 +322,7 @@ impl Core {
+@@ -323,6 +335,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -192,7 +192,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -333,6 +346,7 @@ impl Core {
+@@ -346,6 +359,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -200,7 +200,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -356,6 +370,7 @@ impl Core {
+@@ -369,6 +383,7 @@ impl Core {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -208,7 +208,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -379,6 +394,7 @@ impl Core {
+@@ -392,6 +407,7 @@ impl Core {
                  | Platform::S32x
                  | Platform::A7800
                  | Platform::Vb
@@ -216,7 +216,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -402,6 +418,7 @@ impl Core {
+@@ -415,6 +431,7 @@ impl Core {
                  | Platform::S32x
                  | Platform::A2600
                  | Platform::Vb
@@ -224,7 +224,7 @@ index 55a382e..fbdf684 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => false,
-@@ -427,7 +444,8 @@ impl Core {
+@@ -440,7 +457,8 @@ impl Core {
                  | Platform::A7800
                  | Platform::NeoGeo
                  | Platform::Cps1
@@ -234,7 +234,7 @@ index 55a382e..fbdf684 100644
              },
              Core::Fbneo => match platform {
                  Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => true,
-@@ -448,7 +466,32 @@ impl Core {
+@@ -461,7 +479,32 @@ impl Core {
                  | Platform::S32x
                  | Platform::A2600
                  | Platform::A7800
@@ -266,16 +266,16 @@ index 55a382e..fbdf684 100644
 +                | Platform::Vb
 +                | Platform::Fds => false,
              },
-         }
-     }
-@@ -469,6 +512,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
+@@ -484,6 +527,7 @@ impl Core {
              Platform::A2600 => Core::Stella2014,
              Platform::A7800 => Core::Prosystem,
              Platform::Vb => Core::MednafenVb,
 +            Platform::Pico8 => Core::Fake08,
              Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => Core::Fbneo,
-         }
-     }
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
 diff --git a/crates/slot-store/src/core_policy.rs b/crates/slot-store/src/core_policy.rs
 index bce686e..082b899 100644
 --- a/crates/slot-store/src/core_policy.rs
@@ -356,18 +356,18 @@ index bce686e..082b899 100644
          }
      }
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 233c1b5..4b50abf 100644
+index 0273eeb..1b0b2e1 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -23,6 +23,7 @@ pub mod ini;
+@@ -24,6 +24,7 @@ pub mod ini;
  pub mod lynx;
  pub mod nes;
  pub mod ngp;
 +pub mod pico8;
- mod platform;
- mod platform_policy;
- pub mod ps1;
-@@ -64,8 +65,8 @@ pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart,
+ pub mod overlay;
+ #[cfg(feature = "nds")]
+ mod nds_header;
+@@ -74,8 +75,8 @@ pub use scan::{initial, is_hidden, listing, scan, scan_platform, sort_key, Cart,
  pub use sega_shader::{
      read_sega_shaders, write_sega_shaders, SegaShaders, A2600_SHADER_FILE, A7800_SHADER_FILE,
      CPS1_SHADER_FILE, CPS2_SHADER_FILE, FDS_SHADER_FILE, LYNX_SHADER_FILE, NEOGEO_SHADER_FILE,
@@ -496,7 +496,7 @@ index 0000000..4152781
 +            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit() || c == '.'))
 +}
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index 831cfce..b476cbb 100644
+index d377276..38fdc0b 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -25,6 +25,7 @@ pub enum Platform {
@@ -504,10 +504,10 @@ index 831cfce..b476cbb 100644
      Cps2,
      Fds,
 +    Pico8,
+     #[cfg(feature = "nds")]
+     Nds,
  }
- 
- impl Platform {
-@@ -50,6 +51,7 @@ impl Platform {
+@@ -61,6 +62,7 @@ impl Platform {
              Platform::A2600 => "Atari 2600",
              Platform::A7800 => "Atari 7800",
              Platform::Vb => "Nintendo Virtual Boy",
@@ -515,7 +515,7 @@ index 831cfce..b476cbb 100644
              Platform::NeoGeo => "SNK Neo Geo",
              Platform::Cps1 => "Capcom CPS-1",
              Platform::Cps2 => "Capcom CPS-2",
-@@ -77,6 +79,7 @@ impl Platform {
+@@ -90,6 +92,7 @@ impl Platform {
              Platform::A2600 => "A2600",
              Platform::A7800 => "A7800",
              Platform::Vb => "VB",
@@ -523,22 +523,22 @@ index 831cfce..b476cbb 100644
              Platform::NeoGeo => "NEOGEO",
              Platform::Cps1 => "CPS1",
              Platform::Cps2 => "CPS2",
-@@ -109,6 +112,7 @@ impl Platform {
+@@ -124,6 +127,7 @@ impl Platform {
              Platform::A2600 => &["a26", "bin"],
              Platform::A7800 => &["a78"],
              Platform::Vb => &["vb", "vboy"],
 +            Platform::Pico8 => &["p8", "png"],
              Platform::NeoGeo | Platform::Cps1 | Platform::Cps2 => &["zip"],
              Platform::Fds => &["fds"],
-         }
-@@ -132,6 +136,7 @@ impl Platform {
+             #[cfg(feature = "nds")]
+@@ -149,6 +153,7 @@ impl Platform {
              Platform::A2600 => (160, 210),
              Platform::A7800 => (320, 223),
              Platform::Vb => (384, 224),
 +            Platform::Pico8 => (128, 128),
              Platform::NeoGeo => (320, 224),
              Platform::Cps1 | Platform::Cps2 => (384, 224),
-         }
+             #[cfg(feature = "nds")]
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 index 02737af..f30f56c 100644
 --- a/crates/slot-store/src/platform_policy.rs
@@ -985,10 +985,10 @@ index 86aeed2..d1a7382 100644
      write_sega_shaders(d.path(), &s).expect("write");
      assert_eq!(
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index f7eaa89..37b51f1 100644
+index 208c067..4802b5c 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -132,6 +132,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -149,6 +149,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          | Platform::A2600
          | Platform::A7800
          | Platform::Vb
@@ -996,7 +996,7 @@ index f7eaa89..37b51f1 100644
          | Platform::NeoGeo
          | Platform::Cps1
          | Platform::Cps2
-@@ -228,7 +229,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
+@@ -260,7 +261,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
          Platform::Md => (SEATED_W, MD_SEATED_H),
          Platform::S32x => (SEATED_W, S32X_SEATED_H),
          Platform::A2600 | Platform::A7800 => (SEATED_W, ATARI_SEATED_H),
@@ -1005,7 +1005,7 @@ index f7eaa89..37b51f1 100644
          Platform::NeoGeo => (SEATED_W, NEOGEO_SEATED_H),
          Platform::Cps1 => (SEATED_W, CPS1_SEATED_H),
          Platform::Cps2 => CPS2_SEATED,
-@@ -253,7 +254,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
+@@ -287,7 +288,7 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
          Platform::S32x => return retro_box(RetroShell::S32x),
          Platform::A2600 => return retro_box(RetroShell::A2600),
          Platform::A7800 => return retro_box(RetroShell::A7800),
@@ -1015,35 +1015,39 @@ index f7eaa89..37b51f1 100644
          Platform::Cps1 => return retro_box(RetroShell::Cps1),
          Platform::Cps2 => return retro_box(RetroShell::Cps2),
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index cb1cea9..dc1e03a 100644
+index 2e1e8c7..8429356 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -213,10 +213,13 @@ pub enum QuickRow {
+@@ -221,6 +221,9 @@ pub enum QuickRow {
      FdsShader,
      ScreenFds,
      FdsPicture,
 +    Pico8Shader,
 +    ScreenPico8,
 +    Pico8Picture,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -228,7 +231,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 200] = [
-+    pub const ALL: [QuickRow; 203] = [
+-    pub const ALL: [QuickRow; 210 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 213 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -421,6 +424,9 @@ impl QuickRow {
+@@ -441,6 +444,9 @@ impl QuickRow {
          QuickRow::FdsShader,
          QuickRow::ScreenFds,
          QuickRow::FdsPicture,
 +        QuickRow::Pico8Shader,
 +        QuickRow::ScreenPico8,
 +        QuickRow::Pico8Picture,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -530,7 +536,7 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -565,7 +571,7 @@ impl QuickRow {
          QuickRow::ScPictureNext,
      ];
  
@@ -1052,7 +1056,7 @@ index cb1cea9..dc1e03a 100644
          QuickRow::ScreenGeneral,
          QuickRow::ScreenGba,
          QuickRow::ScreenGbc,
-@@ -553,6 +559,7 @@ impl QuickRow {
+@@ -588,6 +594,7 @@ impl QuickRow {
          QuickRow::ScreenCps1,
          QuickRow::ScreenCps2,
          QuickRow::ScreenFds,
@@ -1060,7 +1064,7 @@ index cb1cea9..dc1e03a 100644
      ];
  
      pub const SCREEN_GENERAL: [QuickRow; 4] = [
-@@ -659,7 +666,8 @@ impl QuickRow {
+@@ -698,7 +705,8 @@ impl QuickRow {
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
              | QuickRow::ScreenCps1
@@ -1070,7 +1074,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::Brightness
              | QuickRow::BlueLight
              | QuickRow::Saturation
-@@ -788,6 +796,7 @@ impl QuickRow {
+@@ -839,6 +847,7 @@ impl QuickRow {
              | QuickRow::VbRightPad => &QuickRow::SCREEN_VB,
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => &QuickRow::SCREEN_NEOGEO,
              QuickRow::FdsShader | QuickRow::FdsPicture => &QuickRow::SCREEN_FDS,
@@ -1078,7 +1082,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
                  &QuickRow::SCREEN_CPS1
              }
-@@ -866,6 +875,7 @@ impl QuickRow {
+@@ -917,6 +926,7 @@ impl QuickRow {
              | QuickRow::VbRightPad => Some(QuickRow::ScreenVb),
              QuickRow::NeoGeoShader | QuickRow::NeoGeoPicture => Some(QuickRow::ScreenNeoGeo),
              QuickRow::FdsShader | QuickRow::FdsPicture => Some(QuickRow::ScreenFds),
@@ -1086,7 +1090,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::Cps1Shader | QuickRow::Cps1Picture | QuickRow::Cps1Rotation => {
                  Some(QuickRow::ScreenCps1)
              }
-@@ -934,6 +944,7 @@ impl QuickRow {
+@@ -988,6 +998,7 @@ impl QuickRow {
              QuickRow::ScreenFds => Some(QuickRow::SCREEN_FDS[0]),
              QuickRow::ScreenCps1 => Some(QuickRow::SCREEN_CPS1[0]),
              QuickRow::ScreenCps2 => Some(QuickRow::SCREEN_CPS2[0]),
@@ -1094,7 +1098,7 @@ index cb1cea9..dc1e03a 100644
              _ => None,
          }
      }
-@@ -1088,6 +1099,7 @@ impl QuickRow {
+@@ -1150,6 +1161,7 @@ impl QuickRow {
              | QuickRow::FdsShader
              | QuickRow::Cps1Shader
              | QuickRow::Cps2Shader => "Shader",
@@ -1102,7 +1106,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::ScreenGg => "Game Gear",
              QuickRow::ScreenSms => "Master System",
              QuickRow::ScreenMd => "Mega Drive",
-@@ -1104,6 +1116,7 @@ impl QuickRow {
+@@ -1166,6 +1178,7 @@ impl QuickRow {
              QuickRow::ScreenFds => "FDS",
              QuickRow::ScreenCps1 => "CPS1",
              QuickRow::ScreenCps2 => "CPS2",
@@ -1110,7 +1114,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::NesPicture
              | QuickRow::SnesPicture
              | QuickRow::GgPicture
-@@ -1121,7 +1134,8 @@ impl QuickRow {
+@@ -1183,7 +1196,8 @@ impl QuickRow {
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
              | QuickRow::Cps1Picture
@@ -1120,7 +1124,7 @@ index cb1cea9..dc1e03a 100644
              QuickRow::NesPalSpeed
              | QuickRow::SnesPalSpeed
              | QuickRow::SmsPalSpeed
-@@ -1206,6 +1220,7 @@ impl QuickRow {
+@@ -1277,6 +1291,7 @@ impl QuickRow {
                  | QuickRow::ScreenNeoGeo
                  | QuickRow::ScreenCps1
                  | QuickRow::ScreenCps2
@@ -1164,10 +1168,10 @@ index ba1db9d..ac27d80 100644
          }
          Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Lynx => sh,
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index ccab578..abf0d35 100644
+index 13bd94c..0993057 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -97,6 +97,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+@@ -99,6 +99,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
          | Platform::A2600
          | Platform::A7800
          | Platform::Vb
@@ -1176,7 +1180,7 @@ index ccab578..abf0d35 100644
          | Platform::Cps1
          | Platform::Cps2
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index 7654574..a518dc3 100644
+index aaccf6f..bf0dad2 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -1189,10 +1193,10 @@ index 7654574..a518dc3 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index a659440..24bc101 100644
+index e47a968..4a8769b 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -113,7 +113,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -116,7 +116,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
      );
      assert_eq!(
          QuickRow::SCREEN.map(QuickRow::label),
@@ -1201,7 +1205,7 @@ index a659440..24bc101 100644
      );
      assert_eq!(
          QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-@@ -206,7 +206,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+@@ -215,7 +215,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
              QuickRow::RommPair,
              QuickRow::RommDisconnect,
              QuickRow::ScreenNes,
@@ -1211,10 +1215,10 @@ index a659440..24bc101 100644
      );
      for page in [
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 8b7ace0..9e1889a 100644
+index 0c50d0d..d291a8f 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1719,6 +1719,7 @@ impl App {
+@@ -2839,6 +2839,7 @@ impl App {
              (QuickRow::Shader, Platform::Vb) => QuickRow::VbShader,
              (QuickRow::Shader, Platform::NeoGeo) => QuickRow::NeoGeoShader,
              (QuickRow::Shader, Platform::Fds) => QuickRow::FdsShader,
@@ -1222,7 +1226,7 @@ index 8b7ace0..9e1889a 100644
              (QuickRow::Shader, Platform::Cps1) => QuickRow::Cps1Shader,
              (QuickRow::Shader, Platform::Cps2) => QuickRow::Cps2Shader,
              (QuickRow::ColourCorrection, Platform::Gba) => QuickRow::GbaColourCorrection,
-@@ -1826,6 +1827,7 @@ impl App {
+@@ -2946,6 +2947,7 @@ impl App {
              QuickRow::VbShader => Some(shader_value(self.sega_shaders.vb)),
              QuickRow::NeoGeoShader => Some(shader_value(self.sega_shaders.neogeo)),
              QuickRow::FdsShader => Some(shader_value(self.sega_shaders.fds)),
@@ -1230,7 +1234,7 @@ index 8b7ace0..9e1889a 100644
              QuickRow::Cps1Shader => Some(shader_value(self.sega_shaders.cps1)),
              QuickRow::Cps2Shader => Some(shader_value(self.sega_shaders.cps2)),
              QuickRow::NesPicture
-@@ -1844,6 +1846,7 @@ impl App {
+@@ -2964,6 +2966,7 @@ impl App {
              | QuickRow::VbPicture
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
@@ -1238,7 +1242,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::Cps1Picture
              | QuickRow::Cps2Picture => self.pictures.get(row).map(VideoMode::quick_value),
              QuickRow::NesPalSpeed
-@@ -1956,6 +1959,7 @@ impl App {
+@@ -3090,6 +3093,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1246,7 +1250,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2
              | QuickRow::GbBezel
-@@ -2075,6 +2079,7 @@ impl App {
+@@ -3374,6 +3378,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1254,7 +1258,7 @@ index 8b7ace0..9e1889a 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => {
-@@ -2124,6 +2129,7 @@ impl App {
+@@ -3423,6 +3428,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1262,7 +1266,7 @@ index 8b7ace0..9e1889a 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => &mut self.state.bezel_gba,
-@@ -2150,6 +2156,7 @@ impl App {
+@@ -3451,6 +3457,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1270,7 +1274,7 @@ index 8b7ace0..9e1889a 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => &self.state.bezel_gba,
-@@ -3495,6 +3502,7 @@ impl App {
+@@ -5045,6 +5052,7 @@ impl App {
              Platform::A2600 => self.sega_shaders.a2600,
              Platform::A7800 => self.sega_shaders.a7800,
              Platform::Vb => self.sega_shaders.vb,
@@ -1278,7 +1282,7 @@ index 8b7ace0..9e1889a 100644
              Platform::NeoGeo => self.sega_shaders.neogeo,
              Platform::Cps1 => self.sega_shaders.cps1,
              Platform::Cps2 => self.sega_shaders.cps2,
-@@ -3553,6 +3561,7 @@ impl App {
+@@ -5118,6 +5126,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1286,7 +1290,7 @@ index 8b7ace0..9e1889a 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => false,
-@@ -4204,6 +4213,7 @@ impl App {
+@@ -5860,6 +5869,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1294,7 +1298,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2 => {
                  if let Some(row) = row.child() {
-@@ -4361,7 +4371,9 @@ impl App {
+@@ -6026,7 +6036,9 @@ impl App {
              | QuickRow::FdsShader
              | QuickRow::NeoGeoShader
              | QuickRow::FdsPicture
@@ -1304,7 +1308,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::Cps1Shader
              | QuickRow::Cps1Picture
              | QuickRow::Cps1Rotation
-@@ -4645,6 +4657,7 @@ impl App {
+@@ -6338,6 +6350,7 @@ impl App {
              | QuickRow::VbShader
              | QuickRow::FdsShader
              | QuickRow::NeoGeoShader
@@ -1312,7 +1316,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::Cps1Shader
              | QuickRow::Cps2Shader => return,
              QuickRow::NesPicture
-@@ -4686,6 +4699,7 @@ impl App {
+@@ -6379,6 +6392,7 @@ impl App {
              | QuickRow::A7800Bios
              | QuickRow::FdsPicture
              | QuickRow::NeoGeoPicture
@@ -1320,7 +1324,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::Cps1Picture
              | QuickRow::Cps1Rotation
              | QuickRow::Cps2Picture
-@@ -4745,6 +4759,7 @@ impl App {
+@@ -6441,6 +6455,7 @@ impl App {
              | QuickRow::ScreenVb
              | QuickRow::ScreenFds
              | QuickRow::ScreenNeoGeo
@@ -1328,7 +1332,7 @@ index 8b7ace0..9e1889a 100644
              | QuickRow::ScreenCps1
              | QuickRow::ScreenCps2
              | QuickRow::GbBezel
-@@ -4849,6 +4864,7 @@ impl App {
+@@ -6556,6 +6571,7 @@ impl App {
              Platform::A2600 => (&mut self.sega_shaders.a2600, &Shader::RETRO[..]),
              Platform::A7800 => (&mut self.sega_shaders.a7800, &Shader::RETRO[..]),
              Platform::Vb => (&mut self.sega_shaders.vb, &Shader::RETRO[..]),
@@ -1336,7 +1340,7 @@ index 8b7ace0..9e1889a 100644
              Platform::NeoGeo => (&mut self.sega_shaders.neogeo, &Shader::RETRO[..]),
              Platform::Cps1 => (&mut self.sega_shaders.cps1, &Shader::RETRO[..]),
              Platform::Cps2 => (&mut self.sega_shaders.cps2, &Shader::RETRO[..]),
-@@ -4923,6 +4939,7 @@ impl App {
+@@ -6632,6 +6648,7 @@ impl App {
                  | Platform::A2600
                  | Platform::A7800
                  | Platform::Vb
@@ -1344,7 +1348,7 @@ index 8b7ace0..9e1889a 100644
                  | Platform::NeoGeo
                  | Platform::Cps1
                  | Platform::Cps2 => return false,
-@@ -5437,6 +5454,7 @@ impl App {
+@@ -7176,6 +7193,7 @@ impl App {
              | Platform::A2600
              | Platform::A7800
              | Platform::Vb
@@ -1352,7 +1356,7 @@ index 8b7ace0..9e1889a 100644
              | Platform::NeoGeo
              | Platform::Cps1
              | Platform::Cps2 => [0xe6, 0xe4, 0xda],
-@@ -11696,6 +11714,7 @@ fn bezel_slot(platform: Platform) -> usize {
+@@ -14912,6 +14930,7 @@ fn bezel_slot(platform: Platform) -> usize {
          | Platform::A2600
          | Platform::A7800
          | Platform::Vb
@@ -1387,10 +1391,10 @@ index 675d521..67b9cfd 100644
              | Platform::Cps1
              | Platform::Cps2 => None,
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 404e30a..9829ad7 100644
+index 97a3c9d..b6f9624 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -240,6 +240,7 @@ pub fn colour_option(
+@@ -272,6 +272,7 @@ pub fn colour_option(
          | Core::Stella2014
          | Core::Prosystem
          | Core::MednafenVb
@@ -1585,18 +1589,10 @@ index af67546..c466b3f 100644
          .iter()
          .zip(systems)
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index 0849507..0dc0279 100644
+index af0a4ca..6da678e 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
-@@ -1,6 +1,6 @@
- use std::path::{Path, PathBuf};
- 
--pub const DIRS: [&str; 108] = [
-+pub const DIRS: [&str; 112] = [
-     "BIOS",
-     "Bezels",
-     "Bezels/GBA",
-@@ -37,6 +37,7 @@ pub const DIRS: [&str; 108] = [
+@@ -39,6 +39,7 @@ pub const DIRS: &[&str] = &[
      "Games/CPS1",
      "Games/CPS2",
      "Games/FDS",
@@ -1604,30 +1600,30 @@ index 0849507..0dc0279 100644
      "Labels",
      "Labels/GBA",
      "Labels/GBAV",
-@@ -61,6 +62,7 @@ pub const DIRS: [&str; 108] = [
+@@ -65,6 +66,7 @@ pub const DIRS: &[&str] = &[
      "Labels/CPS1",
      "Labels/CPS2",
      "Labels/FDS",
 +    "Labels/PICO8",
-     "Saves",
-     "Saves/GBA",
-     "Saves/GBAV",
-@@ -84,6 +86,7 @@ pub const DIRS: [&str; 108] = [
+     "Overlays",
+     "Overlays/GBA",
+     "Overlays/GB",
+@@ -94,6 +96,7 @@ pub const DIRS: &[&str] = &[
      "Saves/CPS1",
      "Saves/CPS2",
      "Saves/FDS",
 +    "Saves/PICO8",
+     #[cfg(feature = "nds")]
+     "Saves/NDS",
      "States",
-     "States/GBA",
-     "States/GBAV",
-@@ -107,6 +110,7 @@ pub const DIRS: [&str; 108] = [
+@@ -119,6 +122,7 @@ pub const DIRS: &[&str] = &[
      "States/CPS1",
      "States/CPS2",
      "States/FDS",
 +    "States/PICO8",
+     #[cfg(feature = "nds")]
+     "States/NDS",
      "System",
-     "Wallpapers",
- ];
 diff --git a/crates/slot/src/shelf_order.rs b/crates/slot/src/shelf_order.rs
 index b66a214..c80343f 100644
 --- a/crates/slot/src/shelf_order.rs
@@ -1700,7 +1696,7 @@ index f9f96b4..02840c9 100644
          assert_eq!(picture_choices(platform), want, "{platform:?}");
      }
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index 9f451df..db04a88 100644
+index 3e695f8..0804813 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

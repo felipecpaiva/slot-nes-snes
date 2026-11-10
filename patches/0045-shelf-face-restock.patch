@@ -15,20 +15,20 @@ https://github.com/marghost/slot_modded/commit/88af60a
 (cherry picked from commit fb37347422f0a3218c571fa3b6f25dec1fbd3a65)
 ---
  crates/slot-ui/src/shelf.rs        |  11 ++-
- crates/slot/src/app.rs             |  15 ++--
+ crates/slot/src/app.rs             |  11 ++-
  crates/slot/src/cart_faces.rs      |  16 ++--
  crates/slot/src/lib.rs             |   1 +
  crates/slot/src/shelf_restock.rs   |  44 +++++++++++
  crates/slot/tests/shelf_restock.rs | 113 +++++++++++++++++++++++++++++
- 6 files changed, 186 insertions(+), 14 deletions(-)
+ 6 files changed, 184 insertions(+), 12 deletions(-)
  create mode 100644 crates/slot/src/shelf_restock.rs
  create mode 100644 crates/slot/tests/shelf_restock.rs
 
 diff --git a/crates/slot-ui/src/shelf.rs b/crates/slot-ui/src/shelf.rs
-index 2a2b4f1..f9e9cdc 100644
+index 44df70d..55873bd 100644
 --- a/crates/slot-ui/src/shelf.rs
 +++ b/crates/slot-ui/src/shelf.rs
-@@ -215,7 +215,11 @@ impl Shelf {
+@@ -290,7 +290,11 @@ impl Shelf {
      /// The shelf draws these under the face. The slot has to as well, or the board vanishes
      /// as the cart goes in or comes out.
      pub fn behind(&self, stem: &str) -> [Option<TexId>; 2] {
@@ -41,7 +41,7 @@ index 2a2b4f1..f9e9cdc 100644
              return [None, None];
          };
          if self.carts.get(i).is_some_and(crate::ps1_case::has_disc) {
-@@ -233,7 +237,10 @@ impl Shelf {
+@@ -308,7 +312,10 @@ impl Shelf {
      }
  
      pub fn find(&self, stem: &str) -> Option<(&Cart, Option<TexId>)> {
@@ -54,19 +54,10 @@ index 2a2b4f1..f9e9cdc 100644
      }
  
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 995c662..55d32c1 100644
+index d4083ae..5d52cc8 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -2450,7 +2450,7 @@ impl App {
-             Phase::Doze { cart: Some(cart) } => cart,
-             _ => return None,
-         };
--        self.shelf().carts.iter().find(|c| c.stem == *stem)
-+        self.shelf().find(stem).map(|(c, _)| c)
-     }
- 
-     pub fn single_cart(&self) -> bool {
-@@ -5189,7 +5189,9 @@ impl App {
+@@ -6916,7 +6916,9 @@ impl App {
                  .collect(),
              false => Vec::new(),
          };
@@ -77,7 +68,7 @@ index 995c662..55d32c1 100644
          self.mark_hearts();
      }
  
-@@ -5212,7 +5214,7 @@ impl App {
+@@ -6939,7 +6941,7 @@ impl App {
          self.mark_hearts();
      }
  
@@ -86,7 +77,7 @@ index 995c662..55d32c1 100644
          let stocked = &self.shelves[at].1.carts;
          if stocked.len() == carts.len()
              && stocked
-@@ -5220,15 +5222,16 @@ impl App {
+@@ -6947,15 +6949,16 @@ impl App {
                  .zip(&carts)
                  .all(|(a, b)| a.platform == b.platform && a.stem == b.stem)
          {
@@ -99,23 +90,14 @@ index 995c662..55d32c1 100644
          self.orphaned.extend(old);
          let empty = self.shelves[at].1.carts.is_empty();
          if self.shelf_at == at && empty {
-             self.shelf_at = self.next_shelf(1).unwrap_or(0);
+             self.shelf_at = self.fallback_shelf();
          }
 +        true
      }
  
      fn toggle_favorite(&mut self) {
-@@ -6414,7 +6417,7 @@ impl App {
-     }
- 
-     fn auto_link(&self, stem: &str) -> Option<(&Cart, LinkKind)> {
--        let cart = self.shelf().carts.iter().find(|c| c.stem == stem)?;
-+        let (cart, _) = self.shelf().find(stem)?;
-         let auto = link_kind(&cart.code, &cart.title, slot_store::header_clean(&cart.rom));
-         Some((cart, auto))
-     }
 diff --git a/crates/slot/src/cart_faces.rs b/crates/slot/src/cart_faces.rs
-index 3a3bcd6..1e32462 100644
+index 70bc931..4631acf 100644
 --- a/crates/slot/src/cart_faces.rs
 +++ b/crates/slot/src/cart_faces.rs
 @@ -16,7 +16,7 @@ const WORKERS: usize = 2;
@@ -161,7 +143,7 @@ index 3a3bcd6..1e32462 100644
          interior: Option<CartFace>,
      ) {
 @@ -153,6 +154,9 @@ impl CartFaces {
-         if !self.building.finish(key) {
+         if !self.building.finish(key, app.face_cart(key.0, key.1)) {
              return;
          }
 +        if !crate::shelf_restock::face_fits(app, key, cart) {
@@ -180,12 +162,12 @@ index 3a3bcd6..1e32462 100644
          }
      }
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 0c7fd7f..9fe44e3 100644
+index af006e0..7280fad 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -64,6 +64,7 @@ pub mod romm;
- pub mod root;
+@@ -70,6 +70,7 @@ pub mod root;
  pub mod server;
+ pub mod screen;
  pub mod session;
 +pub mod shelf_restock;
  pub mod shot_loader;
