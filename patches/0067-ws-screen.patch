@@ -41,31 +41,35 @@ row its eabb24e (both GPL-3.0).
  create mode 100644 crates/slot/tests/wswan_screen.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index b1feea7..a6c8919 100644
+index e885867..04dde1e 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -163,10 +163,11 @@ pub enum QuickRow {
+@@ -171,6 +171,7 @@ pub enum QuickRow {
      WsShader,
      ScreenWs,
      WsPicture,
 +    WsRefresh,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -178,7 +179,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 150] = [
-+    pub const ALL: [QuickRow; 151] = [
+-    pub const ALL: [QuickRow; 160 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 161 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -321,6 +322,7 @@ impl QuickRow {
+@@ -341,6 +342,7 @@ impl QuickRow {
          QuickRow::WsShader,
          QuickRow::ScreenWs,
          QuickRow::WsPicture,
 +        QuickRow::WsRefresh,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -636,7 +638,7 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -687,7 +689,7 @@ impl QuickRow {
                  &QuickRow::SCREEN_PS1
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => &QuickRow::SCREEN_TG16,
@@ -74,7 +78,7 @@ index b1feea7..a6c8919 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -677,7 +679,9 @@ impl QuickRow {
+@@ -728,7 +730,9 @@ impl QuickRow {
                  Some(QuickRow::ScreenPs1)
              }
              QuickRow::Tg16Shader | QuickRow::Tg16Picture => Some(QuickRow::ScreenTg16),
@@ -82,26 +86,26 @@ index b1feea7..a6c8919 100644
 +            QuickRow::WsShader | QuickRow::WsPicture | QuickRow::WsRefresh => {
 +                Some(QuickRow::ScreenWs)
 +            }
+             QuickRow::CollPrev => Some(QuickRow::ControlsCollections),
+             QuickRow::ControlsCollections => Some(QuickRow::Controls),
              _ => None,
-         }
-     }
-@@ -896,6 +900,7 @@ impl QuickRow {
+@@ -958,6 +962,7 @@ impl QuickRow {
              | QuickRow::Ps1PalSpeed => "PAL Speed",
              QuickRow::SmsRegion => "Region",
              QuickRow::Cpu => "CPU",
 +            QuickRow::WsRefresh => "Refresh",
-         }
-     }
- 
-@@ -1084,6 +1089,7 @@ pub enum QuickValue {
+             QuickRow::GbaOverlay
+             | QuickRow::GbOverlay
+             | QuickRow::GbcOverlay
+@@ -1157,6 +1162,7 @@ pub enum QuickValue {
      Performance,
      Balanced,
      FourThree,
 +    Hz60,
- }
- 
- impl QuickValue {
-@@ -1183,6 +1189,7 @@ impl QuickValue {
+     All,
+     Collections,
+     OneShelf,
+@@ -1270,6 +1276,7 @@ impl QuickValue {
              QuickValue::Performance => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 9,
              QuickValue::Balanced => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 10,
              QuickValue::FourThree => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 11,
@@ -109,7 +113,7 @@ index b1feea7..a6c8919 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1252,6 +1259,7 @@ impl QuickValue {
+@@ -1346,6 +1353,7 @@ impl QuickValue {
              QuickValue::Performance => "Performance",
              QuickValue::Balanced => "Balanced",
              QuickValue::FourThree => "4:3",
@@ -174,10 +178,10 @@ index c417fbf..44f8a1b 100644
      );
      for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index c5fdc63..1c3f5a5 100644
+index 227d58f..44da30c 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -761,6 +761,7 @@ pub struct App {
+@@ -852,6 +852,7 @@ pub struct App {
      pictures: crate::platform_video::SystemPictures,
      pal_speeds: crate::pal_speed::PalSpeeds,
      vertical: bool,
@@ -185,7 +189,7 @@ index c5fdc63..1c3f5a5 100644
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
      rested: Option<(usize, usize)>,
-@@ -1098,6 +1099,7 @@ impl App {
+@@ -1252,6 +1253,7 @@ impl App {
              pictures: crate::platform_video::SystemPictures::default(),
              pal_speeds: crate::pal_speed::PalSpeeds::default(),
              vertical: false,
@@ -193,15 +197,15 @@ index c5fdc63..1c3f5a5 100644
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
              rested: None,
-@@ -1129,6 +1131,7 @@ impl App {
+@@ -1285,6 +1287,7 @@ impl App {
          app.sega_shaders = slot_store::read_sega_shaders(root);
          app.pictures = crate::platform_video::SystemPictures::read(root);
          app.pal_speeds = crate::pal_speed::PalSpeeds::read(root);
 +        app.ws_native = crate::ws_refresh::native(root);
          app.sms_region = crate::sms_region::Region::read(root);
          app.cpu_mode = crate::cpu_governor::CpuMode::read(root);
-         app.restock_recents();
-@@ -1780,6 +1783,7 @@ impl App {
+         app.install_collections(slot_store::read_collections(root));
+@@ -2902,6 +2905,7 @@ impl App {
              | QuickRow::SmsPalSpeed
              | QuickRow::MdPalSpeed
              | QuickRow::Ps1PalSpeed => self.pal_speeds.get(row).map(crate::pal_speed::quick_value),
@@ -209,7 +213,7 @@ index c5fdc63..1c3f5a5 100644
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
              QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
-@@ -2588,6 +2592,9 @@ impl App {
+@@ -4097,6 +4101,9 @@ impl App {
  
      pub fn set_vertical(&mut self, vertical: bool) {
          self.vertical = vertical;
@@ -219,7 +223,7 @@ index c5fdc63..1c3f5a5 100644
      }
  
      pub fn vertical(&self) -> bool {
-@@ -3350,7 +3357,7 @@ impl App {
+@@ -4902,7 +4909,7 @@ impl App {
              Platform::Md => self.sega_shaders.md,
              Platform::Ps1 => self.sega_shaders.ps1,
              Platform::Tg16 => self.sega_shaders.tg16,
@@ -228,7 +232,7 @@ index c5fdc63..1c3f5a5 100644
          }
      }
  
-@@ -3363,7 +3370,11 @@ impl App {
+@@ -4928,7 +4935,11 @@ impl App {
      }
  
      pub fn native_pal(&self, platform: Platform) -> bool {
@@ -241,7 +245,7 @@ index c5fdc63..1c3f5a5 100644
      }
  
      pub fn colour_correction_for(&self, platform: Platform) -> bool {
-@@ -4140,7 +4151,8 @@ impl App {
+@@ -5807,7 +5818,8 @@ impl App {
              | QuickRow::SmsRegion
              | QuickRow::Cpu
              | QuickRow::Tg16Shader
@@ -251,7 +255,7 @@ index c5fdc63..1c3f5a5 100644
          }
      }
  
-@@ -4192,6 +4204,13 @@ impl App {
+@@ -5864,6 +5876,13 @@ impl App {
              }
              return;
          }
@@ -265,7 +269,7 @@ index c5fdc63..1c3f5a5 100644
          if row == QuickRow::SmsRegion {
              self.sms_region = self.sms_region.stepped(right);
              if let Some(root) = &self.root {
-@@ -4387,6 +4406,7 @@ impl App {
+@@ -6082,6 +6101,7 @@ impl App {
              | QuickRow::Ps1PalSpeed
              | QuickRow::SmsRegion
              | QuickRow::Cpu
@@ -274,19 +278,19 @@ index c5fdc63..1c3f5a5 100644
              QuickRow::WallpaperTint => s.wallpaper_tint = s.wallpaper_tint.step(right),
              QuickRow::ScreenGeneral
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index f6ab32d..3a973af 100644
+index f0bba64..14c3d64 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -85,3 +85,4 @@ pub mod video_mode;
+@@ -91,3 +91,4 @@ pub mod video_mode;
  pub mod wallpaper;
  pub mod wifi;
  pub mod ws_load;
 +pub mod ws_refresh;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 92e2216..584dfd5 100644
+index ca378ee..a750c42 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -595,6 +595,7 @@ impl Session {
+@@ -604,6 +604,7 @@ impl Session {
          self.app.set_platform(platform);
          let vertical = crate::ws_load::vertical(platform, &rom);
          self.app.set_vertical(vertical);
@@ -294,7 +298,7 @@ index 92e2216..584dfd5 100644
          self.app
              .set_video_mode(crate::platform_video::video_mode_for(
                  &self.root, stem, platform,
-@@ -620,7 +621,7 @@ impl Session {
+@@ -629,7 +630,7 @@ impl Session {
                      &root, core, platform, serial, colour, blending, palette, player,
                  );
                  crate::core::apply_game_boy_player(&mut *opened.core, core, platform, &rom);

@@ -32,10 +32,10 @@ in the General labels, named site (k), approved by the maintainer on
  create mode 100644 crates/slot/tests/shelf_order_row.rs
 
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 3accc62..d1e1f48 100644
+index 500092e..150fd6e 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -40,6 +40,7 @@ mod retro_face;
+@@ -42,6 +42,7 @@ mod retro_face;
  mod retro_mould;
  mod retro_shadows;
  mod retro_shell;
@@ -43,55 +43,60 @@ index 3accc62..d1e1f48 100644
  mod shelf;
  mod shell;
  mod shot_viewer;
-@@ -155,6 +156,7 @@ pub use retro_shell::{
+@@ -170,6 +171,7 @@ pub use retro_shell::{
      NES_GREY, NES_TITLES, NGP_GREY, RETRO_BLACK, S32X_BLACK, SEGA_CARD_BLACK, SFC_GREY, SMS_BLACK,
      SNES_GREY, SNES_TITLES, VB_GREY, WSC_CLEAR, WS_BLACK,
  };
 +pub use screen_order::{screen_page, set_screen_page};
- pub use shelf::{box_size, foot_y, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
+ pub use shelf::{box_size, foot_y, turn_about, repeat_gap, rest_y, Shelf, HEART_INK, HEART_SCALE, REPEAT_DELAY_MS};
  pub use shell::{
      gb_plastics, gb_table_shells, gba_plastics, gba_shell_for,
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 81f7ab2..dbf96f8 100644
+index 54c04b5..665bf89 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -209,10 +209,11 @@ pub enum QuickRow {
+@@ -217,6 +217,7 @@ pub enum QuickRow {
      ScreenCps2,
      Cps2Picture,
      Cps2Rotation,
 +    ShelfOrder,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -224,7 +225,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 196] = [
-+    pub const ALL: [QuickRow; 197] = [
+-    pub const ALL: [QuickRow; 206 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 207 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -413,6 +414,7 @@ impl QuickRow {
+@@ -433,6 +434,7 @@ impl QuickRow {
          QuickRow::ScreenCps2,
          QuickRow::Cps2Picture,
          QuickRow::Cps2Rotation,
 +        QuickRow::ShelfOrder,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -424,12 +426,13 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -448,13 +450,14 @@ impl QuickRow {
          QuickRow::About,
      ];
  
--    pub const GENERAL: [QuickRow; 8] = [
-+    pub const GENERAL: [QuickRow; 9] = [
+-    pub const GENERAL: [QuickRow; 11] = [
++    pub const GENERAL: [QuickRow; 12] = [
          QuickRow::Theme,
          QuickRow::Wallpaper,
          QuickRow::WallpaperTint,
+         QuickRow::ShelfMode,
          QuickRow::Recents,
          QuickRow::ShowTitles,
 +        QuickRow::ShelfOrder,
          QuickRow::Cpu,
          QuickRow::LidOff,
-         QuickRow::DateTime,
-@@ -648,7 +651,7 @@ impl QuickRow {
+         QuickRow::KidMode,
+@@ -687,7 +690,7 @@ impl QuickRow {
              | QuickRow::ScreenVb
              | QuickRow::ScreenNeoGeo
              | QuickRow::ScreenCps1
@@ -100,9 +105,9 @@ index 81f7ab2..dbf96f8 100644
              QuickRow::Brightness
              | QuickRow::BlueLight
              | QuickRow::Saturation
-@@ -691,7 +694,8 @@ impl QuickRow {
-             | QuickRow::ShowTitles
-             | QuickRow::LidOff
+@@ -736,7 +739,8 @@ impl QuickRow {
+             | QuickRow::KidMode
+             | QuickRow::KidShelf
              | QuickRow::Wifi
 -            | QuickRow::Cpu => &QuickRow::GENERAL,
 +            | QuickRow::Cpu
@@ -110,7 +115,7 @@ index 81f7ab2..dbf96f8 100644
              QuickRow::WifiPower | QuickRow::Networks => &QuickRow::WIFI,
              QuickRow::CheckUpdates
              | QuickRow::FetchArt
-@@ -875,7 +879,7 @@ impl QuickRow {
+@@ -928,7 +932,7 @@ impl QuickRow {
              &QuickRow::MAIN[..],
              &QuickRow::PLAY,
              &QuickRow::SETTINGS,
@@ -119,7 +124,7 @@ index 81f7ab2..dbf96f8 100644
              &QuickRow::NETWORK,
              &QuickRow::CONTROL_PAGES,
          ]
-@@ -884,7 +888,7 @@ impl QuickRow {
+@@ -937,7 +941,7 @@ impl QuickRow {
  
      pub fn child(self) -> Option<QuickRow> {
          match self {
@@ -128,7 +133,7 @@ index 81f7ab2..dbf96f8 100644
              QuickRow::Game => Some(QuickRow::GAME[0]),
              QuickRow::Settings => Some(QuickRow::SETTINGS[0]),
              QuickRow::PlayScreen => Some(QuickRow::PLAY_SCREEN[0]),
-@@ -1112,6 +1116,7 @@ impl QuickRow {
+@@ -1174,6 +1178,7 @@ impl QuickRow {
              | QuickRow::A7800PalSpeed => "PAL Speed",
              QuickRow::SmsRegion => "Region",
              QuickRow::Cpu => "CPU",
@@ -136,16 +141,16 @@ index 81f7ab2..dbf96f8 100644
              QuickRow::WsRefresh => "Refresh",
              QuickRow::LynxSpeed => "Lynx Speed",
              QuickRow::LynxFlip => "Flip Right Carts",
-@@ -1344,6 +1349,8 @@ pub enum QuickValue {
+@@ -1417,6 +1422,8 @@ pub enum QuickValue {
      Buttons,
      Upright,
      Turned,
 +    Classic,
 +    ReleaseYear,
- }
- 
- impl QuickValue {
-@@ -1465,6 +1472,8 @@ impl QuickValue {
+     All,
+     Collections,
+     OneShelf,
+@@ -1552,6 +1559,8 @@ impl QuickValue {
              QuickValue::Buttons => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 31,
              QuickValue::Upright => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 32,
              QuickValue::Turned => Self::ALL.len() + slot_store::RetroShader::ALL.len() + 33,
@@ -154,7 +159,7 @@ index 81f7ab2..dbf96f8 100644
              fixed => Self::ALL.iter().position(|v| *v == fixed).unwrap_or(0),
          }
      }
-@@ -1556,6 +1565,8 @@ impl QuickValue {
+@@ -1650,6 +1659,8 @@ impl QuickValue {
              QuickValue::Buttons => "ABXY",
              QuickValue::Upright => "Upright",
              QuickValue::Turned => "Turned",
@@ -163,7 +168,7 @@ index 81f7ab2..dbf96f8 100644
          }
      }
  
-@@ -2235,7 +2246,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
+@@ -2363,7 +2374,7 @@ fn scrolls(page: &[QuickRow]) -> bool {
          &QuickRow::SHORTCUTS,
          &QuickRow::GENERAL,
          &QuickRow::PLAY_SCREEN,
@@ -215,17 +220,17 @@ index 0000000..46fdd3b
 +    SCREEN_PAGE.with(|p| p.set(rows));
 +}
 diff --git a/crates/slot-ui/tests/quick_menu.rs b/crates/slot-ui/tests/quick_menu.rs
-index b16a8a8..d58cfcd 100644
+index 1a61468..8b8333b 100644
 --- a/crates/slot-ui/tests/quick_menu.rs
 +++ b/crates/slot-ui/tests/quick_menu.rs
-@@ -92,6 +92,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
-             "Wallpaper Tint",
+@@ -93,6 +93,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
+             "Shelf Mode",
              "Recents",
              "Game Titles",
 +            "Shelf Order",
              "CPU",
              "Lid Power Off",
-             "Date & Time",
+             "Kid Mode",
 diff --git a/crates/slot-ui/tests/retro_faces.rs b/crates/slot-ui/tests/retro_faces.rs
 index 4062ab6..a85dfb6 100644
 --- a/crates/slot-ui/tests/retro_faces.rs
@@ -260,10 +265,10 @@ index 4062ab6..a85dfb6 100644
      );
      for (i, v) in every.iter().enumerate() {
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index c74ec7b..120b569 100644
+index 31a6476..69873b3 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -770,6 +770,7 @@ pub struct App {
+@@ -859,6 +859,7 @@ pub struct App {
      ws_native: bool,
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
@@ -271,7 +276,7 @@ index c74ec7b..120b569 100644
      s32x_speed: crate::s32x_speed::S32xSpeed,
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
-@@ -1115,6 +1116,7 @@ impl App {
+@@ -1267,6 +1268,7 @@ impl App {
              ws_native: false,
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
@@ -279,7 +284,7 @@ index c74ec7b..120b569 100644
              s32x_speed: crate::s32x_speed::S32xSpeed::default(),
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
-@@ -1137,7 +1139,7 @@ impl App {
+@@ -1290,7 +1292,7 @@ impl App {
          retain_headers(&carts);
          crate::boot_time::mark("scan");
          let mut app = App::new(carts);
@@ -288,7 +293,7 @@ index c74ec7b..120b569 100644
          app.root = Some(root.to_path_buf());
          app.loading = loading;
          app.state = read_slot_state(root);
-@@ -1850,6 +1852,7 @@ impl App {
+@@ -2970,6 +2972,7 @@ impl App {
              QuickRow::WsRefresh => Some(crate::ws_refresh::quick_value(self.ws_native)),
              QuickRow::SmsRegion => Some(self.sms_region.quick_value()),
              QuickRow::Cpu => Some(self.cpu_mode.quick_value()),
@@ -296,7 +301,7 @@ index c74ec7b..120b569 100644
              QuickRow::S32xRenderer | QuickRow::S32xSoundRate => self.s32x_speed.quick_value(row),
              QuickRow::A2600LeftDifficulty
              | QuickRow::A2600RightDifficulty
-@@ -4309,6 +4312,7 @@ impl App {
+@@ -5974,6 +5977,7 @@ impl App {
              | QuickRow::Ps1PalSpeed
              | QuickRow::SmsRegion
              | QuickRow::Cpu
@@ -304,7 +309,7 @@ index c74ec7b..120b569 100644
              | QuickRow::Tg16Shader
              | QuickRow::Tg16Picture
              | QuickRow::WsRefresh
-@@ -4441,6 +4445,10 @@ impl App {
+@@ -6111,6 +6115,10 @@ impl App {
              }
              return;
          }
@@ -315,7 +320,7 @@ index c74ec7b..120b569 100644
          if row == QuickRow::Cpu {
              self.cpu_mode = self.cpu_mode.flipped();
              if let Some(root) = &self.root {
-@@ -4639,6 +4647,7 @@ impl App {
+@@ -6332,6 +6340,7 @@ impl App {
              | QuickRow::LynxFlip
              | QuickRow::SmsRegion
              | QuickRow::Cpu

@@ -11,11 +11,11 @@ Subject: [PATCH] ps1-analog
  crates/slot-retro/src/libretro.rs           |  18 +-
  crates/slot-retro/src/libretro/env_tests.rs |  66 +++++
  crates/slot/src/core_options_policy.rs      |  16 ++
- crates/slot/src/input/device.rs             |  14 +-
+ crates/slot/src/input/device.rs             |  22 +-
  crates/slot/src/input/mod.rs                |   1 +
  crates/slot/src/input/sticks.rs             | 261 ++++++++++++++++++++
  crates/slot/tests/ps1_analog.rs             | 118 +++++++++
- 10 files changed, 569 insertions(+), 6 deletions(-)
+ 10 files changed, 577 insertions(+), 6 deletions(-)
  create mode 100644 crates/slot-retro/src/analog.rs
  create mode 100644 crates/slot/src/input/sticks.rs
  create mode 100644 crates/slot/tests/ps1_analog.rs
@@ -136,7 +136,7 @@ index 6bc842d..ba7c018 100644
          self.av_enable = if skip {
              AV_AUDIO_ONLY
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index 34aacb9..140705c 100644
+index 47251ac..2503084 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
 @@ -5,6 +5,7 @@ macro_rules! eprintln {
@@ -146,15 +146,15 @@ index 34aacb9..140705c 100644
 +mod analog;
  mod canvas;
  mod core;
- mod ffi;
-@@ -15,6 +16,7 @@ pub mod rtc;
+ mod dsperate;
+@@ -16,6 +17,7 @@ pub mod rtc;
  mod rumble;
  mod turbo_mode;
  
 +pub use analog::{publish_sticks, published_sticks, DUALSHOCK};
  pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
- pub use ffi::{
-     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+ pub use core::{mask_for, AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ pub use dsperate::{ds_buttons, DsperateCore, DS_H, DS_W};
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
 index b4fdb33..50bc78e 100644
 --- a/crates/slot-retro/src/libretro.rs
@@ -312,41 +312,39 @@ index 7db7a03..12a3d23 100644
 +    }
  }
 diff --git a/crates/slot/src/input/device.rs b/crates/slot/src/input/device.rs
-index a658371..2e4539d 100644
+index db609e7..659983d 100644
 --- a/crates/slot/src/input/device.rs
 +++ b/crates/slot/src/input/device.rs
-@@ -10,6 +10,7 @@ use slot_input::{Btn, InputSource, Millis, RawEvent};
- use super::evdev::{
-     decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
- };
-+use super::sticks::{read_stick_map, StickMap, Sticks};
- use super::trace;
- 
- const DEV: &str = "/dev/input";
-@@ -33,10 +34,11 @@ impl DeviceInput {
- 
-     pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
-         let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
--        DeviceInput::open_traced(dev, sys, trace)
+@@ -41,10 +41,17 @@ impl DeviceInput {
+         let trace = trace
+             .then(|| Trace::start(keymap, root, dev, sys))
+             .flatten();
+-        DeviceInput::open_traced(keymap, dev, sys, trace)
 +        let sticks = read_stick_map(root);
-+        DeviceInput::open_traced(dev, sys, trace, sticks)
++        DeviceInput::open_traced(keymap, dev, sys, trace, sticks)
      }
  
--    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
-+    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>, sticks: StickMap) -> Self {
+-    fn open_traced(keymap: Keymap, dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
++    fn open_traced(
++        keymap: Keymap,
++        dev: &Path,
++        sys: &Path,
++        trace: Option<Arc<Trace>>,
++        sticks: StickMap,
++    ) -> Self {
          let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
          let stick = Arc::new(AtomicBool::new(false));
-         for node in pick_devices(dev, sys) {
-@@ -52,7 +54,7 @@ impl DeviceInput {
+         let mut held = Vec::new();
+@@ -66,7 +73,7 @@ impl DeviceInput {
              let trace = trace.clone();
              let spawned = std::thread::Builder::new()
                  .name(format!("slot-input-{name}"))
--                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref()));
-+                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref(), sticks));
+-                .spawn(move || read_node(keymap, &node, &queue, &steers, trace.as_deref()));
++                .spawn(move || read_node(keymap, &node, &queue, &steers, trace.as_deref(), sticks));
              if let Err(e) = spawned {
                  eprintln!("slot: input {name}: {e}");
              }
-@@ -96,12 +98,14 @@ fn read_node(
+@@ -123,12 +130,14 @@ fn read_node(
      queue: &Mutex<Vec<RawEvent>>,
      steers: &AtomicBool,
      trace: Option<&Trace>,
@@ -356,24 +354,31 @@ index a658371..2e4539d 100644
          .file_name()
          .map(|n| n.to_string_lossy().into_owned())
          .unwrap_or_else(|| node.display().to_string());
-     let mut hat = Hat::default();
+     let mut hat = Hat::new(keymap);
 +    let mut sticks = Sticks::new(map);
      let mut file = match File::open(node) {
          Ok(f) => f,
          Err(e) => {
-@@ -130,6 +134,10 @@ fn read_node(
+@@ -157,6 +166,12 @@ fn read_node(
              }
-             match ev.kind {
-                 EV_ABS => {
-+                    sticks
-+                        .feed(ev)
-+                        .into_iter()
-+                        .for_each(slot_retro::publish_sticks);
+             match hat.takes(ev) {
+                 true => {
++                    if ev.kind == EV_ABS {
++                        sticks
++                            .feed(ev)
++                            .into_iter()
++                            .for_each(slot_retro::publish_sticks);
++                    }
                      hat.steer_with_stick(steers.load(Ordering::Relaxed));
                      events.extend(hat.feed(ev));
                  }
+@@ -261,3 +276,4 @@ fn find_hall(psy: &Path) -> Option<PathBuf> {
+         .map(|d| d.join("hallkey"))
+         .find(|p| p.is_file())
+ }
++use super::sticks::{read_stick_map, StickMap, Sticks};
 diff --git a/crates/slot/src/input/mod.rs b/crates/slot/src/input/mod.rs
-index 7b8b414..7bf9002 100644
+index 8116f2e..1abd7e8 100644
 --- a/crates/slot/src/input/mod.rs
 +++ b/crates/slot/src/input/mod.rs
 @@ -9,6 +9,7 @@ mod mask;
@@ -382,8 +387,8 @@ index 7b8b414..7bf9002 100644
  mod raw_buttons;
 +pub mod sticks;
  mod table;
+ pub mod touch;
  pub mod trace;
- 
 diff --git a/crates/slot/src/input/sticks.rs b/crates/slot/src/input/sticks.rs
 new file mode 100644
 index 0000000..bf4efd4

@@ -18,37 +18,39 @@ Keep the ALSA device open while a game feeds the ring, reopen it as soon as a ca
  create mode 100644 crates/slot/tests/audio_start.rs
 
 diff --git a/crates/slot/src/audio/alsa.rs b/crates/slot/src/audio/alsa.rs
-index 1d2834e..af88d1f 100644
+index b7e48f6..f4223b5 100644
 --- a/crates/slot/src/audio/alsa.rs
 +++ b/crates/slot/src/audio/alsa.rs
-@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
+@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
  
  use libloading::Library;
  
 +use super::hold::{take_wake, Hold};
+ use super::jack::{follows_jack, Jack, RouteWatch};
  use super::pacer::Pacer;
  use super::ring::Ring;
 -use super::silence::Silence;
  use super::sink::{AudioError, AudioSink};
  
  const SND_PCM_STREAM_PLAYBACK: c_int = 0;
-@@ -221,11 +221,13 @@ impl Playback {
-     fn run(&mut self, ring: &Ring, stop: &AtomicBool, held: &AtomicBool) {
+@@ -224,12 +224,14 @@ impl Playback {
+     fn run(&mut self, ring: &Ring, stop: &AtomicBool, jack: &Jack) {
          let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
          let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
 -        let mut silence = Silence::quiet(RELEASE_AFTER);
 +        let mut silence = Hold::new(RELEASE_AFTER);
          let mut pace = Pacer::new(span);
+         let mut route = RouteWatch::new(std::env::var("ALSA_CONFIG_PATH").ok().as_deref());
          while !stop.load(Ordering::Relaxed) {
 -            ring.fill(&mut buf);
--            let hold = silence.hear(&buf, span);
+-            let hold = silence.hear(&buf, span) || ring.awake();
 +            if take_wake() {
 +                silence.wake();
 +            }
-+            let hold = silence.listen(ring, &mut buf, span);
-             match (self.pcm, hold) {
-                 (Some(_), false) if !held.load(Ordering::Relaxed) => {
-                     self.release();
++            let hold = silence.listen(ring, &mut buf, span) || ring.awake();
+             let rerouted = self.follow_jack && route.changed();
+             if rerouted && self.pcm.is_some() {
+                 self.release();
 diff --git a/crates/slot/src/audio/hold.rs b/crates/slot/src/audio/hold.rs
 new file mode 100644
 index 0000000..b20c899
@@ -266,7 +268,7 @@ index 0000000..b20c899
 +    }
 +}
 diff --git a/crates/slot/src/audio/mod.rs b/crates/slot/src/audio/mod.rs
-index e364017..4e09de0 100644
+index e43b432..f961ba6 100644
 --- a/crates/slot/src/audio/mod.rs
 +++ b/crates/slot/src/audio/mod.rs
 @@ -1,4 +1,5 @@
@@ -274,20 +276,20 @@ index e364017..4e09de0 100644
 +mod hold;
  #[cfg(feature = "host")]
  mod host;
- mod pacer;
-@@ -10,6 +11,7 @@ mod stub;
+ mod jack;
+@@ -11,6 +12,7 @@ mod stub;
  pub mod volume;
  
  pub use alsa::AlsaSink;
 +pub use hold::{prefill_silence, wake_device};
  #[cfg(feature = "host")]
  pub use host::HostAudio;
- pub use pacer::Pacer;
+ pub use jack::{follows_jack, Jack, RouteWatch};
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index b92a0c7..b680223 100644
+index b9cbcf4..b7053a4 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -586,6 +586,7 @@ impl Worker {
+@@ -608,6 +608,7 @@ impl Worker {
              hz => hz as f64,
          };
          let mut resampler = av_rate::rebuilt_resampler(av, PRESENT, device_hz);
@@ -295,7 +297,7 @@ index b92a0c7..b680223 100644
          ring.clear_faults();
          self.shared
              .state
-@@ -594,6 +595,7 @@ impl Worker {
+@@ -616,6 +617,7 @@ impl Worker {
  
          let mut out = Vec::new();
          let mut gated = (false, false);
@@ -303,7 +305,7 @@ index b92a0c7..b680223 100644
          let rewind = RewindThread::spawn(REWIND_BYTES);
          let mut since_snapshot = 0;
          let mut cost = FrameCost::seed();
-@@ -671,8 +673,9 @@ impl Worker {
+@@ -693,8 +695,9 @@ impl Worker {
              );
              if gate != gated {
                  ring.set_muted(gate.0);
@@ -314,7 +316,7 @@ index b92a0c7..b680223 100644
              }
              let lock = self.shared.driven.load(Ordering::Relaxed)
                  && speed == Speed::Normal
-@@ -869,6 +872,13 @@ impl Worker {
+@@ -900,6 +903,13 @@ impl Worker {
                          &mut out,
                          self.shared.volume.load(Ordering::Relaxed),
                      );
@@ -329,10 +331,10 @@ index b92a0c7..b680223 100644
                      paced += 1;
                      if crate::session::trace() && paced.is_multiple_of(TRACE_EVERY) {
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 151b82b..e78277a 100644
+index 9f1a508..a42dbeb 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -577,6 +577,7 @@ impl Session {
+@@ -586,6 +586,7 @@ impl Session {
          else {
              return;
          };

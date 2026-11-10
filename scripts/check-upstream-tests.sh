@@ -90,14 +90,33 @@ for f in $(cd "$up" && find crates -path 'crates/*/tests/*' -type f | sort); do
 	cmp -s "$up/$f" "$ours/$f" && continue
 	case "$f" in
 	crates/slot-ui/tests/chrome.rs) prefix=Platform ;;
+	crates/slot/tests/render_canvas_fill.rs)
+		# The General page of this build has the CPU row, so the first row sits 26 pixels higher on the square panel.
+		perl -pe 's/ink\(&square, 40, 86\)/ink(&square, 40, 112)/' "$ours/$f" >"$tmp/x"
+		if [ "$(grep -c 'ink(&square, 40, 86)' "$ours/$f")" = 1 ] && cmp -s "$up/$f" "$tmp/x"; then
+			echo "upstream test code: $f uses the named exception (the first menu row sits at y 86 on the square panel, the General page has the CPU row)"
+		else
+			fail "$f differs beyond the first menu row's position"
+		fi
+		continue ;;
+	crates/slot/tests/fixtures/layout_golden.txt)
+		# The General page of this build has the CPU row, so its two settings-long-list frames hash differently.
+		perl -pe 's/^(settings-long-list 720x480 )2e84a58e8f076fd1$/${1}6abb8920e34235e5/; s/^(settings-long-list 640x480 )fe7a69f5bcbce253$/${1}c908e79e61a6067e/' "$ours/$f" >"$tmp/x"
+		if cmp -s "$up/$f" "$tmp/x"; then
+			echo "upstream test code: $f uses the named exception (the two settings-long-list hashes, the General page has the CPU row)"
+		else
+			fail "$f differs beyond the two settings-long-list hashes"
+		fi
+		continue ;;
 	crates/slot-store/tests/durability.rs)
 		pce='^[[:space:]]*\("cart_platform=pce\\n", None\),$'
 		shaders='^[[:space:]]+shader_(nes|snes): Shader::Off,$'
 		if [ "$(grep -c 'cart_platform=pce' "$ours/$f")" = 1 ] && [ "$(grep -cE "$pce" "$ours/$f")" = 1 ] &&
 			[ "$(grep -cE "$shaders" "$ours/$f")" = 2 ] &&
-			perl -0pe 's/(cart_platform=)pce(\\n", None\),\n)/$1nes$2/; s/(\n([ \t]+)shader_gb: Shader::Simpletex,\n)\2shader_nes: Shader::Off,\n\2shader_snes: Shader::Off,\n/$1/' "$ours/$f" >"$tmp/x" &&
+			[ "$(grep -c 'kid_shelf: "all".into(),' "$ours/$f")" = 1 ] &&
+			perl -0pe 's/(cart_platform=)pce(\\n", None\),\n)/$1nes$2/; s/(\n([ \t]+)shader_gb: Shader::Simpletex,\n)\2shader_nes: Shader::Off,\n\2shader_snes: Shader::Off,\n/$1/; s/(shelf_cart: None,\n)([ \t]+)overlay_gba: None,\n\2overlay_gb: None,\n\2overlay_gbc: None,\n\2shelf_mode: slot_store::ShelfMode::All,\n\2collection: None,\n\2gba_video: false,\n\2kid_mode: slot_store::KidMode::Off,\n\2kid_shelf: "all"\.into\(\),\n/$1/' "$ours/$f" >"$tmp/x" &&
 			cmp -s "$up/$f" "$tmp/x"; then
-			echo "upstream test code: $f uses the named exceptions (cart_platform=pce for cart_platform=nes, shader_nes and shader_snes in the full SlotState literal)"
+			echo "upstream test code: $f uses the named exceptions (cart_platform=pce for cart_platform=nes, shader_nes and shader_snes in the full SlotState literal, and the eight fields upstream 1.15.2 added to SlotState that its own literal lacks)"
 		else
 			fail "$f differs beyond the cart_platform=pce line and the two shader lines"
 		fi

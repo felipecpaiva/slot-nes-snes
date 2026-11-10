@@ -6,7 +6,7 @@ Subject: [PATCH] retro-scale
 ---
  crates/slot-ui/src/quick_menu.rs        | 240 ++++++++++++++++++------
  crates/slot-ui/src/quick_retro.rs       |  97 +++++++---
- crates/slot/src/app.rs                  | 189 +++++++++++++++++--
+ crates/slot/src/app.rs                  | 166 ++++++++++++++--
  crates/slot/src/app/retro_scale.rs      |  28 +++
  crates/slot/src/lib.rs                  |   1 +
  crates/slot/src/retro_scale.rs          |  34 ++++
@@ -27,16 +27,16 @@ Subject: [PATCH] retro-scale
  crates/slot/tests/tg16_screen.rs        |   2 +-
  crates/slot/tests/vb_screen.rs          |   9 +-
  crates/slot/tests/wswan_screen.rs       |   2 +-
- 23 files changed, 729 insertions(+), 113 deletions(-)
+ 23 files changed, 706 insertions(+), 113 deletions(-)
  create mode 100644 crates/slot/src/app/retro_scale.rs
  create mode 100644 crates/slot/src/retro_scale.rs
  create mode 100644 crates/slot/tests/retro_scale.rs
 
 diff --git a/crates/slot-ui/src/quick_menu.rs b/crates/slot-ui/src/quick_menu.rs
-index 3bba82e..1333521 100644
+index aca4bd1..6055b22 100644
 --- a/crates/slot-ui/src/quick_menu.rs
 +++ b/crates/slot-ui/src/quick_menu.rs
-@@ -234,10 +234,33 @@ pub enum QuickRow {
+@@ -242,6 +242,29 @@ pub enum QuickRow {
      NeocdBios,
      GameL2,
      GameR2,
@@ -63,15 +63,19 @@ index 3bba82e..1333521 100644
 +    PcecdScale,
 +    NeocdScale,
 +    SegaCdScale,
+     GbaOverlay,
+     GbOverlay,
+     GbcOverlay,
+@@ -249,7 +272,7 @@ pub enum QuickRow {
  }
  
  impl QuickRow {
--    pub const ALL: [QuickRow; 225] = [
-+    pub const ALL: [QuickRow; 248] = [
+-    pub const ALL: [QuickRow; 235 + cfg!(feature = "nds") as usize] = [
++    pub const ALL: [QuickRow; 258 + cfg!(feature = "nds") as usize] = [
          QuickRow::FastForward,
          QuickRow::FastForwardSound,
          QuickRow::Screen,
-@@ -463,6 +486,29 @@ impl QuickRow {
+@@ -483,6 +506,29 @@ impl QuickRow {
          QuickRow::NeocdBios,
          QuickRow::GameL2,
          QuickRow::GameR2,
@@ -98,10 +102,10 @@ index 3bba82e..1333521 100644
 +        QuickRow::PcecdScale,
 +        QuickRow::NeocdScale,
 +        QuickRow::SegaCdScale,
-     ];
- 
-     pub const MAIN: [QuickRow; 6] = [
-@@ -794,67 +840,98 @@ impl QuickRow {
+         QuickRow::GbaOverlay,
+         QuickRow::GbOverlay,
+         QuickRow::GbcOverlay,
+@@ -845,67 +891,98 @@ impl QuickRow {
              | QuickRow::Scale
              | QuickRow::Stretch
              | QuickRow::Blending => &QuickRow::PLAY_SCREEN,
@@ -226,7 +230,7 @@ index 3bba82e..1333521 100644
              _ => &QuickRow::MAIN,
          }
      }
-@@ -877,73 +954,100 @@ impl QuickRow {
+@@ -928,73 +1005,100 @@ impl QuickRow {
              QuickRow::WifiPower => Some(QuickRow::Wifi),
              QuickRow::ControlsShelf => Some(QuickRow::Controls),
              QuickRow::ShelfPrev => Some(QuickRow::ControlsShelf),
@@ -350,10 +354,10 @@ index 3bba82e..1333521 100644
 +            | QuickRow::SegaCdPicture
 +            | QuickRow::SegaCdScale
 +            | QuickRow::SegaCdPalSpeed => Some(QuickRow::ScreenSegaCd),
+             QuickRow::CollPrev => Some(QuickRow::ControlsCollections),
+             QuickRow::ControlsCollections => Some(QuickRow::Controls),
              _ => None,
-         }
-     }
-@@ -1139,9 +1243,33 @@ impl QuickRow {
+@@ -1201,9 +1305,33 @@ impl QuickRow {
              QuickRow::ScreenGb => "Game Boy",
              QuickRow::GbBezel => "Bezel",
              QuickRow::GbcBezel => "Bezel",
@@ -566,10 +570,10 @@ index a6f5b9d..a8ba869 100644
  }
  
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index d06f94f..a904d71 100644
+index ca66c98..88d4866 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -9,6 +9,7 @@ mod neocd_bios;
+@@ -7,6 +7,7 @@ mod neocd_bios;
  mod pcecd_bios;
  mod ps1_discs;
  mod segacd_bios;
@@ -577,7 +581,7 @@ index d06f94f..a904d71 100644
  mod shelf_order;
  mod silent_start;
  mod start_guard;
-@@ -784,6 +785,7 @@ pub struct App {
+@@ -871,6 +872,7 @@ pub struct App {
      sms_region: crate::sms_region::Region,
      cpu_mode: crate::cpu_governor::CpuMode,
      shelf_order: crate::shelf_order::ShelfOrder,
@@ -585,7 +589,7 @@ index d06f94f..a904d71 100644
      s32x_speed: crate::s32x_speed::S32xSpeed,
      atari: crate::atari_switches::AtariSwitches,
      vb_screen: crate::vb_screen::VbScreen,
-@@ -1138,6 +1140,7 @@ impl App {
+@@ -1288,6 +1290,7 @@ impl App {
              sms_region: crate::sms_region::Region::Auto,
              cpu_mode: crate::cpu_governor::CpuMode::Performance,
              shelf_order: crate::shelf_order::ShelfOrder::Classic,
@@ -593,7 +597,7 @@ index d06f94f..a904d71 100644
              s32x_speed: crate::s32x_speed::S32xSpeed::default(),
              atari: crate::atari_switches::AtariSwitches::default(),
              vb_screen: crate::vb_screen::VbScreen::default(),
-@@ -1163,6 +1166,7 @@ impl App {
+@@ -1314,6 +1317,7 @@ impl App {
          crate::boot_time::mark("scan");
          let mut app = App::new(carts);
          app.read_shelf_order(root);
@@ -601,7 +605,7 @@ index d06f94f..a904d71 100644
          app.root = Some(root.to_path_buf());
          app.loading = loading;
          app.state = read_slot_state(root);
-@@ -1781,6 +1785,29 @@ impl App {
+@@ -2897,6 +2901,29 @@ impl App {
              (QuickRow::Scale, Platform::Gba) => QuickRow::GbaScale,
              (QuickRow::Scale, Platform::Gb) => QuickRow::GbScale,
              (QuickRow::Scale, Platform::Gbc) => QuickRow::GbcScale,
@@ -631,7 +635,7 @@ index d06f94f..a904d71 100644
              (QuickRow::Stretch, Platform::Gb) => QuickRow::GbStretch,
              (QuickRow::Stretch, Platform::Gbc) => QuickRow::GbcStretch,
              (QuickRow::PlayBrightness, _) => QuickRow::Brightness,
-@@ -1809,6 +1836,29 @@ impl App {
+@@ -2925,6 +2952,29 @@ impl App {
              QuickRow::GbaScale => Some(scale_value(self.resolved_scale(Platform::Gba))),
              QuickRow::GbScale => Some(scale_value(self.resolved_scale(Platform::Gb))),
              QuickRow::GbcScale => Some(scale_value(self.resolved_scale(Platform::Gbc))),
@@ -661,37 +665,7 @@ index d06f94f..a904d71 100644
              QuickRow::GbStretch => Some(stretch_value(self.resolved_stretch(Platform::Gb))),
              QuickRow::GbcStretch => Some(stretch_value(self.resolved_stretch(Platform::Gbc))),
              QuickRow::GbaBlending => Some(blending_value(self.state.blending_gba)),
-@@ -2469,6 +2519,29 @@ impl App {
-             (QuickRow::GbaScale, Platform::Gba),
-             (QuickRow::GbScale, Platform::Gb),
-             (QuickRow::GbcScale, Platform::Gbc),
-+            (QuickRow::NesScale, Platform::Nes),
-+            (QuickRow::SnesScale, Platform::Snes),
-+            (QuickRow::GgScale, Platform::Gg),
-+            (QuickRow::SmsScale, Platform::Sms),
-+            (QuickRow::MdScale, Platform::Md),
-+            (QuickRow::Ps1Scale, Platform::Ps1),
-+            (QuickRow::Tg16Scale, Platform::Tg16),
-+            (QuickRow::WsScale, Platform::Ws),
-+            (QuickRow::LynxScale, Platform::Lynx),
-+            (QuickRow::NgpScale, Platform::Ngp),
-+            (QuickRow::S32xScale, Platform::S32x),
-+            (QuickRow::A2600Scale, Platform::A2600),
-+            (QuickRow::A7800Scale, Platform::A7800),
-+            (QuickRow::VbScale, Platform::Vb),
-+            (QuickRow::NeoGeoScale, Platform::NeoGeo),
-+            (QuickRow::FdsScale, Platform::Fds),
-+            (QuickRow::Cps1Scale, Platform::Cps1),
-+            (QuickRow::Pico8Scale, Platform::Pico8),
-+            (QuickRow::Cps2Scale, Platform::Cps2),
-+            (QuickRow::SgxScale, Platform::Sgx),
-+            (QuickRow::PcecdScale, Platform::Pcecd),
-+            (QuickRow::NeocdScale, Platform::Neocd),
-+            (QuickRow::SegaCdScale, Platform::SegaCd),
-         ] {
-             if self.scale_choices(platform).len() < 2 {
-                 hidden.push(row);
-@@ -2818,7 +2891,8 @@ impl App {
+@@ -4317,7 +4367,8 @@ impl App {
      }
  
      fn picture_size(&self, platform: Platform, mode: VideoMode) -> (u32, u32) {
@@ -701,8 +675,8 @@ index d06f94f..a904d71 100644
      }
  
      fn picture(&self) -> (Sizing, [f32; 4]) {
-@@ -2838,7 +2912,7 @@ impl App {
-             Platform::Gba | Platform::Gbav => self.state.scale_gba,
+@@ -4336,7 +4387,7 @@ impl App {
+             Platform::Nds => self.state.scale_gba,
              Platform::Gb => self.state.scale_gb,
              Platform::Gbc => self.state.scale_gbc,
 -            _ => Scale::default(),
@@ -710,34 +684,29 @@ index d06f94f..a904d71 100644
          }
      }
  
-@@ -2859,7 +2933,7 @@ impl App {
- 
-     fn layout_of(&self, platform: Platform, sizing: Sizing, source: [f32; 4]) -> GameLayout {
+@@ -4363,7 +4414,7 @@ impl App {
+             return slot_gfx::game_layout(self.panel, platform.picture(), sizing);
+         }
          let picture = match source == WHOLE_TEXTURE {
 -            true => self.core.canvas(platform),
 +            true => self.canvas_for(platform),
              false => self.picture_size(platform, VideoMode::Actual),
          };
          slot_gfx::game_layout(self.panel, picture, sizing)
-@@ -2875,7 +2949,7 @@ impl App {
-         let (sizing, source) = video_mode::picture_for(
-             platform,
-             self.picture_size(platform, mode),
--            self.core.canvas(platform),
-+            self.canvas_for(platform),
-             mode,
-             scale,
-             stretch,
-@@ -2884,7 +2958,7 @@ impl App {
-         let (_, crop) = video_mode::picture_for(
-             platform,
-             self.picture_size(platform, VideoMode::Actual),
--            self.core.canvas(platform),
-+            self.canvas_for(platform),
+@@ -4376,10 +4427,10 @@ impl App {
+         scale: Scale,
+         stretch: Stretch,
+     ) -> (bool, [i32; 4]) {
+-        let (sizing, source) = video_mode::picture_for(platform, self.picture_size(platform, mode), self.core.canvas(platform), mode, scale, stretch);
++        let (sizing, source) = video_mode::picture_for(platform, self.picture_size(platform, mode), self.canvas_for(platform), mode, scale, stretch);
+         let layout = self.layout_of(platform, sizing, source);
+         let (_, crop) =
+-            video_mode::picture_for(platform, self.picture_size(platform, VideoMode::Actual), self.core.canvas(platform),
++            video_mode::picture_for(platform, self.picture_size(platform, VideoMode::Actual), self.canvas_for(platform),
              VideoMode::Actual,
              Scale::Integer,
              stretch,
-@@ -2912,9 +2986,6 @@ impl App {
+@@ -4407,9 +4458,6 @@ impl App {
      }
  
      pub fn scale_choices(&self, platform: Platform) -> Vec<Scale> {
@@ -747,7 +716,7 @@ index d06f94f..a904d71 100644
          let mut seen = Vec::new();
          let mut choices = Vec::new();
          for &scale in Self::scale_candidates(platform) {
-@@ -2948,9 +3019,6 @@ impl App {
+@@ -4443,9 +4491,6 @@ impl App {
      }
  
      pub fn resolved_scale(&self, platform: Platform) -> Scale {
@@ -757,8 +726,8 @@ index d06f94f..a904d71 100644
          let stored = self.scale_of(platform);
          let shown = self.shown_as(platform, VideoMode::Actual, stored, Stretch::Classic);
          self.scale_choices(platform)
-@@ -3004,7 +3072,7 @@ impl App {
-             Platform::Gba | Platform::Gbav => self.state.scale_gba = to,
+@@ -4501,7 +4546,7 @@ impl App {
+             Platform::Nds => self.state.scale_gba = to,
              Platform::Gb => self.state.scale_gb = to,
              Platform::Gbc => self.state.scale_gbc = to,
 -            _ => {}
@@ -766,7 +735,7 @@ index d06f94f..a904d71 100644
          }
      }
  
-@@ -4401,6 +4469,29 @@ impl App {
+@@ -6044,6 +6089,29 @@ impl App {
              | QuickRow::GbaScale
              | QuickRow::GbScale
              | QuickRow::GbcScale
@@ -796,7 +765,7 @@ index d06f94f..a904d71 100644
              | QuickRow::GbStretch
              | QuickRow::GbcStretch
              | QuickRow::GbaBlending
-@@ -4676,10 +4767,59 @@ impl App {
+@@ -6326,10 +6394,59 @@ impl App {
              self.persist();
              return;
          }
@@ -857,7 +826,7 @@ index d06f94f..a904d71 100644
                  _ => Platform::Gbc,
              };
              self.cycle_scale(platform, right);
-@@ -4939,6 +5079,29 @@ impl App {
+@@ -6619,6 +6736,29 @@ impl App {
              | QuickRow::GbaScale
              | QuickRow::GbScale
              | QuickRow::GbcScale
@@ -922,17 +891,17 @@ index 0000000..8d3d217
 +    }
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 487a0ec..feed21d 100644
+index 0dc06a5..07f0805 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -71,6 +71,7 @@ pub mod print_scene;
+@@ -75,6 +75,7 @@ pub mod print_scene;
  pub mod ps1_load;
  pub mod resample;
  pub mod retro_quick;
 +pub mod retro_scale;
  pub mod rewind;
  pub mod romm;
- pub mod root;
+ pub mod overlay;
 diff --git a/crates/slot/src/retro_scale.rs b/crates/slot/src/retro_scale.rs
 new file mode 100644
 index 0000000..abc3ae0

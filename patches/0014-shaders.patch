@@ -41,19 +41,19 @@ index aebd29a..97de3b8 100644
 +    }
  }
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index 2146ca0..4055b02 100644
+index a96b900..d02fb04 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -392,6 +392,8 @@ pub struct SlotState {
+@@ -494,6 +494,8 @@ pub struct SlotState {
      pub favorites: Vec<Recent>,
      pub shelf: Option<String>,
      pub shelf_cart: Option<Recent>,
 +    pub shader_nes: Shader,
 +    pub shader_snes: Shader,
- }
- 
- impl SlotState {
-@@ -476,6 +478,7 @@ impl Shader {
+     pub shelf_mode: ShelfMode,
+     pub collection: Option<String>,
+     pub gba_video: bool,
+@@ -583,6 +585,7 @@ impl Shader {
          Shader::Simpletex,
          Shader::Shimmerless,
      ];
@@ -61,16 +61,16 @@ index 2146ca0..4055b02 100644
  
      pub fn name(self) -> &'static str {
          match self {
-@@ -569,6 +572,8 @@ impl Default for SlotState {
+@@ -681,6 +684,8 @@ impl Default for SlotState {
              favorites: Vec::new(),
              shelf: None,
              shelf_cart: None,
 +            shader_nes: Shader::Off,
 +            shader_snes: Shader::Off,
-         }
-     }
- }
-@@ -689,6 +694,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
+             shelf_mode: ShelfMode::All,
+             collection: None,
+             gba_video: false,
+@@ -811,6 +816,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
              r.stem
          ))
      ));
@@ -79,20 +79,20 @@ index 2146ca0..4055b02 100644
 +        s.shader_nes.name(),
 +        s.shader_snes.name()
 +    ));
-     atomic_write(&state_path(root), text.as_bytes())?;
-     write_list(root, RECENTS_FILE, &s.recents)?;
-     write_list(root, FAVORITES_FILE, &s.favorites)
-@@ -749,6 +759,8 @@ fn parse(text: &str) -> Option<SlotState> {
+     text.push_str(&format!("shelf_mode={}\n", s.shelf_mode.key()));
+     text.push_str(&format!("kid_mode={}\n", s.kid_mode.key()));
+     text.push_str(&format!("kid_shelf={}\n", s.kid_shelf));
+@@ -884,6 +894,8 @@ fn parse(text: &str) -> Option<SlotState> {
      let mut blending_gbc = None;
      let mut shelf = None;
      let mut shelf_cart = None;
 +    let mut shader_nes = None;
 +    let mut shader_snes = None;
-     for line in text.lines().filter(|l| !l.is_empty()) {
-         let Some((key, value)) = line.split_once('=') else {
-             continue;
-@@ -808,6 +820,10 @@ fn parse(text: &str) -> Option<SlotState> {
-             "shelf_cart" => shelf_cart = recent_value(value),
+     let mut shelf_mode = None;
+     let mut kid_mode = None;
+     let mut kid_shelf = None;
+@@ -958,6 +970,10 @@ fn parse(text: &str) -> Option<SlotState> {
+             "gba_video" => gba_video = flag(value),
              "shader_gb" => shader_gb = Shader::parse(value).filter(|s| Shader::GB.contains(s)),
              "shader_gbc" => shader_gbc = Shader::parse(value).filter(|s| Shader::GB.contains(s)),
 +            "shader_nes" => shader_nes = Shader::parse(value).filter(|s| Shader::RETRO.contains(s)),
@@ -102,17 +102,17 @@ index 2146ca0..4055b02 100644
              _ => {}
          }
      }
-@@ -875,6 +891,8 @@ fn parse(text: &str) -> Option<SlotState> {
+@@ -1030,6 +1046,8 @@ fn parse(text: &str) -> Option<SlotState> {
          favorites: Vec::new(),
          shelf,
          shelf_cart,
 +        shader_nes: shader_nes.unwrap_or(fallback.shader_nes),
 +        shader_snes: shader_snes.unwrap_or(fallback.shader_snes),
-     })
- }
- 
+         shelf_mode: shelf_mode.unwrap_or(fallback.shelf_mode),
+         kid_mode: kid_mode.unwrap_or(KidMode::Off),
+         kid_shelf: kid_shelf.unwrap_or_else(|| KID_SHELF_ALL.to_string()),
 diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
-index 620b549..8d658c2 100644
+index 63bc1c7..00b7d7b 100644
 --- a/crates/slot-store/tests/durability.rs
 +++ b/crates/slot-store/tests/durability.rs
 @@ -248,6 +248,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
@@ -122,7 +122,7 @@ index 620b549..8d658c2 100644
 +            shader_nes: Shader::Off,
 +            shader_snes: Shader::Off,
              shader_gbc: Shader::Simpletex,
-             auto_load: true,
+             auto_load: AutoLoad::Always,
              eject_save: true,
 diff --git a/crates/slot-store/tests/nes_shader_state.rs b/crates/slot-store/tests/nes_shader_state.rs
 new file mode 100644
@@ -243,13 +243,13 @@ index 0000000..96ab9c9
 +        .all(|l| !l.starts_with("shader_nes=") && !l.starts_with("shader_snes=")));
 +}
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index be7b605..871f3eb 100644
+index 9e9a996..1628768 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -3151,8 +3151,10 @@ impl App {
-     pub fn screen_shader(&self) -> Shader {
-         match self.playing_platform() {
+@@ -4703,8 +4703,10 @@ impl App {
              Platform::Gba | Platform::Gbav => self.gba_shader(),
+             #[cfg(feature = "nds")]
+             Platform::Nds => Shader::Off,
 -            Platform::Gb | Platform::Nes | Platform::Snes => self.state.shader_gb,
 +            Platform::Gb => self.state.shader_gb,
              Platform::Gbc => self.state.shader_gbc,
@@ -258,10 +258,10 @@ index be7b605..871f3eb 100644
          }
      }
  
-@@ -4212,8 +4214,10 @@ impl App {
-         let gba_shaders = self.gba_shaders();
-         let (shader, choices) = match self.playing_platform() {
+@@ -5920,8 +5922,10 @@ impl App {
              Platform::Gba | Platform::Gbav => (&mut self.state.shader_gba, gba_shaders),
+             #[cfg(feature = "nds")]
+             Platform::Nds => (&mut self.state.shader_gba, gba_shaders),
 -            Platform::Gb | Platform::Nes | Platform::Snes => (&mut self.state.shader_gb, &Shader::GB[..]),
 +            Platform::Gb => (&mut self.state.shader_gb, &Shader::GB[..]),
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),

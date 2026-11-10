@@ -16,12 +16,12 @@ Subject: [PATCH] step0-exhaustive-matches
  create mode 100644 crates/slot-store/src/platform_policy.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index cd3f12e..d0498f7 100644
+index 4d219cb..a75a936 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -48,8 +48,14 @@ impl Core {
-     pub fn runs(self, platform: Platform) -> bool {
-         match self {
+@@ -61,8 +61,14 @@ impl Core {
+             #[cfg(feature = "nds")]
+             _ if platform == Platform::Nds => self == Core::Dsperate,
              Core::Mgba => true,
 -            Core::Gpsp => platform.hardware() == Platform::Gba,
 -            Core::Gambatte => matches!(platform, Platform::Gb | Platform::Gbc),
@@ -33,16 +33,16 @@ index cd3f12e..d0498f7 100644
 +                Platform::Gb | Platform::Gbc => true,
 +                Platform::Gba | Platform::Gbav => false,
 +            },
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
          }
-     }
- 
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 6834ccb..6f9f773 100644
+index cd8778c..c01aa38 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -17,6 +17,7 @@ mod gba;
- mod guides;
- pub mod ini;
+@@ -21,6 +21,7 @@ pub mod overlay;
+ #[cfg(feature = "nds")]
+ mod nds_header;
  mod platform;
 +mod platform_policy;
  mod ring;
@@ -100,10 +100,10 @@ index 3a2a201..12fb5da 100644
                      self.title = title;
                  }
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 961a755..3ff94a1 100644
+index 399bf7a..8a8e4ba 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -113,7 +113,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
+@@ -132,7 +132,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
              Some(Outline::Notched) => GbShell::Notched,
              Some(Outline::Rounded) => GbShell::Rounded,
@@ -113,10 +113,10 @@ index 961a755..3ff94a1 100644
                  Class::Original | Class::DualMode => GbShell::Notched,
              },
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index cfd3b96..71bff0b 100644
+index 0a82464..ccd47c6 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -1467,7 +1467,7 @@ impl App {
+@@ -2575,7 +2575,7 @@ impl App {
          if self.single_cart() {
              hidden.push(QuickRow::ExitGame);
          }
@@ -124,8 +124,8 @@ index cfd3b96..71bff0b 100644
 +        if self.playing_platform().owns_shoulders() {
              hidden.extend([QuickRow::GameL, QuickRow::GameR]);
          }
-         if !self.left_stick {
-@@ -2600,7 +2600,7 @@ impl App {
+         #[cfg(feature = "nds")]
+@@ -4119,7 +4119,7 @@ impl App {
      }
  
      fn slot_owns_the_shoulders(&self) -> bool {
@@ -134,7 +134,7 @@ index cfd3b96..71bff0b 100644
      }
  
      pub fn taken_buttons(&self) -> Vec<Btn> {
-@@ -4743,7 +4743,7 @@ impl App {
+@@ -6483,7 +6483,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
@@ -143,7 +143,7 @@ index cfd3b96..71bff0b 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -6393,6 +6393,9 @@ impl App {
+@@ -9521,6 +9521,9 @@ impl App {
          let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
              return;
          };
@@ -154,10 +154,10 @@ index cfd3b96..71bff0b 100644
              slot_store::core_for_platform(&root, &cart.stem, cart.platform, self.state.gb_core);
          let now = self.now();
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 1808c85..80cd46b 100644
+index 27d2739..92bd04e 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -152,7 +152,7 @@ pub fn palette_for(
+@@ -182,7 +182,7 @@ pub fn palette_for(
      rom: &Path,
      link: Option<u8>,
  ) -> Option<GbColors> {

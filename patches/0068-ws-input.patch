@@ -27,22 +27,22 @@ controls its 0f895d3 and SELECT doing nothing on horizontal games its
 
 (cherry picked from commit 06455eb6d8c0e21d9a11cd19ab5d87f53b532cc9)
 ---
- crates/slot/src/emu.rs              |  14 +-
+ crates/slot/src/emu.rs              |  15 +-
  crates/slot/src/lib.rs              |   1 +
  crates/slot/src/session.rs          |   4 +
  crates/slot/src/ws_input.rs         | 149 ++++++++++++++++++
  crates/slot/tests/wswan_input.rs    | 230 ++++++++++++++++++++++++++++
  crates/slot/tests/wswan_then_gba.rs | 150 ++++++++++++++++++
- 6 files changed, 547 insertions(+), 1 deletion(-)
+ 6 files changed, 548 insertions(+), 1 deletion(-)
  create mode 100644 crates/slot/src/ws_input.rs
  create mode 100644 crates/slot/tests/wswan_input.rs
  create mode 100644 crates/slot/tests/wswan_then_gba.rs
 
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 2c62bd0..843ecbb 100644
+index 4e9faf9..b49e9ef 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
-@@ -98,6 +98,7 @@ struct Shared {
+@@ -102,6 +102,7 @@ struct Shared {
      rewind_fill: AtomicU8,
      turbo: AtomicBool,
      pass_through: AtomicBool,
@@ -50,7 +50,7 @@ index 2c62bd0..843ecbb 100644
      frame_w: AtomicU32,
      recording: AtomicBool,
      stop: AtomicBool,
-@@ -178,6 +179,7 @@ impl EmuHandle {
+@@ -186,6 +187,7 @@ impl EmuHandle {
              rewind_fill: AtomicU8::new(0),
              turbo: AtomicBool::new(true),
              pass_through: AtomicBool::new(false),
@@ -58,7 +58,7 @@ index 2c62bd0..843ecbb 100644
              frame_w: AtomicU32::new(0),
              recording: AtomicBool::new(true),
              stop: AtomicBool::new(false),
-@@ -384,6 +386,10 @@ impl EmuHandle {
+@@ -406,6 +408,10 @@ impl EmuHandle {
          self.shared.pass_through.store(on, Ordering::Relaxed);
      }
  
@@ -69,7 +69,7 @@ index 2c62bd0..843ecbb 100644
      pub fn passes_through(&self) -> bool {
          self.shared.pass_through.load(Ordering::Relaxed)
      }
-@@ -642,6 +648,7 @@ impl Worker {
+@@ -664,6 +670,7 @@ impl Worker {
          let mut rate = TickRate::new(Instant::now(), 0);
          let mut stalled = false;
          let mut turbo_frame = 0u32;
@@ -77,10 +77,10 @@ index 2c62bd0..843ecbb 100644
          let mut transport: Option<Box<dyn LinkChannel>> = None;
          let mut cable: Option<Cable> = None;
          let mut cable_presents = 0u32;
-@@ -777,9 +784,14 @@ impl Worker {
-                 loop {
+@@ -809,9 +816,15 @@ impl Worker {
                      ran += 1;
-                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
+                     let last = ran >= ceiling
+                         || (speed == Speed::Fast && cost.last(began.elapsed(), budget));
 +                    let input = ws.remap(
 +                        core.as_mut(),
 +                        self.shared.ws_pad.load(Ordering::Relaxed),
@@ -88,16 +88,17 @@ index 2c62bd0..843ecbb 100644
 +                    );
                      let input = input.apply(
                          TurboMode::from_flags(
--                            self.shared.pass_through.load(Ordering::Relaxed),
-+                            self.shared.pass_through.load(Ordering::Relaxed) && !ws.on(),
+-                            self.shared.pass_through.load(Ordering::Relaxed) || core.takes_xy(),
++                            (self.shared.pass_through.load(Ordering::Relaxed) && !ws.on())
++                                || core.takes_xy(),
                              self.shared.turbo.load(Ordering::Relaxed),
                          ),
                          turbo_frame,
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index 3a973af..25090b7 100644
+index 14c3d64..d044c93 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -84,5 +84,6 @@ pub mod thumb_sized;
+@@ -90,5 +90,6 @@ pub mod thumb_sized;
  pub mod video_mode;
  pub mod wallpaper;
  pub mod wifi;
@@ -105,10 +106,10 @@ index 3a973af..25090b7 100644
  pub mod ws_load;
  pub mod ws_refresh;
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 584dfd5..83f1b59 100644
+index a750c42..95cfe28 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -685,6 +685,10 @@ impl Session {
+@@ -694,6 +694,10 @@ impl Session {
          emu.set_driven(self.driven);
          emu.set_native_pal(self.app.native_pal(loaded.platform));
          emu.set_pass_through(loaded.platform.passes_xy_through());

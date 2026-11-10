@@ -19,10 +19,10 @@ Subject: [PATCH] platform-nes
  crates/slot-ui/src/shell.rs              |  1 +
  crates/slot-ui/tests/chrome.rs           |  2 +-
  crates/slot/src/app.rs                   | 23 +++++++------
- crates/slot/src/root.rs                  |  6 +++-
+ crates/slot/src/root.rs                  |  4 +++
  crates/slot/tests/nes_dist.rs            | 42 ++++++++++++++++++++++++
  crates/slot/tests/nes_palette.rs         | 25 ++++++++++++++
- 17 files changed, 193 insertions(+), 23 deletions(-)
+ 17 files changed, 192 insertions(+), 22 deletions(-)
  create mode 100644 crates/slot-store/tests/nes_platform.rs
  create mode 100644 crates/slot-store/tests/nes_scan.rs
  create mode 100644 crates/slot-store/tests/nes_state.rs
@@ -30,7 +30,7 @@ Subject: [PATCH] platform-nes
  create mode 100644 crates/slot/tests/nes_palette.rs
 
 diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
-index 40624dd..1474dd1 100644
+index e6a9443..a299afe 100644
 --- a/crates/slot-store/src/bindings.rs
 +++ b/crates/slot-store/src/bindings.rs
 @@ -246,7 +246,7 @@ impl GameButton {
@@ -39,14 +39,14 @@ index 40624dd..1474dd1 100644
              Platform::Gba | Platform::Gbav => &GameButton::ALL,
 -            Platform::Gb | Platform::Gbc => &GameButton::GAME_BOY,
 +            Platform::Gb | Platform::Gbc | Platform::Nes => &GameButton::GAME_BOY,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &GameButton::ALL,
          }
-     }
- 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index d0498f7..a7399c1 100644
+index a75a936..5f1d1d4 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
-@@ -50,11 +50,11 @@ impl Core {
+@@ -63,11 +63,11 @@ impl Core {
              Core::Mgba => true,
              Core::Gpsp => match platform {
                  Platform::Gba | Platform::Gbav => true,
@@ -58,18 +58,18 @@ index d0498f7..a7399c1 100644
 -                Platform::Gba | Platform::Gbav => false,
 +                Platform::Gba | Platform::Gbav | Platform::Nes => false,
              },
-         }
-     }
-@@ -63,6 +63,7 @@ impl Core {
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
+@@ -78,6 +78,7 @@ impl Core {
          match platform {
              Platform::Gba | Platform::Gbav => [Core::Mgba, Core::Gpsp],
              Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
 +            Platform::Nes => [Core::Mgba, Core::Mgba],
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
          }
-     }
- }
 diff --git a/crates/slot-store/src/platform.rs b/crates/slot-store/src/platform.rs
-index f4a5276..e907589 100644
+index d04ad8d..3a0b7e6 100644
 --- a/crates/slot-store/src/platform.rs
 +++ b/crates/slot-store/src/platform.rs
 @@ -7,6 +7,7 @@ pub enum Platform {
@@ -77,41 +77,41 @@ index f4a5276..e907589 100644
      Gbc,
      Gbav,
 +    Nes,
+     #[cfg(feature = "nds")]
+     Nds,
  }
- 
- impl Platform {
-@@ -18,6 +19,7 @@ impl Platform {
+@@ -29,6 +30,7 @@ impl Platform {
              Platform::Gb => "Game Boy",
              Platform::Gbc => "Game Boy Color",
              Platform::Gbav => "Game Boy Advance Video",
 +            Platform::Nes => "Nintendo Entertainment System",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "Nintendo DS",
          }
-     }
- 
-@@ -27,6 +29,7 @@ impl Platform {
+@@ -40,6 +42,7 @@ impl Platform {
              Platform::Gb => "GB",
              Platform::Gbc => "GBC",
              Platform::Gbav => "GBAV",
 +            Platform::Nes => "NES",
+             #[cfg(feature = "nds")]
+             Platform::Nds => "NDS",
          }
-     }
- 
-@@ -41,6 +44,7 @@ impl Platform {
+@@ -56,6 +59,7 @@ impl Platform {
          match self {
              Platform::Gba | Platform::Gbav => &["gba"],
              Platform::Gb | Platform::Gbc => &["gb", "gbc"],
 +            Platform::Nes => &["nes"],
+             #[cfg(feature = "nds")]
+             Platform::Nds => &["nds"],
          }
-     }
- 
-@@ -48,6 +52,7 @@ impl Platform {
+@@ -65,6 +69,7 @@ impl Platform {
          match self {
              Platform::Gba | Platform::Gbav => (240, 160),
              Platform::Gb | Platform::Gbc => (160, 144),
 +            Platform::Nes => (256, 240),
+             #[cfg(feature = "nds")]
+             Platform::Nds => (256, 192),
          }
-     }
- 
 diff --git a/crates/slot-store/src/platform_policy.rs b/crates/slot-store/src/platform_policy.rs
 index 8b08306..19958ad 100644
 --- a/crates/slot-store/src/platform_policy.rs
@@ -174,10 +174,10 @@ index 12fb5da..2900bd6 100644
  
  pub fn scan_platform(root: &Path, platform: Platform) -> Result<Vec<Cart>, StoreError> {
 diff --git a/crates/slot-store/src/slot_state.rs b/crates/slot-store/src/slot_state.rs
-index fbe27ab..2146ca0 100644
+index f7a120e..a96b900 100644
 --- a/crates/slot-store/src/slot_state.rs
 +++ b/crates/slot-store/src/slot_state.rs
-@@ -892,7 +892,7 @@ fn recent_value(value: &str) -> Option<Recent> {
+@@ -1052,7 +1052,7 @@ pub(crate) fn recent_value(value: &str) -> Option<Recent> {
  }
  
  fn platform_value(value: &str) -> Option<Platform> {
@@ -187,7 +187,7 @@ index fbe27ab..2146ca0 100644
          .find(|p| value.eq_ignore_ascii_case(p.dir_name()))
  }
 diff --git a/crates/slot-store/tests/durability.rs b/crates/slot-store/tests/durability.rs
-index 3575483..620b549 100644
+index b306e8d..63bc1c7 100644
 --- a/crates/slot-store/tests/durability.rs
 +++ b/crates/slot-store/tests/durability.rs
 @@ -513,7 +513,7 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
@@ -297,49 +297,50 @@ index 0000000..d120810
 +    assert_eq!(back, s);
 +}
 diff --git a/crates/slot-ui/src/cart.rs b/crates/slot-ui/src/cart.rs
-index 3ff94a1..789ffdb 100644
+index 8a8e4ba..bacc89d 100644
 --- a/crates/slot-ui/src/cart.rs
 +++ b/crates/slot-ui/src/cart.rs
-@@ -109,7 +109,7 @@ pub fn shelf_shape(cart: &Cart) -> (Option<GbShell>, bool) {
+@@ -126,7 +126,7 @@ pub fn shelf_shape(cart: &Cart) -> (Option<GbShell>, bool) {
  
  pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
      match cart.platform {
 -        Platform::Gba | Platform::Gbav => None,
 +        Platform::Gba | Platform::Gbav | Platform::Nes => None,
+         #[cfg(feature = "nds")]
+         Platform::Nds => None,
          Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
-             Some(Outline::Notched) => GbShell::Notched,
-             Some(Outline::Rounded) => GbShell::Rounded,
-@@ -178,14 +178,14 @@ const GB_SEATED_H: u32 = 259;
+@@ -210,7 +210,7 @@ const GB_SEATED_H: u32 = 259;
  
  pub fn seated_box(platform: Platform) -> (u32, u32) {
      match platform {
 -        Platform::Gba | Platform::Gbav => (SEATED_W, SEATED_H),
 +        Platform::Gba | Platform::Gbav | Platform::Nes => (SEATED_W, SEATED_H),
+         #[cfg(feature = "nds")]
+         Platform::Nds => ((SEATED_H * bitmaps::DS_CART_W + bitmaps::DS_CART_H / 2) / bitmaps::DS_CART_H, SEATED_H),
          Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
-     }
- }
+@@ -219,7 +219,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
  
  pub fn cart_box(platform: Platform) -> (u32, u32) {
      let s = spec(match platform {
 -        Platform::Gba | Platform::Gbav => Shape::Gba,
 +        Platform::Gba | Platform::Gbav | Platform::Nes => Shape::Gba,
+         #[cfg(feature = "nds")]
+         Platform::Nds => Shape::Ds,
          Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
-     });
-     (s.w, s.h)
 diff --git a/crates/slot-ui/src/shell.rs b/crates/slot-ui/src/shell.rs
-index ae9659e..ed18384 100644
+index 6c7b92b..f1fbeca 100644
 --- a/crates/slot-ui/src/shell.rs
 +++ b/crates/slot-ui/src/shell.rs
-@@ -83,6 +83,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
-     match cart.platform {
-         Platform::Gba | Platform::Gbav => gba_shell_for(&gba_code(cart)),
+@@ -85,6 +85,7 @@ pub fn shell_for(cart: &Cart) -> Shell {
+         #[cfg(feature = "nds")]
+         Platform::Nds => gba_shell_for(""),
          Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
 +        Platform::Nes => shell([0x8c, 0x8c, 0x8c], Finish::Solid),
      }
  }
  
 diff --git a/crates/slot-ui/tests/chrome.rs b/crates/slot-ui/tests/chrome.rs
-index 7222af1..21870f3 100644
+index dada5a5..0909604 100644
 --- a/crates/slot-ui/tests/chrome.rs
 +++ b/crates/slot-ui/tests/chrome.rs
 @@ -42,7 +42,7 @@ fn both() -> [(&'static str, Cart); 2] {
@@ -352,19 +353,19 @@ index 7222af1..21870f3 100644
      let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
      (y * k, h * k)
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index 71bff0b..7fb95a7 100644
+index ccd47c6..8c981e0 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
-@@ -769,7 +769,7 @@ fn retain_headers(carts: &[Cart]) {
- fn shelves_of(carts: Vec<Cart>) -> Vec<(Rack, Shelf)> {
+@@ -861,7 +861,7 @@ fn shelves_of(carts: Vec<Cart>, collections: usize) -> Vec<(Rack, Shelf)> {
      let mut rows: Vec<(Rack, Vec<Cart>)> = [Rack::Recents, Rack::Favorites]
          .into_iter()
+         .chain((0..collections).map(Rack::Collection))
 -        .chain(Platform::ALL.iter().map(|p| Rack::Of(*p)))
 +        .chain(Platform::SHELVES.iter().map(|p| Rack::Of(*p)))
+         .chain(std::iter::once(Rack::AllGames))
          .map(|r| (r, Vec::new()))
          .collect();
-     for cart in carts {
-@@ -1809,9 +1809,10 @@ impl App {
+@@ -3110,9 +3110,10 @@ impl App {
      }
  
      pub fn bezel_files(&self, platform: Platform) -> Vec<String> {
@@ -378,59 +379,59 @@ index 71bff0b..7fb95a7 100644
                  .root()
                  .map(|root| crate::bezel::list(root, platform))
                  .unwrap_or_default(),
-@@ -1838,7 +1839,7 @@ impl App {
+@@ -3139,7 +3140,7 @@ impl App {
  
      fn bezel_pick(&mut self, platform: Platform) -> &mut BezelPick {
          match platform {
 -            Platform::Gba | Platform::Gbav => &mut self.state.bezel_gba,
 +            Platform::Gba | Platform::Gbav | Platform::Nes => &mut self.state.bezel_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &mut self.state.bezel_gba,
              Platform::Gb => &mut self.state.bezel_gb,
-             Platform::Gbc => &mut self.state.bezel_gbc,
-         }
-@@ -1846,7 +1847,7 @@ impl App {
+@@ -3149,7 +3150,7 @@ impl App {
  
      pub fn resolved_bezel(&self, platform: Platform) -> BezelPick {
          let pick = match platform {
 -            Platform::Gba | Platform::Gbav => &self.state.bezel_gba,
 +            Platform::Gba | Platform::Gbav | Platform::Nes => &self.state.bezel_gba,
+             #[cfg(feature = "nds")]
+             Platform::Nds => &self.state.bezel_gba,
              Platform::Gb => &self.state.bezel_gb,
-             Platform::Gbc => &self.state.bezel_gbc,
-         };
-@@ -3137,7 +3138,7 @@ impl App {
-     pub fn screen_shader(&self) -> Shader {
-         match self.playing_platform() {
+@@ -4689,7 +4690,7 @@ impl App {
              Platform::Gba | Platform::Gbav => self.gba_shader(),
+             #[cfg(feature = "nds")]
+             Platform::Nds => Shader::Off,
 -            Platform::Gb => self.state.shader_gb,
 +            Platform::Gb | Platform::Nes => self.state.shader_gb,
              Platform::Gbc => self.state.shader_gbc,
          }
      }
-@@ -3155,6 +3156,7 @@ impl App {
-             Platform::Gba | Platform::Gbav => self.state.colour_correction_gba,
+@@ -4721,6 +4722,7 @@ impl App {
+             Platform::Nds => false,
              Platform::Gb => self.state.colour_correction_gb,
              Platform::Gbc => self.state.colour_correction_gbc,
 +            Platform::Nes => false,
          }
      }
  
-@@ -4196,7 +4198,7 @@ impl App {
-         let gba_shaders = self.gba_shaders();
-         let (shader, choices) = match self.playing_platform() {
+@@ -5904,7 +5906,7 @@ impl App {
              Platform::Gba | Platform::Gbav => (&mut self.state.shader_gba, gba_shaders),
+             #[cfg(feature = "nds")]
+             Platform::Nds => (&mut self.state.shader_gba, gba_shaders),
 -            Platform::Gb => (&mut self.state.shader_gb, &Shader::GB[..]),
 +            Platform::Gb | Platform::Nes => (&mut self.state.shader_gb, &Shader::GB[..]),
              Platform::Gbc => (&mut self.state.shader_gbc, &Shader::GB[..]),
          };
          *shader = shader.step(choices, right);
-@@ -4251,6 +4253,7 @@ impl App {
-                 Platform::Gba | Platform::Gbav => QuickRow::GbaColourCorrection,
+@@ -5961,6 +5963,7 @@ impl App {
+                 Platform::Nds => QuickRow::GbaColourCorrection,
                  Platform::Gb => QuickRow::GbColourCorrection,
                  Platform::Gbc => QuickRow::GbcColourCorrection,
 +                Platform::Nes => return false,
              };
              self.change_setting(row, true);
              let said = match self.colour_correction() {
-@@ -4743,7 +4746,7 @@ impl App {
+@@ -6483,7 +6486,7 @@ impl App {
          }
          let lit = match self.playing_platform() {
              Platform::Gb => [0x9b, 0xa5, 0x82],
@@ -439,55 +440,51 @@ index 71bff0b..7fb95a7 100644
          };
          let k = (self.blank_s / BLANK_WARM_S).min(1.0);
          let level = BLANK_DIM + (1.0 - BLANK_DIM) * (1.0 - (1.0 - k) * (1.0 - k));
-@@ -10960,7 +10963,7 @@ fn free_stamp(taken: &[String], now: i64) -> String {
+@@ -14177,7 +14180,7 @@ pub fn overlay_slot(platform: Platform) -> usize {
  
  fn bezel_slot(platform: Platform) -> usize {
      match platform {
 -        Platform::Gba | Platform::Gbav => 0,
 +        Platform::Gba | Platform::Gbav | Platform::Nes => 0,
+         #[cfg(feature = "nds")]
+         Platform::Nds => 0,
          Platform::Gb => 1,
-         Platform::Gbc => 2,
-     }
 diff --git a/crates/slot/src/root.rs b/crates/slot/src/root.rs
-index c75de1b..43d8353 100644
+index 370c5ae..d57ce89 100644
 --- a/crates/slot/src/root.rs
 +++ b/crates/slot/src/root.rs
-@@ -1,6 +1,6 @@
- use std::path::{Path, PathBuf};
- 
--pub const DIRS: [&str; 36] = [
-+pub const DIRS: [&str; 40] = [
-     "BIOS",
-     "Bezels",
-     "Bezels/GBA",
-@@ -14,6 +14,7 @@ pub const DIRS: [&str; 36] = [
+@@ -14,6 +14,7 @@ pub const DIRS: &[&str] = &[
      "Games/GBAV",
      "Games/GB",
      "Games/GBC",
 +    "Games/NES",
+     #[cfg(feature = "nds")]
+     "Games/NDS",
      "Guides",
-     "Guides/GBA",
-     "Guides/GBAV",
-@@ -25,16 +26,19 @@ pub const DIRS: [&str; 36] = [
-     "Labels/GB",
-     "Labels/GBC",
+@@ -29,6 +30,7 @@ pub const DIRS: &[&str] = &[
+     #[cfg(feature = "nds")]
+     "Labels/NDS",
      "Logs",
 +    "Labels/NES",
-     "Saves",
-     "Saves/GBA",
+     "Overlays",
+     "Overlays/GBA",
+     "Overlays/GB",
+@@ -40,6 +42,7 @@ pub const DIRS: &[&str] = &[
      "Saves/GBAV",
      "Saves/GB",
      "Saves/GBC",
 +    "Saves/NES",
+     #[cfg(feature = "nds")]
+     "Saves/NDS",
      "States",
-     "States/GBA",
+@@ -47,6 +50,7 @@ pub const DIRS: &[&str] = &[
      "States/GBAV",
      "States/GB",
      "States/GBC",
 +    "States/NES",
+     #[cfg(feature = "nds")]
+     "States/NDS",
      "System",
-     "Wallpapers",
- ];
 diff --git a/crates/slot/tests/nes_dist.rs b/crates/slot/tests/nes_dist.rs
 new file mode 100644
 index 0000000..ad081f3

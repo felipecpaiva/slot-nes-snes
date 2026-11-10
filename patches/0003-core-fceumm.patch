@@ -23,7 +23,7 @@ Subject: [PATCH] core-fceumm
  create mode 100644 crates/slot/tests/nes_fceumm.rs
 
 diff --git a/crates/slot-store/src/core.rs b/crates/slot-store/src/core.rs
-index a7399c1..c46d864 100644
+index 5f1d1d4..a6bf5ef 100644
 --- a/crates/slot-store/src/core.rs
 +++ b/crates/slot-store/src/core.rs
 @@ -11,6 +11,7 @@ pub enum Core {
@@ -31,36 +31,37 @@ index a7399c1..c46d864 100644
      Gpsp,
      Gambatte,
 +    Fceumm,
+     #[cfg(feature = "nds")]
+     Dsperate,
  }
- 
- impl Core {
-@@ -21,6 +22,7 @@ impl Core {
+@@ -26,6 +27,7 @@ impl Core {
              Core::Mgba => "mgba",
              Core::Gpsp => "gpsp",
              Core::Gambatte => "gambatte",
 +            Core::Fceumm => "fceumm",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "dsperate",
          }
-     }
- 
-@@ -33,6 +35,7 @@ impl Core {
+@@ -40,6 +42,7 @@ impl Core {
              Core::Mgba => "mGBA",
              Core::Gpsp => "gpSP",
              Core::Gambatte => "Gambatte",
 +            Core::Fceumm => "FCEUmm",
+             #[cfg(feature = "nds")]
+             Core::Dsperate => "DSperate",
          }
-     }
- 
-@@ -41,13 +44,17 @@ impl Core {
+@@ -50,6 +53,7 @@ impl Core {
              "mgba" => Some(Core::Mgba),
              "gpsp" => Some(Core::Gpsp),
              "gambatte" => Some(Core::Gambatte),
 +            "fceumm" => Some(Core::Fceumm),
+             #[cfg(feature = "nds")]
+             "dsperate" => Some(Core::Dsperate),
              _ => None,
-         }
-     }
- 
-     pub fn runs(self, platform: Platform) -> bool {
+@@ -60,7 +64,10 @@ impl Core {
          match self {
+             #[cfg(feature = "nds")]
+             _ if platform == Platform::Nds => self == Core::Dsperate,
 -            Core::Mgba => true,
 +            Core::Mgba => match platform {
 +                Platform::Gba | Platform::Gbav | Platform::Gb | Platform::Gbc => true,
@@ -69,7 +70,7 @@ index a7399c1..c46d864 100644
              Core::Gpsp => match platform {
                  Platform::Gba | Platform::Gbav => true,
                  Platform::Gb | Platform::Gbc | Platform::Nes => false,
-@@ -56,6 +63,10 @@ impl Core {
+@@ -69,6 +76,10 @@ impl Core {
                  Platform::Gb | Platform::Gbc => true,
                  Platform::Gba | Platform::Gbav | Platform::Nes => false,
              },
@@ -77,22 +78,22 @@ index a7399c1..c46d864 100644
 +                Platform::Nes => true,
 +                Platform::Gba | Platform::Gbav | Platform::Gb | Platform::Gbc => false,
 +            },
+             #[cfg(feature = "nds")]
+             Core::Dsperate => false,
          }
-     }
- 
-@@ -63,7 +74,7 @@ impl Core {
+@@ -78,7 +89,7 @@ impl Core {
          match platform {
              Platform::Gba | Platform::Gbav => [Core::Mgba, Core::Gpsp],
              Platform::Gb | Platform::Gbc => [Core::Mgba, Core::Gambatte],
 -            Platform::Nes => [Core::Mgba, Core::Mgba],
 +            Platform::Nes => [Core::Fceumm, Core::Fceumm],
+             #[cfg(feature = "nds")]
+             Platform::Nds => [Core::Dsperate, Core::Dsperate],
          }
-     }
- }
-@@ -82,7 +93,7 @@ pub fn core_for_platform(root: &Path, stem: &str, platform: Platform, gb_core: C
-         .filter(|core| core.runs(platform))
-         .unwrap_or_else(|| match platform {
+@@ -104,7 +115,7 @@ pub fn core_for_platform(root: &Path, stem: &str, platform: Platform, gb_core: C
              Platform::Gb | Platform::Gbc if gb_core.runs(platform) => gb_core,
+             #[cfg(feature = "nds")]
+             Platform::Nds => Core::Dsperate,
 -            _ => Core::Mgba,
 +            _ => Core::pair(platform)[0],
          })
@@ -126,11 +127,11 @@ index 0000000..6555b58
 +    }
 +}
 diff --git a/crates/slot-store/src/lib.rs b/crates/slot-store/src/lib.rs
-index 6f9f773..65e3334 100644
+index c01aa38..b4528e4 100644
 --- a/crates/slot-store/src/lib.rs
 +++ b/crates/slot-store/src/lib.rs
-@@ -10,6 +10,7 @@ mod bindings;
- pub mod cart_shell;
+@@ -11,6 +11,7 @@ pub mod cart_shell;
+ mod collections;
  mod config;
  mod core;
 +mod core_policy;
@@ -217,7 +218,7 @@ index 0000000..35e085e
 +    assert!(Core::Mgba.has_colour_correction() && Core::Gpsp.has_colour_correction());
 +}
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 80cd46b..26f513f 100644
+index 92bd04e..1077aee 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
 @@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
@@ -228,7 +229,7 @@ index 80cd46b..26f513f 100644
  use crate::root;
  
  pub use slot_store::SUNLIGHT_MAX;
-@@ -205,6 +206,7 @@ pub fn colour_option(
+@@ -237,6 +238,7 @@ pub fn colour_option(
                  "GBC only"
              },
          )),
@@ -236,7 +237,7 @@ index 80cd46b..26f513f 100644
      }
  }
  
-@@ -285,7 +287,7 @@ pub fn apply_core_options(
+@@ -322,7 +324,7 @@ pub fn apply_core_options(
      palette: Option<GbColors>,
  ) {
      if which != Core::Gambatte {
@@ -278,10 +279,10 @@ index 0000000..5448a2e
 +    }
 +}
 diff --git a/crates/slot/src/lib.rs b/crates/slot/src/lib.rs
-index ce92087..5676be2 100644
+index a24b71d..9bb164d 100644
 --- a/crates/slot/src/lib.rs
 +++ b/crates/slot/src/lib.rs
-@@ -17,6 +17,7 @@ pub mod cable;
+@@ -18,6 +18,7 @@ pub mod cable;
  pub mod card_log;
  pub mod cart_faces;
  pub mod core;
@@ -290,7 +291,7 @@ index ce92087..5676be2 100644
  #[cfg(unix)]
  pub mod crash;
 diff --git a/crates/slot/tests/gpsp.rs b/crates/slot/tests/gpsp.rs
-index a4b3a7a..f2b166b 100644
+index 0d588f8..90577cd 100644
 --- a/crates/slot/tests/gpsp.rs
 +++ b/crates/slot/tests/gpsp.rs
 @@ -221,7 +221,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {

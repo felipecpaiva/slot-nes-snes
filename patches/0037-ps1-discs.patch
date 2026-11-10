@@ -33,7 +33,7 @@ the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
  crates/slot-input/src/gesture.rs         |   1 +
  crates/slot-retro/src/canvas.rs          |   9 +
  crates/slot-retro/src/core.rs            |   6 +
- crates/slot-retro/src/lib.rs             |   2 +-
+ crates/slot-retro/src/lib.rs             |   1 +
  crates/slot-retro/src/libretro.rs        |  23 +-
  crates/slot-retro/src/libretro/discs.rs  | 254 ++++++++++++++++++++
  crates/slot-store/src/platform_policy.rs |  14 ++
@@ -53,7 +53,7 @@ the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
  crates/slot/tests/ps1_common/mod.rs      |   8 +
  crates/slot/tests/ps1_discs.rs           | 290 +++++++++++++++++++++++
  crates/slot/tests/real_seat/mod.rs       |   2 +
- 23 files changed, 862 insertions(+), 11 deletions(-)
+ 23 files changed, 862 insertions(+), 10 deletions(-)
  create mode 100644 crates/slot-retro/src/libretro/discs.rs
  create mode 100644 crates/slot-ui/src/disc_toast.rs
  create mode 100644 crates/slot/src/app/ps1_discs.rs
@@ -61,17 +61,17 @@ the remembered disc file follow AaronC1990/tray and oauramos/omega-zero
  create mode 100644 crates/slot/tests/ps1_discs.rs
 
 diff --git a/crates/slot-input/src/gesture.rs b/crates/slot-input/src/gesture.rs
-index d028a83..e525b08 100644
+index cbf2938..8cda9fc 100644
 --- a/crates/slot-input/src/gesture.rs
 +++ b/crates/slot-input/src/gesture.rs
-@@ -63,6 +63,7 @@ pub enum Action {
+@@ -66,6 +66,7 @@ pub enum Action {
      NextShelf,
      Favorite,
      ForgetRecentVideoModeToggle,
 +    DiscNext,
- }
- 
- #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+     SelectHold,
+     FavoriteHold,
+     ForgetRecentHold,
 diff --git a/crates/slot-retro/src/canvas.rs b/crates/slot-retro/src/canvas.rs
 index 11b39f6..6bc842d 100644
 --- a/crates/slot-retro/src/canvas.rs
@@ -114,7 +114,7 @@ index 11b39f6..6bc842d 100644
      let p = EXTRA.with(|e| e.get());
      // SAFETY: the pointer is null or set by a live ExtraGuard on this thread, which clears it on drop.
 diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
-index 43254ce..f6d16ae 100644
+index 29cf7af..b8f0583 100644
 --- a/crates/slot-retro/src/core.rs
 +++ b/crates/slot-retro/src/core.rs
 @@ -1,6 +1,7 @@
@@ -125,7 +125,7 @@ index 43254ce..f6d16ae 100644
  use crate::link::Link;
  use crate::rumble::Rumble;
  
-@@ -109,6 +110,11 @@ pub trait RetroCore: Send {
+@@ -124,6 +125,11 @@ pub trait RetroCore: Send {
      fn frame_width(&self) -> u32 {
          0
      }
@@ -138,18 +138,17 @@ index 43254ce..f6d16ae 100644
  
  #[cfg(test)]
 diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
-index b6ac967..34aacb9 100644
+index fafadb0..47251ac 100644
 --- a/crates/slot-retro/src/lib.rs
 +++ b/crates/slot-retro/src/lib.rs
-@@ -15,7 +15,7 @@ pub mod rtc;
+@@ -16,6 +16,7 @@ pub mod rtc;
  mod rumble;
  mod turbo_mode;
  
--pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 +pub use core::{AvInfo, ButtonMask, CoreError, DiscEvent, RetroCore, GBA_H, GBA_W};
+ pub use core::{mask_for, AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ pub use dsperate::{ds_buttons, DsperateCore, DS_H, DS_W};
  pub use ffi::{
-     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
-     NETPACKET_UNSEQUENCED,
 diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
 index 61339e7..b4fdb33 100644
 --- a/crates/slot-retro/src/libretro.rs
@@ -557,25 +556,25 @@ index 0000000..e917714
 +    }
 +}
 diff --git a/crates/slot-ui/src/lib.rs b/crates/slot-ui/src/lib.rs
-index 2811e49..c480299 100644
+index 39ae352..17a6a01 100644
 --- a/crates/slot-ui/src/lib.rs
 +++ b/crates/slot-ui/src/lib.rs
-@@ -12,6 +12,7 @@ mod battery;
- mod board;
- mod cart;
+@@ -14,6 +14,7 @@ mod cart;
+ mod checkbox;
+ mod edit_text;
  mod clock;
 +mod disc_toast;
  mod draw;
  mod footer;
  mod guide;
-@@ -76,6 +77,7 @@ pub use clock::{
+@@ -87,6 +88,7 @@ pub use clock::{
      clock_label, date_time_text, hhmm, time_text, ClockFaceSet, ClockFaces, ClockPicker, ClockRow,
      ClockScreen, Part,
  };
 +pub use disc_toast::DiscToast;
  pub use draw::{Canvas, Draw, TexId, OUT_H, OUT_W};
- pub use footer::{draw_corners, draw_footer, draw_wifi_icon, Printed, FOOTER_Y};
- pub use guide::{
+ pub use footer::{
+     draw_corners, draw_footer, draw_kid_icon, draw_wifi_icon, footer_y, Printed, FOOTER_Y, KID_ICON_PX,
 diff --git a/crates/slot-ui/src/quick_retro.rs b/crates/slot-ui/src/quick_retro.rs
 index d0f6c6c..7058551 100644
 --- a/crates/slot-ui/src/quick_retro.rs
@@ -597,10 +596,10 @@ index d0f6c6c..7058551 100644
      }
  }
 diff --git a/crates/slot-ui/src/toast.rs b/crates/slot-ui/src/toast.rs
-index f7f6be9..3418cb3 100644
+index 26daf57..c424bdf 100644
 --- a/crates/slot-ui/src/toast.rs
 +++ b/crates/slot-ui/src/toast.rs
-@@ -37,6 +37,7 @@ pub enum Toast {
+@@ -39,6 +39,7 @@ pub enum Toast {
      Palette(GbColors),
      Duplicate(QuickRow),
      Retro(slot_store::RetroShader),
@@ -608,7 +607,7 @@ index f7f6be9..3418cb3 100644
  }
  
  impl Toast {
-@@ -86,6 +87,7 @@ impl Toast {
+@@ -90,6 +91,7 @@ impl Toast {
                      + bound_rows().position(|r| r == row).unwrap_or(0)
              }
              Toast::Retro(s) => Toast::all().len() + s.index(),
@@ -616,7 +615,7 @@ index f7f6be9..3418cb3 100644
              fixed => Self::FIXED.iter().position(|t| *t == fixed).unwrap_or(0),
          }
      }
-@@ -162,6 +164,7 @@ impl Toast {
+@@ -168,6 +170,7 @@ impl Toast {
              Toast::Palette(p) => p.label(),
              Toast::Duplicate(_) => "",
              Toast::Retro(s) => s.toast(),
@@ -641,7 +640,7 @@ index 0d62155..de32a5e 100644
          assert_eq!(t.index(), i, "{t:?} does not answer to its own place");
      }
 diff --git a/crates/slot/src/app.rs b/crates/slot/src/app.rs
-index f9c6962..fe957da 100644
+index 1374cf9..b1c5ff6 100644
 --- a/crates/slot/src/app.rs
 +++ b/crates/slot/src/app.rs
 @@ -1,3 +1,5 @@
@@ -690,10 +689,10 @@ index 0000000..3d30d5d
 +    }
 +}
 diff --git a/crates/slot/src/core.rs b/crates/slot/src/core.rs
-index 3759a32..8650eac 100644
+index a9f81fe..cc53ad4 100644
 --- a/crates/slot/src/core.rs
 +++ b/crates/slot/src/core.rs
-@@ -130,6 +130,9 @@ fn open_named(
+@@ -160,6 +160,9 @@ fn open_named(
                  if platform.fills_canvas() {
                      opened.fill_canvas();
                  }
@@ -704,19 +703,19 @@ index 3759a32..8650eac 100644
                      opened.answer_av();
                  }
 diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
-index 8d796d5..3c54db5 100644
+index f557255..e0bf678 100644
 --- a/crates/slot/src/emu.rs
 +++ b/crates/slot/src/emu.rs
 @@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
  
  use crate::cable::{self, Cable};
  use slot_retro::{
--    ButtonMask, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
+-    mask_for, ButtonMask, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
 +    ButtonMask, DiscEvent, Link, LinkChannel, RetroCore, Rumble, TurboMode, NETPACKET_RELIABLE,
  };
  
  use crate::audio::Ring;
-@@ -86,6 +86,7 @@ enum Cmd {
+@@ -88,6 +88,7 @@ enum Cmd {
      SetOption(String, String),
      Refresh,
      Reset,
@@ -724,7 +723,7 @@ index 8d796d5..3c54db5 100644
  }
  
  struct Shared {
-@@ -116,6 +117,7 @@ struct Shared {
+@@ -120,6 +121,7 @@ struct Shared {
      requested: AtomicBool,
      clock: Mutex<Clock>,
      clocked: Condvar,
@@ -732,7 +731,7 @@ index 8d796d5..3c54db5 100644
  }
  
  #[derive(Default)]
-@@ -194,6 +196,7 @@ impl EmuHandle {
+@@ -202,6 +204,7 @@ impl EmuHandle {
              requested: AtomicBool::new(false),
              clock: Mutex::new(Clock::default()),
              clocked: Condvar::new(),
@@ -740,7 +739,7 @@ index 8d796d5..3c54db5 100644
          });
          let (tx, rx) = channel();
          let worker = Worker {
-@@ -417,6 +420,14 @@ impl EmuHandle {
+@@ -439,6 +442,14 @@ impl EmuHandle {
          request(&self.cmds, &self.shared, Cmd::Load(state));
      }
  
@@ -755,7 +754,7 @@ index 8d796d5..3c54db5 100644
      pub fn snapshot(&self) -> EmuSnapshot {
          EmuSnapshot {
              cmds: self.cmds.clone(),
-@@ -530,6 +541,15 @@ struct Worker {
+@@ -552,6 +563,15 @@ struct Worker {
  }
  
  impl Worker {
@@ -771,7 +770,7 @@ index 8d796d5..3c54db5 100644
      fn for_core(&self, state: Vec<u8>) -> Vec<u8> {
          match self.player {
              Some(_) if !link_state::is_pair(&state) => link_state::pair(&state),
-@@ -585,6 +605,7 @@ impl Worker {
+@@ -607,6 +627,7 @@ impl Worker {
                  eprintln!("slot: resume: {e}");
                  self.shared.resume_refused.store(true, Ordering::Release);
              }
@@ -779,7 +778,7 @@ index 8d796d5..3c54db5 100644
          }
          let av = core.av_info();
          let device_hz = match ring.sample_rate() {
-@@ -969,6 +990,11 @@ impl Worker {
+@@ -1005,6 +1026,11 @@ impl Worker {
                  if let Err(e) = core.unserialize(&self.for_core(state)) {
                      eprintln!("slot: {e}");
                  }
@@ -875,10 +874,10 @@ index 383fea8..988c95e 100644
 +    }
 +}
 diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
-index 10370e8..b1910f0 100644
+index c6d2b1f..c07cc9d 100644
 --- a/crates/slot/src/session.rs
 +++ b/crates/slot/src/session.rs
-@@ -296,6 +296,7 @@ impl Session {
+@@ -304,6 +304,7 @@ impl Session {
              Action::RewindStop => self.rewinding = false,
              Action::FfStart if !menu_open => self.fast = true,
              Action::FfStop => self.fast = false,
@@ -886,17 +885,17 @@ index 10370e8..b1910f0 100644
              _ => {}
          }
          let menu = self.overlaid();
-@@ -385,6 +386,9 @@ impl Session {
+@@ -393,6 +394,9 @@ impl Session {
                  self.app.peer_lost();
              }
          }
 +        if let Some(event) = self.emu.as_ref().and_then(EmuHandle::take_disc_event) {
 +            self.app.disc_event(event);
 +        }
+         self.sink.ring().set_awake(self.app.expects_sound());
          if let Some(sfx) = self.app.take_sfx() {
              self.play_sfx(sfx);
-         }
-@@ -608,6 +612,13 @@ impl Session {
+@@ -617,6 +621,13 @@ impl Session {
                      &root, core, platform, serial, colour, blending, palette, player,
                  );
                  crate::core::apply_game_boy_player(&mut *opened.core, core, platform, &rom);
