@@ -34,7 +34,10 @@ fi
 # own afterwards as information only. Locally they still gate. Our pal_pacing_clock.rs (issue 66) counts frames an
 # undriven 50 fps worker runs in two seconds of wall clock, so it joins them, and so does pal_pacing.rs (a_75_fps_core_runs_75_frames_in_60_display_ticks failed on
 # the macOS runner on main after the v1.14.0 merge: its worker drops a tick when it restarts its rate clock).
-ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock slot:pal_pacing"
+ci_timing="slot:emu slot:audio slot:core slot:snes_ff slot:snes_rewind slot-gfx:pipeline slot-gfx:retro_pipeline slot-gfx:gg_lcd slot:render_shelf slot:render_shelves slot:pal_pacing_clock slot:pal_pacing slot:render_layout_golden"
+# Upstream's render_layout_golden.rs (v1.15) hashes whole frames against a fixture recorded on upstream's machine, and the
+# runner's GPU renders other pixels (PR 196), so it is information only on CI like the other pixel tests above; locally
+# it gates, with our two settings-long-list hashes (ADR 0112).
 # Upstream's render_in_game_menu.rs steps its menu by wall-clock frame time (Frontend::advance). On the
 # macOS runner the unpatched tree fails it either way: both tests in runs 39151890455 and 39235648529,
 # one in run 39239204575, where the patched tree failed both, so a both-trees compare there only
