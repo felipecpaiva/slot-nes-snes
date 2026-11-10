@@ -20,7 +20,7 @@ GBA, GB and GBC stay byte-identical to upstream.
 There are 26 system shelves beside Recents and Favorites.
 
 The pinned base is slot v1.14.0 (`e66715d`, `SLOT_PIN`, ADR 0110).
-Releases are named after it: `v1.14.0-ns.2` is the second on this base, after `v1.14.0-ns.1` (`v1.9.0-ns.1`, `v1.8.0-ns.1` and `main-1b20432-ns.1` came before).
+Releases are named after it: `v1.14.0-ns.3` is the third on this base, after `v1.14.0-ns.2` and `v1.14.0-ns.1` (`v1.9.0-ns.1`, `v1.8.0-ns.1` and `main-1b20432-ns.1` came before).
 
 ## Systems
 

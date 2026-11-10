@@ -1,6 +1,6 @@
 More systems for [slot](https://github.com/BrandonKowalski/slot) on the Anbernic H700 handhelds
 (tested on the RG34XXSP), as a patch set on slot's own source. The base is in the tag: this release is
-built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.2` adds Scale on the new shelves to `-ns.1`. GBA, GB and
+built on slot's tagged release 1.14.0 (`e66715d`), and `-ns.3` adds Gamebit on the new shelves to `-ns.2` (Scale) and `-ns.1`. GBA, GB and
 GBC stay byte-identical to that slot.
 
 ## What is new
