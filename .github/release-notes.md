@@ -14,7 +14,7 @@ Since slot's own 1.14.0, the patch set adds:
 - **Scale on every shelf**: a Scale row on the Screen page of each added system, SP Screen (the default),
   Integer or Fit, saved per system. A shelf where the choices look the same hides the row.
 - **Gamebit on every shelf**: slot's web page lists, uploads, renames and removes games on the 23 added
-  shelves too, with their own cart pictures.
+  shelves too, with their own cart pictures and Libretro's system icons.
 - **Shelf order by release year**: Settings > General > Shelf Order, Classic or Release Year. The
   Screen page follows the same order.
 - **Expansion Card**: a second TF card holds whole systems' game folders, for the large disc shelves.
@@ -121,8 +121,8 @@ folders show. The README has the full steps.
 - The first start after updating from an older release converts the label pictures of every game to
   slot's new cache format (11,000 games took about 10 minutes on the RG34XXSP's SD card). Games start
   late during that time. It happens once, a second boot is as fast as before.
-- Gamebit lists the added shelves with text cards (no icons), has no BIOS tab for them, and takes one file at a
-  time, so a disc game of several files has to go on the card another way. It only reads the main card, not
+- Gamebit shows an icon for each added shelf except PICO-8 (a text card), has no BIOS tab for them, and takes one
+  file at a time, so a disc game of several files has to go on the card another way. It only reads the main card, not
   the Expansion Card. Cart Studio is slot's own and has not been tested with the added shelves.
 - Neo Geo CD is silent while a disc loads.
 - Atari Lynx has a short audio gap at the very first frame of a game that runs at 75 Hz. Lynx carts
